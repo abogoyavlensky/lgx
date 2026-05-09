@@ -67,6 +67,13 @@ make dev-run     # runs examples/hello/main.lg through dev `lg lgx.lg ...`
 For dev iteration, run from the lgx project root so the resolver finds
 `lgx/*.lg`. Once built, the bundled `bin/lgx` works from any directory.
 
+To run lgx against a non-default `lg` binary (testing an unreleased PR,
+debugging a custom build), set `LGX_LG`:
+
+```
+LGX_LG=/path/to/lg bin/lgx run script.lg
+```
+
 ## Layout
 
 ```
