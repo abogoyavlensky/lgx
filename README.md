@@ -38,8 +38,12 @@ Each coord must specify `:git/url` plus one of `:git/sha` or `:git/tag`. Tags
 are resolved to a sha at install time via `git ls-remote`. Sha-pinned coords
 are fully reproducible; tag-pinned coords re-resolve on each `lgx install`.
 
+For each lib, the path added to `--source-paths` is `<sha>/src` if that dir
+exists, else the repo root. This matches the tools.deps default of
+`:paths ["src"]` and works out of the box for most Clojure-style libraries.
+
 V1 limitations: HTTPS URLs only (no SSH), no transitive deps, no lockfile, no
-per-lib `:paths` (the repo root of each lib is added to `--source-paths`).
+per-coord `:paths` override.
 
 ## Cache layout
 

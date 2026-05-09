@@ -1,0 +1,12 @@
+(ns example.medley
+  (:require [medley.core :as m]))
+
+(def people
+  [{:id 1 :name "Ada" :role :eng}
+   {:id 2 :name "Bo"  :role :design}
+   {:id 3 :name "Cy"  :role :eng}])
+
+(println "by-id:" (m/index-by :id people))
+(println "first eng:" (m/find-first #(= :eng (:role %)) people))
+(println "shouted:" (m/map-vals (fn [v] (if (string? v) (.toUpperCase v) v))
+                                {:a "hi" :b 1 :c "bye"}))

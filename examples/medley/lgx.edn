@@ -1,0 +1,4 @@
+{:deps
+ {weavejester/medley {:git/url "https://github.com/weavejester/medley"
+                      :git/tag "1.10.0"
+                      :git/sha "7bf261913c880e38fde6c27c48fbb4be25e2b2df"}}}

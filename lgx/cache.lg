@@ -87,8 +87,9 @@
         sha (or (:git/sha coord)
                 (resolve-tag->sha url (:git/tag coord)))
         dir (coord-dir url sha)]
-    (if (file-exists? dir)
-      dir
-      (do
-        (clone-and-checkout! url sha dir)
-        dir))))
+    (when-not (file-exists? dir)
+      (clone-and-checkout! url sha dir))
+    ;; Convention: if the lib has a src/ dir, that's where namespaces live
+    ;; (matches tools.deps default :paths ["src"]). Otherwise use the repo root.
+    (let [src (str dir "/src")]
+      (if (file-exists? src) src dir))))
