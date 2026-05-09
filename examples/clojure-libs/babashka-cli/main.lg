@@ -1,0 +1,6 @@
+(ns example.bbcli
+  (:require [babashka.cli :as cli]))
+
+(def parsed (cli/parse-opts ["--port" "8080" "--verbose"]
+                            {:coerce {:port :long}}))
+(println "parsed:" parsed)

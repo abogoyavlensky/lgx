@@ -1,0 +1,5 @@
+(ns demo.app
+  (:require [test.fib :as f]))
+
+(println "fib(10):" (f/fib 10))
+(println "fib(15):" (f/fib 15))

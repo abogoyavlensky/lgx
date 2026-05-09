@@ -10,19 +10,14 @@ root. lgx fetches them into a per-user cache and invokes `lg` with
 
 ## Status
 
-Pre-alpha scaffold. Two upstream changes in let-go are required before lgx is
-fully functional:
+Pre-alpha scaffold. Several upstream changes in let-go are tracked under
+[`issues/`](./issues):
 
-1. **`--source-paths` CLI flag** on `lg`. Resolver already accepts a `[]string`;
-   only CLI initialization needs to expose it. Without it, lgx has no way to
-   tell `lg` where the cached libs live.
-2. **Inherited-stdio runner** (`os/run` or similar). `os/sh` captures all output
-   into a string, which means script output won't stream and stdin is dead
-   (so `lgx run -r` for the REPL won't work). lgx currently shells out via
-   `os/sh` and replays the captured buffers - usable for non-interactive
-   scripts, broken for interactive ones.
-
-Both are tiny PRs and tracked separately.
+1. **`-source-paths` CLI flag** on `lg` (PR open).
+2. **Inherited-stdio runner** (`os/run` or similar) so `lgx run -r` REPL works
+   ([issues/inherit-stdio-runner.md](./issues/inherit-stdio-runner.md)).
+3. **Reader/compiler/resolver gaps** blocking real Clojure libraries
+   ([issues/clojure-lib-compat.md](./issues/clojure-lib-compat.md)).
 
 ## `lgx.edn`
 
@@ -78,12 +73,24 @@ debugging a custom build), set `LGX_LG`:
 LGX_LG=/path/to/lg bin/lgx run script.lg
 ```
 
+## Examples
+
+- [`examples/hello/`](./examples/hello) - no-deps script.
+- [`examples/with-lib/`](./examples/with-lib) - real fetch-and-require flow
+  using let-go's own repo as the dep (until a real let-go library ecosystem
+  exists).
+- [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real
+  Clojure libraries (medley, babashka/cli, ruuter) and the let-go-side gaps
+  that currently block them.
+
 ## Layout
 
 ```
 lgx.lg              entry, command dispatch
 lgx/config.lg       find & parse lgx.edn
 lgx/cache.lg        gitlibs path layout, fetch
-lgx/runner.lg       locate `lg`, exec with --source-paths
-examples/hello/     example project
+lgx/runner.lg       locate `lg`, exec with -source-paths
+examples/           see above
+issues/             drafts of upstream let-go issues
+docs/plans/         design docs
 ```

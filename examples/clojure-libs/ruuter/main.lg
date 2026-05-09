@@ -1,0 +1,10 @@
+(ns demo.app
+  (:require [ruuter.core :as r]))
+
+(def routes
+  [{:path "/" :method :get :response {:status 200 :body "home"}}
+   {:path "/users/:id" :method :get
+    :response (fn [req] {:status 200 :body (str "user " (-> req :params :id))})}])
+
+(println "GET /:" (r/route routes {:uri "/" :request-method :get}))
+(println "GET /users/42:" (r/route routes {:uri "/users/42" :request-method :get}))

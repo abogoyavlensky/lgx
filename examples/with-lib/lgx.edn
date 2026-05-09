@@ -1,0 +1,4 @@
+{:deps
+ {nooga/let-go {:git/url "https://github.com/nooga/let-go"
+                :git/tag "v1.7.2"
+                :git/sha "46ce159c9b23021ff7bf38c14e812516c1e2e359"}}}
