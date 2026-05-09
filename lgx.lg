@@ -4,12 +4,15 @@
             [lgx.runner :as runner]
             [string :as str]))
 
+(def version "0.1.0-dev")
+
 (def usage
   (str "lgx - package manager for let-go\n"
        "\n"
        "Usage:\n"
        "  lgx install         Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]   Run a script via `lg` with deps on the source path\n"
+       "  lgx version         Print version\n"
        "  lgx help            Show this help\n"))
 
 (defn- ensure-all! [coords]
@@ -28,6 +31,9 @@
         (doseq [[lib path] (ensure-all! coords)]
           (println " " lib "->" path))
         (println "done")))))
+
+(defn- cmd-version []
+  (println (str "lgx " version)))
 
 (defn- cmd-run [forward-args]
   (let [project   (config/find-project!)
@@ -53,12 +59,15 @@
         cmd       (first argv)
         rest-args (rest argv)]
     (case cmd
-      "install" (cmd-install)
-      "run"     (cmd-run (vec rest-args))
-      "help"    (print usage)
-      "-h"      (print usage)
-      "--help"  (print usage)
-      nil       (do (print usage) (os/exit 1))
+      "install"   (cmd-install)
+      "run"       (cmd-run (vec rest-args))
+      "version"   (cmd-version)
+      "-v"        (cmd-version)
+      "--version" (cmd-version)
+      "help"      (print usage)
+      "-h"        (print usage)
+      "--help"    (print usage)
+      nil         (do (print usage) (os/exit 1))
       (do (println "unknown command:" cmd)
           (print usage)
           (os/exit 1)))))
