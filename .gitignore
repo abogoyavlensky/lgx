@@ -1,0 +1,4 @@
+bin/
+*.lgb
+.DS_Store
+lgx-bundle

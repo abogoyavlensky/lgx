@@ -1,0 +1,64 @@
+(ns lgx.config
+  (:require [string :as str]
+            [edn]))
+
+(def config-name "lgx.edn")
+
+(defn- parent-dir [path]
+  (let [i (str/last-index-of path "/")]
+    (cond
+      (nil? i)  nil
+      (zero? i) (when (> (count path) 1) "/")
+      :else     (subs path 0 i))))
+
+(defn find-project!
+  "Walk up from CWD looking for lgx.edn. Returns the project root or exits."
+  []
+  (loop [dir (os/cwd)]
+    (cond
+      (nil? dir)
+      (do (println "error: no" config-name "found in this or any parent directory")
+          (os/exit 1))
+
+      (file-exists? (str dir "/" config-name))
+      dir
+
+      :else
+      (recur (parent-dir dir)))))
+
+(defn- bad! [msg ctx]
+  (throw (ex-info (str "lgx.edn: " msg) (or ctx {}))))
+
+(defn- validate-coord! [lib coord]
+  (when-not (map? coord)
+    (bad! (str lib " coord must be a map") {:lib lib}))
+  (let [url (:git/url coord)
+        sha (:git/sha coord)
+        tag (:git/tag coord)]
+    (when-not (string? url)
+      (bad! (str lib " missing :git/url") {:lib lib}))
+    (when-not (or (string? sha) (string? tag))
+      (bad! (str lib " must specify :git/sha or :git/tag") {:lib lib}))
+    coord))
+
+(def ^:private allowed-top-level #{:deps})
+
+(defn- validate-config! [cfg]
+  (when-not (map? cfg)
+    (bad! "top-level form must be a map" {}))
+  (doseq [k (keys cfg)]
+    (when-not (contains? allowed-top-level k)
+      (bad! (str "unknown top-level key " k) {:key k})))
+  (when-let [deps (:deps cfg)]
+    (when-not (map? deps)
+      (bad! ":deps must be a map" {}))
+    (doseq [[lib c] deps]
+      (validate-coord! lib c)))
+  cfg)
+
+(defn coords
+  "Return a vector of [lib coord] pairs from the project's lgx.edn."
+  [project]
+  (let [path (str project "/" config-name)
+        cfg  (validate-config! (edn/read-string (slurp path)))]
+    (vec (:deps cfg))))

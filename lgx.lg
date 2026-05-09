@@ -1,0 +1,68 @@
+(ns lgx.main
+  (:require [lgx.config :as config]
+            [lgx.cache :as cache]
+            [lgx.runner :as runner]
+            [string :as str]))
+
+(def usage
+  (str "lgx — package manager for let-go\n"
+       "\n"
+       "Usage:\n"
+       "  lgx install         Fetch dependencies declared in lgx.edn\n"
+       "  lgx run [args...]   Run a script via `lg` with deps on the source path\n"
+       "  lgx help            Show this help\n"))
+
+(defn- ensure-all! [coords]
+  (mapv (fn [[lib c]]
+          (let [path (cache/ensure-lib! c)]
+            [lib path]))
+        coords))
+
+(defn- cmd-install []
+  (let [project (config/find-project!)
+        coords  (config/coords project)]
+    (if (empty? coords)
+      (println "no deps in lgx.edn")
+      (do
+        (println "installing" (count coords) "dep(s)...")
+        (doseq [[lib path] (ensure-all! coords)]
+          (println " " lib "->" path))
+        (println "done")))))
+
+(defn- cmd-run [forward-args]
+  (let [project   (config/find-project!)
+        coords    (config/coords project)
+        installed (ensure-all! coords)
+        paths     (mapv second installed)]
+    (runner/exec-lg! paths forward-args)))
+
+;; In dev (`lg lgx.lg <cmd> ...`), os/args is ["lg" "lgx.lg" cmd args...].
+;; In a bundle (`./lgx <cmd> ...`), it's ["lgx" cmd args...].
+;; Heuristic: if the second arg ends with .lg, treat it as the script path.
+(defn- user-args []
+  (let [argv (vec os/args)]
+    (cond
+      (and (>= (count argv) 2)
+           (str/ends-with? (nth argv 1) ".lg"))
+      (drop 2 argv)
+      :else
+      (rest argv))))
+
+(defn- main []
+  (let [argv      (user-args)
+        cmd       (first argv)
+        rest-args (rest argv)]
+    (case cmd
+      "install" (cmd-install)
+      "run"     (cmd-run (vec rest-args))
+      "help"    (print usage)
+      "-h"      (print usage)
+      "--help"  (print usage)
+      nil       (do (print usage) (os/exit 1))
+      (do (println "unknown command:" cmd)
+          (print usage)
+          (os/exit 1)))))
+
+;; Top-level forms run during AOT compilation too. Guard so `lg -b` doesn't
+;; execute the CLI while bundling.
+(when-not *compiling-aot* (main))

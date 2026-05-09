@@ -1,0 +1,4 @@
+(ns hello)
+
+(println "hello from lgx-managed let-go")
+(println "args:" (vec (rest os/args)))

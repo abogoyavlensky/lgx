@@ -1,0 +1,94 @@
+(ns lgx.cache
+  (:require [string :as str]))
+
+;; ---------------------------------------------------------------------------
+;; Cache layout
+;;
+;; ~/.lgx/gitlibs/<host>/<owner>/<repo>/<sha>/
+;;
+;; Each leaf is a checked-out worktree pinned to a full sha. The directory
+;; itself is what we add to lg's --source-paths, so namespaces in the lib
+;; resolve relative to the repo root.
+;; ---------------------------------------------------------------------------
+
+(defn- home-dir []
+  (let [override (os/getenv "LGX_HOME")]
+    (if (str/blank? override)
+      (str (os/getenv "HOME") "/.lgx")
+      override)))
+
+(defn- gitlibs-root []
+  (str (home-dir) "/gitlibs"))
+
+;; Parse https://host/owner/repo[.git] → ["host" "owner" "repo"].
+;; SSH URLs (git@host:owner/repo) are not supported in V1.
+(defn- parse-git-url [url]
+  (let [stripped (if (str/ends-with? url ".git")
+                   (subs url 0 (- (count url) 4))
+                   url)
+        m        (re-find #"^https?://([^/]+)/([^/]+)/([^/]+)$" stripped)]
+    (when (nil? m)
+      (throw (ex-info (str "unsupported git url: " url) {:url url})))
+    (rest m)))
+
+(defn- coord-dir [url sha]
+  (let [[host owner repo] (parse-git-url url)]
+    (str (gitlibs-root) "/" host "/" owner "/" repo "/" sha)))
+
+;; ---------------------------------------------------------------------------
+;; Git wrappers (shell out via os/sh; capture is fine for these short ops)
+;; ---------------------------------------------------------------------------
+
+(defn- git! [args fail-msg]
+  (let [r (apply os/sh "git" args)]
+    (when-not (zero? (:exit r))
+      (throw (ex-info (str fail-msg ": " (:err r))
+                      {:exit (:exit r) :stderr (:err r)})))
+    r))
+
+(defn- resolve-tag->sha [url tag]
+  (let [r       (git! ["ls-remote" url (str "refs/tags/" tag)]
+                      (str "git ls-remote failed for " url))
+        line    (str/trim (:out r))
+        ;; output is "<sha>\trefs/tags/<tag>"; take the first token.
+        sha     (first (str/split line "\t"))]
+    (when (or (nil? sha) (str/blank? sha))
+      (throw (ex-info (str "tag not found: " tag " in " url)
+                      {:url url :tag tag})))
+    sha))
+
+(defn- clone-and-checkout! [url sha dest]
+  ;; Use a tmp dir as parent for atomicity, then rename.
+  (let [parent (subs dest 0 (str/last-index-of dest "/"))
+        tmp    (str dest ".tmp." (str (rand-int 1000000)))]
+    (mkdir parent)
+    (git! ["clone" "--quiet" url tmp]
+          (str "git clone failed: " url))
+    (git! ["-C" tmp "checkout" "--quiet" sha]
+          (str "git checkout failed: " sha))
+    ;; Drop the .git dir — we don't need history once we have the sha.
+    (let [r (os/sh "rm" "-rf" (str tmp "/.git"))]
+      (when-not (zero? (:exit r))
+        (throw (ex-info "failed to remove .git from worktree"
+                        {:dir tmp :stderr (:err r)}))))
+    (let [r (os/sh "mv" tmp dest)]
+      (when-not (zero? (:exit r))
+        (throw (ex-info "failed to finalize worktree"
+                        {:from tmp :to dest :stderr (:err r)}))))))
+
+;; ---------------------------------------------------------------------------
+;; Public API
+;; ---------------------------------------------------------------------------
+
+(defn ensure-lib!
+  "Fetch the coord into the gitlibs cache if missing. Returns the local path."
+  [coord]
+  (let [url (:git/url coord)
+        sha (or (:git/sha coord)
+                (resolve-tag->sha url (:git/tag coord)))
+        dir (coord-dir url sha)]
+    (if (file-exists? dir)
+      dir
+      (do
+        (clone-and-checkout! url sha dir)
+        dir))))
