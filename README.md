@@ -19,7 +19,7 @@ fully functional:
 2. **Inherited-stdio runner** (`os/run` or similar). `os/sh` captures all output
    into a string, which means script output won't stream and stdin is dead
    (so `lgx run -r` for the REPL won't work). lgx currently shells out via
-   `os/sh` and replays the captured buffers — usable for non-interactive
+   `os/sh` and replays the captured buffers - usable for non-interactive
    scripts, broken for interactive ones.
 
 Both are tiny PRs and tracked separately.
@@ -51,15 +51,15 @@ Default `LGX_HOME` is `~/.lgx`.
 
 ## Commands
 
-- `lgx install` — read `lgx.edn`, fetch missing deps. Idempotent.
-- `lgx run [args...]` — find the nearest `lgx.edn` walking up from CWD, ensure
+- `lgx install` - read `lgx.edn`, fetch missing deps. Idempotent.
+- `lgx run [args...]` - find the nearest `lgx.edn` walking up from CWD, ensure
   deps are installed, then exec `lg --source-paths <resolved> [args...]`. All
   args are forwarded to `lg` verbatim.
 
 ## Build
 
 ```
-make build       # produces bin/lgx — bundled standalone binary
+make build       # produces bin/lgx - bundled standalone binary
 make dev-install # runs `lg lgx.lg install` from the lgx project root
 make dev-run     # runs examples/hello/main.lg through dev `lg lgx.lg ...`
 ```

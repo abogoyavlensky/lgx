@@ -5,7 +5,7 @@
             [string :as str]))
 
 (def usage
-  (str "lgx — package manager for let-go\n"
+  (str "lgx - package manager for let-go\n"
        "\n"
        "Usage:\n"
        "  lgx install         Fetch dependencies declared in lgx.edn\n"

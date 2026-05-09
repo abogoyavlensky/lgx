@@ -66,7 +66,7 @@
           (str "git clone failed: " url))
     (git! ["-C" tmp "checkout" "--quiet" sha]
           (str "git checkout failed: " sha))
-    ;; Drop the .git dir — we don't need history once we have the sha.
+    ;; Drop the .git dir - we don't need history once we have the sha.
     (let [r (os/sh "rm" "-rf" (str tmp "/.git"))]
       (when-not (zero? (:exit r))
         (throw (ex-info "failed to remove .git from worktree"
