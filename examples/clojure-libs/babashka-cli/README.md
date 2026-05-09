@@ -11,4 +11,4 @@ Fetch and resolve work; let-go's reader chokes on the
 Error: `Syntax error reading source ... unsupported meta form`.
 
 Tracked as gap #1 in
-[../../../issues/clojure-lib-compat.md](../../../issues/clojure-lib-compat.md).
+[../../../docs/issues/clojure-lib-compat.md](../../../docs/issues/clojure-lib-compat.md).

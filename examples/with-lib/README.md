@@ -7,7 +7,7 @@ Proves that lgx fetches a real public dep and exposes its namespaces to
 
 There's no third-party let-go library ecosystem yet, and pure Clojure
 libraries hit several let-go-side compat gaps (see
-[../../issues/clojure-lib-compat.md](../../issues/clojure-lib-compat.md)).
+[../../docs/issues/clojure-lib-compat.md](../../docs/issues/clojure-lib-compat.md)).
 let-go's own repo happens to contain `.lg` files with clean `(ns …)`
 declarations under `test/` (e.g., `test.fib`, `test.primes`), which makes
 it a convenient real public github dep to require from a user script.

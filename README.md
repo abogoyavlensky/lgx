@@ -10,14 +10,15 @@ root. lgx fetches them into a per-user cache and invokes `lg` with
 
 ## Status
 
-Pre-alpha scaffold. Several upstream changes in let-go are tracked under
-[`issues/`](./issues):
+Pre-alpha scaffold. Upstream let-go changes are tracked in
+[`docs/issues/`](./docs/issues):
 
-1. **`-source-paths` CLI flag** on `lg` (PR open).
+1. **`-source-paths` CLI flag** on `lg` — filed; PR ready
+   ([source-paths-flag.md](./docs/issues/source-paths-flag.md)).
 2. **Inherited-stdio runner** (`os/run` or similar) so `lgx run -r` REPL works
-   ([issues/inherit-stdio-runner.md](./issues/inherit-stdio-runner.md)).
+   ([inherit-stdio-runner.md](./docs/issues/inherit-stdio-runner.md)).
 3. **Reader/compiler/resolver gaps** blocking real Clojure libraries
-   ([issues/clojure-lib-compat.md](./issues/clojure-lib-compat.md)).
+   ([clojure-lib-compat.md](./docs/issues/clojure-lib-compat.md)).
 
 ## `lgx.edn`
 
@@ -91,6 +92,6 @@ lgx/config.lg       find & parse lgx.edn
 lgx/cache.lg        gitlibs path layout, fetch
 lgx/runner.lg       locate `lg`, exec with -source-paths
 examples/           see above
-issues/             drafts of upstream let-go issues
+docs/issues/        drafts of upstream let-go issues
 docs/plans/         design docs
 ```

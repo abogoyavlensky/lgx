@@ -13,7 +13,7 @@ are all on the let-go runtime/reader/compiler side.
 
 Each subdir has a runnable `lgx.edn` + `main.lg` that triggers the
 failure. The four gaps are documented together in
-[../../issues/clojure-lib-compat.md](../../issues/clojure-lib-compat.md)
+[../../docs/issues/clojure-lib-compat.md](../../docs/issues/clojure-lib-compat.md)
 for upstream filing once the `-source-paths` PR lands.
 
 For an example of lib install actually working end-to-end, see

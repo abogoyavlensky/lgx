@@ -17,4 +17,4 @@ Error: `CompileError: Can't resolve clojure.lang.IEditableCollection in
 this context`.
 
 Tracked as gap #3 in
-[../../../issues/clojure-lib-compat.md](../../../issues/clojure-lib-compat.md).
+[../../../docs/issues/clojure-lib-compat.md](../../../docs/issues/clojure-lib-compat.md).

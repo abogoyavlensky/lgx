@@ -13,4 +13,4 @@ a docstring at
 Error: `CompileError: def: wrong number of forms (3), need 1 or 2`.
 
 Tracked as gap #2 in
-[../../../issues/clojure-lib-compat.md](../../../issues/clojure-lib-compat.md).
+[../../../docs/issues/clojure-lib-compat.md](../../../docs/issues/clojure-lib-compat.md).
