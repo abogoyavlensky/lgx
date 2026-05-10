@@ -1,6 +1,6 @@
 # Notes for coding agents
 
-Source code is the source of truth. The docs below are supplementary —
+Source code is the source of truth. The docs below are supplementary -
 read them only when relevant. Do not preload.
 
 ## When to consult what
@@ -28,6 +28,6 @@ Notes drift. Two rules:
 1. **Same-PR updates.** When changing something a doc describes,
    update the doc in the same commit. Each knowledge-base file ends
    with a `Verify against:` footer naming the source files it claims
-   to describe — use it to spot-check.
+   to describe - use it to spot-check.
 2. **Drift > silence.** If you spot a stale claim, fix or delete it
    rather than leave it. A missing note is better than a wrong one.

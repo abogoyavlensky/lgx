@@ -1,14 +1,13 @@
 # lgx
 
-A package manager for [let-go](https://github.com/nooga/let-go).
-
-Supports git-based dependencies declared in an `lgx.edn` file at the project
-root. lgx fetches them into a per-user cache and invokes `lg` with
-`--source-paths` set so the libraries' namespaces resolve normally.
+A package manager for [let-go](https://github.com/nooga/let-go). Reads
+git-pinned dependencies from `lgx.edn`, fetches them into a per-user
+cache, and runs `lg` with the cached paths added to its namespace
+search path.
 
 ## Status
 
-Pre-alpha. Experimental.
+Pre-alpha. Expect breakage.
 
 ## Requirements
 
@@ -31,12 +30,11 @@ Each coord must specify `:git/url` plus one of `:git/sha` or `:git/tag`. Tags
 are resolved to a sha at install time via `git ls-remote`. Sha-pinned coords
 are fully reproducible; tag-pinned coords re-resolve on each `lgx install`.
 
-For each lib, the path added to `--source-paths` is `<sha>/src` if that dir
+For each lib, the path added to `-source-paths` is `<sha>/src` if that dir
 exists, else the repo root. This matches the tools.deps default of
 `:paths ["src"]` and works out of the box for most Clojure-style libraries.
 
-V1 limitations: HTTPS URLs only (no SSH), no transitive deps, no lockfile, no
-per-coord `:paths` override.
+Current limitations: HTTPS URLs only (no SSH), no transitive deps, no per-coord `:paths` override.
 
 ## Cache layout
 
@@ -49,11 +47,11 @@ Default `LGX_HOME` is `~/.lgx`.
 ## Commands
 
 - `lgx install` - read `lgx.edn`, fetch missing deps. Idempotent.
-- `lgx run [args...]` - find the nearest `lgx.edn` walking up from CWD, ensure
-  deps are installed, then exec `lg --source-paths <resolved> [args...]`. All
-  args are forwarded to `lg` verbatim.
+- `lgx run [args...]` - find the nearest `lgx.edn` walking up from the
+  current directory, install missing deps, then exec
+  `lg -source-paths <resolved> [args...]`. All args reach `lg` verbatim.
 
-## Build
+## Development
 
 ```
 make build       # produces bin/lgx - bundled standalone binary
@@ -71,6 +69,28 @@ debugging a custom build), set `LGX_LG`:
 LGX_LG=/path/to/lg bin/lgx run script.lg
 ```
 
+## Roadmap (draft)
+
+Concrete things on the table, not commitments. Order is
+priority-agnostic.
+
+- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
+  libs and resolve the union, with first-wins on conflicts. Today lgx
+  reads only the project's own `lgx.edn`.
+- [ ] `:paths` override.
+- [ ] **Per-coord `:deps/root`.** Override the `<sha>/src` default per
+  dependency, matching tools.deps' `:deps/root`.
+- [ ] **Aliases.** Per-environment dep sets in `lgx.edn`
+  (e.g. `:test`, `:dev`) selectable from the CLI.
+- [ ] **Tasks.** Named command shortcuts.
+- [ ] **`lgx paths` command.** Print the fully-resolved source-path list
+  lgx would hand to `lg`.
+- [ ] **Non-source resources** (let-go-side). `lg`'s resolver finds `.lg`
+  and `.cljc` only; libs that ship templates, JSON, or other assets
+  have no resolution story. Likely needs an upstream change.
+- [ ] [OPTIONAL] **`lgx fmt` / `lgx lint`** *(maybe)*. Thin wrappers if the let-go
+  ecosystem grows tooling worth fronting.
+
 ## Examples
 
 - [`examples/hello/`](./examples/hello) - no-deps script.
@@ -81,17 +101,6 @@ LGX_LG=/path/to/lg bin/lgx run script.lg
   Clojure libraries (medley, babashka/cli, ruuter) and the let-go-side gaps
   that currently block them.
 
-## Layout
-
-```
-lgx.lg              entry, command dispatch
-lgx/config.lg       find & parse lgx.edn
-lgx/cache.lg        gitlibs path layout, fetch
-lgx/runner.lg       locate `lg`, exec with -source-paths
-examples/           see above
-AGENTS.md           index of when-to-read-what for coding agents
-docs/ARCHITECTURE.md
-docs/issues/        drafts of upstream let-go issues
-docs/plans/         design docs
-docs/knowledge-base/ let-go runtime notes and lgx dev workflow
-```
+## License
+MIT License
+Copyright (c) 2026 Andrey Bogoyavlenskiy
