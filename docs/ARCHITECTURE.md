@@ -48,16 +48,24 @@ namespaces it requires.
    via `git ls-remote` if no `:git/sha` is given. If the cache directory
    for `(url, sha)` already exists, return its path. Otherwise clone the
    repo into a temp dir, check out the sha, drop `.git/`, and rename
-   atomically to the final cache path.
-4. Print one line per dep with the local path.
+   atomically to the final cache path. `ensure-lib!` reports whether
+   this call did the clone.
+4. If any dep was newly cloned, print `installing N dep(s)...`, one
+   `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
+   already cached, print `all deps up to date`. Empty `:deps` prints
+   `no deps in lgx.edn`.
 
 ### `lgx run [args...]`
 
 Steps 1–3 match `install` — deps are auto-installed if missing. Then:
 
-4. Compute the `-source-paths` argument by joining the cached paths with
-   the OS path-list separator.
-5. Exec `lg -source-paths <paths> [args...]`. Forwarded args reach `lg`
+4. If any dep was newly cloned during step 3, print the same install
+   block as `lgx install` (header + per-new-dep lines + `done`).
+   Otherwise stay silent — no `all deps up to date` chatter before the
+   script.
+5. Compute the `-source-paths` argument by joining the cached paths
+   with the OS path-list separator.
+6. Exec `lg -source-paths <paths> [args...]`. Forwarded args reach `lg`
    verbatim.
 
 The exec call currently uses `os/sh`, which buffers stdout/stderr until
