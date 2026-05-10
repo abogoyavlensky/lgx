@@ -1,6 +1,6 @@
 # lgx
 
-A package manager for [let-go](https://github.com/nooga/let-go). Reads
+A project manager for [let-go](https://github.com/nooga/let-go). Reads
 git-pinned dependencies from `lgx.edn`, fetches them into a per-user
 cache, and runs `lg` with the cached paths added to its namespace
 search path.
@@ -88,6 +88,7 @@ priority-agnostic.
 - [ ] **Non-source resources** (let-go-side). `lg`'s resolver finds `.lg`
   and `.cljc` only; libs that ship templates, JSON, or other assets
   have no resolution story. Likely needs an upstream change.
+- [ ] `lgx test` - test runner.
 - [ ] [OPTIONAL] **`lgx fmt` / `lgx lint`** *(maybe)*. Thin wrappers if the let-go
   ecosystem grows tooling worth fronting.
 
