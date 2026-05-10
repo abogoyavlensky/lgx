@@ -1,31 +1,21 @@
 # lgx
 
-A package manager for [let-go](https://github.com/nooga/let-go), modeled on
-[`tools.deps`](https://clojure.org/reference/deps_and_cli) and
-[`tools.gitlibs`](https://github.com/clojure/tools.gitlibs).
+A package manager for [let-go](https://github.com/nooga/let-go).
 
-V1 supports git-based dependencies declared in an `lgx.edn` file at the project
+Supports git-based dependencies declared in an `lgx.edn` file at the project
 root. lgx fetches them into a per-user cache and invokes `lg` with
 `--source-paths` set so the libraries' namespaces resolve normally.
 
 ## Status
 
-Pre-alpha scaffold. Upstream let-go changes are tracked in
-[`docs/issues/`](./docs/issues):
-
-1. **`-source-paths` CLI flag** on `lg` — filed; PR ready
-   ([source-paths-flag.md](./docs/issues/source-paths-flag.md)).
-2. **Inherited-stdio runner** (`os/run` or similar) so `lgx run -r` REPL works
-   ([inherit-stdio-runner.md](./docs/issues/inherit-stdio-runner.md)).
-3. **Reader/compiler/resolver gaps** blocking real Clojure libraries
-   ([clojure-lib-compat.md](./docs/issues/clojure-lib-compat.md)).
+Pre-alpha. Experimental.
 
 ## `lgx.edn`
 
 ```edn
 {:deps
- {nooga/let-go-async {:git/url "https://github.com/nooga/let-go-async"
-                      :git/tag "v0.2.0"}
+ {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
+                          :git/tag "v0.2.0"}
   some-org/util      {:git/url "https://github.com/some-org/util"
                       :git/sha "0123456789abcdef0123456789abcdef01234567"}}}
 ```
