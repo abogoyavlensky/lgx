@@ -1,0 +1,99 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      LG_VERSION: 1.7.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install let-go (lg)
+        run: |
+          base="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
+          tarball="let-go_${LG_VERSION}_linux_amd64.tar.gz"
+          curl -sSL -o "$tarball" "$base/$tarball"
+          curl -sSL -o checksums.txt "$base/checksums.txt"
+          grep " $tarball\$" checksums.txt | sha256sum -c -
+          tar -xzf "$tarball"
+          sudo mv lg /usr/local/bin/lg
+          lg -v
+
+      - name: Run tests
+        run: make test
+
+  release:
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      LG_VERSION: 1.7.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch let-go checksums
+        run: |
+          base="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
+          curl -sSL -o lg-checksums.txt "$base/checksums.txt"
+
+      - name: Install host let-go (lg)
+        run: |
+          base="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
+          tarball="let-go_${LG_VERSION}_linux_amd64.tar.gz"
+          curl -sSL -o "$tarball" "$base/$tarball"
+          grep " $tarball\$" lg-checksums.txt | sha256sum -c -
+          tar -xzf "$tarball"
+          sudo mv lg /usr/local/bin/lg
+          rm -f "$tarball"
+          lg -v
+
+      - name: Build bundles for all targets
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          base_url="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
+          mkdir -p dist bases build
+
+          for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            echo "::group::Building $target"
+            tarball="let-go_${LG_VERSION}_${target}.tar.gz"
+            curl -sSL -o "$tarball" "$base_url/$tarball"
+            grep " $tarball\$" lg-checksums.txt | sha256sum -c -
+
+            mkdir -p "bases/$target" "build/$target"
+            tar -xzf "$tarball" -C "bases/$target"
+            rm -f "$tarball"
+
+            lg -b -bundle-base "bases/$target/lg" "build/$target/lgx" lgx.lg
+
+            archive="lgx_${version}_${target}.tar.gz"
+            tar -czf "dist/$archive" -C "build/$target" lgx
+            echo "built dist/$archive"
+            echo "::endgroup::"
+          done
+
+          (cd dist && sha256sum *.tar.gz > checksums.txt)
+          ls -la dist/
+
+      - name: Publish GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+              --repo="$GITHUB_REPOSITORY" \
+              --title="${TAG}" \
+              --generate-notes \
+              dist/*
