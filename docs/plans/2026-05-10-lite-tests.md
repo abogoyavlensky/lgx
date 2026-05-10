@@ -259,3 +259,39 @@ Design choices:
 3. `make test` from clean checkout — green end-to-end.
 4. Each test file when broken on purpose returns non-zero (sanity).
 5. CI workflow runs green on the first push.
+
+---
+
+## Status: completed
+
+**Commits:**
+
+- `28acebd` — initial test suite, source changes, CI workflow.
+- `b9adf81` — follow-ups from code review: `:git/tag` resolution
+  scenario in e2e, sha256 checksum verification for the `lg` tarball in
+  CI.
+
+**Implemented:** all sections of the plan. 10 config unit tests, 10
+cache unit tests, 19 e2e assertions; `make test` runs green end-to-end
+locally.
+
+**Deltas from the plan during execution:**
+
+- `parse-git-url` for `file://` simplified to `["_local" "_"
+  <basename>]` rather than basename-of-parent. Sha disambiguates
+  collisions; fewer moving parts.
+- Test scripts use `(when-not test/*test-result* (os/exit 1))` exactly
+  as lgcr does — verified the dynamic var is observable after
+  `run-tests` returns (`set!` works without an explicit `binding`
+  because let-go updates the root binding in this case).
+- Discovered and avoided let-go's "namespace name matching file path
+  causes double-execution" gotcha by naming test namespaces
+  `lgx.config-test` / `lgx.cache-test` (no matching resolver path).
+
+**Issues encountered:**
+
+- One iteration to rebuild `bin/lgx` after the `parse-git-url` change —
+  the e2e was driving a stale bundle. `tests/run.sh` now invokes
+  `make build` first, so this can't recur.
+- `git clone` of an empty bare repo prints a benign warning; suppressed
+  with `2>/dev/null` in `make_bare_repo`.
