@@ -81,15 +81,18 @@
 ;; ---------------------------------------------------------------------------
 
 (defn ensure-lib!
-  "Fetch the coord into the gitlibs cache if missing. Returns the local path."
+  "Fetch the coord into the gitlibs cache if missing. Returns
+   {:path <local path> :installed? <true if this call cloned>}."
   [coord]
-  (let [url (:git/url coord)
-        sha (or (:git/sha coord)
-                (resolve-tag->sha url (:git/tag coord)))
-        dir (coord-dir url sha)]
-    (when-not (file-exists? dir)
+  (let [url        (:git/url coord)
+        sha        (or (:git/sha coord)
+                       (resolve-tag->sha url (:git/tag coord)))
+        dir        (coord-dir url sha)
+        installed? (not (file-exists? dir))]
+    (when installed?
       (clone-and-checkout! url sha dir))
     ;; Convention: if the lib has a src/ dir, that's where namespaces live
     ;; (matches tools.deps default :paths ["src"]). Otherwise use the repo root.
     (let [src (str dir "/src")]
-      (if (file-exists? src) src dir))))
+      {:path (if (file-exists? src) src dir)
+       :installed? installed?})))

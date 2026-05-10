@@ -17,29 +17,37 @@
 
 (defn- ensure-all! [coords]
   (mapv (fn [[lib c]]
-          (let [path (cache/ensure-lib! c)]
-            [lib path]))
+          (let [{:keys [path installed?]} (cache/ensure-lib! c)]
+            {:lib lib :path path :installed? installed?}))
         coords))
+
+(defn- print-installs! [results]
+  (let [new-installs (filter :installed? results)]
+    (when (seq new-installs)
+      (println "installing" (count new-installs) "dep(s)...")
+      (doseq [{:keys [lib path]} new-installs]
+        (println " " lib "->" path))
+      (println "done"))))
 
 (defn- cmd-install []
   (let [project (config/find-project!)
         coords  (config/coords project)]
     (if (empty? coords)
       (println "no deps in lgx.edn")
-      (do
-        (println "installing" (count coords) "dep(s)...")
-        (doseq [[lib path] (ensure-all! coords)]
-          (println " " lib "->" path))
-        (println "done")))))
+      (let [results (ensure-all! coords)]
+        (if (some :installed? results)
+          (print-installs! results)
+          (println "all deps up to date"))))))
 
 (defn- cmd-version []
   (println (str "lgx " version)))
 
 (defn- cmd-run [forward-args]
-  (let [project   (config/find-project!)
-        coords    (config/coords project)
-        installed (ensure-all! coords)
-        paths     (mapv second installed)]
+  (let [project (config/find-project!)
+        coords  (config/coords project)
+        results (ensure-all! coords)
+        paths   (mapv :path results)]
+    (print-installs! results)
     (runner/exec-lg! paths forward-args)))
 
 ;; In dev (`lg lgx.lg <cmd> ...`), os/args is ["lg" "lgx.lg" cmd args...].
