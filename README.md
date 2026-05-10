@@ -10,6 +10,13 @@ root. lgx fetches them into a per-user cache and invokes `lg` with
 
 Pre-alpha. Experimental.
 
+## Requirements
+
+- [`lg`](https://github.com/nooga/let-go) on `PATH`, or pointed to by
+  `LGX_LG`. `lgx run` shells out to it; `lgx install` does not need it.
+- `git` on `PATH`. lgx uses it to clone, fetch, and check out
+  dependencies.
+
 ## `lgx.edn`
 
 ```edn
