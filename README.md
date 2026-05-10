@@ -89,6 +89,8 @@ lgx/config.lg       find & parse lgx.edn
 lgx/cache.lg        gitlibs path layout, fetch
 lgx/runner.lg       locate `lg`, exec with -source-paths
 examples/           see above
+docs/ARCHITECTURE.md
 docs/issues/        drafts of upstream let-go issues
 docs/plans/         design docs
+docs/knowledge-base/ let-go runtime notes and lgx dev workflow
 ```
