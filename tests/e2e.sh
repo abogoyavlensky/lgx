@@ -43,8 +43,8 @@ assert_eq() {
     pass "$label"
 }
 
-# Seed a bare git repo with one commit containing src/test/fib.lg.
-# Echoes the resolved sha.
+# Seed a bare git repo with one commit containing src/test/fib.lg and
+# a `v0.1.0` tag pointing at it. Echoes the resolved sha.
 make_bare_repo() {
     local bare="$1"
     local work
@@ -59,12 +59,25 @@ make_bare_repo() {
 EOF
     git -C "$work" add .
     git -C "$work" commit --quiet -m "seed"
+    git -C "$work" tag v0.1.0
     git -C "$work" push --quiet origin master 2>/dev/null \
         || git -C "$work" push --quiet origin main
+    git -C "$work" push --quiet origin v0.1.0
     local sha
     sha="$(git -C "$work" rev-parse HEAD)"
     rm -rf "$work"
     echo "$sha"
+}
+
+# Write an lgx.edn into $1 pinning to a tag instead of a sha.
+make_project_tag() {
+    local proj="$1"; local url="$2"; local tag="$3"
+    mkdir -p "$proj"
+    cat > "$proj/lgx.edn" <<EOF
+{:deps
+ {test/lib {:git/url "$url"
+            :git/tag "$tag"}}}
+EOF
 }
 
 # Write an lgx.edn into $1 with a single dep pointing at $2 (file:// url) @ $3 (sha).
@@ -141,7 +154,25 @@ out="$(cd "$nested" && LGX_HOME="$home" "$LGX" install)"
 assert_eq "$out" "all deps up to date" "walk-up finds lgx.edn"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 8: lgx run cold cache prints install block"
+echo "==> Scenario 8: install via :git/tag resolves to sha"
+home_tag="$(mktemp -d)"
+bare_tag="$home_tag/_fixtures/test-repo.git"
+mkdir -p "$(dirname "$bare_tag")"
+sha_tag="$(make_bare_repo "$bare_tag")"
+proj_tag="$(mktemp -d)"
+make_project_tag "$proj_tag" "file://$bare_tag" "v0.1.0"
+
+out="$(cd "$proj_tag" && LGX_HOME="$home_tag" "$LGX" install)"
+assert_contains "$out" "installing 1 dep(s)..." "tag: install header"
+assert_contains "$out" "test/lib ->" "tag: per-lib line"
+[[ -d "$home_tag/gitlibs/_local/_/test-repo/$sha_tag" ]] \
+    || fail "tag: expected cache dir at <home>/gitlibs/_local/_/test-repo/$sha_tag"
+pass "tag: cache dir resolved to correct sha"
+
+rm -rf "$proj_tag" "$home_tag"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 9: lgx run cold cache prints install block"
 home2="$(mktemp -d)"
 set +e
 out="$(cd "$proj" && LGX_HOME="$home2" "$LGX" run -e '(println :ok)' 2>&1)"
