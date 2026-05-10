@@ -1,0 +1,89 @@
+;; Unit tests for lgx.cache — URL parsing, coord-dir, cached path of ensure-lib!.
+;; Run with: lg tests/cache_test.lg  (from project root)
+
+(ns lgx.cache-test
+  (:require [lgx.cache :as cache]
+            [test :refer [deftest is run-tests]]))
+
+(defn- threw? [f]
+  (try (f) :no-throw (catch e :threw)))
+
+;; ---------------------------------------------------------------------------
+;; parse-git-url
+;; ---------------------------------------------------------------------------
+
+(deftest parse-git-url-https-plain
+  (is (= ["github.com" "nooga" "let-go"]
+         (cache/parse-git-url "https://github.com/nooga/let-go"))))
+
+(deftest parse-git-url-strips-dotgit
+  (is (= ["github.com" "nooga" "let-go"]
+         (cache/parse-git-url "https://github.com/nooga/let-go.git"))))
+
+(deftest parse-git-url-accepts-http-scheme
+  (is (= ["example.com" "owner" "repo"]
+         (cache/parse-git-url "http://example.com/owner/repo"))))
+
+(deftest parse-git-url-file-uri-derives-local-host
+  (is (= ["_local" "_" "foo"]
+         (cache/parse-git-url "file:///tmp/foo.git")))
+  (is (= ["_local" "_" "bar"]
+         (cache/parse-git-url "file:///tmp/lgx-test/bar"))))
+
+(deftest parse-git-url-rejects-ssh-form
+  (is (= :threw (threw? #(cache/parse-git-url "git@github.com:owner/repo.git")))))
+
+(deftest parse-git-url-rejects-malformed
+  (is (= :threw (threw? #(cache/parse-git-url "not-a-url"))))
+  (is (= :threw (threw? #(cache/parse-git-url "https://only-host")))))
+
+;; ---------------------------------------------------------------------------
+;; coord-dir
+;; ---------------------------------------------------------------------------
+
+(deftest coord-dir-assembles-path
+  (os/setenv "LGX_HOME" "/tmp/lgx-cache-test-home")
+  (is (= "/tmp/lgx-cache-test-home/gitlibs/github.com/nooga/let-go/abc123"
+         (cache/coord-dir "https://github.com/nooga/let-go" "abc123"))))
+
+(deftest coord-dir-handles-dotgit-and-file-uri
+  (os/setenv "LGX_HOME" "/tmp/lgx-cache-test-home")
+  (is (= "/tmp/lgx-cache-test-home/gitlibs/github.com/nooga/let-go/sha1"
+         (cache/coord-dir "https://github.com/nooga/let-go.git" "sha1")))
+  (is (= "/tmp/lgx-cache-test-home/gitlibs/_local/_/myrepo/sha2"
+         (cache/coord-dir "file:///tmp/scratch/myrepo.git" "sha2"))))
+
+;; ---------------------------------------------------------------------------
+;; ensure-lib! cached path
+;; ---------------------------------------------------------------------------
+
+(deftest ensure-lib-returns-installed-false-when-cached
+  (let [home    (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha     "0000000000000000000000000000000000000000"
+        url     "https://github.com/example/cached"
+        dir     (str home "/gitlibs/github.com/example/cached/" sha)
+        src-dir (str dir "/src")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir src-dir)
+    (is (= {:path src-dir :installed? false}
+           (cache/ensure-lib! {:git/url url :git/sha sha})))
+    ;; Cleanup
+    (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-returns-installed-false-when-cached-no-src
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha  "1111111111111111111111111111111111111111"
+        url  "https://github.com/example/nosrc"
+        dir  (str home "/gitlibs/github.com/example/nosrc/" sha)]
+    (os/setenv "LGX_HOME" home)
+    (mkdir dir)
+    (is (= {:path dir :installed? false}
+           (cache/ensure-lib! {:git/url url :git/sha sha})))
+    (os/sh "rm" "-rf" home)))
+
+;; ---------------------------------------------------------------------------
+;; Run
+;; ---------------------------------------------------------------------------
+
+(run-tests)
+(when-not test/*test-result* (os/exit 1))

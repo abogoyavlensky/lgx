@@ -20,18 +20,31 @@
 (defn- gitlibs-root []
   (str (home-dir) "/gitlibs"))
 
-;; Parse https://host/owner/repo[.git] → ["host" "owner" "repo"].
-;; SSH URLs (git@host:owner/repo) are not supported in V1.
-(defn- parse-git-url [url]
+;; Parse a git URL into ["host" "owner" "repo"] used as the cache key.
+;; Supported forms:
+;;   https://host/owner/repo[.git] → ["host" "owner" "repo"]
+;;   file:///abs/path/to/repo[.git] → ["_local" "_" "repo"]
+;; SSH URLs (git@host:owner/repo) are not supported.
+(defn parse-git-url [url]
   (let [stripped (if (str/ends-with? url ".git")
                    (subs url 0 (- (count url) 4))
-                   url)
-        m        (re-find #"^https?://([^/]+)/([^/]+)/([^/]+)$" stripped)]
-    (when (nil? m)
-      (throw (ex-info (str "unsupported git url: " url) {:url url})))
-    (rest m)))
+                   url)]
+    (cond
+      (str/starts-with? stripped "file://")
+      (let [path     (subs stripped 7)
+            slash    (str/last-index-of path "/")
+            basename (if (nil? slash) path (subs path (inc slash)))]
+        (when (str/blank? basename)
+          (throw (ex-info (str "unsupported git url: " url) {:url url})))
+        ["_local" "_" basename])
 
-(defn- coord-dir [url sha]
+      :else
+      (let [m (re-find #"^https?://([^/]+)/([^/]+)/([^/]+)$" stripped)]
+        (when (nil? m)
+          (throw (ex-info (str "unsupported git url: " url) {:url url})))
+        (rest m)))))
+
+(defn coord-dir [url sha]
   (let [[host owner repo] (parse-git-url url)]
     (str (gitlibs-root) "/" host "/" owner "/" repo "/" sha)))
 

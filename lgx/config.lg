@@ -43,7 +43,7 @@
 
 (def ^:private allowed-top-level #{:deps})
 
-(defn- validate-config! [cfg]
+(defn validate-config! [cfg]
   (when-not (map? cfg)
     (bad! "top-level form must be a map" {}))
   (doseq [k (keys cfg)]

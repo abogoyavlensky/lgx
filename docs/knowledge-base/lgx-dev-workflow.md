@@ -72,6 +72,17 @@ For reference when debugging:
 After clone + checkout, the `.git/` directory is removed and the
 worktree renamed atomically to the cache path.
 
+## Running tests
+
+```
+make test        # build bundle, run unit + e2e
+```
+
+Unit tests live in `tests/*_test.lg` and use let-go's embedded `test`
+namespace. E2E tests live in `tests/e2e.sh` and drive the built
+`bin/lgx` against a file:// bare repo seeded under a throwaway
+`LGX_HOME` — hermetic, no network. Both are invoked by `tests/run.sh`.
+
 ---
 
 > **Verify against (in this repo):**
@@ -79,4 +90,6 @@ worktree renamed atomically to the cache path.
 > [`lgx.lg`](../../lgx.lg) (subcommand dispatch),
 > [`lgx/runner.lg`](../../lgx/runner.lg) (`lg-binary`, `exec-lg!`),
 > [`lgx/cache.lg`](../../lgx/cache.lg) (`ensure-lib!`,
-> `clone-and-checkout!`, `coord-dir`).
+> `clone-and-checkout!`, `coord-dir`),
+> [`tests/run.sh`](../../tests/run.sh),
+> [`tests/e2e.sh`](../../tests/e2e.sh).

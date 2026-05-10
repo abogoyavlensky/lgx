@@ -1,4 +1,4 @@
-.PHONY: build dev-install dev-run clean
+.PHONY: build dev-install dev-run test clean
 
 LG ?= lg
 BIN := bin/lgx
@@ -13,6 +13,9 @@ dev-install:
 
 dev-run:
 	$(LG) lgx.lg run examples/hello/main.lg
+
+test:
+	bash tests/run.sh
 
 clean:
 	rm -rf $(dir $(BIN))

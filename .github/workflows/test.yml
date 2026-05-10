@@ -1,0 +1,29 @@
+name: test
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      LG_VERSION: 1.7.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install let-go (lg)
+        run: |
+          curl -sSL -o lg.tar.gz \
+            "https://github.com/nooga/let-go/releases/download/v${LG_VERSION}/let-go_${LG_VERSION}_linux_amd64.tar.gz"
+          tar -xzf lg.tar.gz
+          sudo mv lg /usr/local/bin/lg
+          lg -v
+
+      - name: Run tests
+        run: make test

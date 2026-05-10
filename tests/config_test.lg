@@ -1,0 +1,72 @@
+;; Unit tests for lgx.config — pure parsing/validation helpers.
+;; Run with: lg tests/config_test.lg  (from project root)
+
+(ns lgx.config-test
+  (:require [lgx.config :as config]
+            [test :refer [deftest is run-tests]]))
+
+(defn- threw? [f]
+  (try (f) :no-throw (catch e :threw)))
+
+;; ---------------------------------------------------------------------------
+;; validate-config!
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-valid-deps
+  (is (= {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
+                                :git/sha "abc"}}}
+         (config/validate-config!
+          {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
+                                 :git/sha "abc"}}}))))
+
+(deftest validate-config-accepts-tag-only-coord
+  (is (= {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                           :git/tag "v0.1.0"}}}
+         (config/validate-config!
+          {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                            :git/tag "v0.1.0"}}}))))
+
+(deftest validate-config-accepts-empty-deps
+  (is (= {:deps {}} (config/validate-config! {:deps {}})))
+  (is (= {}        (config/validate-config! {}))))
+
+(deftest validate-config-rejects-non-map-top-level
+  (is (= :threw (threw? #(config/validate-config! [:not :a :map])))))
+
+(deftest validate-config-rejects-unknown-top-level-key
+  (is (= :threw (threw? #(config/validate-config! {:deps {} :extra 1})))))
+
+(deftest validate-config-rejects-deps-not-a-map
+  (is (= :threw (threw? #(config/validate-config! {:deps [:not :a :map]})))))
+
+(deftest validate-config-rejects-coord-missing-url
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/sha "abc"}}})))))
+
+(deftest validate-config-rejects-coord-without-sha-or-tag
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/url "https://github.com/foo/bar"}}})))))
+
+(deftest validate-config-rejects-non-map-coord
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar "not-a-map"}})))))
+
+;; ---------------------------------------------------------------------------
+;; coords
+;; ---------------------------------------------------------------------------
+
+(deftest coords-reads-and-parses-fixture
+  (let [cs (config/coords "tests/fixtures/sample-project")
+        m  (into {} cs)]
+    (is (= 2 (count cs)))
+    (is (= "https://github.com/nooga/let-go" (:git/url (get m 'nooga/let-go))))
+    (is (= "46ce159c9b23021ff7bf38c14e812516c1e2e359"
+           (:git/sha (get m 'nooga/let-go))))
+    (is (= "v0.1.0" (:git/tag (get m 'example/tagged))))))
+
+;; ---------------------------------------------------------------------------
+;; Run
+;; ---------------------------------------------------------------------------
+
+(run-tests)
+(when-not test/*test-result* (os/exit 1))
