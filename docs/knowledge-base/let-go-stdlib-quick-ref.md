@@ -54,3 +54,19 @@ in core, not `io`.
 - `os/exec` returns a Go `*exec.Cmd` but exposes only `with-stdin`. You
   can't reach `Stdout`/`Stderr` fields or call `Run`/`Wait` from let-go.
 - `syscall/exec` (process replacement) exists on Linux only.
+
+---
+
+> **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**
+> [`pkg/rt/lang.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/lang.go)
+> (core fns, regex, parse-*, slurp/spit),
+> [`pkg/rt/iort.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/iort.go)
+> (mkdir, file-exists?, write!, IOHandle),
+> [`pkg/rt/os.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/os.go)
+> (entire `os` ns),
+> [`pkg/rt/core/string.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/string.lg)
+> (string ns),
+> [`pkg/rt/core/edn.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/edn.lg)
+> (edn ns),
+> [`pkg/rt/core/io.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/io.lg)
+> (io ns).

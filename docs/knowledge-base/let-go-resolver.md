@@ -49,3 +49,13 @@ runtime require calls go through the same loader.
   first symptom is usually a downstream `Can't resolve` error, not the
   failed require itself. Worth checking the candidate paths the
   resolver tried when a lib seems missing.
+
+---
+
+> **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**
+> [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/main/pkg/resolver/resolver.go)
+> (`Load`, `loadEmbedded`, candidate construction),
+> [`pkg/compiler/compiler.go`](https://github.com/nooga/let-go/blob/main/pkg/compiler/compiler.go)
+> (compile-time `ns` / `in-ns` / `require` hooks),
+> [`pkg/rt/lang.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/lang.go)
+> (`rt.NS`, `LookupOrRegisterNS`).

@@ -75,3 +75,17 @@ rebind them with `binding`. Write to the handle directly instead:
 
 `lg -b foo lgx.lg` fails when a directory named `foo/` already exists in
 the working directory. Bundle to a distinct path (`bin/lgx`, not `lgx`).
+
+---
+
+> **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**
+> [`lg.go`](https://github.com/nooga/let-go/blob/main/lg.go) (`bundleBinary`,
+> `*compiling-aot*` flip),
+> [`pkg/rt/os.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/os.go)
+> (`os/sh`, `os/exec`, `os/args`, `os/getenv`),
+> [`pkg/rt/iort.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/iort.go)
+> (IOHandle, `*in*`/`*out*`/`*err*`),
+> [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/main/pkg/resolver/resolver.go)
+> (`Load` triggering self re-load),
+> [`pkg/rt/core/core.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/core.lg)
+> (`binding` macro).

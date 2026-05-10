@@ -62,3 +62,16 @@ directory. Bundle to a distinct path (`bin/lgx`, not `lgx`).
   runtime; bundle.sh shows the production pattern.
 - [nooga/xsofy](https://github.com/nooga/xsofy) — single ~6900-line
   source file; proves single-file scale works fine.
+
+---
+
+> **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**
+> [`lg.go`](https://github.com/nooga/let-go/blob/main/lg.go)
+> (`bundleBinary`, `checkBundledLGB`, `readBundledLGB`,
+> `*compiling-aot*` setting),
+> [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/main/pkg/resolver/resolver.go)
+> (`LoadedChunks`, `LoadOrder`),
+> [`pkg/rt/lang.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/lang.go)
+> (`*compiling-aot*` Var def),
+> [`pkg/bytecode/`](https://github.com/nooga/let-go/tree/main/pkg/bytecode)
+> (LGB encode/decode).

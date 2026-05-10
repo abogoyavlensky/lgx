@@ -71,3 +71,12 @@ For reference when debugging:
 
 After clone + checkout, the `.git/` directory is removed and the
 worktree renamed atomically to the cache path.
+
+---
+
+> **Verify against (in this repo):**
+> [`Makefile`](../../Makefile),
+> [`lgx.lg`](../../lgx.lg) (subcommand dispatch),
+> [`lgx/runner.lg`](../../lgx/runner.lg) (`lg-binary`, `exec-lg!`),
+> [`lgx/cache.lg`](../../lgx/cache.lg) (`ensure-lib!`,
+> `clone-and-checkout!`, `coord-dir`).

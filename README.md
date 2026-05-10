@@ -89,6 +89,7 @@ lgx/config.lg       find & parse lgx.edn
 lgx/cache.lg        gitlibs path layout, fetch
 lgx/runner.lg       locate `lg`, exec with -source-paths
 examples/           see above
+AGENTS.md           index of when-to-read-what for coding agents
 docs/ARCHITECTURE.md
 docs/issues/        drafts of upstream let-go issues
 docs/plans/         design docs
