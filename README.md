@@ -129,6 +129,7 @@ priority-agnostic.
   and `.cljc` only; libs that ship templates, JSON, or other assets
   have no resolution story. Likely needs an upstream change.
 - [ ] `lgx test` - test runner.
+- [ ] `lgx new` - project scaffolding.
 - [ ] [OPTIONAL] **`lgx fmt` / `lgx lint`** *(maybe)*. Thin wrappers if the let-go
   ecosystem grows tooling worth fronting.
 
