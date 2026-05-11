@@ -90,6 +90,30 @@
                         {:from tmp :to dest :stderr (:err r)}))))))
 
 ;; ---------------------------------------------------------------------------
+;; Source path resolution
+;; ---------------------------------------------------------------------------
+
+(defn- trim-trailing-slash [s]
+  (if (and (> (count s) 1) (str/ends-with? s "/"))
+    (subs s 0 (dec (count s)))
+    s))
+
+(defn- resolve-source-path [dir root url sha]
+  (if root
+    ;; :deps/root overrides the default probe. Path is used verbatim;
+    ;; the directory must exist after clone, else hard error.
+    (let [normalized (trim-trailing-slash root)
+          resolved   (str dir "/" normalized)]
+      (when-not (file-exists? resolved)
+        (throw (ex-info (str ":deps/root " normalized " not found in " url)
+                        {:url url :sha sha :root normalized :resolved resolved})))
+      resolved)
+    ;; Convention: if the lib has a src/ dir, that's where namespaces live
+    ;; (matches tools.deps default :paths ["src"]). Otherwise use the repo root.
+    (let [src (str dir "/src")]
+      (if (file-exists? src) src dir))))
+
+;; ---------------------------------------------------------------------------
 ;; Public API
 ;; ---------------------------------------------------------------------------
 
@@ -98,14 +122,12 @@
    {:path <local path> :installed? <true if this call cloned>}."
   [coord]
   (let [url        (:git/url coord)
+        root       (:deps/root coord)
         sha        (or (:git/sha coord)
                        (resolve-tag->sha url (:git/tag coord)))
         dir        (coord-dir url sha)
         installed? (not (file-exists? dir))]
     (when installed?
       (clone-and-checkout! url sha dir))
-    ;; Convention: if the lib has a src/ dir, that's where namespaces live
-    ;; (matches tools.deps default :paths ["src"]). Otherwise use the repo root.
-    (let [src (str dir "/src")]
-      {:path (if (file-exists? src) src dir)
-       :installed? installed?})))
+    {:path (resolve-source-path dir root url sha)
+     :installed? installed?}))

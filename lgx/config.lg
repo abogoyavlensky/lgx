@@ -32,13 +32,23 @@
 (defn- validate-coord! [lib coord]
   (when-not (map? coord)
     (bad! (str lib " coord must be a map") {:lib lib}))
-  (let [url (:git/url coord)
-        sha (:git/sha coord)
-        tag (:git/tag coord)]
+  (let [url  (:git/url coord)
+        sha  (:git/sha coord)
+        tag  (:git/tag coord)
+        root (:deps/root coord)]
     (when-not (string? url)
       (bad! (str lib " missing :git/url") {:lib lib}))
     (when-not (or (string? sha) (string? tag))
       (bad! (str lib " must specify :git/sha or :git/tag") {:lib lib}))
+    (when (contains? coord :deps/root)
+      (when-not (string? root)
+        (bad! (str lib " :deps/root must be a string") {:lib lib}))
+      (when (str/blank? root)
+        (bad! (str lib " :deps/root must be non-blank") {:lib lib}))
+      (when (str/starts-with? root "/")
+        (bad! (str lib " :deps/root must be relative (no leading /)") {:lib lib}))
+      (when (some #(= ".." %) (str/split root "/"))
+        (bad! (str lib " :deps/root must not contain .. segments") {:lib lib})))
     coord))
 
 (def ^:private allowed-top-level #{:deps})

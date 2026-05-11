@@ -42,8 +42,8 @@ namespaces it requires.
 1. Find the project root by walking up from the current directory until
    a directory contains `lgx.edn`.
 2. Read `lgx.edn`, validate the schema
-   (`{:deps {<lib> {:git/url … :git/sha or :git/tag …}}}`), and return
-   the coord vector.
+   (`{:deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`),
+   and return the coord vector.
 3. For each coord, call `cache/ensure-lib!`. Resolve `:git/tag` to a sha
    via `git ls-remote` if no `:git/sha` is given. If the cache directory
    for `(url, sha)` already exists, return its path. Otherwise clone the
@@ -83,10 +83,17 @@ $LGX_HOME/gitlibs/<host>/<owner>/<repo>/<sha>/
 URL and the resolved sha, mirroring `tools.gitlibs`. Each leaf is a
 read-only worktree.
 
-When `cache/ensure-lib!` returns a path for the resolver, it returns
-`<sha>/src/` if that subdirectory exists, otherwise `<sha>/`. This
-matches the `tools.deps` default of `:paths ["src"]` and works for most
-Clojure-style libraries without per-coord configuration.
+By default, `cache/ensure-lib!` returns `<sha>/src/` if that
+subdirectory exists, otherwise `<sha>/`. This matches the `tools.deps`
+default of `:paths ["src"]` and works for most Clojure-style libraries
+without per-coord configuration.
+
+A coord may set `:deps/root <relative-path>` to override the default
+probe. lgx then uses `<sha>/<deps/root>` verbatim as the source path —
+no further probing. The value must be a relative path with no `..`
+segments; if the directory does not exist after clone, `ensure-lib!`
+throws. This handles libs that ship sources under non-standard
+locations, e.g. `org.clojure/tools.cli` with `:deps/root "src/main/clojure"`.
 
 ## External dependencies
 

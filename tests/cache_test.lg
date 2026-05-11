@@ -81,6 +81,50 @@
            (cache/ensure-lib! {:git/url url :git/sha sha})))
     (os/sh "rm" "-rf" home)))
 
+(deftest ensure-lib-uses-deps-root-when-set
+  (let [home     (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha      "2222222222222222222222222222222222222222"
+        url      "https://github.com/example/customroot"
+        dir      (str home "/gitlibs/github.com/example/customroot/" sha)
+        root-dir (str dir "/src/main/clojure")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir root-dir)
+    (is (= {:path root-dir :installed? false}
+           (cache/ensure-lib! {:git/url   url
+                               :git/sha   sha
+                               :deps/root "src/main/clojure"})))
+    (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-throws-when-deps-root-missing
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha  "3333333333333333333333333333333333333333"
+        url  "https://github.com/example/missingroot"
+        dir  (str home "/gitlibs/github.com/example/missingroot/" sha)]
+    (os/setenv "LGX_HOME" home)
+    (mkdir dir)
+    (is (= :threw (threw? #(cache/ensure-lib! {:git/url   url
+                                                :git/sha   sha
+                                                :deps/root "nope/missing"}))))
+    (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-normalizes-trailing-slash
+  (let [home     (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha      "4444444444444444444444444444444444444444"
+        url      "https://github.com/example/trailing"
+        dir      (str home "/gitlibs/github.com/example/trailing/" sha)
+        root-dir (str dir "/lib/core")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir root-dir)
+    (is (= {:path root-dir :installed? false}
+           (cache/ensure-lib! {:git/url   url
+                               :git/sha   sha
+                               :deps/root "lib/core/"})))
+    (is (= {:path root-dir :installed? false}
+           (cache/ensure-lib! {:git/url   url
+                               :git/sha   sha
+                               :deps/root "lib/core"})))
+    (os/sh "rm" "-rf" home)))
+
 ;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------

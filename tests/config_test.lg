@@ -51,6 +51,44 @@
   (is (= :threw (threw? #(config/validate-config!
                           {:deps {'foo/bar "not-a-map"}})))))
 
+(deftest validate-config-accepts-deps-root
+  (let [cfg {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
+                              :git/sha   "abc"
+                              :deps/root "src/main/clojure"}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-blank-deps-root
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
+                                            :git/sha   "abc"
+                                            :deps/root ""}}}))))
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
+                                            :git/sha   "abc"
+                                            :deps/root "   "}}})))))
+
+(deftest validate-config-rejects-non-string-deps-root
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
+                                            :git/sha   "abc"
+                                            :deps/root 5}}})))))
+
+(deftest validate-config-rejects-absolute-deps-root
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
+                                            :git/sha   "abc"
+                                            :deps/root "/src"}}})))))
+
+(deftest validate-config-rejects-parent-traversal
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
+                                            :git/sha   "abc"
+                                            :deps/root ".."}}}))))
+  (is (= :threw (threw? #(config/validate-config!
+                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
+                                            :git/sha   "abc"
+                                            :deps/root "src/../etc"}}})))))
+
 ;; ---------------------------------------------------------------------------
 ;; coords
 ;; ---------------------------------------------------------------------------
