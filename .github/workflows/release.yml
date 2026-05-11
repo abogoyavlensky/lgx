@@ -76,7 +76,7 @@ jobs:
             tar -xzf "$tarball" -C "bases/$target"
             rm -f "$tarball"
 
-            lg -b -bundle-base "bases/$target/lg" "build/$target/lgx" lgx.lg
+            lg -b "build/$target/lgx" -bundle-base "bases/$target/lg" lgx.lg
 
             archive="lgx_${version}_${target}.tar.gz"
             tar -czf "dist/$archive" -C "build/$target" lgx
