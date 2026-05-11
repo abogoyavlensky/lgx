@@ -1,0 +1,9 @@
+[tools]
+lg = "1.7.2"
+cljfmt = "0.16.4"
+lefthook = "2.1.6"
+
+[tool_alias]
+lg = "github:nooga/let-go"
+cljfmt = "asdf:https://github.com/b-social/asdf-cljfmt"
+

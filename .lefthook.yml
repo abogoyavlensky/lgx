@@ -1,0 +1,9 @@
+pre-push:
+  parallel: true
+  commands:
+    # fmt:
+    #   glob: "*.{clj,cljc,cljs,edn}"
+    #   run: make fmt-check
+    test:
+      glob: "*.{lg}"
+      run: make test
