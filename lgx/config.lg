@@ -29,6 +29,16 @@
 (defn- bad! [msg ctx]
   (throw (ex-info (str "lgx.edn: " msg) (or ctx {}))))
 
+(defn- validate-rel-path! [label value ctx]
+  (when-not (string? value)
+    (bad! (str label " must be a string") ctx))
+  (when (str/blank? value)
+    (bad! (str label " must be non-blank") ctx))
+  (when (str/starts-with? value "/")
+    (bad! (str label " must be relative (no leading /)") ctx))
+  (when (some #(= ".." %) (str/split value "/"))
+    (bad! (str label " must not contain .. segments") ctx)))
+
 (defn- validate-coord! [lib coord]
   (when-not (map? coord)
     (bad! (str lib " coord must be a map") {:lib lib}))
@@ -41,17 +51,16 @@
     (when-not (or (string? sha) (string? tag))
       (bad! (str lib " must specify :git/sha or :git/tag") {:lib lib}))
     (when (contains? coord :deps/root)
-      (when-not (string? root)
-        (bad! (str lib " :deps/root must be a string") {:lib lib}))
-      (when (str/blank? root)
-        (bad! (str lib " :deps/root must be non-blank") {:lib lib}))
-      (when (str/starts-with? root "/")
-        (bad! (str lib " :deps/root must be relative (no leading /)") {:lib lib}))
-      (when (some #(= ".." %) (str/split root "/"))
-        (bad! (str lib " :deps/root must not contain .. segments") {:lib lib})))
+      (validate-rel-path! (str lib " :deps/root") root {:lib lib}))
     coord))
 
-(def ^:private allowed-top-level #{:deps})
+(defn- validate-paths! [paths]
+  (when-not (vector? paths)
+    (bad! ":paths must be a vector" {}))
+  (doseq [p paths]
+    (validate-rel-path! ":paths entry" p {:value p})))
+
+(def ^:private allowed-top-level #{:deps :paths})
 
 (defn validate-config! [cfg]
   (when-not (map? cfg)
@@ -64,6 +73,8 @@
       (bad! ":deps must be a map" {}))
     (doseq [[lib c] deps]
       (validate-coord! lib c)))
+  (when (contains? cfg :paths)
+    (validate-paths! (:paths cfg)))
   cfg)
 
 (defn coords
@@ -72,3 +83,10 @@
   (let [path (str project "/" config-name)
         cfg  (validate-config! (edn/read-string (slurp path)))]
     (vec (:deps cfg))))
+
+(defn paths
+  "Return the project's :paths vector from lgx.edn, or [] if absent."
+  [project]
+  (let [path (str project "/" config-name)
+        cfg  (validate-config! (edn/read-string (slurp path)))]
+    (or (:paths cfg) [])))

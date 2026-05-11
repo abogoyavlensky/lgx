@@ -1,5 +1,7 @@
 # Top-level `:paths` for project sources
 
+## Status: completed
+
 ## Context
 
 Today `lgx run` builds `-source-paths` from cached lib paths only. There
@@ -182,3 +184,28 @@ would add fragility; unit tests cover the helper.
 - `lgx.edn` without `:paths`; `lgx run` behaves exactly as before.
 - `lgx install` with `:paths` set: silent w.r.t. `:paths`, unchanged
   output.
+
+## Outcome
+
+Implemented:
+
+- `lgx/config.lg` accepts top-level `:paths`, shares relative-path
+  validation with `:deps/root`, and exposes `config/paths`.
+- `lgx.lg` resolves project paths against the project root, warns for
+  missing entries, and prepends them to dependency source paths for
+  `lgx run`.
+- `tests/config_test.lg` covers valid and invalid `:paths` shapes plus
+  fixture-backed `config/paths` reading.
+- `README.md` and `docs/ARCHITECTURE.md` document `:paths` and
+  `:deps/root`; retired roadmap items were removed.
+
+Verification:
+
+- `lg tests/config_test.lg` passes: 24 tests, 30 assertions.
+- `make test` passes: config unit tests, cache unit tests, bundling, and
+  19 existing e2e assertions.
+- Manual checks with
+  `LGX_LG=/Users/andrew/Projects/let-go/lg` confirm `lgx run` can
+  require a namespace from project `:paths`, warns and continues for
+  missing entries, behaves normally without `:paths`, and leaves
+  `lgx install` silent with respect to `:paths`.

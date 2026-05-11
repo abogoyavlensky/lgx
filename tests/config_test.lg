@@ -30,6 +30,14 @@
   (is (= {:deps {}} (config/validate-config! {:deps {}})))
   (is (= {}        (config/validate-config! {}))))
 
+(deftest validate-config-accepts-paths
+  (is (= {:paths ["src" "resources"] :deps {}}
+         (config/validate-config! {:paths ["src" "resources"] :deps {}}))))
+
+(deftest validate-config-accepts-empty-paths
+  (is (= {:paths []}
+         (config/validate-config! {:paths []}))))
+
 (deftest validate-config-rejects-non-map-top-level
   (is (= :threw (threw? #(config/validate-config! [:not :a :map])))))
 
@@ -38,6 +46,9 @@
 
 (deftest validate-config-rejects-deps-not-a-map
   (is (= :threw (threw? #(config/validate-config! {:deps [:not :a :map]})))))
+
+(deftest validate-config-rejects-paths-not-a-vector
+  (is (= :threw (threw? #(config/validate-config! {:paths "src"})))))
 
 (deftest validate-config-rejects-coord-missing-url
   (is (= :threw (threw? #(config/validate-config!
@@ -89,6 +100,18 @@
                                             :git/sha   "abc"
                                             :deps/root "src/../etc"}}})))))
 
+(deftest validate-config-rejects-blank-paths-entry
+  (is (= :threw (threw? #(config/validate-config! {:paths [""]})))))
+
+(deftest validate-config-rejects-non-string-paths-entry
+  (is (= :threw (threw? #(config/validate-config! {:paths [5]})))))
+
+(deftest validate-config-rejects-absolute-paths-entry
+  (is (= :threw (threw? #(config/validate-config! {:paths ["/abs"]})))))
+
+(deftest validate-config-rejects-parent-traversal-paths-entry
+  (is (= :threw (threw? #(config/validate-config! {:paths ["../etc"]})))))
+
 ;; ---------------------------------------------------------------------------
 ;; coords
 ;; ---------------------------------------------------------------------------
@@ -101,6 +124,16 @@
     (is (= "46ce159c9b23021ff7bf38c14e812516c1e2e359"
            (:git/sha (get m 'nooga/let-go))))
     (is (= "v0.1.0" (:git/tag (get m 'example/tagged))))))
+
+;; ---------------------------------------------------------------------------
+;; paths
+;; ---------------------------------------------------------------------------
+
+(deftest paths-returns-empty-when-absent
+  (is (= [] (or (:paths (config/validate-config! {:deps {}})) []))))
+
+(deftest paths-reads-fixture
+  (is (= ["src" "test"] (config/paths "tests/fixtures/sample-project"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

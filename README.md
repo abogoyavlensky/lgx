@@ -89,22 +89,31 @@ install -m 0755 lgx ~/.local/bin/
 ## `lgx.edn`
 
 ```edn
-{:deps
+{:paths ["src" "resources"]
+ :deps
  {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
                           :git/tag "v0.2.0"}
-  some-org/util      {:git/url "https://github.com/some-org/util"
-                      :git/sha "0123456789abcdef0123456789abcdef01234567"}}}
+  org.clojure/tools.cli {:git/url "https://github.com/clojure/tools.cli"
+                         :git/sha "0123456789abcdef0123456789abcdef01234567"
+                         :deps/root "src/main/clojure"}}}
 ```
 
 Each coord must specify `:git/url` plus one of `:git/sha` or `:git/tag`. Tags
 are resolved to a sha at install time via `git ls-remote`. Sha-pinned coords
 are fully reproducible; tag-pinned coords re-resolve on each `lgx install`.
 
+Top-level `:paths` lists project source paths relative to the project root.
+`lgx run` prepends them to dependency paths in `-source-paths`, so project
+namespaces shadow lib namespaces. Missing entries print a warning and still
+pass through to `lg`.
+
 For each lib, the path added to `-source-paths` is `<sha>/src` if that dir
 exists, else the repo root. This matches the tools.deps default of
 `:paths ["src"]` and works out of the box for most Clojure-style libraries.
+Set `:deps/root` on a coord to override that default. For example,
+`org.clojure/tools.cli` uses `:deps/root "src/main/clojure"`.
 
-Current limitations: HTTPS URLs only (no SSH), no transitive deps, no per-coord `:paths` override.
+Current limitations: HTTPS URLs only (no SSH), no transitive deps.
 
 ## Cache layout
 
@@ -148,20 +157,22 @@ LGX_LG=/path/to/lg bin/lgx run script.lg
 Concrete things on the table, not commitments. Order is
 priority-agnostic.
 
-- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
-  libs and resolve the union, with first-wins on conflicts. Today lgx
-  reads only the project's own `lgx.edn`.
-- [ ] `:paths` override.
-- [ ] **Per-coord `:deps/root`.** Override the `<sha>/src` default per
+- [x] `:paths` source paths.
+- [x] **Per-coord `:deps/root`.** Override the `<sha>/src` default per
   dependency, matching tools.deps' `:deps/root`.
-- [ ] **Aliases.** Per-environment dep sets in `lgx.edn`
-  (e.g. `:test`, `:dev`) selectable from the CLI.
-- [ ] **Tasks.** Named command shortcuts.
 - [ ] **`lgx paths` command.** Print the fully-resolved source-path list
   lgx would hand to `lg`.
+- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
+  libs and resolve the union, with first-wins on conflicts.
+- [ ] **Aliases.** Per-environment dep sets in `lgx.edn`
+  (e.g. `:migrate`, `:dev`) selectable from the CLI.
+- [ ] **Tasks.** Named command shortcuts.
 - [ ] **Non-source resources** (let-go-side). `lg`'s resolver finds `.lg`
   and `.cljc` only; libs that ship templates, JSON, or other assets
   have no resolution story. Likely needs an upstream change.
+- [ ] `:test-paths` override.
+- [ ] `lgx build` - build project binary.
+- [ ] `lgx repl` - run repl.
 - [ ] `lgx test` - test runner.
 - [ ] `lgx new` - project scaffolding.
 - [ ] [OPTIONAL] **`lgx fmt` / `lgx lint`** *(maybe)*. Thin wrappers if the let-go

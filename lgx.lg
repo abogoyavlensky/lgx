@@ -42,11 +42,20 @@
 (defn- cmd-version []
   (println (str "lgx " version)))
 
+(defn- resolve-project-paths [project paths]
+  (mapv (fn [p]
+          (let [abs (str project "/" p)]
+            (when-not (file-exists? abs)
+              (write! *err* (str "warning: :paths entry not found: " p "\n")))
+            abs))
+        paths))
+
 (defn- cmd-run [forward-args]
   (let [project (config/find-project!)
         coords  (config/coords project)
         results (ensure-all! coords)
-        paths   (mapv :path results)]
+        own-paths (resolve-project-paths project (config/paths project))
+        paths   (vec (concat own-paths (mapv :path results)))]
     (print-installs! results)
     (runner/exec-lg! paths forward-args)))
 

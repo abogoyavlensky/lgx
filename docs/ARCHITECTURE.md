@@ -42,7 +42,7 @@ namespaces it requires.
 1. Find the project root by walking up from the current directory until
    a directory contains `lgx.edn`.
 2. Read `lgx.edn`, validate the schema
-   (`{:deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`),
+   (`{:paths [<rel-path> ...] :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`),
    and return the coord vector.
 3. For each coord, call `cache/ensure-lib!`. Resolve `:git/tag` to a sha
    via `git ls-remote` if no `:git/sha` is given. If the cache directory
@@ -63,6 +63,12 @@ Steps 1–3 match `install` — deps are auto-installed if missing. Then:
    block as `lgx install` (header + per-new-dep lines + `done`).
    Otherwise stay silent — no `all deps up to date` chatter before the
    script.
+
+If `lgx.edn` sets top-level `:paths`, lgx resolves those
+project-root-relative paths to absolute paths and prepends them to the
+cached lib paths before the join. Missing entries log a warning to
+stderr, but lgx still passes the resolved path through to `lg`.
+
 5. Compute the `-source-paths` argument by joining the cached paths
    with the OS path-list separator.
 6. Exec `lg -source-paths <paths> [args...]`. Forwarded args reach `lg`
