@@ -9,6 +9,36 @@ search path.
 
 Pre-alpha. Expect breakage.
 
+## Installation
+
+Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
+`darwin_arm64` are attached to each GitHub Release.
+
+### With [mise](https://mise.jdx.dev)
+
+```toml
+# .mise.toml
+[tools]
+"ubi:abogoyavlensky/lgx" = "latest"
+```
+
+Or ad hoc: `mise use ubi:abogoyavlensky/lgx@0.1.0`. The `ubi` backend
+needs no asdf plugin.
+
+### Manual download
+
+```sh
+VERSION=0.1.0
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # linux | darwin
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -sSL -o lgx.tar.gz \
+  "https://github.com/abogoyavlensky/lgx/releases/download/v${VERSION}/lgx_${VERSION}_${OS}_${ARCH}.tar.gz"
+tar -xzf lgx.tar.gz
+sudo mv lgx /usr/local/bin/
+```
+
+`checksums.txt` next to the archives lets you verify the download.
+
 ## Requirements
 
 - [`lg`](https://github.com/nooga/let-go) on `PATH`, or pointed to by
