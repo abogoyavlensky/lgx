@@ -3,6 +3,10 @@
 LG ?= lg
 BIN := bin/lgx
 
+# Extract version from lgx.lg
+VERSION := $(strip $(shell awk -F '"' '/def[[:space:]]+version[[:space:]]+"/ { print $$2; exit }' lgx.lg))
+TAG := v$(VERSION)
+
 # Styling for output
 YELLOW := "\e[1;33m"
 NC := "\e[0m"
@@ -55,3 +59,10 @@ fmt-check:
 clean:
 	@$(INFO) "Cleaning build artifacts..."
 	rm -rf $(dir $(BIN))
+
+.PHONY: release  # Add tag and push to build and publish release version in CI
+release:
+	@$(INFO) "Publishing release version $(TAG)..."
+	@test -n "$(VERSION)" || { echo "Could not read version from lgx.lg"; exit 1; }
+	git tag "$(TAG)"
+	git push origin "$(TAG)"
