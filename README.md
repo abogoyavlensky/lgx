@@ -16,10 +16,16 @@ Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
 
 ### With [mise](https://mise.jdx.dev)
 
+*.mise.toml*
 ```toml
-# .mise.toml
 [tools]
-"github:abogoyavlensky/lgx" = "0.1.0-alpha1"
+lg = "latest"
+lgx = "latest"
+
+[tool_alias]
+lg = "github:nooga/let-go"
+lgx = "github:abogoyavlensky/lgx"
+
 ```
 
 Or ad hoc: `mise use github:abogoyavlensky/lgx@0.1.0-alpha1`. The
