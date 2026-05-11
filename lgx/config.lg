@@ -1,7 +1,7 @@
 (ns lgx.config
-  (:require [lgx.path :as path]
-            [string :as str]
-            [edn]))
+  (:require [edn]
+            [lgx.path :as path]
+            [string :as str]))
 
 (def config-name "lgx.edn")
 
@@ -37,9 +37,9 @@
 (defn- validate-coord! [lib coord]
   (when-not (map? coord)
     (bad! (str lib " coord must be a map") {:lib lib}))
-  (let [url  (:git/url coord)
-        sha  (:git/sha coord)
-        tag  (:git/tag coord)
+  (let [url (:git/url coord)
+        sha (:git/sha coord)
+        tag (:git/tag coord)
         root (:deps/root coord)]
     (when-not (string? url)
       (bad! (str lib " missing :git/url") {:lib lib}))
@@ -76,12 +76,12 @@
   "Return a vector of [lib coord] pairs from the project's lgx.edn."
   [project]
   (let [config-path (path/join project config-name)
-        cfg         (validate-config! (edn/read-string (slurp config-path)))]
+        cfg (validate-config! (edn/read-string (slurp config-path)))]
     (vec (:deps cfg))))
 
 (defn paths
   "Return the project's :paths vector from lgx.edn, or [] if absent."
   [project]
   (let [config-path (path/join project config-name)
-        cfg         (validate-config! (edn/read-string (slurp config-path)))]
+        cfg (validate-config! (edn/read-string (slurp config-path)))]
     (or (:paths cfg) [])))

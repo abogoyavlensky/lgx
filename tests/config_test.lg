@@ -16,23 +16,25 @@
   (is (= {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
                                 :git/sha "abc"}}}
          (config/validate-config!
-          {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
-                                 :git/sha "abc"}}}))))
+           {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
+                                  :git/sha "abc"}}}))))
 
 (deftest validate-config-accepts-tag-only-coord
   (is (= {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
                            :git/tag "v0.1.0"}}}
          (config/validate-config!
-          {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                            :git/tag "v0.1.0"}}}))))
+           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                             :git/tag "v0.1.0"}}}))))
 
 (deftest validate-config-accepts-empty-deps
   (is (= {:deps {}} (config/validate-config! {:deps {}})))
-  (is (= {}        (config/validate-config! {}))))
+  (is (= {} (config/validate-config! {}))))
 
 (deftest validate-config-accepts-paths
-  (is (= {:paths ["src" "resources"] :deps {}}
-         (config/validate-config! {:paths ["src" "resources"] :deps {}}))))
+  (is (= {:paths ["src" "resources"]
+          :deps {}}
+         (config/validate-config! {:paths ["src" "resources"]
+                                   :deps {}}))))
 
 (deftest validate-config-accepts-empty-paths
   (is (= {:paths []}
@@ -42,7 +44,8 @@
   (is (= :threw (threw? #(config/validate-config! [:not :a :map])))))
 
 (deftest validate-config-rejects-unknown-top-level-key
-  (is (= :threw (threw? #(config/validate-config! {:deps {} :extra 1})))))
+  (is (= :threw (threw? #(config/validate-config! {:deps {}
+                                                   :extra 1})))))
 
 (deftest validate-config-rejects-deps-not-a-map
   (is (= :threw (threw? #(config/validate-config! {:deps [:not :a :map]})))))
@@ -52,53 +55,53 @@
 
 (deftest validate-config-rejects-coord-missing-url
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/sha "abc"}}})))))
+                           {:deps {'foo/bar {:git/sha "abc"}}})))))
 
 (deftest validate-config-rejects-coord-without-sha-or-tag
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/url "https://github.com/foo/bar"}}})))))
+                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"}}})))))
 
 (deftest validate-config-rejects-non-map-coord
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar "not-a-map"}})))))
+                           {:deps {'foo/bar "not-a-map"}})))))
 
 (deftest validate-config-accepts-deps-root
-  (let [cfg {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
-                              :git/sha   "abc"
+  (let [cfg {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                              :git/sha "abc"
                               :deps/root "src/main/clojure"}}}]
     (is (= cfg (config/validate-config! cfg)))))
 
 (deftest validate-config-rejects-blank-deps-root
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
-                                            :git/sha   "abc"
-                                            :deps/root ""}}}))))
+                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                                             :git/sha "abc"
+                                             :deps/root ""}}}))))
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
-                                            :git/sha   "abc"
-                                            :deps/root "   "}}})))))
+                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                                             :git/sha "abc"
+                                             :deps/root "   "}}})))))
 
 (deftest validate-config-rejects-non-string-deps-root
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
-                                            :git/sha   "abc"
-                                            :deps/root 5}}})))))
+                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                                             :git/sha "abc"
+                                             :deps/root 5}}})))))
 
 (deftest validate-config-rejects-absolute-deps-root
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
-                                            :git/sha   "abc"
-                                            :deps/root "/src"}}})))))
+                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                                             :git/sha "abc"
+                                             :deps/root "/src"}}})))))
 
 (deftest validate-config-rejects-parent-traversal
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
-                                            :git/sha   "abc"
-                                            :deps/root ".."}}}))))
+                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                                             :git/sha "abc"
+                                             :deps/root ".."}}}))))
   (is (= :threw (threw? #(config/validate-config!
-                          {:deps {'foo/bar {:git/url   "https://github.com/foo/bar"
-                                            :git/sha   "abc"
-                                            :deps/root "src/../etc"}}})))))
+                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                                             :git/sha "abc"
+                                             :deps/root "src/../etc"}}})))))
 
 (deftest validate-config-rejects-blank-paths-entry
   (is (= :threw (threw? #(config/validate-config! {:paths [""]})))))
@@ -118,7 +121,7 @@
 
 (deftest coords-reads-and-parses-fixture
   (let [cs (config/coords "tests/fixtures/sample-project")
-        m  (into {} cs)]
+        m (into {} cs)]
     (is (= 2 (count cs)))
     (is (= "https://github.com/nooga/let-go" (:git/url (get m 'nooga/let-go))))
     (is (= "46ce159c9b23021ff7bf38c14e812516c1e2e359"

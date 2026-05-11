@@ -21,7 +21,7 @@
   [lib-paths forward-args]
   (let [args (vec (concat (or (source-paths-flag lib-paths) [])
                           forward-args))
-        r    (apply os/sh (lg-binary) args)]
+        r (apply os/sh (lg-binary) args)]
     ;; Replay captured output. Imperfect substitute for inherited stdio.
     (when (seq (:out r)) (write! *out* (:out r)))
     (when (seq (:err r)) (write! *err* (:err r)))

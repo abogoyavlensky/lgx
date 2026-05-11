@@ -7,24 +7,24 @@
    Empty segments are dropped. Leading '/' on the first segment is
    preserved."
   [& segments]
-  (let [sep       os/file-separator
-        parts     (mapcat #(str/split % "/") segments)
+  (let [sep os/file-separator
+        parts (mapcat #(str/split % "/") segments)
         absolute? (and (seq segments)
                        (str/starts-with? (first segments) "/"))
-        cleaned   (filter #(not (str/blank? %)) parts)
-        joined    (str/join sep cleaned)]
+        cleaned (filter #(not (str/blank? %)) parts)
+        joined (str/join sep cleaned)]
     (if absolute? (str sep joined) joined)))
 
 (defn parent
   "Return the parent directory of path, or nil if path has no parent.
    Filesystem root returns nil. Trailing separator is ignored."
   [path]
-  (let [sep     os/file-separator
+  (let [sep os/file-separator
         trimmed (if (and (> (count path) 1) (str/ends-with? path sep))
                   (subs path 0 (dec (count path)))
                   path)
-        i       (str/last-index-of trimmed sep)]
+        i (str/last-index-of trimmed sep)]
     (cond
-      (nil? i)  nil
+      (nil? i) nil
       (zero? i) (when (> (count trimmed) 1) sep)
-      :else     (subs trimmed 0 i))))
+      :else (subs trimmed 0 i))))

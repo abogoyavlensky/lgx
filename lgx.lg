@@ -1,6 +1,6 @@
 (ns lgx.main
-  (:require [lgx.config :as config]
-            [lgx.cache :as cache]
+  (:require [lgx.cache :as cache]
+            [lgx.config :as config]
             [lgx.path :as path]
             [lgx.runner :as runner]
             [string :as str]))
@@ -19,7 +19,9 @@
 (defn- ensure-all! [coords]
   (mapv (fn [[lib c]]
           (let [{:keys [path installed?]} (cache/ensure-lib! c)]
-            {:lib lib :path path :installed? installed?}))
+            {:lib lib
+             :path path
+             :installed? installed?}))
         coords))
 
 (defn- print-installs! [results]
@@ -32,7 +34,7 @@
 
 (defn- cmd-install []
   (let [project (config/find-project!)
-        coords  (config/coords project)]
+        coords (config/coords project)]
     (if (empty? coords)
       (println "no deps in lgx.edn")
       (let [results (ensure-all! coords)]
@@ -53,10 +55,10 @@
 
 (defn- cmd-run [forward-args]
   (let [project (config/find-project!)
-        coords  (config/coords project)
+        coords (config/coords project)
         results (ensure-all! coords)
         own-paths (resolve-project-paths project (config/paths project))
-        paths   (vec (concat own-paths (mapv :path results)))]
+        paths (vec (concat own-paths (mapv :path results)))]
     (print-installs! results)
     (runner/exec-lg! paths forward-args)))
 
@@ -73,19 +75,19 @@
       (rest argv))))
 
 (defn- main []
-  (let [argv      (user-args)
-        cmd       (first argv)
+  (let [argv (user-args)
+        cmd (first argv)
         rest-args (rest argv)]
     (case cmd
-      "install"   (cmd-install)
-      "run"       (cmd-run (vec rest-args))
-      "version"   (cmd-version)
-      "-v"        (cmd-version)
+      "install" (cmd-install)
+      "run" (cmd-run (vec rest-args))
+      "version" (cmd-version)
+      "-v" (cmd-version)
       "--version" (cmd-version)
-      "help"      (print usage)
-      "-h"        (print usage)
-      "--help"    (print usage)
-      nil         (do (print usage) (os/exit 1))
+      "help" (print usage)
+      "-h" (print usage)
+      "--help" (print usage)
+      nil (do (print usage) (os/exit 1))
       (do (println "unknown command:" cmd)
           (print usage)
           (os/exit 1)))))

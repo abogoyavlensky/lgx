@@ -32,8 +32,8 @@
                    url)]
     (cond
       (str/starts-with? stripped "file://")
-      (let [path     (subs stripped 7)
-            slash    (str/last-index-of path "/")
+      (let [path (subs stripped 7)
+            slash (str/last-index-of path "/")
             basename (if (nil? slash) path (subs path (inc slash)))]
         (when (str/blank? basename)
           (throw (ex-info (str "unsupported git url: " url) {:url url})))
@@ -57,24 +57,26 @@
   (let [r (apply os/sh "git" args)]
     (when-not (zero? (:exit r))
       (throw (ex-info (str fail-msg ": " (:err r))
-                      {:exit (:exit r) :stderr (:err r)})))
+                      {:exit (:exit r)
+                       :stderr (:err r)})))
     r))
 
 (defn- resolve-tag->sha [url tag]
-  (let [r       (git! ["ls-remote" url (str "refs/tags/" tag)]
-                      (str "git ls-remote failed for " url))
-        line    (str/trim (:out r))
+  (let [r (git! ["ls-remote" url (str "refs/tags/" tag)]
+                (str "git ls-remote failed for " url))
+        line (str/trim (:out r))
         ;; output is "<sha>\trefs/tags/<tag>"; take the first token.
-        sha     (first (str/split line "\t"))]
+        sha (first (str/split line "\t"))]
     (when (or (nil? sha) (str/blank? sha))
       (throw (ex-info (str "tag not found: " tag " in " url)
-                      {:url url :tag tag})))
+                      {:url url
+                       :tag tag})))
     sha))
 
 (defn- clone-and-checkout! [url sha dest]
   ;; Use a tmp dir as parent for atomicity, then rename.
   (let [parent (path/parent dest)
-        tmp    (str dest ".tmp." (str (rand-int 1000000)))]
+        tmp (str dest ".tmp." (str (rand-int 1000000)))]
     (mkdir parent)
     (git! ["clone" "--quiet" url tmp]
           (str "git clone failed: " url))
@@ -84,11 +86,14 @@
     (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
       (when-not (zero? (:exit r))
         (throw (ex-info "failed to remove .git from worktree"
-                        {:dir tmp :stderr (:err r)}))))
+                        {:dir tmp
+                         :stderr (:err r)}))))
     (let [r (os/sh "mv" tmp dest)]
       (when-not (zero? (:exit r))
         (throw (ex-info "failed to finalize worktree"
-                        {:from tmp :to dest :stderr (:err r)}))))))
+                        {:from tmp
+                         :to dest
+                         :stderr (:err r)}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source path resolution
@@ -101,7 +106,10 @@
     (let [resolved (path/join dir root)]
       (when-not (file-exists? resolved)
         (throw (ex-info (str ":deps/root " root " not found in " url)
-                        {:url url :sha sha :root root :resolved resolved})))
+                        {:url url
+                         :sha sha
+                         :root root
+                         :resolved resolved})))
       resolved)
     ;; Convention: if the lib has a src/ dir, that's where namespaces live
     ;; (matches tools.deps default :paths ["src"]). Otherwise use the repo root.
@@ -116,11 +124,11 @@
   "Fetch the coord into the gitlibs cache if missing. Returns
    {:path <local path> :installed? <true if this call cloned>}."
   [coord]
-  (let [url        (:git/url coord)
-        root       (:deps/root coord)
-        sha        (or (:git/sha coord)
-                       (resolve-tag->sha url (:git/tag coord)))
-        dir        (coord-dir url sha)
+  (let [url (:git/url coord)
+        root (:deps/root coord)
+        sha (or (:git/sha coord)
+                (resolve-tag->sha url (:git/tag coord)))
+        dir (coord-dir url sha)
         installed? (not (file-exists? dir))]
     (when installed?
       (clone-and-checkout! url sha dir))
