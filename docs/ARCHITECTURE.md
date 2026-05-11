@@ -29,10 +29,11 @@ embedded git library ended up shelling out for edge cases anyway.
 lgx.lg              ns lgx.main — entry, argv parsing, subcommand dispatch
 lgx/config.lg       find lgx.edn (walks up), parse and validate :deps
 lgx/cache.lg        gitlibs cache layout, fetch via git
+lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, exec with -source-paths
 ```
 
-`lgx.main` holds the entry point; the other three are stateless helper
+`lgx.main` holds the entry point; the other namespaces are stateless helper
 namespaces it requires.
 
 ## Data flow

@@ -1,0 +1,62 @@
+;; Unit tests for lgx.path.
+;; Run with: lg tests/path_test.lg  (from project root)
+
+(ns lgx.path-test
+  (:require [lgx.path :as path]
+            [test :refer [deftest is run-tests]]))
+
+(def sep os/file-separator)
+
+;; ---------------------------------------------------------------------------
+;; join
+;; ---------------------------------------------------------------------------
+
+(deftest join-two-segments
+  (is (= (str "a" sep "b") (path/join "a" "b"))))
+
+(deftest join-variadic
+  (is (= (str "a" sep "b" sep "c") (path/join "a" "b" "c"))))
+
+(deftest join-splits-embedded-slashes
+  (is (= (str "a" sep "b" sep "c") (path/join "a" "b/c"))))
+
+(deftest join-preserves-absolute
+  (is (= (str sep "a" sep "b") (path/join "/a" "b"))))
+
+(deftest join-drops-empty-segments
+  (is (= (str "a" sep "b") (path/join "a" "" "b"))))
+
+(deftest join-drops-trailing-slash
+  (is (= (str "a" sep "b") (path/join "a" "b/"))))
+
+(deftest join-single-segment
+  (is (= "a" (path/join "a")))
+  (is (= sep (path/join "/"))))
+
+;; ---------------------------------------------------------------------------
+;; parent
+;; ---------------------------------------------------------------------------
+
+(deftest parent-strips-last-component
+  (is (= (str sep "a" sep "b")
+         (path/parent (str sep "a" sep "b" sep "c")))))
+
+(deftest parent-root-returns-nil
+  (is (= nil (path/parent sep))))
+
+(deftest parent-no-separator-returns-nil
+  (is (= nil (path/parent "abc"))))
+
+(deftest parent-trailing-separator
+  (is (= (str sep "a")
+         (path/parent (str sep "a" sep "b" sep)))))
+
+(deftest parent-one-level-from-root
+  (is (= sep (path/parent (str sep "abc")))))
+
+;; ---------------------------------------------------------------------------
+;; Run
+;; ---------------------------------------------------------------------------
+
+(run-tests)
+(when-not test/*test-result* (os/exit 1))

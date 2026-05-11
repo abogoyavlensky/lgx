@@ -1,5 +1,6 @@
 (ns lgx.cache
-  (:require [string :as str]))
+  (:require [lgx.path :as path]
+            [string :as str]))
 
 ;; ---------------------------------------------------------------------------
 ;; Cache layout
@@ -14,11 +15,11 @@
 (defn- home-dir []
   (let [override (os/getenv "LGX_HOME")]
     (if (str/blank? override)
-      (str (os/getenv "HOME") "/.lgx")
+      (path/join (os/getenv "HOME") ".lgx")
       override)))
 
 (defn- gitlibs-root []
-  (str (home-dir) "/gitlibs"))
+  (path/join (home-dir) "gitlibs"))
 
 ;; Parse a git URL into ["host" "owner" "repo"] used as the cache key.
 ;; Supported forms:
@@ -46,7 +47,7 @@
 
 (defn coord-dir [url sha]
   (let [[host owner repo] (parse-git-url url)]
-    (str (gitlibs-root) "/" host "/" owner "/" repo "/" sha)))
+    (path/join (gitlibs-root) host owner repo sha)))
 
 ;; ---------------------------------------------------------------------------
 ;; Git wrappers (shell out via os/sh; capture is fine for these short ops)
@@ -72,7 +73,7 @@
 
 (defn- clone-and-checkout! [url sha dest]
   ;; Use a tmp dir as parent for atomicity, then rename.
-  (let [parent (subs dest 0 (str/last-index-of dest "/"))
+  (let [parent (path/parent dest)
         tmp    (str dest ".tmp." (str (rand-int 1000000)))]
     (mkdir parent)
     (git! ["clone" "--quiet" url tmp]
@@ -80,7 +81,7 @@
     (git! ["-C" tmp "checkout" "--quiet" sha]
           (str "git checkout failed: " sha))
     ;; Drop the .git dir - we don't need history once we have the sha.
-    (let [r (os/sh "rm" "-rf" (str tmp "/.git"))]
+    (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
       (when-not (zero? (:exit r))
         (throw (ex-info "failed to remove .git from worktree"
                         {:dir tmp :stderr (:err r)}))))
@@ -93,24 +94,18 @@
 ;; Source path resolution
 ;; ---------------------------------------------------------------------------
 
-(defn- trim-trailing-slash [s]
-  (if (and (> (count s) 1) (str/ends-with? s "/"))
-    (subs s 0 (dec (count s)))
-    s))
-
 (defn- resolve-source-path [dir root url sha]
   (if root
     ;; :deps/root overrides the default probe. Path is used verbatim;
     ;; the directory must exist after clone, else hard error.
-    (let [normalized (trim-trailing-slash root)
-          resolved   (str dir "/" normalized)]
+    (let [resolved (path/join dir root)]
       (when-not (file-exists? resolved)
-        (throw (ex-info (str ":deps/root " normalized " not found in " url)
-                        {:url url :sha sha :root normalized :resolved resolved})))
+        (throw (ex-info (str ":deps/root " root " not found in " url)
+                        {:url url :sha sha :root root :resolved resolved})))
       resolved)
     ;; Convention: if the lib has a src/ dir, that's where namespaces live
     ;; (matches tools.deps default :paths ["src"]). Otherwise use the repo root.
-    (let [src (str dir "/src")]
+    (let [src (path/join dir "src")]
       (if (file-exists? src) src dir))))
 
 ;; ---------------------------------------------------------------------------

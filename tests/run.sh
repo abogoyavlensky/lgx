@@ -14,6 +14,7 @@ make build >/dev/null
 
 echo
 echo "==> Unit tests..."
+lg tests/path_test.lg
 lg tests/config_test.lg
 lg tests/cache_test.lg
 

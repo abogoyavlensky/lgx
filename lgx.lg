@@ -1,6 +1,7 @@
 (ns lgx.main
   (:require [lgx.config :as config]
             [lgx.cache :as cache]
+            [lgx.path :as path]
             [lgx.runner :as runner]
             [string :as str]))
 
@@ -44,7 +45,7 @@
 
 (defn- resolve-project-paths [project paths]
   (mapv (fn [p]
-          (let [abs (str project "/" p)]
+          (let [abs (path/join project p)]
             (when-not (file-exists? abs)
               (write! *err* (str "warning: :paths entry not found: " p "\n")))
             abs))

@@ -1,5 +1,7 @@
 # Portable path helpers (`lgx.path/join`, `lgx.path/parent`)
 
+## Status: completed
+
 ## Context
 
 lgx hardcodes `/` as the filesystem separator everywhere it builds or
@@ -176,3 +178,26 @@ No README change. The helper is internal.
   and `validate-rel-path!` validation (forward-slash-by-convention).
 - `lgx install` / `lgx run` against existing fixtures and examples on
   Unix continues to work identically.
+
+## Outcome
+
+Implemented:
+
+- Added `lgx/path.lg` with portable `join` and `parent` helpers.
+- Converted filesystem path joins and parent walks in `lgx/config.lg`,
+  `lgx/cache.lg`, and `lgx.lg` to use `lgx.path`.
+- Removed `trim-trailing-slash`; `path/join` now handles embedded and
+  trailing forward slashes for `:deps/root` and project `:paths`.
+- Added `tests/path_test.lg` and wired it into `tests/run.sh`.
+- Updated architecture and stdlib quick-reference docs.
+
+Verification:
+
+- `lg tests/path_test.lg` passes: 12 tests, 13 assertions.
+- `make test` passes: path/config/cache unit suites, bundling, and 19
+  e2e assertions.
+- Slash scan over `lgx/*.lg` and `lgx.lg` leaves only URL parsing,
+  `lgx.edn` forward-slash validation, a git ref string, and the
+  `lgx.path` helper implementation itself.
+- `examples/hello` install and run continue to work with
+  `LGX_LG=/Users/andrew/Projects/let-go/lg`.

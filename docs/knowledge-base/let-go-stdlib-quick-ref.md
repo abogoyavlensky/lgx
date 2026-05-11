@@ -50,6 +50,8 @@ in core, not `io`.
 
 ## What's missing or hidden
 
+- No `filepath/join` equivalent. lgx provides its own at
+  `lgx/path.lg`.
 - No way from let-go to wire a subprocess's stdio to the parent's.
 - `os/exec` returns a Go `*exec.Cmd` but exposes only `with-stdin`. You
   can't reach `Stdout`/`Stderr` fields or call `Run`/`Wait` from let-go.

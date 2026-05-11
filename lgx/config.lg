@@ -1,15 +1,9 @@
 (ns lgx.config
-  (:require [string :as str]
+  (:require [lgx.path :as path]
+            [string :as str]
             [edn]))
 
 (def config-name "lgx.edn")
-
-(defn- parent-dir [path]
-  (let [i (str/last-index-of path "/")]
-    (cond
-      (nil? i)  nil
-      (zero? i) (when (> (count path) 1) "/")
-      :else     (subs path 0 i))))
 
 (defn find-project!
   "Walk up from CWD looking for lgx.edn. Returns the project root or exits."
@@ -20,11 +14,11 @@
       (do (println "error: no" config-name "found in this or any parent directory")
           (os/exit 1))
 
-      (file-exists? (str dir "/" config-name))
+      (file-exists? (path/join dir config-name))
       dir
 
       :else
-      (recur (parent-dir dir)))))
+      (recur (path/parent dir)))))
 
 (defn- bad! [msg ctx]
   (throw (ex-info (str "lgx.edn: " msg) (or ctx {}))))
@@ -34,6 +28,7 @@
     (bad! (str label " must be a string") ctx))
   (when (str/blank? value)
     (bad! (str label " must be non-blank") ctx))
+  ;; lgx.edn path values use forward-slash by convention, matching tools.deps.
   (when (str/starts-with? value "/")
     (bad! (str label " must be relative (no leading /)") ctx))
   (when (some #(= ".." %) (str/split value "/"))
@@ -80,13 +75,13 @@
 (defn coords
   "Return a vector of [lib coord] pairs from the project's lgx.edn."
   [project]
-  (let [path (str project "/" config-name)
-        cfg  (validate-config! (edn/read-string (slurp path)))]
+  (let [config-path (path/join project config-name)
+        cfg         (validate-config! (edn/read-string (slurp config-path)))]
     (vec (:deps cfg))))
 
 (defn paths
   "Return the project's :paths vector from lgx.edn, or [] if absent."
   [project]
-  (let [path (str project "/" config-name)
-        cfg  (validate-config! (edn/read-string (slurp path)))]
+  (let [config-path (path/join project config-name)
+        cfg         (validate-config! (edn/read-string (slurp config-path)))]
     (or (:paths cfg) [])))

@@ -7,7 +7,7 @@ search path.
 
 ## Status
 
-Pre-alpha. Expect breakage.
+Pre-alpha.
 
 ## Installation
 
@@ -154,8 +154,7 @@ LGX_LG=/path/to/lg bin/lgx run script.lg
 
 ## Roadmap (draft)
 
-Concrete things on the table, not commitments. Order is
-priority-agnostic.
+Things that are currently missing or incomplete, in no particular order:
 
 - [x] `:paths` source paths.
 - [x] **Per-coord `:deps/root`.** Override the `<sha>/src` default per
