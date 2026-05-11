@@ -8,7 +8,7 @@
 
 `lg` hardcoded the namespace search path to `["."]`
 ([lg.go:432](https://github.com/nooga/let-go/blob/master/lg.go#L432)).
-External tooling — package managers, monorepos, build systems — could not
+External tooling - package managers, monorepos, build systems — could not
 point `lg` at additional directories without copying files into the project.
 
 ## Change

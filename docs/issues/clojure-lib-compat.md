@@ -6,7 +6,7 @@
 
 ## Summary
 
-While building `lgx` (a small package manager for let-go), I tried loading
+While building `lgx` (a small project manager for let-go), I tried loading
 several real Clojure libraries through `-source-paths`. Two distinct
 let-go-side gaps remain after the fixes in
 [`af894a3`](https://github.com/nooga/let-go/commit/af894a3). Probably

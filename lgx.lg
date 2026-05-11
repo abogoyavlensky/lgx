@@ -7,7 +7,7 @@
 (def version "0.1.0-dev")
 
 (def usage
-  (str "lgx - package manager for let-go\n"
+  (str "lgx - project manager for let-go\n"
        "\n"
        "Usage:\n"
        "  lgx install         Fetch dependencies declared in lgx.edn\n"

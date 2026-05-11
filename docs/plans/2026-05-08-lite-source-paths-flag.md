@@ -3,7 +3,7 @@
 ## Context
 
 `lg` hardcodes the namespace search path to `["."]` (lg.go:432). Tools that
-maintain a per-user cache of let-go libraries — package managers, monorepos,
+maintain a per-user cache of let-go libraries - package managers, monorepos,
 build systems — have no way to point `lg` at additional directories without
 copying files into the project.
 

@@ -1,6 +1,6 @@
 # Architecture
 
-lgx is a package manager for [let-go](https://github.com/nooga/let-go),
+lgx is a project manager for [let-go](https://github.com/nooga/let-go),
 modeled on [`tools.deps`](https://clojure.org/reference/deps_and_cli) and
 [`tools.gitlibs`](https://github.com/clojure/tools.gitlibs). It reads a
 project's `lgx.edn`, fetches git-pinned dependencies into a per-user
