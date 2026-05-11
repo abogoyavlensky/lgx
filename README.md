@@ -28,8 +28,11 @@ lgx = "github:abogoyavlensky/lgx"
 
 ```
 
-Or ad hoc: `mise use github:abogoyavlensky/lgx@latest`. The
-`github` backend needs no asdf plugin.
+Then install with:
+
+```bash
+mise install
+```
 
 > [!TIP]
 > If you hit github auth problem with mise then you can pin specific version of the tools in `.mise.toml`,
@@ -37,7 +40,7 @@ Or ad hoc: `mise use github:abogoyavlensky/lgx@latest`. The
 
 ### Install script
 
-One-liner — installs the latest release to `~/.local/bin/lgx`:
+One-liner - installs the latest release to `~/.local/bin/lgx`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
