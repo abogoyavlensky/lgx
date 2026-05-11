@@ -1,4 +1,4 @@
-# `:deps/root` coord option
+# `:deps/root` coord option [COMPLETED 2026-05-11]
 
 ## Context
 
@@ -154,3 +154,29 @@ enough to demonstrate the lgx-side path resolution.
 - Existing examples in `examples/with-lib/` and `examples/clojure-libs/`
   continue to work without modification — no `:deps/root` means the
   current `src/` probe applies.
+
+## Outcome
+
+Implemented in commit `28b58d0` (`Add :deps/root coord option`). Changes:
+
+- `lgx/config.lg` — `validate-coord!` accepts optional `:deps/root` with
+  type/blank/relative/`..`-segment checks. Uses `(contains? coord :deps/root)`
+  so explicit `nil` is also rejected.
+- `lgx/cache.lg` — new private helpers `trim-trailing-slash` and
+  `resolve-source-path`; `ensure-lib!` reads `:deps/root` and routes
+  through the helper. Missing-on-disk throws an `ex-info` with the URL,
+  sha, root, and resolved path.
+- `tests/config_test.lg` — 5 new validation tests.
+- `tests/cache_test.lg` — 3 new tests covering happy path, missing-dir
+  error, and trailing-slash normalization.
+- `docs/ARCHITECTURE.md` — cache-layout paragraph and schema mention
+  updated.
+
+All 38 unit assertions and 19 e2e assertions pass.
+
+The optional `examples/clojure-libs/tools-cli/` example was skipped:
+let-go can't yet load real Clojure libs (per
+`examples/clojure-libs/README.md`), so a runnable demo would have hit
+the same reader/compiler gaps the other clojure-libs entries already
+document. Test coverage is sufficient to demonstrate the lgx-side path
+resolution.
