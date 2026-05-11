@@ -31,6 +31,10 @@ lgx = "github:abogoyavlensky/lgx"
 Or ad hoc: `mise use github:abogoyavlensky/lgx@0.1.0-alpha1`. The
 `github` backend needs no asdf plugin.
 
+> [!TIP]
+> If you hit github auth problem with mise then you can pin specific version of the tools in `.mise.toml`,
+> or set `export GITHUB_TOKEN="$(gh auth token)"` in your shell config.
+
 ### Manual download
 
 ```sh
