@@ -19,11 +19,11 @@ Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
 ```toml
 # .mise.toml
 [tools]
-"ubi:abogoyavlensky/lgx" = "latest"
+"github:abogoyavlensky/lgx" = "0.1.0-alpha1"
 ```
 
-Or ad hoc: `mise use ubi:abogoyavlensky/lgx@0.1.0`. The `ubi` backend
-needs no asdf plugin.
+Or ad hoc: `mise use github:abogoyavlensky/lgx@0.1.0-alpha1`. The
+`github` backend needs no asdf plugin.
 
 ### Manual download
 
