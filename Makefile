@@ -41,6 +41,16 @@ test:
 	@$(INFO) "Running tests..."
 	bash tests/run.sh
 
+.PHONY: fmt  # Format code
+fmt:
+	@$(INFO) "Formatting code..."
+	cljfmt fix
+
+.PHONY: fmt-check  # Check code formatting
+fmt-check:
+	@$(INFO) "Checking code formatting..."
+	cljfmt check
+
 .PHONY: clean  # Clean build artifacts
 clean:
 	@$(INFO) "Cleaning build artifacts..."
