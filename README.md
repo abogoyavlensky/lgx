@@ -35,13 +35,14 @@ Or ad hoc: `mise use github:abogoyavlensky/lgx@latest`. The
 > If you hit github auth problem with mise then you can pin specific version of the tools in `.mise.toml`,
 > or set `export GITHUB_TOKEN="$(gh auth token)"` in your shell config.
 
-### Manual download
+### Install script
 
 One-liner — installs the latest release to `~/.local/bin/lgx`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
 ```
+#### Options
 
 Pin a version or change the install directory with env vars:
 
@@ -59,6 +60,8 @@ before piping if you'd rather see what runs.
 (`brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`),
 or grab a binary from
 [let-go releases](https://github.com/nooga/let-go/releases).
+
+### Or manually download latest release
 
 If you'd rather skip the script entirely:
 
