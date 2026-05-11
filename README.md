@@ -28,7 +28,7 @@ lgx = "github:abogoyavlensky/lgx"
 
 ```
 
-Or ad hoc: `mise use github:abogoyavlensky/lgx@0.1.0-alpha1`. The
+Or ad hoc: `mise use github:abogoyavlensky/lgx@latest`. The
 `github` backend needs no asdf plugin.
 
 > [!TIP]

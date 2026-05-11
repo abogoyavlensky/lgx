@@ -147,7 +147,7 @@ Top of file exports
 
 ### Scenarios
 
-1. `lgx version` → stdout contains `lgx 0.1.0-dev`, exit 0. Same for
+1. `lgx version` → stdout contains `lgx 0.1.0`, exit 0. Same for
    `-v`, `--version`.
 2. `lgx help` (and `-h`, `--help`, no-args) → stdout contains `Usage:`
    and the four command lines.
