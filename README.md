@@ -14,6 +14,14 @@ Pre-alpha. Expect breakage.
 Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
 `darwin_arm64` are attached to each GitHub Release.
 
+### Requirements
+
+- [`lg`](https://github.com/nooga/let-go) on `PATH`, or pointed to by
+  `LGX_LG`. `lgx run` shells out to it; `lgx install` does not need it.
+- `git` on `PATH`. lgx uses it to clone, fetch, and check out
+  dependencies.
+
+
 ### With [mise](https://mise.jdx.dev)
 
 *.mise.toml*
@@ -78,13 +86,6 @@ tar -xzf lgx.tar.gz
 install -m 0755 lgx ~/.local/bin/
 ```
 
-## Requirements
-
-- [`lg`](https://github.com/nooga/let-go) on `PATH`, or pointed to by
-  `LGX_LG`. `lgx run` shells out to it; `lgx install` does not need it.
-- `git` on `PATH`. lgx uses it to clone, fetch, and check out
-  dependencies.
-
 ## `lgx.edn`
 
 ```edn
@@ -119,6 +120,8 @@ Default `LGX_HOME` is `~/.lgx`.
 - `lgx run [args...]` - find the nearest `lgx.edn` walking up from the
   current directory, install missing deps, then exec
   `lg -source-paths <resolved> [args...]`. All args reach `lg` verbatim.
+- `lgx help` - print usage.
+- `lgx version` - print version.
 
 ## Development
 
@@ -126,6 +129,8 @@ Default `LGX_HOME` is `~/.lgx`.
 make build       # produces bin/lgx - bundled standalone binary
 make dev-install # runs `lg lgx.lg install` from the lgx project root
 make dev-run     # runs examples/hello/main.lg through dev `lg lgx.lg ...`
+make test        # runs all tests through dev `lg lgx.lg ...`
+make clean       # remove bin/lgx and all build artifacts
 ```
 
 For dev iteration, run from the lgx project root so the resolver finds
