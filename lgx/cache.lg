@@ -5,11 +5,12 @@
 ;; ---------------------------------------------------------------------------
 ;; Cache layout
 ;;
-;; ~/.lgx/gitlibs/<host>/<owner>/<repo>/<sha>/
+;; ~/.lgx/gitlibs/<host>/<owner>/<repo>/<ref>/
 ;;
-;; Each leaf is a checked-out worktree pinned to a full sha. The directory
-;; itself is what we add to lg's -source-paths, so namespaces in the lib
-;; resolve relative to the repo root.
+;; Each leaf is a checked-out worktree pinned to a ref: a full sha for
+;; :git/sha coords, or a sanitized tag name for :git/tag coords. The
+;; directory itself is what we add to lg's -source-paths, so namespaces in
+;; the lib resolve relative to the repo root.
 ;; ---------------------------------------------------------------------------
 
 (defn- home-dir []
@@ -45,9 +46,12 @@
           (throw (ex-info (str "unsupported git url: " url) {:url url})))
         (rest m)))))
 
-(defn coord-dir [url sha]
+(defn- tag->ref [tag]
+  (str/replace tag "/" "_"))
+
+(defn coord-dir [url ref]
   (let [[host owner repo] (parse-git-url url)]
-    (path/join (gitlibs-root) host owner repo sha)))
+    (path/join (gitlibs-root) host owner repo ref)))
 
 ;; ---------------------------------------------------------------------------
 ;; Git wrappers (shell out via os/sh; capture is fine for these short ops)
@@ -61,19 +65,21 @@
                        :stderr (:err r)})))
     r))
 
-(defn- resolve-tag->sha [url tag]
-  (let [r (git! ["ls-remote" url (str "refs/tags/" tag)]
-                (str "git ls-remote failed for " url))
-        line (str/trim (:out r))
-        ;; output is "<sha>\trefs/tags/<tag>"; take the first token.
-        sha (first (str/split line "\t"))]
-    (when (or (nil? sha) (str/blank? sha))
-      (throw (ex-info (str "tag not found: " tag " in " url)
-                      {:url url
-                       :tag tag})))
-    sha))
+(defn- finalize-worktree! [tmp dest]
+  ;; Drop the .git dir - we don't need history once the ref is checked out.
+  (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
+    (when-not (zero? (:exit r))
+      (throw (ex-info "failed to remove .git from worktree"
+                      {:dir tmp
+                       :stderr (:err r)}))))
+  (let [r (os/sh "mv" tmp dest)]
+    (when-not (zero? (:exit r))
+      (throw (ex-info "failed to finalize worktree"
+                      {:from tmp
+                       :to dest
+                       :stderr (:err r)})))))
 
-(defn- clone-and-checkout! [url sha dest]
+(defn- clone-sha! [url sha dest]
   ;; Use a tmp dir as parent for atomicity, then rename.
   (let [parent (path/parent dest)
         tmp (str dest ".tmp." (str (rand-int 1000000)))]
@@ -82,24 +88,22 @@
           (str "git clone failed: " url))
     (git! ["-C" tmp "checkout" "--quiet" sha]
           (str "git checkout failed: " sha))
-    ;; Drop the .git dir - we don't need history once we have the sha.
-    (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
-      (when-not (zero? (:exit r))
-        (throw (ex-info "failed to remove .git from worktree"
-                        {:dir tmp
-                         :stderr (:err r)}))))
-    (let [r (os/sh "mv" tmp dest)]
-      (when-not (zero? (:exit r))
-        (throw (ex-info "failed to finalize worktree"
-                        {:from tmp
-                         :to dest
-                         :stderr (:err r)}))))))
+    (finalize-worktree! tmp dest)))
+
+(defn- clone-tag! [url tag dest]
+  ;; Use a tmp dir as parent for atomicity, then rename.
+  (let [parent (path/parent dest)
+        tmp (str dest ".tmp." (str (rand-int 1000000)))]
+    (mkdir parent)
+    (git! ["clone" "--quiet" "--branch" tag "--depth" "1" url tmp]
+          (str "git clone failed: " url))
+    (finalize-worktree! tmp dest)))
 
 ;; ---------------------------------------------------------------------------
 ;; Source path resolution
 ;; ---------------------------------------------------------------------------
 
-(defn- resolve-source-path [dir root url sha]
+(defn- resolve-source-path [dir root url ref]
   (if root
     ;; :deps/root overrides the default probe. Path is used verbatim;
     ;; the directory must exist after clone, else hard error.
@@ -107,7 +111,7 @@
       (when-not (file-exists? resolved)
         (throw (ex-info (str ":deps/root " root " not found in " url)
                         {:url url
-                         :sha sha
+                         :ref ref
                          :root root
                          :resolved resolved})))
       resolved)
@@ -140,11 +144,14 @@
         {:path (resolve-source-path dir root local nil)
          :installed? false})
       (let [url (:git/url coord)
-            sha (or (:git/sha coord)
-                    (resolve-tag->sha url (:git/tag coord)))
-            dir (coord-dir url sha)
+            sha (:git/sha coord)
+            tag (:git/tag coord)
+            ref (or sha (tag->ref tag))
+            dir (coord-dir url ref)
             installed? (not (file-exists? dir))]
         (when installed?
-          (clone-and-checkout! url sha dir))
-        {:path (resolve-source-path dir root url sha)
+          (if sha
+            (clone-sha! url sha dir)
+            (clone-tag! url tag dir)))
+        {:path (resolve-source-path dir root url ref)
          :installed? installed?}))))

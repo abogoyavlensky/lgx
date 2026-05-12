@@ -87,6 +87,35 @@
                               "/tmp/project")))
     (os/sh "rm" "-rf" home)))
 
+(deftest ensure-lib-caches-tag-by-name
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        tag "v1.0.0"
+        url "file:///tmp/lgx-missing-tag-repo"
+        dir (str home "/gitlibs/_local/_/lgx-missing-tag-repo/" tag)
+        src-dir (str dir "/src")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir src-dir)
+    (is (= {:path src-dir
+            :installed? false}
+           (cache/ensure-lib! {:git/url url
+                               :git/tag tag}
+                              "/tmp/project")))
+    (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-sanitizes-slash-in-tag
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        tag "release/1.0"
+        url "file:///tmp/lgx-missing-release-repo"
+        dir (str home "/gitlibs/_local/_/lgx-missing-release-repo/release_1.0")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir dir)
+    (is (= {:path dir
+            :installed? false}
+           (cache/ensure-lib! {:git/url url
+                               :git/tag tag}
+                              "/tmp/project")))
+    (os/sh "rm" "-rf" home)))
+
 (deftest ensure-lib-uses-deps-root-when-set
   (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
         sha "2222222222222222222222222222222222222222"

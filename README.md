@@ -100,16 +100,20 @@ install -m 0755 lgx ~/.local/bin/
 ```
 
 Each git coord must specify `:git/url` plus one of `:git/sha` or
-`:git/tag`. Tags resolve to a sha at install time via `git ls-remote`.
-Sha-pinned coords are fully reproducible; tag-pinned coords re-resolve
-on each `lgx install`.
+`:git/tag`. Tag-pinned coords cache under the tag name itself - no
+`git ls-remote` call when the lib is already cached, and no network use
+at all on cache hits. Sha-pinned coords cache under the sha. If a
+maintainer force-updates a tag upstream, `lgx install` will not pick up
+the new commit automatically; delete the cache directory
+(`rm -rf ~/.lgx/gitlibs/<host>/<owner>/<repo>/<sanitized-tag>`) to
+refresh.
 
 Top-level `:paths` lists project source paths relative to the project root.
 `lgx run` prepends them to dependency paths in `-source-paths`, so project
 namespaces shadow lib namespaces. Missing entries print a warning and still
 pass through to `lg`.
 
-For each lib, the path added to `-source-paths` is `<sha>/src` if that dir
+For each lib, the path added to `-source-paths` is `<ref>/src` if that dir
 exists, else the repo root. This matches the tools.deps default of
 `:paths ["src"]` and works out of the box for most Clojure-style libraries.
 Set `:deps/root` on a coord to override that default. For example,
@@ -129,10 +133,12 @@ Current limitations: HTTPS URLs only (no SSH), no transitive deps.
 ## Cache layout
 
 ```
-$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<sha>/
+$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<ref>/
 ```
 
 Default `LGX_HOME` is `~/.lgx`.
+`<ref>` is the sha for `:git/sha` coords, or the tag with `/` replaced
+by `_` for `:git/tag` coords.
 
 ## Commands
 
@@ -168,7 +174,7 @@ LGX_LG=/path/to/lg bin/lgx run script.lg
 Things that are currently missing or incomplete, in no particular order:
 
 - [x] `:paths` source paths.
-- [x] **Per-coord `:deps/root`.** Override the `<sha>/src` default per
+- [x] **Per-coord `:deps/root`.** Override the `<ref>/src` default per
   dependency, matching tools.deps' `:deps/root`.
 - [x] **Per-coord `:local/root`.** Point a dep at a local directory
   instead of a git URL, matching tools.deps' `:local/root`.

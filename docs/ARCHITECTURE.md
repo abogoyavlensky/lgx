@@ -46,13 +46,15 @@ namespaces it requires.
    (`{:paths [<rel-path> ...] :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
    or `{<lib> {:local/root … :deps/root <opt>}}`),
    and return the coord vector.
-3. For each coord, call `cache/ensure-lib!`. Git coords resolve
-   `:git/tag` to a sha via `git ls-remote` if no `:git/sha` is given.
-   If the cache directory for `(url, sha)` already exists, return its
-   path. Otherwise clone the repo into a temp dir, check out the sha,
-   drop `.git/`, and rename atomically to the final cache path. Local
-   coords resolve from disk and never clone. `ensure-lib!` reports
-   whether this call did the clone.
+3. For each coord, call `cache/ensure-lib!`. Git coords compute a cache
+   ref first: the sha for `:git/sha`, or the tag with `/` replaced by
+   `_` for `:git/tag`. If the cache directory for `(url, ref)` already
+   exists, return its path without invoking `git`. Otherwise clone the
+   repo into a temp dir, check out the sha for `:git/sha` coords or use
+   `git clone --branch <tag> --depth 1` for `:git/tag` coords, drop
+   `.git/`, and rename atomically to the final cache path. Local coords
+   resolve from disk and never clone. `ensure-lib!` reports whether
+   this call did the clone.
 4. If any dep was newly cloned, print `installing N dep(s)...`, one
    `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
    already cached, print `all deps up to date`. Empty `:deps` prints
@@ -85,20 +87,21 @@ the child exits. Streaming output and stdin (so `lgx run -r` can drive
 ## Cache layout
 
 ```
-$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<sha>/
+$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<ref>/
 ```
 
 `LGX_HOME` defaults to `~/.lgx`. The path is a pure function of the git
-URL and the resolved sha, mirroring `tools.gitlibs`. Each leaf is a
+URL and ref. For `:git/sha` coords, `<ref>` is the sha. For `:git/tag`
+coords, `<ref>` is the tag with `/` replaced by `_`. Each leaf is a
 read-only worktree.
 
-By default, `cache/ensure-lib!` returns `<sha>/src/` if that
-subdirectory exists, otherwise `<sha>/`. This matches the `tools.deps`
+By default, `cache/ensure-lib!` returns `<ref>/src/` if that
+subdirectory exists, otherwise `<ref>/`. This matches the `tools.deps`
 default of `:paths ["src"]` and works for most Clojure-style libraries
 without per-coord configuration.
 
 A coord may set `:deps/root <relative-path>` to override the default
-probe. lgx then uses `<sha>/<deps/root>` verbatim as the source path —
+probe. lgx then uses `<ref>/<deps/root>` verbatim as the source path —
 no further probing. The value must be a relative path with no `..`
 segments; if the directory does not exist after clone, `ensure-lib!`
 throws. This handles libs that ship sources under non-standard
@@ -118,8 +121,7 @@ transitive.
 
 ## External dependencies
 
-- **`git`** on `PATH` — clone, ls-remote, checkout. lgx never bundles
-  git.
+- **`git`** on `PATH` — clone and checkout. lgx never bundles git.
 - **`lg`** — either on `PATH` or pointed to by `LGX_LG`. `lgx run` fails
   loudly if `lg` is missing; `lgx install` does not need it.
 - Two let-go-side changes lgx depends on, both tracked in

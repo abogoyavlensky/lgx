@@ -234,20 +234,31 @@ out="$(cd "$nested" && LGX_HOME="$home" "$LGX" install)"
 assert_eq "$out" "all deps up to date" "walk-up finds lgx.edn"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 10: install via :git/tag resolves to sha"
+echo "==> Scenario 10: install via :git/tag caches by tag name"
 home_tag="$(mktemp -d)"
 bare_tag="$home_tag/_fixtures/test-repo.git"
 mkdir -p "$(dirname "$bare_tag")"
-sha_tag="$(make_bare_repo "$bare_tag")"
+make_bare_repo "$bare_tag" >/dev/null
 proj_tag="$(mktemp -d)"
 make_project_tag "$proj_tag" "file://$bare_tag" "v0.1.0"
 
 out="$(cd "$proj_tag" && LGX_HOME="$home_tag" "$LGX" install)"
 assert_contains "$out" "installing 1 dep(s)..." "tag: install header"
 assert_contains "$out" "test/lib ->" "tag: per-lib line"
-[[ -d "$home_tag/gitlibs/_local/_/test-repo/$sha_tag" ]] \
-    || fail "tag: expected cache dir at <home>/gitlibs/_local/_/test-repo/$sha_tag"
-pass "tag: cache dir resolved to correct sha"
+[[ -d "$home_tag/gitlibs/_local/_/test-repo/v0.1.0" ]] \
+    || fail "tag: expected cache dir at <home>/gitlibs/_local/_/test-repo/v0.1.0"
+pass "tag: cache dir uses tag name"
+
+fake_path="$home_tag/no-git-bin"
+mkdir -p "$fake_path"
+cat > "$fake_path/git" <<EOF
+#!/bin/sh
+echo "git should not be called on cached tag install" >&2
+exit 77
+EOF
+chmod +x "$fake_path/git"
+out="$(cd "$proj_tag" && PATH="$fake_path" LGX_HOME="$home_tag" "$LGX" install)"
+assert_eq "$out" "all deps up to date" "tag: cached install does not invoke git"
 
 rm -rf "$proj_tag" "$home_tag"
 

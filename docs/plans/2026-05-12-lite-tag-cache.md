@@ -1,6 +1,6 @@
 ## Cache `:git/tag` deps by tag name, not resolved SHA
 
-Status: Planned on 2026-05-12.
+Status: Completed on 2026-05-12.
 
 ## Context
 
@@ -209,3 +209,17 @@ not a let-go runtime detail.
 - `:git/sha` coord → unchanged behavior; cache leaf is the SHA.
 - Unplugging the network after first install and re-running `lgx
   install` succeeds for tag-pinned deps.
+
+## Execution summary
+
+Completed on 2026-05-12.
+
+- `lgx/cache.lg` now checks the gitlibs cache before any git invocation
+  for tag coords, uses sanitized tag names as cache refs, and clones new
+  tag deps with `git clone --branch <tag> --depth 1`.
+- Cache unit tests cover tag-name cache hits and `/` to `_`
+  sanitization. E2E coverage now verifies a warm tag cache works when
+  `git` is unavailable on `PATH`.
+- `README.md` and `docs/ARCHITECTURE.md` now describe the ref-based
+  cache layout and tag refresh tradeoff.
+- Verification run: `bash tests/run.sh` passed.
