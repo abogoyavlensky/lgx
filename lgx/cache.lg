@@ -8,7 +8,7 @@
 ;; ~/.lgx/gitlibs/<host>/<owner>/<repo>/<sha>/
 ;;
 ;; Each leaf is a checked-out worktree pinned to a full sha. The directory
-;; itself is what we add to lg's --source-paths, so namespaces in the lib
+;; itself is what we add to lg's -source-paths, so namespaces in the lib
 ;; resolve relative to the repo root.
 ;; ---------------------------------------------------------------------------
 

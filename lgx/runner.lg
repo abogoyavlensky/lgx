@@ -7,7 +7,7 @@
 
 (defn- source-paths-flag [paths]
   (when (seq paths)
-    ["--source-paths" (str/join os/path-separator paths)]))
+    ["-source-paths" (str/join os/path-separator paths)]))
 
 ;; --------------------------------------------------------------------------
 ;; TODO: this calls os/sh which buffers stdout/stderr until the child exits.
@@ -16,7 +16,7 @@
 ;; let-go ships one (see upstream issue link in the README).
 ;; --------------------------------------------------------------------------
 (defn exec-lg!
-  "Run `lg` with --source-paths set to the resolved lib paths plus the
+  "Run `lg` with -source-paths set to the resolved lib paths plus the
    user's forwarded args. Exits with lg's exit code."
   [lib-paths forward-args]
   (let [args (vec (concat (or (source-paths-flag lib-paths) [])
