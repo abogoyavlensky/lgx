@@ -16,9 +16,9 @@
        "  lgx version         Print version\n"
        "  lgx help            Show this help\n"))
 
-(defn- ensure-all! [coords]
+(defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]
-          (let [{:keys [path installed?]} (cache/ensure-lib! c)]
+          (let [{:keys [path installed?]} (cache/ensure-lib! c project)]
             {:lib lib
              :path path
              :installed? installed?}))
@@ -37,7 +37,7 @@
         coords (config/coords project)]
     (if (empty? coords)
       (println "no deps in lgx.edn")
-      (let [results (ensure-all! coords)]
+      (let [results (ensure-all! project coords)]
         (if (some :installed? results)
           (print-installs! results)
           (println "all deps up to date"))))))
@@ -56,7 +56,7 @@
 (defn- cmd-run [forward-args]
   (let [project (config/find-project!)
         coords (config/coords project)
-        results (ensure-all! coords)
+        results (ensure-all! project coords)
         own-paths (resolve-project-paths project (config/paths project))
         paths (vec (concat own-paths (mapv :path results)))]
     (print-installs! results)

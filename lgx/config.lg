@@ -34,17 +34,35 @@
   (when (some #(= ".." %) (str/split value "/"))
     (bad! (str label " must not contain .. segments") ctx)))
 
-(defn- validate-coord! [lib coord]
-  (when-not (map? coord)
-    (bad! (str lib " coord must be a map") {:lib lib}))
+(def ^:private git-keys #{:git/url :git/sha :git/tag})
+
+(defn- validate-local-root! [lib value]
+  (when-not (string? value)
+    (bad! (str lib " :local/root must be a string") {:lib lib}))
+  (when (str/blank? value)
+    (bad! (str lib " :local/root must be non-blank") {:lib lib})))
+
+(defn- validate-git-coord! [lib coord]
   (let [url (:git/url coord)
         sha (:git/sha coord)
-        tag (:git/tag coord)
-        root (:deps/root coord)]
+        tag (:git/tag coord)]
     (when-not (string? url)
       (bad! (str lib " missing :git/url") {:lib lib}))
     (when-not (or (string? sha) (string? tag))
-      (bad! (str lib " must specify :git/sha or :git/tag") {:lib lib}))
+      (bad! (str lib " must specify :git/sha or :git/tag") {:lib lib}))))
+
+(defn- validate-coord! [lib coord]
+  (when-not (map? coord)
+    (bad! (str lib " coord must be a map") {:lib lib}))
+  (let [has-local? (contains? coord :local/root)
+        has-git? (some #(contains? coord %) git-keys)
+        root (:deps/root coord)]
+    (when (and has-local? has-git?)
+      (bad! (str lib " coord cannot mix :local/root with :git/* keys")
+            {:lib lib}))
+    (if has-local?
+      (validate-local-root! lib (:local/root coord))
+      (validate-git-coord! lib coord))
     (when (contains? coord :deps/root)
       (validate-rel-path! (str lib " :deps/root") root {:lib lib}))
     coord))

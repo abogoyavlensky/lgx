@@ -1,5 +1,7 @@
 # `:local/root` coord option
 
+Status: Completed on 2026-05-12.
+
 ## Context
 
 `lgx.edn` coords today must be git-pinned (`:git/url` plus `:git/sha`
@@ -293,3 +295,24 @@ Add `examples/local-dep/` mirroring `examples/with-lib/`:
   error fires, citing the local path as the source.
 - Mixed `:local/root` + `:git/url` → config validation throws before
   any side effects.
+
+## Completion summary
+
+Implemented `:local/root` as a coord alternative to git coords. Config
+validation now accepts local roots, rejects blank or non-string roots,
+and rejects coords that mix `:local/root` with `:git/*` keys. Cache
+resolution now handles project-relative and absolute local roots,
+applies the existing `src/` probe and `:deps/root` override, and reports
+locals as `:installed? false`.
+
+Updated `lgx install` and `lgx run` to pass the project root through to
+cache resolution. Added unit coverage for config and cache behavior,
+e2e coverage for local-only install output and mixed local/git install
+output, plus conditional local-run coverage when the available `lg`
+supports `-source-paths`. Updated README, architecture docs, and added
+`examples/local-dep/`.
+
+Verification: `make test` passes. In this environment, the local-run e2e
+branch is skipped because `lg 1.7.2` does not support `-source-paths`;
+the test runs automatically when `LGX_LG` or `lg` points at a compatible
+let-go binary.

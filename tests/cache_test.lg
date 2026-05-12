@@ -68,7 +68,8 @@
     (is (= {:path src-dir
             :installed? false}
            (cache/ensure-lib! {:git/url url
-                               :git/sha sha})))
+                               :git/sha sha}
+                              "/tmp/project")))
     ;; Cleanup
     (os/sh "rm" "-rf" home)))
 
@@ -82,7 +83,8 @@
     (is (= {:path dir
             :installed? false}
            (cache/ensure-lib! {:git/url url
-                               :git/sha sha})))
+                               :git/sha sha}
+                              "/tmp/project")))
     (os/sh "rm" "-rf" home)))
 
 (deftest ensure-lib-uses-deps-root-when-set
@@ -97,7 +99,8 @@
             :installed? false}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
-                               :deps/root "src/main/clojure"})))
+                               :deps/root "src/main/clojure"}
+                              "/tmp/project")))
     (os/sh "rm" "-rf" home)))
 
 (deftest ensure-lib-throws-when-deps-root-missing
@@ -109,7 +112,8 @@
     (mkdir dir)
     (is (= :threw (threw? #(cache/ensure-lib! {:git/url url
                                                :git/sha sha
-                                               :deps/root "nope/missing"}))))
+                                               :deps/root "nope/missing"}
+                                              "/tmp/project"))))
     (os/sh "rm" "-rf" home)))
 
 (deftest ensure-lib-normalizes-trailing-slash
@@ -124,13 +128,67 @@
             :installed? false}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
-                               :deps/root "lib/core/"})))
+                               :deps/root "lib/core/"}
+                              "/tmp/project")))
     (is (= {:path root-dir
             :installed? false}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
-                               :deps/root "lib/core"})))
+                               :deps/root "lib/core"}
+                              "/tmp/project")))
     (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-resolves-relative-local-root
+  (let [project (str "/tmp/lgx-local-test-" (rand-int 100000000))
+        src-dir (str project "/lib/src")]
+    (mkdir src-dir)
+    (is (= {:path src-dir
+            :installed? false}
+           (cache/ensure-lib! {:local/root "lib"} project)))
+    (os/sh "rm" "-rf" project)))
+
+(deftest ensure-lib-resolves-absolute-local-root
+  (let [dir (str "/tmp/lgx-abs-local-test-" (rand-int 100000000))
+        src-dir (str dir "/src")]
+    (mkdir src-dir)
+    (is (= {:path src-dir
+            :installed? false}
+           (cache/ensure-lib! {:local/root dir} "/tmp/project")))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest ensure-lib-applies-deps-root-on-local
+  (let [project (str "/tmp/lgx-local-root-test-" (rand-int 100000000))
+        root-dir (str project "/lib/src/main")]
+    (mkdir root-dir)
+    (is (= {:path root-dir
+            :installed? false}
+           (cache/ensure-lib! {:local/root "lib"
+                               :deps/root "src/main"}
+                              project)))
+    (os/sh "rm" "-rf" project)))
+
+(deftest ensure-lib-local-throws-when-base-missing
+  (let [project (str "/tmp/lgx-local-missing-test-" (rand-int 100000000))]
+    (is (= :threw (threw? #(cache/ensure-lib! {:local/root "./nope"}
+                                              project))))))
+
+(deftest ensure-lib-local-throws-when-deps-root-missing
+  (let [project (str "/tmp/lgx-local-missing-root-test-" (rand-int 100000000))
+        dir (str project "/lib")]
+    (mkdir dir)
+    (is (= :threw (threw? #(cache/ensure-lib! {:local/root "lib"
+                                               :deps/root "nope/missing"}
+                                              project))))
+    (os/sh "rm" "-rf" project)))
+
+(deftest ensure-lib-local-uses-dir-when-no-src
+  (let [project (str "/tmp/lgx-local-nosrc-test-" (rand-int 100000000))
+        dir (str project "/lib")]
+    (mkdir dir)
+    (is (= {:path dir
+            :installed? false}
+           (cache/ensure-lib! {:local/root "lib"} project)))
+    (os/sh "rm" "-rf" project)))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

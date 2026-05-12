@@ -1,0 +1,4 @@
+(ns local-dep.main
+  (:require [my.lib :as lib]))
+
+(println (lib/message))

@@ -95,12 +95,14 @@ install -m 0755 lgx ~/.local/bin/
                           :git/tag "v0.2.0"}
   org.clojure/tools.cli {:git/url "https://github.com/clojure/tools.cli"
                          :git/sha "0123456789abcdef0123456789abcdef01234567"
-                         :deps/root "src/main/clojure"}}}
+                         :deps/root "src/main/clojure"}
+  my/lib {:local/root "../my-lib"}}}
 ```
 
-Each coord must specify `:git/url` plus one of `:git/sha` or `:git/tag`. Tags
-are resolved to a sha at install time via `git ls-remote`. Sha-pinned coords
-are fully reproducible; tag-pinned coords re-resolve on each `lgx install`.
+Each git coord must specify `:git/url` plus one of `:git/sha` or
+`:git/tag`. Tags resolve to a sha at install time via `git ls-remote`.
+Sha-pinned coords are fully reproducible; tag-pinned coords re-resolve
+on each `lgx install`.
 
 Top-level `:paths` lists project source paths relative to the project root.
 `lgx run` prepends them to dependency paths in `-source-paths`, so project
@@ -112,6 +114,15 @@ exists, else the repo root. This matches the tools.deps default of
 `:paths ["src"]` and works out of the box for most Clojure-style libraries.
 Set `:deps/root` on a coord to override that default. For example,
 `org.clojure/tools.cli` uses `:deps/root "src/main/clojure"`.
+
+Use `:local/root` instead of `:git/url` to point at a directory on disk
+when iterating on a library beside the project. The path may be relative
+to the project root (`../sibling`, `./libs/x`) or absolute
+(`/abs/path`). `:deps/root` still applies, so
+`{:local/root "../mylib" :deps/root "src/main/clojure"}` works the same
+as with a git coord. Local deps bypass the gitlibs cache and do not
+appear in install output. A coord uses either `:local/root` or `:git/*`;
+mixing them is an error.
 
 Current limitations: HTTPS URLs only (no SSH), no transitive deps.
 
@@ -159,6 +170,8 @@ Things that are currently missing or incomplete, in no particular order:
 - [x] `:paths` source paths.
 - [x] **Per-coord `:deps/root`.** Override the `<sha>/src` default per
   dependency, matching tools.deps' `:deps/root`.
+- [x] **Per-coord `:local/root`.** Point a dep at a local directory
+  instead of a git URL, matching tools.deps' `:local/root`.
 - [ ] **`lgx paths` command.** Print the fully-resolved source-path list
   lgx would hand to `lg`.
 - [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
@@ -183,6 +196,8 @@ Things that are currently missing or incomplete, in no particular order:
 - [`examples/with-lib/`](./examples/with-lib) - real fetch-and-require flow
   using let-go's own repo as the dep (until a real let-go library ecosystem
   exists).
+- [`examples/local-dep/`](./examples/local-dep) - project plus sibling
+  local library using `:local/root`.
 - [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real
   Clojure libraries (medley, babashka/cli, ruuter) and the let-go-side gaps
   that currently block them.

@@ -1,0 +1,3 @@
+(ns my.lib)
+
+(defn message [] "hello from local lib")

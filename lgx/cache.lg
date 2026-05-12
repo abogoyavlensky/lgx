@@ -116,6 +116,11 @@
     (let [src (path/join dir "src")]
       (if (file-exists? src) src dir))))
 
+(defn- resolve-local-base [project local]
+  (if (str/starts-with? local "/")
+    local
+    (path/join project local)))
+
 ;; ---------------------------------------------------------------------------
 ;; Public API
 ;; ---------------------------------------------------------------------------
@@ -123,14 +128,23 @@
 (defn ensure-lib!
   "Fetch the coord into the gitlibs cache if missing. Returns
    {:path <local path> :installed? <true if this call cloned>}."
-  [coord]
-  (let [url (:git/url coord)
-        root (:deps/root coord)
-        sha (or (:git/sha coord)
-                (resolve-tag->sha url (:git/tag coord)))
-        dir (coord-dir url sha)
-        installed? (not (file-exists? dir))]
-    (when installed?
-      (clone-and-checkout! url sha dir))
-    {:path (resolve-source-path dir root url sha)
-     :installed? installed?}))
+  [coord project]
+  (let [root (:deps/root coord)
+        local (:local/root coord)]
+    (if local
+      (let [dir (resolve-local-base project local)]
+        (when-not (file-exists? dir)
+          (throw (ex-info (str ":local/root " local " not found")
+                          {:local local
+                           :resolved dir})))
+        {:path (resolve-source-path dir root local nil)
+         :installed? false})
+      (let [url (:git/url coord)
+            sha (or (:git/sha coord)
+                    (resolve-tag->sha url (:git/tag coord)))
+            dir (coord-dir url sha)
+            installed? (not (file-exists? dir))]
+        (when installed?
+          (clone-and-checkout! url sha dir))
+        {:path (resolve-source-path dir root url sha)
+         :installed? installed?}))))

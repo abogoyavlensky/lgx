@@ -60,6 +60,9 @@ Set `LGX_HOME=/tmp/test-cache` to use a throwaway cache root for
 tests. Useful when probing a new dep or verifying install flow without
 touching the real cache.
 
+Deps declared with `:local/root` bypass this cache. lgx resolves their
+paths from the project root on each invocation.
+
 ## Git operations lgx uses
 
 For reference when debugging:

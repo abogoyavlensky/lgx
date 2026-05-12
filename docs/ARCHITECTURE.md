@@ -4,8 +4,8 @@ lgx is a project manager for [let-go](https://github.com/nooga/let-go),
 modeled on [`tools.deps`](https://clojure.org/reference/deps_and_cli) and
 [`tools.gitlibs`](https://github.com/clojure/tools.gitlibs). It reads a
 project's `lgx.edn`, fetches git-pinned dependencies into a per-user
-cache, and invokes `lg` with the cached paths on the namespace search
-path.
+cache, resolves local dependencies from disk, and invokes `lg` with the
+resolved paths on the namespace search path.
 
 ## Runtime model
 
@@ -43,14 +43,16 @@ namespaces it requires.
 1. Find the project root by walking up from the current directory until
    a directory contains `lgx.edn`.
 2. Read `lgx.edn`, validate the schema
-   (`{:paths [<rel-path> ...] :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`),
+   (`{:paths [<rel-path> ...] :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
+   or `{<lib> {:local/root … :deps/root <opt>}}`),
    and return the coord vector.
-3. For each coord, call `cache/ensure-lib!`. Resolve `:git/tag` to a sha
-   via `git ls-remote` if no `:git/sha` is given. If the cache directory
-   for `(url, sha)` already exists, return its path. Otherwise clone the
-   repo into a temp dir, check out the sha, drop `.git/`, and rename
-   atomically to the final cache path. `ensure-lib!` reports whether
-   this call did the clone.
+3. For each coord, call `cache/ensure-lib!`. Git coords resolve
+   `:git/tag` to a sha via `git ls-remote` if no `:git/sha` is given.
+   If the cache directory for `(url, sha)` already exists, return its
+   path. Otherwise clone the repo into a temp dir, check out the sha,
+   drop `.git/`, and rename atomically to the final cache path. Local
+   coords resolve from disk and never clone. `ensure-lib!` reports
+   whether this call did the clone.
 4. If any dep was newly cloned, print `installing N dep(s)...`, one
    `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
    already cached, print `all deps up to date`. Empty `:deps` prints
@@ -101,6 +103,18 @@ no further probing. The value must be a relative path with no `..`
 segments; if the directory does not exist after clone, `ensure-lib!`
 throws. This handles libs that ship sources under non-standard
 locations, e.g. `org.clojure/tools.cli` with `:deps/root "src/main/clojure"`.
+
+### Local deps
+
+A coord may use `:local/root <path>` instead of `:git/url`. The path may
+be absolute or relative to the project root. Local coords bypass the
+gitlibs cache, never clone, and never appear in install output.
+
+Local deps use the same source path rule as git deps: `:deps/root`
+overrides the default probe; otherwise lgx uses `<local>/src/` when it
+exists and `<local>/` when it does not. lgx does not read the local
+lib's own `lgx.edn`, so local deps do not make dependency resolution
+transitive.
 
 ## External dependencies
 

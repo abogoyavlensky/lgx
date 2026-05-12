@@ -19,6 +19,12 @@ export GIT_COMMITTER_EMAIL=lgx@test.invalid
 PASS_COUNT=0
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { PASS_COUNT=$((PASS_COUNT + 1)); echo "  PASS: $1"; }
+skip() { echo "  SKIP: $1"; }
+
+supports_source_paths() {
+    local lg_bin="${LGX_LG:-lg}"
+    "$lg_bin" -source-paths "" -e '(println :ok)' >/dev/null 2>&1
+}
 
 assert_contains() {
     local haystack="$1"; local needle="$2"; local label="$3"
@@ -26,6 +32,17 @@ assert_contains() {
         echo "---- output ----" >&2
         echo "$haystack" >&2
         echo "---- expected to contain: $needle ----" >&2
+        fail "$label"
+    fi
+    pass "$label"
+}
+
+assert_not_contains() {
+    local haystack="$1"; local needle="$2"; local label="$3"
+    if [[ "$haystack" == *"$needle"* ]]; then
+        echo "---- output ----" >&2
+        echo "$haystack" >&2
+        echo "---- expected not to contain: $needle ----" >&2
         fail "$label"
     fi
     pass "$label"
@@ -91,6 +108,27 @@ make_project() {
 EOF
 }
 
+make_local_project() {
+    local root="$1"
+    local proj="$root/project"
+    local lib="$root/mylib"
+    mkdir -p "$proj" "$lib/src"
+    cat > "$proj/lgx.edn" <<'EOF'
+{:deps {my/lib {:local/root "../mylib"}}}
+EOF
+    cat > "$proj/main.lg" <<'EOF'
+(ns local.main
+  (:require [mylib :as mylib]))
+
+(println (mylib/message))
+EOF
+    cat > "$lib/src/mylib.lg" <<'EOF'
+(ns mylib)
+
+(defn message [] "local one")
+EOF
+}
+
 # ---------------------------------------------------------------------------
 echo "==> Scenario 1: lgx version"
 out="$("$LGX" version)"
@@ -125,7 +163,49 @@ assert_eq "$out" "no deps in lgx.edn" "empty :deps prints expected line"
 rm -rf "$proj" "$home"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenarios 5 & 6: install fresh, then cached"
+echo "==> Scenario 5: local dep install and run"
+root_local="$(mktemp -d)"
+make_local_project "$root_local"
+home_local="$(mktemp -d)"
+out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" install)"
+assert_eq "$out" "all deps up to date" "local-only install prints up to date"
+if supports_source_paths; then
+    out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" run main.lg)"
+    assert_eq "$out" "local one" "local dep namespace is on source path"
+    cat > "$root_local/mylib/src/mylib.lg" <<'EOF'
+(ns mylib)
+
+(defn message [] "local two")
+EOF
+    out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" run main.lg)"
+    assert_eq "$out" "local two" "local dep changes are picked up on next run"
+else
+    skip "local dep run requires lg with -source-paths support"
+fi
+rm -rf "$root_local" "$home_local"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 6: mixed local and git install output"
+root_mixed="$(mktemp -d)"
+make_local_project "$root_mixed"
+home_mixed="$(mktemp -d)"
+bare_mixed="$home_mixed/_fixtures/test-repo.git"
+mkdir -p "$(dirname "$bare_mixed")"
+sha_mixed="$(make_bare_repo "$bare_mixed")"
+cat > "$root_mixed/project/lgx.edn" <<EOF
+{:deps
+ {test/lib {:git/url "file://$bare_mixed"
+            :git/sha "$sha_mixed"}
+  my/lib {:local/root "../mylib"}}}
+EOF
+out="$(cd "$root_mixed/project" && LGX_HOME="$home_mixed" "$LGX" install)"
+assert_contains "$out" "installing 1 dep(s)..." "mixed: header counts only git dep"
+assert_contains "$out" "test/lib ->" "mixed: git dep line is printed"
+assert_not_contains "$out" "my/lib ->" "mixed: local dep line is not printed"
+rm -rf "$root_mixed" "$home_mixed"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenarios 7 & 8: install fresh, then cached"
 home="$(mktemp -d)"
 bare="$home/_fixtures/test-repo.git"
 mkdir -p "$(dirname "$bare")"
@@ -147,14 +227,14 @@ out="$(cd "$proj" && LGX_HOME="$home" "$LGX" install)"
 assert_eq "$out" "all deps up to date" "cached: all deps up to date"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 7: install walks up to find lgx.edn"
+echo "==> Scenario 9: install walks up to find lgx.edn"
 nested="$proj/a/b/c"
 mkdir -p "$nested"
 out="$(cd "$nested" && LGX_HOME="$home" "$LGX" install)"
 assert_eq "$out" "all deps up to date" "walk-up finds lgx.edn"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 8: install via :git/tag resolves to sha"
+echo "==> Scenario 10: install via :git/tag resolves to sha"
 home_tag="$(mktemp -d)"
 bare_tag="$home_tag/_fixtures/test-repo.git"
 mkdir -p "$(dirname "$bare_tag")"
@@ -172,7 +252,7 @@ pass "tag: cache dir resolved to correct sha"
 rm -rf "$proj_tag" "$home_tag"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 9: lgx run cold cache prints install block"
+echo "==> Scenario 11: lgx run cold cache prints install block"
 home2="$(mktemp -d)"
 set +e
 out="$(cd "$proj" && LGX_HOME="$home2" "$LGX" run -e '(println :ok)' 2>&1)"

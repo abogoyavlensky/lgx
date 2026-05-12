@@ -26,6 +26,23 @@
            {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
                              :git/tag "v0.1.0"}}}))))
 
+(deftest validate-config-accepts-local-root
+  (let [cfg {:deps {'my/lib {:local/root "../mylib"}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-local-root-with-deps-root
+  (let [cfg {:deps {'my/lib {:local/root "../mylib"
+                             :deps/root "src/main/clojure"}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-absolute-local-root
+  (let [cfg {:deps {'my/lib {:local/root "/abs/path"}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-local-root-with-dotdot
+  (let [cfg {:deps {'my/lib {:local/root "../sibling"}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
 (deftest validate-config-accepts-empty-deps
   (is (= {:deps {}} (config/validate-config! {:deps {}})))
   (is (= {} (config/validate-config! {}))))
@@ -64,6 +81,26 @@
 (deftest validate-config-rejects-non-map-coord
   (is (= :threw (threw? #(config/validate-config!
                            {:deps {'foo/bar "not-a-map"}})))))
+
+(deftest validate-config-rejects-blank-local-root
+  (is (= :threw (threw? #(config/validate-config!
+                           {:deps {'my/lib {:local/root ""}}}))))
+  (is (= :threw (threw? #(config/validate-config!
+                           {:deps {'my/lib {:local/root "   "}}})))))
+
+(deftest validate-config-rejects-non-string-local-root
+  (is (= :threw (threw? #(config/validate-config!
+                           {:deps {'my/lib {:local/root 5}}})))))
+
+(deftest validate-config-rejects-mixed-local-and-git
+  (doseq [coord [{:local/root "../mylib"
+                  :git/url "https://github.com/foo/bar"}
+                 {:local/root "../mylib"
+                  :git/sha "abc"}
+                 {:local/root "../mylib"
+                  :git/tag "v0.1.0"}]]
+    (is (= :threw (threw? #(config/validate-config!
+                             {:deps {'my/lib coord}}))))))
 
 (deftest validate-config-accepts-deps-root
   (let [cfg {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
