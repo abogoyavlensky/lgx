@@ -17,7 +17,7 @@ Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
 ### Requirements
 
 - [`lg`](https://github.com/nooga/let-go) on `PATH`, or pointed to by
-  `LGX_LG`. `lgx run` shells out to it; `lgx install` does not need it.
+  `LGX_LG`. `lgx exec` shells out to it; `lgx deps` does not need it.
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out
   dependencies.
 
@@ -66,7 +66,7 @@ Re-run the same command to upgrade in place. The script verifies each
 archive against `checksums.txt`; read [`scripts/install.sh`](./scripts/install.sh)
 before piping if you'd rather see what runs.
 
-`lgx run` also needs `lg` on `PATH`. Install it via
+`lgx exec` also needs `lg` on `PATH`. Install it via
 [mise](https://mise.jdx.dev) (`mise use github:nooga/let-go`), Homebrew
 (`brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`),
 or grab a binary from
@@ -103,13 +103,13 @@ Each git coord must specify `:git/url` plus one of `:git/sha` or
 `:git/tag`. Tag-pinned coords cache under the tag name itself - no
 `git ls-remote` call when the lib is already cached, and no network use
 at all on cache hits. Sha-pinned coords cache under the sha. If a
-maintainer force-updates a tag upstream, `lgx install` will not pick up
+maintainer force-updates a tag upstream, `lgx deps` will not pick up
 the new commit automatically; delete the cache directory
 (`rm -rf ~/.lgx/gitlibs/<host>/<owner>/<repo>/<sanitized-tag>`) to
 refresh.
 
 Top-level `:paths` lists project source paths relative to the project root.
-`lgx run` prepends them to dependency paths in `-source-paths`, so project
+`lgx exec` prepends them to dependency paths in `-source-paths`, so project
 namespaces shadow lib namespaces. Missing entries print a warning and still
 pass through to `lg`.
 
@@ -142,8 +142,8 @@ by `_` for `:git/tag` coords.
 
 ## Commands
 
-- `lgx install` - read `lgx.edn`, fetch missing deps. Idempotent.
-- `lgx run [args...]` - find the nearest `lgx.edn` walking up from the
+- `lgx deps` - read `lgx.edn`, fetch missing deps. Idempotent.
+- `lgx exec [args...]` - find the nearest `lgx.edn` walking up from the
   current directory, install missing deps, then exec
   `lg -source-paths <resolved> [args...]`. All args reach `lg` verbatim.
 - `lgx help` - print usage.

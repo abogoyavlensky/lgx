@@ -142,8 +142,8 @@ assert_contains "$out" "lgx 0.1.0-alpha2" "--version prints version line"
 echo "==> Scenario 2: lgx help"
 out="$("$LGX" help)"
 assert_contains "$out" "Usage:" "help prints usage"
-assert_contains "$out" "lgx install" "help lists install"
-assert_contains "$out" "lgx run" "help lists run"
+assert_contains "$out" "lgx deps" "help lists deps"
+assert_contains "$out" "lgx exec" "help lists exec"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 3: unknown command"
@@ -154,38 +154,38 @@ set -e
 assert_contains "$out" "unknown command: nope" "unknown command message"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 4: install with empty :deps"
+echo "==> Scenario 4: deps with empty :deps"
 proj="$(mktemp -d)"
 echo '{:deps {}}' > "$proj/lgx.edn"
 home="$(mktemp -d)"
-out="$(cd "$proj" && LGX_HOME="$home" "$LGX" install)"
+out="$(cd "$proj" && LGX_HOME="$home" "$LGX" deps)"
 assert_eq "$out" "no deps in lgx.edn" "empty :deps prints expected line"
 rm -rf "$proj" "$home"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 5: local dep install and run"
+echo "==> Scenario 5: local dep deps and exec"
 root_local="$(mktemp -d)"
 make_local_project "$root_local"
 home_local="$(mktemp -d)"
-out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" install)"
-assert_eq "$out" "all deps up to date" "local-only install prints up to date"
+out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" deps)"
+assert_eq "$out" "all deps up to date" "local-only deps prints up to date"
 if supports_source_paths; then
-    out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" run main.lg)"
+    out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" exec main.lg)"
     assert_eq "$out" "local one" "local dep namespace is on source path"
     cat > "$root_local/mylib/src/mylib.lg" <<'EOF'
 (ns mylib)
 
 (defn message [] "local two")
 EOF
-    out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" run main.lg)"
-    assert_eq "$out" "local two" "local dep changes are picked up on next run"
+    out="$(cd "$root_local/project" && LGX_HOME="$home_local" "$LGX" exec main.lg)"
+    assert_eq "$out" "local two" "local dep changes are picked up on next exec"
 else
-    skip "local dep run requires lg with -source-paths support"
+    skip "local dep exec requires lg with -source-paths support"
 fi
 rm -rf "$root_local" "$home_local"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 6: mixed local and git install output"
+echo "==> Scenario 6: mixed local and git deps output"
 root_mixed="$(mktemp -d)"
 make_local_project "$root_mixed"
 home_mixed="$(mktemp -d)"
@@ -198,14 +198,14 @@ cat > "$root_mixed/project/lgx.edn" <<EOF
             :git/sha "$sha_mixed"}
   my/lib {:local/root "../mylib"}}}
 EOF
-out="$(cd "$root_mixed/project" && LGX_HOME="$home_mixed" "$LGX" install)"
+out="$(cd "$root_mixed/project" && LGX_HOME="$home_mixed" "$LGX" deps)"
 assert_contains "$out" "installing 1 dep(s)..." "mixed: header counts only git dep"
 assert_contains "$out" "test/lib ->" "mixed: git dep line is printed"
 assert_not_contains "$out" "my/lib ->" "mixed: local dep line is not printed"
 rm -rf "$root_mixed" "$home_mixed"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenarios 7 & 8: install fresh, then cached"
+echo "==> Scenarios 7 & 8: deps fresh, then cached"
 home="$(mktemp -d)"
 bare="$home/_fixtures/test-repo.git"
 mkdir -p "$(dirname "$bare")"
@@ -213,7 +213,7 @@ sha="$(make_bare_repo "$bare")"
 proj="$(mktemp -d)"
 make_project "$proj" "file://$bare" "$sha"
 
-out="$(cd "$proj" && LGX_HOME="$home" "$LGX" install)"
+out="$(cd "$proj" && LGX_HOME="$home" "$LGX" deps)"
 assert_contains "$out" "installing 1 dep(s)..." "fresh: header"
 assert_contains "$out" "test/lib ->" "fresh: per-lib line"
 assert_contains "$out" "done" "fresh: trailing done"
@@ -223,18 +223,18 @@ cache_dir="$home/gitlibs/_local/_/test-repo/$sha"
 pass "cache dir created"
 
 # Cached re-run
-out="$(cd "$proj" && LGX_HOME="$home" "$LGX" install)"
+out="$(cd "$proj" && LGX_HOME="$home" "$LGX" deps)"
 assert_eq "$out" "all deps up to date" "cached: all deps up to date"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 9: install walks up to find lgx.edn"
+echo "==> Scenario 9: deps walks up to find lgx.edn"
 nested="$proj/a/b/c"
 mkdir -p "$nested"
-out="$(cd "$nested" && LGX_HOME="$home" "$LGX" install)"
+out="$(cd "$nested" && LGX_HOME="$home" "$LGX" deps)"
 assert_eq "$out" "all deps up to date" "walk-up finds lgx.edn"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 10: install via :git/tag caches by tag name"
+echo "==> Scenario 10: deps via :git/tag caches by tag name"
 home_tag="$(mktemp -d)"
 bare_tag="$home_tag/_fixtures/test-repo.git"
 mkdir -p "$(dirname "$bare_tag")"
@@ -242,8 +242,8 @@ make_bare_repo "$bare_tag" >/dev/null
 proj_tag="$(mktemp -d)"
 make_project_tag "$proj_tag" "file://$bare_tag" "v0.1.0"
 
-out="$(cd "$proj_tag" && LGX_HOME="$home_tag" "$LGX" install)"
-assert_contains "$out" "installing 1 dep(s)..." "tag: install header"
+out="$(cd "$proj_tag" && LGX_HOME="$home_tag" "$LGX" deps)"
+assert_contains "$out" "installing 1 dep(s)..." "tag: deps header"
 assert_contains "$out" "test/lib ->" "tag: per-lib line"
 [[ -d "$home_tag/gitlibs/_local/_/test-repo/v0.1.0" ]] \
     || fail "tag: expected cache dir at <home>/gitlibs/_local/_/test-repo/v0.1.0"
@@ -253,23 +253,23 @@ fake_path="$home_tag/no-git-bin"
 mkdir -p "$fake_path"
 cat > "$fake_path/git" <<EOF
 #!/bin/sh
-echo "git should not be called on cached tag install" >&2
+echo "git should not be called on cached tag deps" >&2
 exit 77
 EOF
 chmod +x "$fake_path/git"
-out="$(cd "$proj_tag" && PATH="$fake_path" LGX_HOME="$home_tag" "$LGX" install)"
-assert_eq "$out" "all deps up to date" "tag: cached install does not invoke git"
+out="$(cd "$proj_tag" && PATH="$fake_path" LGX_HOME="$home_tag" "$LGX" deps)"
+assert_eq "$out" "all deps up to date" "tag: cached deps does not invoke git"
 
 rm -rf "$proj_tag" "$home_tag"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 11: lgx run cold cache prints install block"
+echo "==> Scenario 11: lgx exec cold cache prints deps block"
 home2="$(mktemp -d)"
 set +e
-out="$(cd "$proj" && LGX_HOME="$home2" "$LGX" run -e '(println :ok)' 2>&1)"
+out="$(cd "$proj" && LGX_HOME="$home2" "$LGX" exec -e '(println :ok)' 2>&1)"
 set -e
-assert_contains "$out" "installing 1 dep(s)..." "run cold: install header before script"
-assert_contains "$out" "done" "run cold: install done before script"
+assert_contains "$out" "installing 1 dep(s)..." "exec cold: deps header before script"
+assert_contains "$out" "done" "exec cold: deps done before script"
 rm -rf "$home2"
 
 # Cleanup

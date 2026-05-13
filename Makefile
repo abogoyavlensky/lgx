@@ -33,12 +33,12 @@ build:
 .PHONY: dev-install  # Install development dependencies
 dev-install:
 	@$(INFO) "Installing development dependencies..."
-	$(LG) lgx.lg install
+	$(LG) lgx.lg deps
 
 .PHONY: dev-run  # Run development script
 dev-run:
 	@$(INFO) "Running development script..."
-	$(LG) lgx.lg run examples/hello/main.lg
+	$(LG) lgx.lg exec examples/hello/main.lg
 
 .PHONY: test  # Run tests
 test:
