@@ -5,7 +5,7 @@
             [lgx.runner :as runner]
             [string :as str]))
 
-(def version "0.1.0-alpha2")
+(def version "0.1.0-alpha3")
 
 (def usage
   (str "lgx - project manager for let-go\n"
