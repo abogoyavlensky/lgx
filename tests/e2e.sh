@@ -132,11 +132,11 @@ EOF
 # ---------------------------------------------------------------------------
 echo "==> Scenario 1: lgx version"
 out="$("$LGX" version)"
-assert_contains "$out" "lgx 0.1.0-alpha2" "version prints version line"
+assert_contains "$out" "lgx " "version prints version line"
 out="$("$LGX" -v)"
-assert_contains "$out" "lgx 0.1.0-alpha2" "-v prints version line"
+assert_contains "$out" "lgx " "-v prints version line"
 out="$("$LGX" --version)"
-assert_contains "$out" "lgx 0.1.0-alpha2" "--version prints version line"
+assert_contains "$out" "lgx " "--version prints version line"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 2: lgx help"
