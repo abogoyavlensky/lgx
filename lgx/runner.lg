@@ -17,12 +17,16 @@
 ;; --------------------------------------------------------------------------
 (defn exec-lg!
   "Run `lg` with -source-paths set to the resolved lib paths plus the
-   user's forwarded args. Exits with lg's exit code."
-  [lib-paths forward-args]
-  (let [args (vec (concat (or (source-paths-flag lib-paths) [])
-                          forward-args))
-        r (apply os/sh (lg-binary) args)]
-    ;; Replay captured output. Imperfect substitute for inherited stdio.
-    (when (seq (:out r)) (write! *out* (:out r)))
-    (when (seq (:err r)) (write! *err* (:err r)))
-    (os/exit (:exit r))))
+   user's forwarded args. When `verbose?` is truthy, print the resolved
+   command (binary + args) to *err* before exec. Exits with lg's exit code."
+  [lib-paths forward-args verbose?]
+  (let [bin (lg-binary)
+        args (vec (concat (or (source-paths-flag lib-paths) [])
+                          forward-args))]
+    (when verbose?
+      (write! *err* (str "+ " bin " " (str/join " " args) "\n")))
+    (let [r (apply os/sh bin args)]
+      ;; Replay captured output. Imperfect substitute for inherited stdio.
+      (when (seq (:out r)) (write! *out* (:out r)))
+      (when (seq (:err r)) (write! *err* (:err r)))
+      (os/exit (:exit r)))))

@@ -14,7 +14,10 @@
        "  lgx install         Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]   Run a script via `lg` with deps on the source path\n"
        "  lgx version         Print version\n"
-       "  lgx help            Show this help\n"))
+       "  lgx help            Show this help\n"
+       "\n"
+       "Global flags:\n"
+       "  --verbose           Print the lg invocation before running (run only)\n"))
 
 (defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]
@@ -53,14 +56,14 @@
             abs))
         paths))
 
-(defn- cmd-run [forward-args]
+(defn- cmd-run [forward-args verbose?]
   (let [project (config/find-project!)
         coords (config/coords project)
         results (ensure-all! project coords)
         own-paths (resolve-project-paths project (config/paths project))
         paths (vec (concat own-paths (mapv :path results)))]
     (print-installs! results)
-    (runner/exec-lg! paths forward-args)))
+    (runner/exec-lg! paths forward-args verbose?)))
 
 ;; In dev (`lg lgx.lg <cmd> ...`), os/args is ["lg" "lgx.lg" cmd args...].
 ;; In a bundle (`./lgx <cmd> ...`), it's ["lgx" cmd args...].
@@ -75,12 +78,14 @@
       (rest argv))))
 
 (defn- main []
-  (let [argv (user-args)
+  (let [raw (user-args)
+        verbose? (= (first raw) "--verbose")
+        argv (if verbose? (rest raw) raw)
         cmd (first argv)
         rest-args (rest argv)]
     (case cmd
       "install" (cmd-install)
-      "run" (cmd-run (vec rest-args))
+      "run" (cmd-run (vec rest-args) verbose?)
       "version" (cmd-version)
       "-v" (cmd-version)
       "--version" (cmd-version)

@@ -272,6 +272,30 @@ assert_contains "$out" "installing 1 dep(s)..." "run cold: install header before
 assert_contains "$out" "done" "run cold: install done before script"
 rm -rf "$home2"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 12: lgx --verbose run prints lg invocation to stderr"
+home_verbose="$(mktemp -d)"
+set +e
+# Capture stderr only — the trace line goes there.
+out_verbose="$(cd "$proj" && LGX_HOME="$home_verbose" "$LGX" --verbose run -e '(println :ok)' 2>&1 >/dev/null)"
+set -e
+assert_contains "$out_verbose" "+ " "verbose: trace line has + prefix"
+assert_contains "$out_verbose" "-source-paths" "verbose: trace includes -source-paths"
+assert_contains "$out_verbose" "(println :ok)" "verbose: trace includes forwarded args"
+
+# Without --verbose, no line should start with the trace prefix "+ ".
+home_verbose2="$(mktemp -d)"
+set +e
+out_quiet="$(cd "$proj" && LGX_HOME="$home_verbose2" "$LGX" run -e '(println :ok)' 2>&1 >/dev/null)"
+set -e
+if echo "$out_quiet" | grep -q '^+ '; then
+    echo "---- stderr ----" >&2
+    echo "$out_quiet" >&2
+    fail "no verbose: trace line appeared without --verbose"
+fi
+pass "no verbose: no trace line on stderr"
+rm -rf "$home_verbose" "$home_verbose2"
+
 # Cleanup
 rm -rf "$proj" "$home"
 
