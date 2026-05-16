@@ -5,7 +5,7 @@
             [lgx.runner :as runner]
             [string :as str]))
 
-(def version "0.1.0-alpha3")
+(def version "0.1.0-alpha4")
 
 (def usage
   (str "lgx - project manager for let-go\n"
@@ -88,8 +88,8 @@
       "-h" (print usage)
       "--help" (print usage)
       nil (do (print usage) (os/exit 1))
-      (do (println "unknown command:" cmd)
-          (print usage)
+      (do (write! *err*
+                  (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
           (os/exit 1)))))
 
 ;; Top-level forms run during AOT compilation too. Guard so `lg -b` doesn't

@@ -151,7 +151,7 @@ set +e
 out="$("$LGX" nope 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "unknown command should exit 1 (got $rc)"
-assert_contains "$out" "unknown command: nope" "unknown command message"
+assert_contains "$out" "lgx: 'nope' is not a lgx command. See 'lgx --help'." "unknown command message"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 4: install with empty :deps"

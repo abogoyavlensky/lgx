@@ -151,7 +151,7 @@ Top of file exports
    `-v`, `--version`.
 2. `lgx help` (and `-h`, `--help`, no-args) → stdout contains `Usage:`
    and the four command lines.
-3. `lgx nope` → exit 1, output contains `unknown command: nope`.
+3. `lgx nope` → exit 1, stderr contains `lgx: 'nope' is not a lgx command. See 'lgx --help'.`.
 4. `lgx install` against `{:deps {}}` → stdout is exactly
    `no deps in lgx.edn`, exit 0.
 5. `lgx install` against the file:// bare repo, cold cache → stdout
