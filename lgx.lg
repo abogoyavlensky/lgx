@@ -11,8 +11,8 @@
   (str "lgx - project manager for let-go\n"
        "\n"
        "Usage:\n"
-       "  lgx deps            Fetch dependencies declared in lgx.edn\n"
-       "  lgx exec [args...]  Run a script via `lg` with deps on the source path\n"
+       "  lgx install         Fetch dependencies declared in lgx.edn\n"
+       "  lgx run [args...]   Run a script via `lg` with deps on the source path\n"
        "  lgx version         Print version\n"
        "  lgx help            Show this help\n"))
 
@@ -32,7 +32,7 @@
         (println " " lib "->" path))
       (println "done"))))
 
-(defn- cmd-deps []
+(defn- cmd-install []
   (let [project (config/find-project!)
         coords (config/coords project)]
     (if (empty? coords)
@@ -53,7 +53,7 @@
             abs))
         paths))
 
-(defn- cmd-exec [forward-args]
+(defn- cmd-run [forward-args]
   (let [project (config/find-project!)
         coords (config/coords project)
         results (ensure-all! project coords)
@@ -79,8 +79,8 @@
         cmd (first argv)
         rest-args (rest argv)]
     (case cmd
-      "deps" (cmd-deps)
-      "exec" (cmd-exec (vec rest-args))
+      "install" (cmd-install)
+      "run" (cmd-run (vec rest-args))
       "version" (cmd-version)
       "-v" (cmd-version)
       "--version" (cmd-version)
