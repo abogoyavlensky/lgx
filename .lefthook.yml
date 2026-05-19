@@ -2,5 +2,6 @@ pre-push:
   parallel: true
   commands:
     fmt:
+      files: git diff --name-only HEAD master
       glob: "*.{lg}"
-      run: make fmt-check
+      run: sh -c 'make fmt-check' -- {files}
