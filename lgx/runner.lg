@@ -15,10 +15,11 @@
 ;; (so `-r` REPL will not work). Replace with an inherited-stdio runner once
 ;; let-go ships one (see upstream issue link in the README).
 ;; --------------------------------------------------------------------------
-(defn exec-lg!
+(defn invoke-lg!
   "Run `lg` with -source-paths set to the resolved lib paths plus the
    user's forwarded args. When `verbose?` is truthy, print the resolved
-   command (binary + args) to *err* before exec. Exits with lg's exit code."
+   command (binary + args) to *err* before exec. Returns lg's exit code
+   after replaying captured stdout/stderr."
   [lib-paths forward-args verbose?]
   (let [bin (lg-binary)
         args (vec (concat (or (source-paths-flag lib-paths) [])
@@ -29,4 +30,9 @@
       ;; Replay captured output. Imperfect substitute for inherited stdio.
       (when (seq (:out r)) (write! *out* (:out r)))
       (when (seq (:err r)) (write! *err* (:err r)))
-      (os/exit (:exit r)))))
+      (:exit r))))
+
+(defn exec-lg!
+  "Like invoke-lg! but exits with lg's exit code."
+  [lib-paths forward-args verbose?]
+  (os/exit (invoke-lg! lib-paths forward-args verbose?)))

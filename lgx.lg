@@ -3,11 +3,12 @@
             [lgx.config :as config]
             [lgx.path :as path]
             [lgx.runner :as runner]
+            [lgx.tasks :as tasks]
             [string :as str]))
 
 (def version "0.1.0-alpha4")
 
-(def usage
+(def base-usage
   (str "lgx - project manager for let-go\n"
        "\n"
        "Usage:\n"
@@ -17,7 +18,7 @@
        "  lgx help            Show this help\n"
        "\n"
        "Global flags:\n"
-       "  --verbose           Print the lg invocation before running (run only)\n"))
+       "  --verbose           Print the lg invocation before running (run/tasks)\n"))
 
 (defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]
@@ -56,14 +57,61 @@
             abs))
         paths))
 
-(defn- cmd-run [forward-args verbose?]
-  (let [project (config/find-project!)
-        coords (config/coords project)
+(defn- project-basis
+  "Resolve deps and project paths for the active project. Returns a map
+   with the project root, the install results, and the joined source path
+   vector used for `-source-paths`."
+  [project]
+  (let [coords (config/coords project)
         results (ensure-all! project coords)
         own-paths (resolve-project-paths project (config/paths project))
         paths (vec (concat own-paths (mapv :path results)))]
+    {:project project
+     :results results
+     :paths paths}))
+
+(defn- cmd-run [forward-args verbose?]
+  (let [project (config/find-project!)
+        {:keys [results paths]} (project-basis project)]
     (print-installs! results)
     (runner/exec-lg! paths forward-args verbose?)))
+
+(defn- cmd-task [task verbose?]
+  (let [project (config/find-project!)
+        {:keys [results paths]} (project-basis project)]
+    (print-installs! results)
+    (tasks/run-task! task paths verbose?)))
+
+(defn- pad-right [s n]
+  (let [c (count s)]
+    (if (>= c n) s (str s (apply str (repeat (- n c) " "))))))
+
+(defn- task-line [width task-name task]
+  (let [n (name task-name)
+        doc (:doc task)]
+    (if (str/blank? doc)
+      (str "  " n)
+      (str "  " (pad-right n width) "  " doc))))
+
+(defn- tasks-block [project]
+  (let [t (try (config/tasks project) (catch _ {}))
+        sorted-names (sort (map name (keys t)))
+        width (if (seq sorted-names)
+                (apply max (map count sorted-names))
+                0)]
+    (when (seq t)
+      (str "\n"
+           "Project tasks:\n"
+           "\n"
+           (str/join "\n" (map (fn [n]
+                                 (task-line width
+                                            (keyword n)
+                                            (get t (keyword n))))
+                               sorted-names))
+           "\n"))))
+
+(defn- usage-for [project]
+  (str base-usage (or (tasks-block project) "")))
 
 ;; In dev (`lg lgx.lg <cmd> ...`), os/args is ["lg" "lgx.lg" cmd args...].
 ;; In a bundle (`./lgx <cmd> ...`), it's ["lgx" cmd args...].
@@ -77,25 +125,44 @@
       :else
       (rest argv))))
 
+(defn- try-find-project []
+  (try (config/find-project!) (catch _ nil)))
+
+(defn- print-usage! []
+  (let [project (try-find-project)]
+    (print (if project (usage-for project) base-usage))))
+
+(defn- lookup-task [cmd]
+  (when-let [project (try-find-project)]
+    (let [t (config/tasks project)
+          k (keyword cmd)]
+      (when (contains? t k)
+        (get t k)))))
+
+(defn- dispatch [cmd rest-args verbose?]
+  (case cmd
+    "install" (cmd-install)
+    "run" (cmd-run (vec rest-args) verbose?)
+    "version" (cmd-version)
+    "-v" (cmd-version)
+    "--version" (cmd-version)
+    "help" (print-usage!)
+    "-h" (print-usage!)
+    "--help" (print-usage!)
+    nil (do (print-usage!) (os/exit 1))
+    (if-let [task (lookup-task cmd)]
+      (cmd-task task verbose?)
+      (do (write! *err*
+                  (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
+          (os/exit 1)))))
+
 (defn- main []
   (let [raw (user-args)
         verbose? (= (first raw) "--verbose")
         argv (if verbose? (rest raw) raw)
         cmd (first argv)
         rest-args (rest argv)]
-    (case cmd
-      "install" (cmd-install)
-      "run" (cmd-run (vec rest-args) verbose?)
-      "version" (cmd-version)
-      "-v" (cmd-version)
-      "--version" (cmd-version)
-      "help" (print usage)
-      "-h" (print usage)
-      "--help" (print usage)
-      nil (do (print usage) (os/exit 1))
-      (do (write! *err*
-                  (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
-          (os/exit 1)))))
+    (dispatch cmd rest-args verbose?)))
 
 ;; Top-level forms run during AOT compilation too. Guard so `lg -b` doesn't
 ;; execute the CLI while bundling.

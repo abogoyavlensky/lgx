@@ -299,5 +299,122 @@ rm -rf "$home_verbose" "$home_verbose2"
 # Cleanup
 rm -rf "$proj" "$home"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 13: project task with :sh step"
+proj_t="$(mktemp -d)"
+cat > "$proj_t/lgx.edn" <<'EOF'
+{:tasks
+ {:hello {:doc "Say hi"
+          :do [{:sh "echo hi from task"}]}}}
+EOF
+home_t="$(mktemp -d)"
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" hello)"
+assert_eq "$out" "hi from task" "task: single :sh step runs"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 14: multi-step task runs steps sequentially"
+cat > "$proj_t/lgx.edn" <<'EOF'
+{:tasks
+ {:ci {:doc "Run multiple steps"
+       :do [{:sh "echo step1"}
+            {:sh "echo step2"}
+            {:sh "echo step3"}]}}}
+EOF
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" ci)"
+assert_eq "$out" "step1
+step2
+step3" "task: multi-step output streamed in order"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 15: vector :sh form is joined with spaces"
+cat > "$proj_t/lgx.edn" <<'EOF'
+{:tasks
+ {:greet {:do [{:sh ["echo" "hello" "world"]}]}}}
+EOF
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" greet)"
+assert_eq "$out" "hello world" "task: vector :sh form joins items"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 16: failing step stops chain with its exit code"
+cat > "$proj_t/lgx.edn" <<'EOF'
+{:tasks
+ {:fail {:do [{:sh "echo before"}
+              {:sh "exit 7"}
+              {:sh "echo after"}]}}}
+EOF
+set +e
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" fail)"; rc=$?
+set -e
+[[ $rc -eq 7 ]] || fail "task fail: expected exit 7, got $rc"
+pass "task: failing step propagates exit code 7"
+assert_contains "$out" "before" "task fail: first step printed"
+assert_not_contains "$out" "after" "task fail: later step did not run"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 17: unknown command in a project with tasks"
+cat > "$proj_t/lgx.edn" <<'EOF'
+{:tasks
+ {:hello {:do [{:sh "echo hi"}]}}}
+EOF
+set +e
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" nope 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "unknown task: expected exit 1, got $rc"
+assert_contains "$out" "'nope' is not a lgx command" "unknown task: error message"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 18: lgx help lists project tasks"
+cat > "$proj_t/lgx.edn" <<'EOF'
+{:tasks
+ {:fmt  {:doc "Format sources" :do [{:sh "echo fmt"}]}
+  :test {:doc "Run tests"      :do [{:sh "echo test"}]}}}
+EOF
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
+assert_contains "$out" "Project tasks:" "help: shows project tasks block"
+assert_contains "$out" "fmt" "help: lists fmt task"
+assert_contains "$out" "Format sources" "help: shows :doc string"
+assert_contains "$out" "Run tests" "help: shows test :doc"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 19: task name conflicting with built-in command is rejected"
+cat > "$proj_t/lgx.edn" <<'EOF'
+{:tasks
+ {:run {:doc "Bad" :do [{:sh "echo nope"}]}}}
+EOF
+set +e
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" install 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "reserved-name: expected non-zero exit"
+assert_contains "$out" "conflicts with built-in command" "reserved-name: error message"
+
+rm -rf "$proj_t" "$home_t"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 20: :run task step uses project basis"
+if supports_source_paths; then
+    proj_run="$(mktemp -d)"
+    home_run="$(mktemp -d)"
+    mkdir -p "$proj_run/src" "$proj_run/scripts"
+    cat > "$proj_run/src/util.lg" <<'EOF'
+(ns util)
+(defn greet [] "hello-from-util")
+EOF
+    cat > "$proj_run/scripts/hi.lg" <<'EOF'
+(ns hi (:require [util]))
+(println (util/greet))
+EOF
+    cat > "$proj_run/lgx.edn" <<'EOF'
+{:paths ["src"]
+ :tasks
+ {:say {:doc "Run via :run step"
+        :do [{:run "scripts/hi.lg"}]}}}
+EOF
+    out="$(cd "$proj_run" && LGX_HOME="$home_run" "$LGX" say)"
+    assert_eq "$out" "hello-from-util" "task: :run step resolves project :paths"
+    rm -rf "$proj_run" "$home_run"
+else
+    skip ":run task step requires lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

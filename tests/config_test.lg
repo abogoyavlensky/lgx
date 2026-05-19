@@ -176,6 +176,102 @@
   (is (= ["src" "test"] (config/paths "tests/fixtures/sample-project"))))
 
 ;; ---------------------------------------------------------------------------
+;; :tasks validation
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-minimal-task
+  (let [cfg {:tasks {:fmt {:doc "Format"
+                           :do [{:sh "echo hi"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-task-without-doc
+  (let [cfg {:tasks {:fmt {:do [{:sh "echo hi"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-task-with-run-step
+  (let [cfg {:tasks {:test {:do [{:run "scripts/test.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-task-with-vector-step-values
+  (let [cfg {:tasks {:ci {:do [{:sh ["cljfmt" "check" "src"]}
+                               {:run ["scripts/test.lg" "unit"]}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-multiple-tasks
+  (let [cfg {:tasks {:fmt {:do [{:sh "echo a"}]}
+                     :test {:do [{:run "scripts/test.lg"}]}
+                     :ci {:do [{:sh "echo a"}
+                               {:run "scripts/test.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-tasks-not-a-map
+  (is (= :threw (threw? #(config/validate-config! {:tasks [:not :a :map]})))))
+
+(deftest validate-config-rejects-non-keyword-task-name
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {"fmt" {:do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-non-map-task
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt "not-a-map"}})))))
+
+(deftest validate-config-rejects-task-missing-do
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:doc "x"}}})))))
+
+(deftest validate-config-rejects-task-with-non-string-doc
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:doc 5
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-with-non-vector-do
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do "echo hi"}}})))))
+
+(deftest validate-config-rejects-task-with-empty-do
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do []}}})))))
+
+(deftest validate-config-rejects-step-not-a-map
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do ["echo hi"]}}})))))
+
+(deftest validate-config-rejects-step-with-multiple-action-keys
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do [{:sh "echo a"
+                                                :run "scripts/foo.lg"}]}}})))))
+
+(deftest validate-config-rejects-step-with-no-action-key
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do [{}]}}})))))
+
+(deftest validate-config-rejects-step-with-unknown-key
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do [{:sh "echo hi"
+                                                :env {"FOO" "1"}}]}}})))))
+
+(deftest validate-config-rejects-step-with-non-string-non-vector-value
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do [{:sh 5}]}}})))))
+
+(deftest validate-config-rejects-step-with-blank-string-value
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do [{:sh ""}]}}})))))
+
+(deftest validate-config-rejects-step-with-non-string-vector-item
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do [{:sh ["echo" 5]}]}}})))))
+
+(deftest validate-config-rejects-step-with-empty-vector-value
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do [{:sh []}]}}})))))
+
+(deftest validate-config-rejects-tasks-conflicting-with-builtins
+  (doseq [n config/reserved-task-names]
+    (is (= :threw (threw? #(config/validate-config!
+                             {:tasks {(keyword n) {:do [{:sh "echo hi"}]}}}))))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 

@@ -73,7 +73,114 @@
   (doseq [p paths]
     (validate-rel-path! ":paths entry" p {:value p})))
 
-(def ^:private allowed-top-level #{:deps :paths})
+;; Built-in CLI commands that may not be shadowed by a project task. Includes
+;; subcommands that don't exist yet (add, update, tasks) but that are reserved
+;; so the namespace is available for future use.
+(def reserved-task-names
+  #{"run" "install" "add" "update" "tasks" "help" "version"})
+
+(def ^:private allowed-step-keys #{:sh :run})
+
+(defn- validate-action-value! [task-name idx action value]
+  (cond
+    (string? value)
+    (when (str/blank? value)
+      (bad! (str "invalid step in task " task-name " at index " idx
+                 ".\n\n" action " value must be a non-blank string.")
+            {:task task-name
+             :index idx}))
+
+    (vector? value)
+    (do
+      (when (empty? value)
+        (bad! (str "invalid step in task " task-name " at index " idx
+                   ".\n\n" action " value must be a non-empty vector.")
+              {:task task-name
+               :index idx}))
+      (doseq [item value]
+        (when-not (string? item)
+          (bad! (str "invalid step in task " task-name " at index " idx
+                     ".\n\n" action " vector items must be strings.")
+                {:task task-name
+                 :index idx}))))
+
+    :else
+    (bad! (str "invalid step in task " task-name " at index " idx
+               ".\n\n" action " value must be a string or vector of strings.")
+          {:task task-name
+           :index idx})))
+
+(defn- validate-step! [task-name idx step]
+  (when-not (map? step)
+    (bad! (str "invalid step in task " task-name " at index " idx
+               ".\n\nA step must be a map.")
+          {:task task-name
+           :index idx}))
+  (let [ks (vec (keys step))
+        action-ks (filter #(contains? allowed-step-keys %) ks)
+        unknown-ks (filter #(not (contains? allowed-step-keys %)) ks)]
+    (when (seq unknown-ks)
+      (bad! (str "invalid step in task " task-name " at index " idx
+                 ".\n\nUnknown step keys: " (str/join ", " (map str unknown-ks))
+                 ".\nAllowed keys: :sh, :run.")
+            {:task task-name
+             :index idx}))
+    (when-not (= 1 (count action-ks))
+      (bad! (str "invalid step in task " task-name " at index " idx
+                 ".\n\nA step must contain exactly one action key."
+                 "\nAllowed keys: :sh, :run."
+                 "\nGot: " (str/join ", " (map str ks)))
+            {:task task-name
+             :index idx}))
+    (let [action (first action-ks)]
+      (validate-action-value! task-name idx action (get step action)))))
+
+(defn- validate-task! [task-name task]
+  (when-not (map? task)
+    (bad! (str "invalid task " task-name ".\n\nTask value must be a map.")
+          {:task task-name}))
+  (when (contains? task :doc)
+    (when-not (string? (:doc task))
+      (bad! (str "invalid task " task-name ".\n\n:doc must be a string.")
+            {:task task-name})))
+  (when-not (contains? task :do)
+    (bad! (str "invalid task " task-name ".\n\nMissing required :do vector.")
+          {:task task-name}))
+  (let [steps (:do task)]
+    (when-not (vector? steps)
+      (bad! (str "invalid task " task-name
+                 ".\n\nExpected :do to be a vector of steps, got "
+                 (cond
+                   (string? steps) "string"
+                   (map? steps) "map"
+                   (nil? steps) "nil"
+                   :else "non-vector")
+                 ".")
+            {:task task-name}))
+    (when (empty? steps)
+      (bad! (str "invalid task " task-name ".\n\n:do must contain at least one step.")
+            {:task task-name}))
+    (loop [i 0
+           xs steps]
+      (when (seq xs)
+        (validate-step! task-name i (first xs))
+        (recur (inc i) (rest xs))))))
+
+(defn- validate-tasks! [tasks]
+  (when-not (map? tasks)
+    (bad! ":tasks must be a map" {}))
+  (doseq [[task-name task] tasks]
+    (when-not (keyword? task-name)
+      (bad! (str "task name " task-name " must be a keyword")
+            {:task task-name}))
+    (let [n (name task-name)]
+      (when (contains? reserved-task-names n)
+        (bad! (str "task " task-name " conflicts with built-in command \""
+                   n "\".\nTask overriding is not supported yet.")
+              {:task task-name})))
+    (validate-task! task-name task)))
+
+(def ^:private allowed-top-level #{:deps :paths :tasks})
 
 (defn validate-config! [cfg]
   (when-not (map? cfg)
@@ -88,6 +195,8 @@
       (validate-coord! lib c)))
   (when (contains? cfg :paths)
     (validate-paths! (:paths cfg)))
+  (when (contains? cfg :tasks)
+    (validate-tasks! (:tasks cfg)))
   cfg)
 
 (defn coords
@@ -103,3 +212,10 @@
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (or (:paths cfg) [])))
+
+(defn tasks
+  "Return the project's :tasks map from lgx.edn, or {} if absent."
+  [project]
+  (let [config-path (path/join project config-name)
+        cfg (validate-config! (edn/read-string (slurp config-path)))]
+    (or (:tasks cfg) {})))
