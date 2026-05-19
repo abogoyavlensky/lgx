@@ -27,10 +27,11 @@ embedded git library ended up shelling out for edge cases anyway.
 
 ```
 lgx.lg              ns lgx.main — entry, argv parsing, subcommand dispatch
-lgx/config.lg       find lgx.edn (walks up), parse and validate :deps
+lgx/config.lg       find lgx.edn (walks up), parse and validate :deps/:paths/:tasks
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
-lgx/runner.lg       locate lg, exec with -source-paths
+lgx/runner.lg       locate lg, invoke with -source-paths
+lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
 ```
 
 `lgx.main` holds the entry point; the other namespaces are stateless helper
@@ -83,6 +84,29 @@ The exec call currently uses `os/sh`, which buffers stdout/stderr until
 the child exits. Streaming output and stdin (so `lgx run -r` can drive
 `lg`'s REPL) require an inherited-stdio runner — tracked in
 [`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md).
+
+### `lgx <task>`
+
+After built-in dispatch, lgx looks up `<task>` (as a keyword) in the
+project's `:tasks` map. If present, lgx resolves the project basis the
+same way `lgx run` does (steps 1–4 above) and walks the task's `:do`
+vector. Each step is one of:
+
+- `{:sh <string-or-vector>}` — joined with spaces and run via
+  `sh -c <cmd>`. Captured stdout/stderr is replayed after the child
+  exits.
+- `{:run <string-or-vector>}` — invoked through the same internal path
+  as `lgx run`, with the project's resolved `-source-paths`. String
+  forms are whitespace-split into argv.
+
+Steps run sequentially. The first non-zero exit code stops the chain
+and becomes the task's exit code; lgx exits 0 only when every step
+returns 0.
+
+Task names that collide with built-in commands
+(`run`, `install`, `add`, `update`, `tasks`, `help`, `version`) are
+rejected at validation time — overriding built-ins is reserved for
+later via an `:lgx/<name>` form.
 
 ## Cache layout
 
