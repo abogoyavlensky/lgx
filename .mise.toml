@@ -1,5 +1,5 @@
 [tools]
-lg = "1.7.4"
+lg = "2.0.2"
 cljfmt = "0.16.4"
 lefthook = "2.1.6"
 
