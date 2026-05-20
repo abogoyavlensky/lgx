@@ -1,13 +1,11 @@
 # lgx
 
-A project manager for [let-go](https://github.com/nooga/let-go). Reads
-git-pinned dependencies from `lgx.edn`, fetches them into a per-user
-cache, and runs `lg` with the cached paths added to its namespace
-search path.
+A project manager for [let-go](https://github.com/nooga/let-go). 
+Manage dependencies, run, build, test your app, and extend with custom tasks.
 
 ## Status
 
-Pre-alpha.
+Pre-alpha. Breaking changes are possible.
 
 ## Installation
 
@@ -21,8 +19,19 @@ Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out
   dependencies.
 
+### Install script
+
+One-liner - installs the latest release to `~/.local/bin/lgx`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
+```
 
 ### With [mise](https://mise.jdx.dev)
+
+Ad hoc: `mise use github:abogoyavlensky/lgx@0.1.0-alpha1`
+
+or add to your project:
 
 *.mise.toml*
 ```toml
@@ -46,46 +55,6 @@ mise install
 > If you hit github auth problem with mise then you can pin specific version of the tools in `.mise.toml`,
 > or set `export GITHUB_TOKEN="$(gh auth token)"` in your shell config.
 
-### Install script
-
-One-liner - installs the latest release to `~/.local/bin/lgx`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
-```
-#### Options
-
-Pin a version or change the install directory with env vars:
-
-```sh
-LGX_VERSION=0.1.0-alpha1 LGX_INSTALL_DIR=~/bin \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh)"
-```
-
-Re-run the same command to upgrade in place. The script verifies each
-archive against `checksums.txt`; read [`scripts/install.sh`](./scripts/install.sh)
-before piping if you'd rather see what runs.
-
-`lgx run` also needs `lg` on `PATH`. Install it via
-[mise](https://mise.jdx.dev) (`mise use github:nooga/let-go`), Homebrew
-(`brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`),
-or grab a binary from
-[let-go releases](https://github.com/nooga/let-go/releases).
-
-### Or manually download latest release
-
-If you'd rather skip the script entirely:
-
-```sh
-VERSION=0.1.0-alpha1
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # linux | darwin
-ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-curl -sSL -o lgx.tar.gz \
-  "https://github.com/abogoyavlensky/lgx/releases/download/v${VERSION}/lgx_${VERSION}_${OS}_${ARCH}.tar.gz"
-tar -xzf lgx.tar.gz
-install -m 0755 lgx ~/.local/bin/
-```
-
 ## `lgx.edn`
 
 ```edn
@@ -100,13 +69,7 @@ install -m 0755 lgx ~/.local/bin/
 ```
 
 Each git coord must specify `:git/url` plus one of `:git/sha` or
-`:git/tag`. Tag-pinned coords cache under the tag name itself - no
-`git ls-remote` call when the lib is already cached, and no network use
-at all on cache hits. Sha-pinned coords cache under the sha. If a
-maintainer force-updates a tag upstream, `lgx install` will not pick up
-the new commit automatically; delete the cache directory
-(`rm -rf ~/.lgx/gitlibs/<host>/<owner>/<repo>/<sanitized-tag>`) to
-refresh.
+`:git/tag`. Tag-pinned coords cache under the tag name itself.
 
 Top-level `:paths` lists project source paths relative to the project root.
 `lgx run` prepends them to dependency paths in `-source-paths`, so project
@@ -130,7 +93,7 @@ mixing them is an error.
 
 Current limitations: HTTPS URLs only (no SSH), no transitive deps.
 
-## Cache layout
+## Deps cache layout
 
 ```
 $LGX_HOME/gitlibs/<host>/<owner>/<repo>/<ref>/
@@ -144,7 +107,8 @@ by `_` for `:git/tag` coords.
 
 - `lgx install` - read `lgx.edn`, fetch missing deps. Idempotent.
 - `lgx run [args...]` - find the nearest `lgx.edn` walking up from the
-  current directory, install missing deps, then exec
+  current directory, install missing deps, then exec. Global option
+  `--verbose` prints the whole `lg` command first.
   `lg -source-paths <resolved> [args...]`. All args reach `lg` verbatim.
 - `lgx help` - print usage.
 - `lgx version` - print version.
@@ -178,23 +142,18 @@ Things that are currently missing or incomplete, in no particular order:
   dependency, matching tools.deps' `:deps/root`.
 - [x] **Per-coord `:local/root`.** Point a dep at a local directory
   instead of a git URL, matching tools.deps' `:local/root`.
-- [ ] **`lgx paths` command.** Print the fully-resolved source-path list
-  lgx would hand to `lg`.
+- [ ] `lgx build` - build project binary.
+- [ ] `lgx test` - test runner.
+- [ ] `lgx repl` - run repl.
+- [ ] `lgx new` - project scaffolding.
+- [ ] **`lgx fmt` / `lgx lint`**
 - [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
   libs and resolve the union, with first-wins on conflicts.
-- [ ] **Aliases.** Per-environment dep sets in `lgx.edn`
-  (e.g. `:migrate`, `:dev`) selectable from the CLI.
-- [ ] **Tasks.** Named command shortcuts.
+- [ ] **Tasks** Named command shortcuts.
+- [ ] **Contexts** Set environment-specific patha and deps configurations.
 - [ ] **Non-source resources** (let-go-side). `lg`'s resolver finds `.lg`
   and `.cljc` only; libs that ship templates, JSON, or other assets
   have no resolution story. Likely needs an upstream change.
-- [ ] `:test-paths` override.
-- [ ] `lgx build` - build project binary.
-- [ ] `lgx repl` - run repl.
-- [ ] `lgx test` - test runner.
-- [ ] `lgx new` - project scaffolding.
-- [ ] [OPTIONAL] **`lgx fmt` / `lgx lint`** *(maybe)*. Thin wrappers if the let-go
-  ecosystem grows tooling worth fronting.
 
 ## Examples
 
