@@ -13,7 +13,7 @@
        "\n"
        "Usage:\n"
        "  lgx install                  Fetch dependencies declared in lgx.edn\n"
-       "  lgx run [script] [args...]   Run a script via `lg` with deps on the source path\n"
+       "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
