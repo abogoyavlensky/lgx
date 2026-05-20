@@ -79,11 +79,20 @@ namespaces shadow lib namespaces. Missing entries print a warning and still
 pass through to `lg`.
 
 Top-level `:main` names a default entrypoint script relative to the project
-root. When set, `lgx run` with no arguments invokes that script. Any
-positional or flag arguments after `run` disable the fallback — `lgx run foo.lg`
-and `lgx run -r` both behave as before, so to pass args you must spell out the
-script yourself. If `:main` points at a file that does not exist on disk,
-`lgx run` exits with `lgx: :main script not found: <path>`.
+root. `lgx run` substitutes it as the script in two cases:
+
+- `lgx run` with no arguments at all.
+- `lgx run [lg-flags...] -- [user-args...]`. Everything left of `--` is
+  forwarded to `lg`; everything right of `--` becomes app args for `:main`.
+  For example, `lgx run -- list` runs `lg <X> main.lg list`, and
+  `lgx run -r -- foo` runs `lg <X> -r main.lg foo`. `--` is required
+  when you want to pass app args to the auto-injected `:main` (and is
+  the only way to forward a single-dash flag like `-v` past `lg`).
+
+Anything else — `lgx run foo.lg`, `lgx run -e '(...)'`, `lgx run -r` —
+passes through to `lg` unchanged. `--` without `:main` set is an error.
+If `:main` points at a file that does not exist on disk, `lgx run` exits
+with `lgx: :main script not found: <path>`.
 
 Top-level `:targets` declares how `lgx build` produces artifacts. Step 1
 supports the `:bin` target only, with a single required `:out` field giving

@@ -80,12 +80,38 @@
       (os/exit 1))
     main-script))
 
+(defn- index-of
+  "Index of the first occurrence of x in v, or -1 if absent."
+  [v x]
+  (loop [i 0
+         xs (seq v)]
+    (cond
+      (nil? xs) -1
+      (= x (first xs)) i
+      :else (recur (inc i) (next xs)))))
+
+(defn- require-main-for-double-dash! [main-script]
+  (when (nil? main-script)
+    (write! *err* "lgx: -- requires :main to be set in lgx.edn\n")
+    (os/exit 1)))
+
 (defn- cmd-run [forward-args verbose?]
   (let [project (config/find-project!)
         {:keys [results paths]} (project-basis project)
         main-script (config/main project)
-        args (if (and (empty? forward-args) main-script)
+        dd (index-of forward-args "--")
+        args (cond
+               (and (empty? forward-args) main-script)
                [(resolve-main-script! project main-script)]
+
+               (not (neg? dd))
+               (do (require-main-for-double-dash! main-script)
+                   (let [pre (vec (take dd forward-args))
+                         post (vec (drop (inc dd) forward-args))
+                         script (resolve-main-script! project main-script)]
+                     (vec (concat pre [script] post))))
+
+               :else
                forward-args)]
     (print-installs! results)
     (runner/exec-lg! paths args verbose?)))

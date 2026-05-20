@@ -584,5 +584,69 @@ assert_contains "$err" "-b" "verbose build: trace includes -b flag"
 assert_contains "$err" "bin/myapp" "verbose build: trace includes :out path"
 rm -rf "$proj_b6" "$home_b6"
 
+# ---------------------------------------------------------------------------
+# Scenarios 31-35 cover `--` as the script/user-args separator for `lgx run`
+# when `:main` is auto-injected. No `supports_source_paths` gating needed —
+# minimal projects have no deps/paths.
+echo "==> Scenario 31: lgx run -- <arg> forwards arg to :main"
+proj_dd="$(mktemp -d)"
+home_dd="$(mktemp -d)"
+cat > "$proj_dd/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_dd/main.lg" <<'EOF'
+(when-not *compiling-aot*
+  (println (str "args=" (rest os/args))))
+EOF
+out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- list)"
+assert_contains "$out" "list" "run --: forwards list arg to :main"
+assert_contains "$out" "main.lg" "run --: os/args includes injected script"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 32: lgx run -- -v shields single-dash flag from lg"
+out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- -v)"
+assert_contains "$out" "-v" "run --: -v reaches :main as user arg"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 33: lgx --verbose run -r -- foo trace shows -r before main"
+# Stub LGX_LG to /usr/bin/true so the trace fires but no real lg runs
+# (avoids the -r REPL hanging without a TTY).
+set +e
+err="$(cd "$proj_dd" && LGX_HOME="$home_dd" LGX_LG=/usr/bin/true \
+    "$LGX" --verbose run -r -- foo 2>&1 >/dev/null)"
+set -e
+if echo "$err" | grep -qE '\-r .*main\.lg foo'; then
+    pass "run -r -- foo: trace has -r before main and foo after"
+else
+    echo "---- stderr ----" >&2
+    echo "$err" >&2
+    fail "run -r -- foo: did not find '-r ... main.lg foo' in trace"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 34: lgx run -- (bare separator) injects :main with no user args"
+out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run --)"
+assert_contains "$out" "main.lg" "run -- (bare): injects :main"
+# main.lg prints `args=(...)` from (rest os/args). With no user args,
+# the only entry is the script path itself — no `list`/`-v`/`foo` leaks.
+assert_not_contains "$out" "list" "run -- (bare): no list arg leaked"
+assert_not_contains "$out" " foo" "run -- (bare): no foo arg leaked"
+rm -rf "$proj_dd" "$home_dd"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 35: lgx run -- foo errors without :main"
+proj_dd2="$(mktemp -d)"
+home_dd2="$(mktemp -d)"
+cat > "$proj_dd2/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+out="$(cd "$proj_dd2" && LGX_HOME="$home_dd2" "$LGX" run -- foo 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "run -- without :main: expected non-zero exit"
+assert_contains "$out" "lgx: -- requires :main to be set in lgx.edn" \
+    "run -- without :main: clear error"
+rm -rf "$proj_dd2" "$home_dd2"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
