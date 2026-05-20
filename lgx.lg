@@ -102,7 +102,6 @@
     (when (seq t)
       (str "\n"
            "Project tasks:\n"
-           "\n"
            (str/join "\n" (map (fn [n]
                                  (task-line width
                                             (keyword n)
