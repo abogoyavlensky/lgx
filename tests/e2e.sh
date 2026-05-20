@@ -416,5 +416,68 @@ else
     skip ":run task step requires lg with -source-paths support"
 fi
 
+# ---------------------------------------------------------------------------
+# Scenarios 21, 22, 24 use no :paths or :deps so `-source-paths` is never
+# added — they don't need supports_source_paths gating.
+echo "==> Scenario 21: :main runs default script when no args"
+proj_main="$(mktemp -d)"
+home_main="$(mktemp -d)"
+cat > "$proj_main/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_main/main.lg" <<'EOF'
+(println :hello-from-main)
+EOF
+out="$(cd "$proj_main" && LGX_HOME="$home_main" "$LGX" run)"
+assert_eq "$out" ":hello-from-main" "main: bare run uses :main script"
+rm -rf "$proj_main" "$home_main"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 22: explicit script overrides :main"
+proj_main2="$(mktemp -d)"
+home_main2="$(mktemp -d)"
+cat > "$proj_main2/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_main2/main.lg" <<'EOF'
+(println :should-not-run)
+EOF
+cat > "$proj_main2/other.lg" <<'EOF'
+(println :other-script)
+EOF
+out="$(cd "$proj_main2" && LGX_HOME="$home_main2" "$LGX" run other.lg)"
+assert_eq "$out" ":other-script" "main: explicit script skips :main fallback"
+rm -rf "$proj_main2" "$home_main2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 23: :main script missing on disk errors"
+proj_main3="$(mktemp -d)"
+home_main3="$(mktemp -d)"
+cat > "$proj_main3/lgx.edn" <<'EOF'
+{:main "missing.lg"}
+EOF
+set +e
+out="$(cd "$proj_main3" && LGX_HOME="$home_main3" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "missing :main: expected non-zero exit, got $rc"
+assert_contains "$out" "lgx: :main script not found: missing.lg" \
+    "missing :main: clear error on stderr"
+rm -rf "$proj_main3" "$home_main3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 24: any args disable :main fallback"
+proj_main4="$(mktemp -d)"
+home_main4="$(mktemp -d)"
+cat > "$proj_main4/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_main4/main.lg" <<'EOF'
+(println :should-not-run)
+EOF
+out="$(cd "$proj_main4" && LGX_HOME="$home_main4" "$LGX" run -e '(println :inline)')"
+assert_contains "$out" ":inline" "main: -e form runs, :main is not injected"
+assert_not_contains "$out" ":should-not-run" "main: :main script does not execute"
+rm -rf "$proj_main4" "$home_main4"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

@@ -180,7 +180,10 @@
               {:task task-name})))
     (validate-task! task-name task)))
 
-(def ^:private allowed-top-level #{:deps :paths :tasks})
+(defn- validate-main! [value]
+  (validate-rel-path! ":main" value {:value value}))
+
+(def ^:private allowed-top-level #{:deps :paths :tasks :main})
 
 (defn validate-config! [cfg]
   (when-not (map? cfg)
@@ -197,6 +200,8 @@
     (validate-paths! (:paths cfg)))
   (when (contains? cfg :tasks)
     (validate-tasks! (:tasks cfg)))
+  (when (contains? cfg :main)
+    (validate-main! (:main cfg)))
   cfg)
 
 (defn coords
@@ -219,3 +224,10 @@
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (or (:tasks cfg) {})))
+
+(defn main
+  "Return the project's :main entrypoint string from lgx.edn, or nil if absent."
+  [project]
+  (let [config-path (path/join project config-name)
+        cfg (validate-config! (edn/read-string (slurp config-path)))]
+    (:main cfg)))

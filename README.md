@@ -59,6 +59,7 @@ mise install
 
 ```edn
 {:paths ["src" "resources"]
+ :main  "main.lg"
  :deps
  {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
                           :git/tag "v0.2.0"}
@@ -75,6 +76,13 @@ Top-level `:paths` lists project source paths relative to the project root.
 `lgx run` prepends them to dependency paths in `-source-paths`, so project
 namespaces shadow lib namespaces. Missing entries print a warning and still
 pass through to `lg`.
+
+Top-level `:main` names a default entrypoint script relative to the project
+root. When set, `lgx run` with no arguments invokes that script. Any
+positional or flag arguments after `run` disable the fallback — `lgx run foo.lg`
+and `lgx run -r` both behave as before, so to pass args you must spell out the
+script yourself. If `:main` points at a file that does not exist on disk,
+`lgx run` exits with `lgx: :main script not found: <path>`.
 
 For each lib, the path added to `-source-paths` is `<ref>/src` if that dir
 exists, else the repo root. This matches the tools.deps default of
@@ -106,10 +114,12 @@ by `_` for `:git/tag` coords.
 ## Commands
 
 - `lgx install` - read `lgx.edn`, fetch missing deps. Idempotent.
-- `lgx run [args...]` - find the nearest `lgx.edn` walking up from the
-  current directory, install missing deps, then exec. Global option
-  `--verbose` prints the whole `lg` command first.
-  `lg -source-paths <resolved> [args...]`. All args reach `lg` verbatim.
+- `lgx run [script] [args...]` - find the nearest `lgx.edn` walking up
+  from the current directory, install missing deps, then exec
+  `lg -source-paths <resolved> [script] [args...]`. If `script` is
+  omitted and `:main` is set in `lgx.edn`, it is used as the script. All
+  args reach `lg` verbatim. Global option `--verbose` prints the
+  resolved `lg` command first.
 - `lgx help` - print usage.
 - `lgx version` - print version.
 

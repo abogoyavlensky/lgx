@@ -12,13 +12,14 @@
   (str "lgx - project manager for let-go\n"
        "\n"
        "Usage:\n"
-       "  lgx install         Fetch dependencies declared in lgx.edn\n"
-       "  lgx run [args...]   Run a script via `lg` with deps on the source path\n"
-       "  lgx version         Print version\n"
-       "  lgx help            Show this help\n"
+       "  lgx install                  Fetch dependencies declared in lgx.edn\n"
+       "  lgx run [script] [args...]   Run a script via `lg` with deps on the source path\n"
+       "                               (uses :main from lgx.edn when script is omitted)\n"
+       "  lgx version                  Print version\n"
+       "  lgx help                     Show this help\n"
        "\n"
        "Global flags:\n"
-       "  --verbose           Print the lg invocation before running (run/tasks)\n"))
+       "  --verbose                    Print the lg invocation before running (run/tasks)\n"))
 
 (defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]
@@ -70,11 +71,22 @@
      :results results
      :paths paths}))
 
+(defn- resolve-main-script! [project main-script]
+  (let [abs (path/join project main-script)]
+    (when-not (file-exists? abs)
+      (write! *err* (str "lgx: :main script not found: " main-script "\n"))
+      (os/exit 1))
+    main-script))
+
 (defn- cmd-run [forward-args verbose?]
   (let [project (config/find-project!)
-        {:keys [results paths]} (project-basis project)]
+        {:keys [results paths]} (project-basis project)
+        main-script (config/main project)
+        args (if (and (empty? forward-args) main-script)
+               [(resolve-main-script! project main-script)]
+               forward-args)]
     (print-installs! results)
-    (runner/exec-lg! paths forward-args verbose?)))
+    (runner/exec-lg! paths args verbose?)))
 
 (defn- cmd-task [task verbose?]
   (let [project (config/find-project!)

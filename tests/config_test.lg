@@ -176,6 +176,42 @@
   (is (= ["src" "test"] (config/paths "tests/fixtures/sample-project"))))
 
 ;; ---------------------------------------------------------------------------
+;; :main validation
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-main
+  (let [cfg {:main "main.lg"}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-nested-main
+  (let [cfg {:main "scripts/dev.lg"}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-non-string-main
+  (is (= :threw (threw? #(config/validate-config! {:main 5})))))
+
+(deftest validate-config-rejects-blank-main
+  (is (= :threw (threw? #(config/validate-config! {:main ""}))))
+  (is (= :threw (threw? #(config/validate-config! {:main "   "})))))
+
+(deftest validate-config-rejects-absolute-main
+  (is (= :threw (threw? #(config/validate-config! {:main "/abs/main.lg"})))))
+
+(deftest validate-config-rejects-parent-traversal-main
+  (is (= :threw (threw? #(config/validate-config! {:main "../main.lg"}))))
+  (is (= :threw (threw? #(config/validate-config! {:main "src/../etc.lg"})))))
+
+;; ---------------------------------------------------------------------------
+;; main accessor
+;; ---------------------------------------------------------------------------
+
+(deftest main-returns-nil-when-absent
+  (is (nil? (:main (config/validate-config! {:deps {}})))))
+
+(deftest main-reads-fixture
+  (is (= "main.lg" (config/main "tests/fixtures/sample-project"))))
+
+;; ---------------------------------------------------------------------------
 ;; :tasks validation
 ;; ---------------------------------------------------------------------------
 

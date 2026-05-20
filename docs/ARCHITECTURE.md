@@ -44,7 +44,7 @@ namespaces it requires.
 1. Find the project root by walking up from the current directory until
    a directory contains `lgx.edn`.
 2. Read `lgx.edn`, validate the schema
-   (`{:paths [<rel-path> ...] :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
+   (`{:paths [<rel-path> ...] :main <rel-path> :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
    or `{<lib> {:local/root … :deps/root <opt>}}`),
    and return the coord vector.
 3. For each coord, call `cache/ensure-lib!`. Git coords compute a cache
@@ -74,6 +74,14 @@ If `lgx.edn` sets top-level `:paths`, lgx resolves those
 project-root-relative paths to absolute paths and prepends them to the
 cached lib paths before the join. Missing entries log a warning to
 stderr, but lgx still passes the resolved path through to `lg`.
+
+If `lgx.edn` sets top-level `:main` and the user invoked `lgx run` with
+no forwarded arguments, lgx substitutes the `:main` path as the script
+argument. Any args at all — positional or flag — disable the
+substitution (`lgx run foo.lg`, `lgx run -r`, `lgx run -e '...'` all
+bypass `:main`). When `:main` is being injected and the file does not
+exist on disk, lgx exits non-zero with `lgx: :main script not found:
+<path>` before exec.
 
 5. Compute the `-source-paths` argument by joining the cached paths
    with the OS path-list separator.
