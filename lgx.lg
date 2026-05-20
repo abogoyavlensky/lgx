@@ -15,11 +15,13 @@
        "  lgx install                  Fetch dependencies declared in lgx.edn\n"
        "  lgx run [script] [args...]   Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted)\n"
+       "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
+       "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"
        "\n"
        "Global flags:\n"
-       "  --verbose                    Print the lg invocation before running (run/tasks)\n"))
+       "  --verbose                    Print the lg invocation before running (run/build/tasks)\n"))
 
 (defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]
@@ -88,6 +90,31 @@
     (print-installs! results)
     (runner/exec-lg! paths args verbose?)))
 
+(defn- ensure-out-dir! [project rel-out]
+  (let [abs (path/join project rel-out)
+        parent (path/parent abs)]
+    (when parent (mkdir parent))
+    abs))
+
+(defn- cmd-build [forward-args verbose?]
+  (let [project (config/find-project!)
+        {:keys [results paths]} (project-basis project)
+        main-script (config/main project)
+        bin (:bin (config/targets project))]
+    (when (nil? main-script)
+      (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
+      (os/exit 1))
+    (when (nil? bin)
+      (write! *err* (str "lgx: :targets/:bin is required for build "
+                         "(set :targets {:bin {:out \"...\"}} in lgx.edn)\n"))
+      (os/exit 1))
+    (resolve-main-script! project main-script)
+    (let [abs-out (ensure-out-dir! project (:out bin))
+          abs-main (path/join project main-script)
+          args (vec (concat forward-args ["-b" abs-out abs-main]))]
+      (print-installs! results)
+      (runner/exec-lg! paths args verbose?))))
+
 (defn- cmd-task [task verbose?]
   (let [project (config/find-project!)
         {:keys [results paths]} (project-basis project)]
@@ -154,6 +181,7 @@
   (case cmd
     "install" (cmd-install)
     "run" (cmd-run (vec rest-args) verbose?)
+    "build" (cmd-build (vec rest-args) verbose?)
     "version" (cmd-version)
     "-v" (cmd-version)
     "--version" (cmd-version)

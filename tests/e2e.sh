@@ -479,5 +479,109 @@ assert_contains "$out" ":inline" "main: -e form runs, :main is not injected"
 assert_not_contains "$out" ":should-not-run" "main: :main script does not execute"
 rm -rf "$proj_main4" "$home_main4"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 25: lgx build happy path"
+proj_b="$(mktemp -d)"
+home_b="$(mktemp -d)"
+cat > "$proj_b/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:out "bin/myapp"}}}
+EOF
+cat > "$proj_b/main.lg" <<'EOF'
+(when-not *compiling-aot*
+  (println :hello-from-myapp))
+EOF
+out="$(cd "$proj_b" && LGX_HOME="$home_b" "$LGX" build 2>&1)"
+[[ -x "$proj_b/bin/myapp" ]] || fail "build: expected bin/myapp to exist and be executable"
+pass "build: produces executable at :out"
+out_run="$("$proj_b/bin/myapp")"
+assert_eq "$out_run" ":hello-from-myapp" "build: produced binary runs and prints expected output"
+rm -rf "$proj_b" "$home_b"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 26: lgx build auto-creates missing parent dir"
+proj_b2="$(mktemp -d)"
+home_b2="$(mktemp -d)"
+cat > "$proj_b2/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:out "out/nested/myapp"}}}
+EOF
+cat > "$proj_b2/main.lg" <<'EOF'
+(when-not *compiling-aot* (println :nested))
+EOF
+(cd "$proj_b2" && LGX_HOME="$home_b2" "$LGX" build >/dev/null 2>&1)
+[[ -d "$proj_b2/out/nested" ]] || fail "build: expected out/nested/ to be auto-created"
+[[ -x "$proj_b2/out/nested/myapp" ]] || fail "build: expected nested binary"
+pass "build: auto-creates missing parent directory"
+rm -rf "$proj_b2" "$home_b2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 27: lgx build without :main errors"
+proj_b3="$(mktemp -d)"
+home_b3="$(mktemp -d)"
+cat > "$proj_b3/lgx.edn" <<'EOF'
+{:targets {:bin {:out "bin/myapp"}}}
+EOF
+set +e
+out="$(cd "$proj_b3" && LGX_HOME="$home_b3" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "build no :main: expected non-zero exit"
+assert_contains "$out" "lgx: :main is required for build" \
+    "build no :main: clear error"
+rm -rf "$proj_b3" "$home_b3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 28: lgx build without :targets/:bin errors"
+proj_b4="$(mktemp -d)"
+home_b4="$(mktemp -d)"
+cat > "$proj_b4/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_b4/main.lg" <<'EOF'
+(println :hi)
+EOF
+set +e
+out="$(cd "$proj_b4" && LGX_HOME="$home_b4" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "build no :targets/:bin: expected non-zero exit"
+assert_contains "$out" "lgx: :targets/:bin is required for build" \
+    "build no :targets/:bin: clear error"
+rm -rf "$proj_b4" "$home_b4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 29: lgx build with missing :main script errors"
+proj_b5="$(mktemp -d)"
+home_b5="$(mktemp -d)"
+cat > "$proj_b5/lgx.edn" <<'EOF'
+{:main "missing.lg"
+ :targets {:bin {:out "bin/myapp"}}}
+EOF
+set +e
+out="$(cd "$proj_b5" && LGX_HOME="$home_b5" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "build missing :main: expected non-zero exit"
+assert_contains "$out" "lgx: :main script not found: missing.lg" \
+    "build missing :main: clear error"
+rm -rf "$proj_b5" "$home_b5"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 30: lgx --verbose build prints lg trace"
+proj_b6="$(mktemp -d)"
+home_b6="$(mktemp -d)"
+cat > "$proj_b6/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:out "bin/myapp"}}}
+EOF
+cat > "$proj_b6/main.lg" <<'EOF'
+(when-not *compiling-aot* (println :ok))
+EOF
+set +e
+err="$(cd "$proj_b6" && LGX_HOME="$home_b6" "$LGX" --verbose build 2>&1 >/dev/null)"
+set -e
+assert_contains "$err" "+ " "verbose build: trace line has + prefix"
+assert_contains "$err" "-b" "verbose build: trace includes -b flag"
+assert_contains "$err" "bin/myapp" "verbose build: trace includes :out path"
+rm -rf "$proj_b6" "$home_b6"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

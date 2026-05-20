@@ -77,7 +77,7 @@
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
 ;; so the namespace is available for future use.
 (def reserved-task-names
-  #{"run" "install" "add" "update" "tasks" "help" "version"})
+  #{"run" "install" "add" "update" "tasks" "help" "version" "build"})
 
 (def ^:private allowed-step-keys #{:sh :run})
 
@@ -183,7 +183,35 @@
 (defn- validate-main! [value]
   (validate-rel-path! ":main" value {:value value}))
 
-(def ^:private allowed-top-level #{:deps :paths :tasks :main})
+(def ^:private allowed-targets #{:bin})
+(def ^:private allowed-bin-keys #{:out})
+
+(defn- validate-bin-target! [bin]
+  (when-not (map? bin)
+    (bad! ":targets/:bin must be a map" {}))
+  (doseq [k (keys bin)]
+    (when-not (contains? allowed-bin-keys k)
+      (bad! (str ":targets/:bin has unknown key " k
+                 ".\nAllowed keys: :out.")
+            {:key k})))
+  (when-not (contains? bin :out)
+    (bad! ":targets/:bin must contain :out" {}))
+  (validate-rel-path! ":targets/:bin :out"
+                      (:out bin)
+                      {:value (:out bin)}))
+
+(defn- validate-targets! [targets]
+  (when-not (map? targets)
+    (bad! ":targets must be a map" {}))
+  (doseq [k (keys targets)]
+    (when-not (contains? allowed-targets k)
+      (bad! (str ":targets has unknown target " k
+                 ".\nAllowed targets: :bin.")
+            {:target k})))
+  (when-let [bin (:bin targets)]
+    (validate-bin-target! bin)))
+
+(def ^:private allowed-top-level #{:deps :paths :tasks :main :targets})
 
 (defn validate-config! [cfg]
   (when-not (map? cfg)
@@ -202,6 +230,8 @@
     (validate-tasks! (:tasks cfg)))
   (when (contains? cfg :main)
     (validate-main! (:main cfg)))
+  (when (contains? cfg :targets)
+    (validate-targets! (:targets cfg)))
   cfg)
 
 (defn coords
@@ -231,3 +261,10 @@
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (:main cfg)))
+
+(defn targets
+  "Return the project's :targets map from lgx.edn, or {} if absent."
+  [project]
+  (let [config-path (path/join project config-name)
+        cfg (validate-config! (edn/read-string (slurp config-path)))]
+    (or (:targets cfg) {})))

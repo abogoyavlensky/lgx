@@ -212,6 +212,61 @@
   (is (= "main.lg" (config/main "tests/fixtures/sample-project"))))
 
 ;; ---------------------------------------------------------------------------
+;; :targets validation
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-targets-bin
+  (let [cfg {:targets {:bin {:out "bin/app"}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-targets-not-a-map
+  (is (= :threw (threw? #(config/validate-config! {:targets [:bin]})))))
+
+(deftest validate-config-rejects-unknown-target
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:wasm {:out "out/app.wasm"}}})))))
+
+(deftest validate-config-rejects-bin-not-a-map
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin "bin/app"}})))))
+
+(deftest validate-config-rejects-bin-without-out
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin {}}})))))
+
+(deftest validate-config-rejects-unknown-bin-key
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin {:out "bin/app"
+                                            :foo 1}}})))))
+
+(deftest validate-config-rejects-blank-out
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin {:out ""}}}))))
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin {:out "   "}}})))))
+
+(deftest validate-config-rejects-absolute-out
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin {:out "/abs/app"}}})))))
+
+(deftest validate-config-rejects-parent-traversal-out
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin {:out "../app"}}}))))
+  (is (= :threw (threw? #(config/validate-config!
+                           {:targets {:bin {:out "bin/../app"}}})))))
+
+;; ---------------------------------------------------------------------------
+;; targets accessor
+;; ---------------------------------------------------------------------------
+
+(deftest targets-returns-empty-when-absent
+  (is (= {} (or (:targets (config/validate-config! {:deps {}})) {}))))
+
+(deftest targets-reads-fixture
+  (is (= {:bin {:out "bin/sample"}}
+         (config/targets "tests/fixtures/sample-project"))))
+
+;; ---------------------------------------------------------------------------
 ;; :tasks validation
 ;; ---------------------------------------------------------------------------
 

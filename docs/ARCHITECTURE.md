@@ -44,7 +44,7 @@ namespaces it requires.
 1. Find the project root by walking up from the current directory until
    a directory contains `lgx.edn`.
 2. Read `lgx.edn`, validate the schema
-   (`{:paths [<rel-path> ...] :main <rel-path> :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
+   (`{:paths [<rel-path> ...] :main <rel-path> :targets {:bin {:out <rel-path>}} :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
    or `{<lib> {:local/root … :deps/root <opt>}}`),
    and return the coord vector.
 3. For each coord, call `cache/ensure-lib!`. Git coords compute a cache
@@ -93,6 +93,29 @@ the child exits. Streaming output and stdin (so `lgx run -r` can drive
 `lg`'s REPL) require an inherited-stdio runner — tracked in
 [`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md).
 
+### `lgx build [args...]`
+
+Steps 1–3 match `install`. Then:
+
+4. Read `:main` and `:targets/:bin` from the validated config. Either
+   being absent exits 1 with a clear error (`lgx: :main is required for
+   build` / `lgx: :targets/:bin is required for build`).
+5. Verify the `:main` script exists on disk (resolved against the
+   project root). Missing → `lgx: :main script not found: <path>` and
+   exit 1.
+6. Resolve `:targets/:bin/:out` to an absolute path under the project
+   root and `mkdir` its parent (recursive, idempotent).
+7. Exec `lg [forwarded-args...] -source-paths <X> -b <abs-out> <abs-main>`.
+   Forwarded args come first so they extend `lg`'s flag list before
+   `-b` (real example: `-bundle-base /path/to/lg` for cross-OS builds).
+   Both `-b` target and main script are absolute paths so `lgx build`
+   produces the same artifact regardless of which subdirectory of the
+   project the user invoked it from.
+
+`lgx build` shares `resolve-main-script!` and the project-basis
+resolution with `lgx run`; the only structural difference is the
+argument shape and the required-config / mkdir steps.
+
 ### `lgx <task>`
 
 After built-in dispatch, lgx looks up `<task>` (as a keyword) in the
@@ -112,8 +135,8 @@ and becomes the task's exit code; lgx exits 0 only when every step
 returns 0.
 
 Task names that collide with built-in commands
-(`run`, `install`, `add`, `update`, `tasks`, `help`, `version`) are
-rejected at validation time — overriding built-ins is reserved for
+(`run`, `install`, `build`, `add`, `update`, `tasks`, `help`, `version`)
+are rejected at validation time — overriding built-ins is reserved for
 later via an `:lgx/<name>` form.
 
 ## Cache layout

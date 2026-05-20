@@ -58,8 +58,9 @@ mise install
 ## `lgx.edn`
 
 ```edn
-{:paths ["src" "resources"]
- :main  "main.lg"
+{:paths   ["src" "resources"]
+ :main    "main.lg"
+ :targets {:bin {:out "bin/myapp"}}
  :deps
  {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
                           :git/tag "v0.2.0"}
@@ -83,6 +84,15 @@ positional or flag arguments after `run` disable the fallback — `lgx run foo.l
 and `lgx run -r` both behave as before, so to pass args you must spell out the
 script yourself. If `:main` points at a file that does not exist on disk,
 `lgx run` exits with `lgx: :main script not found: <path>`.
+
+Top-level `:targets` declares how `lgx build` produces artifacts. Step 1
+supports the `:bin` target only, with a single required `:out` field giving
+the output path relative to the project root. `lgx build` is sugar for
+`lg -source-paths <resolved> -b <out> <main>`; the parent of `:out` is
+auto-created if missing. Extra args go before `-b`, so cross-OS bundling
+works as `lgx build -bundle-base /path/to/lg`. Both `:main` and
+`:targets/:bin` are required for `lgx build` — a missing one prints a
+clear error.
 
 For each lib, the path added to `-source-paths` is `<ref>/src` if that dir
 exists, else the repo root. This matches the tools.deps default of
@@ -120,6 +130,12 @@ by `_` for `:git/tag` coords.
   omitted and `:main` is set in `lgx.edn`, it is used as the script. All
   args reach `lg` verbatim. Global option `--verbose` prints the
   resolved `lg` command first.
+- `lgx build [args...]` - bundle `:main` into `:targets/:bin/:out` via
+  `lg -b`. Reads `:main`, `:paths`, `:deps`, and `:targets/:bin/:out`
+  from `lgx.edn`. Extra args are forwarded to `lg` before `-b` (for
+  example, `-bundle-base /path/to/lg` for cross-OS builds). Both
+  `:main` and `:targets/:bin` are required; either being absent prints
+  a clear error.
 - `lgx help` - print usage.
 - `lgx version` - print version.
 
@@ -152,7 +168,7 @@ Things that are currently missing or incomplete, in no particular order:
   dependency, matching tools.deps' `:deps/root`.
 - [x] **Per-coord `:local/root`.** Point a dep at a local directory
   instead of a git URL, matching tools.deps' `:local/root`.
-- [ ] `lgx build` - build project binary.
+- [x] `lgx build` - build project binary.
 - [ ] `lgx test` - test runner.
 - [ ] `lgx repl` - run repl.
 - [ ] `lgx new` - project scaffolding.
