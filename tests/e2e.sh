@@ -494,6 +494,7 @@ EOF
 out="$(cd "$proj_b" && LGX_HOME="$home_b" "$LGX" build 2>&1)"
 [[ -x "$proj_b/bin/myapp" ]] || fail "build: expected bin/myapp to exist and be executable"
 pass "build: produces executable at :out"
+assert_contains "$out" "built $proj_b/bin/myapp" "build: prints success line with abs out path"
 out_run="$("$proj_b/bin/myapp")"
 assert_eq "$out_run" ":hello-from-myapp" "build: produced binary runs and prints expected output"
 rm -rf "$proj_b" "$home_b"

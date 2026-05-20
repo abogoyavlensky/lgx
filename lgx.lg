@@ -113,7 +113,10 @@
           abs-main (path/join project main-script)
           args (vec (concat forward-args ["-b" abs-out abs-main]))]
       (print-installs! results)
-      (runner/exec-lg! paths args verbose?))))
+      (let [exit (runner/invoke-lg! paths args verbose?)]
+        (when (zero? exit)
+          (println "built" abs-out))
+        (os/exit exit)))))
 
 (defn- cmd-task [task verbose?]
   (let [project (config/find-project!)
