@@ -198,20 +198,21 @@ LGX_LG=/path/to/lg bin/lgx run script.lg
 Things that are currently missing or incomplete, in no particular order:
 
 - [x] `:paths` source paths.
-- [x] **Per-coord `:deps/root`.** Override the `<ref>/src` default per
-  dependency, matching tools.deps' `:deps/root`.
-- [x] **Per-coord `:local/root`.** Point a dep at a local directory
-  instead of a git URL, matching tools.deps' `:local/root`.
+- [x] Per-coord `:deps/root`. Override the `<ref>/src` default per dependency, matching tools.deps' `:deps/root`.
+- [x] Per-coord `:local/root`. Point a dep at a local directory instead of a git URL, matching tools.deps' `:local/root`.
+- [x] `:tasks` - named command shortcuts.
 - [x] `lgx build` - build project binary.
 - [ ] `lgx test` - test runner.
-- [ ] `lgx repl` - run repl.
 - [ ] `lgx new` - project scaffolding.
-- [ ] **`lgx fmt` / `lgx lint`**
-- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
-  libs and resolve the union, with first-wins on conflicts.
-- [ ] **Tasks** Named command shortcuts.
-- [ ] **Contexts** Set environment-specific patha and deps configurations.
-- [ ] **Non-source resources** (let-go-side). `lg`'s resolver finds `.lg`
+- [ ] `lgx repl` - run repl.
+- [ ] `lgx init` - create a default `lgx.edn` in the current directory.
+- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched libs and resolve the union, with first-wins on conflicts.
+- [ ] `lgx deps` - print dependency tree.
+- [ ] `lgx fmt` / `lgx lint`
+- [ ] `lgx outdate` - check for outdated deps.
+- [ ] `lgx clean` - clean build artifacts from `:targets`.
+- [ ] `:contexts` - set environment-specific patha and deps configurations.
+- [ ] Non-source resources (let-go-side). `lg`'s resolver finds `.lg`
   and `.cljc` only; libs that ship templates, JSON, or other assets
   have no resolution story. Likely needs an upstream change.
 
