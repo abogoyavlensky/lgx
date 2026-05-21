@@ -280,7 +280,7 @@
     (is (= cfg (config/validate-config! cfg)))))
 
 (deftest validate-config-accepts-task-with-run-step
-  (let [cfg {:tasks {:test {:do [{:run "scripts/test.lg"}]}}}]
+  (let [cfg {:tasks {:check {:do [{:run "scripts/test.lg"}]}}}]
     (is (= cfg (config/validate-config! cfg)))))
 
 (deftest validate-config-accepts-task-with-vector-step-values
@@ -290,7 +290,7 @@
 
 (deftest validate-config-accepts-multiple-tasks
   (let [cfg {:tasks {:fmt {:do [{:sh "echo a"}]}
-                     :test {:do [{:run "scripts/test.lg"}]}
+                     :check {:do [{:run "scripts/test.lg"}]}
                      :ci {:do [{:sh "echo a"}
                                {:run "scripts/test.lg"}]}}}]
     (is (= cfg (config/validate-config! cfg)))))
@@ -360,7 +360,11 @@
 (deftest validate-config-rejects-tasks-conflicting-with-builtins
   (doseq [n config/reserved-task-names]
     (is (= :threw (threw? #(config/validate-config!
-                             {:tasks {(keyword n) {:do [{:sh "echo hi"}]}}}))))))
+                             {:tasks {(keyword n) {:do [{:sh "echo hi"}]}}})))))
+  ;; Explicit spot-check: "test" must be reserved so projects can't shadow it.
+  (is (contains? config/reserved-task-names "test"))
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:test {:do [{:sh "echo hi"}]}}})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

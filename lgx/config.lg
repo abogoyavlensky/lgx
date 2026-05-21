@@ -77,7 +77,7 @@
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
 ;; so the namespace is available for future use.
 (def reserved-task-names
-  #{"run" "install" "add" "update" "tasks" "help" "version" "build"})
+  #{"run" "install" "add" "update" "tasks" "help" "version" "build" "test"})
 
 (def ^:private allowed-step-keys #{:sh :run})
 

@@ -366,14 +366,14 @@ assert_contains "$out" "'nope' is not a lgx command" "unknown task: error messag
 echo "==> Scenario 18: lgx help lists project tasks"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:fmt  {:doc "Format sources" :do [{:sh "echo fmt"}]}
-  :test {:doc "Run tests"      :do [{:sh "echo test"}]}}}
+ {:fmt   {:doc "Format sources" :do [{:sh "echo fmt"}]}
+  :check {:doc "Run checks"     :do [{:sh "echo check"}]}}}
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
 assert_contains "$out" "Project tasks:" "help: shows project tasks block"
 assert_contains "$out" "fmt" "help: lists fmt task"
 assert_contains "$out" "Format sources" "help: shows :doc string"
-assert_contains "$out" "Run tests" "help: shows test :doc"
+assert_contains "$out" "Run checks" "help: shows check :doc"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 19: task name conflicting with built-in command is rejected"

@@ -227,30 +227,30 @@ The ✓/✗ output and exit code are validated via the e2e harness
 
 ### Task 3: Wire `cmd-test` into `lgx.lg`
 
-- [ ] add `cmd-test [forward-args verbose?]` modeled on `cmd-run`
+- [x] add `cmd-test [forward-args verbose?]` modeled on `cmd-run`
   / `cmd-build` (`lgx.lg:107-159`):
-  - [ ] `config/find-project!` → `project-basis` (same as `run`)
-  - [ ] resolve `<project-root>/test` absolute path; if missing,
+  - [x] `config/find-project!` → `project-basis` (same as `run`)
+  - [x] resolve `<project-root>/test` absolute path; if missing,
     write `lgx: no test/ directory in project` to stderr and
     `(os/exit 1)`
-  - [ ] call `discover-test-files`; if empty, `println "No tests
+  - [x] call `discover-test-files`; if empty, `println "No tests
     found in test/"` and `(os/exit 0)`
-  - [ ] compute ns symbols via `path->ns`
-  - [ ] call `write-harness!` to materialize the temp file
-  - [ ] build source-paths = project paths + dep paths + `test/`
-  - [ ] hand off via `runner/exec-lg!` with args `[<harness-path>]`
-  - [ ] reject extra forward-args (v1 takes none — print friendly
+  - [x] compute ns symbols via `path->ns`
+  - [x] call `write-harness!` to materialize the temp file
+  - [x] build source-paths = project paths + dep paths + `test/`
+  - [x] hand off via `runner/exec-lg!` with args `[<harness-path>]`
+  - [x] reject extra forward-args (v1 takes none — print friendly
     error if any provided)
-- [ ] add `"test"` to the `case` arm in `dispatch`
+- [x] add `"test"` to the `case` arm in `dispatch`
   (`lgx.lg:223-239`)
-- [ ] extend `base-usage` (`lgx.lg:11-24`) with:
+- [x] extend `base-usage` (`lgx.lg:11-24`) with:
   ```
     lgx test                    Run *_test.lg / *_test.cljc files under test/
   ```
-- [ ] add `"test"` to `reserved-task-names` in `lgx/config.lg`
-- [ ] extend the existing reserved-name doseq in
+- [x] add `"test"` to `reserved-task-names` in `lgx/config.lg`
+- [x] extend the existing reserved-name doseq in
   `tests/config_test.lg` to assert `"test"` is rejected
-- [ ] `bash tests/run.sh` — must pass before next task
+- [x] `bash tests/run.sh` — must pass before next task
 
 ### Task 4: End-to-end fixture run
 

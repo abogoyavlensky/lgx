@@ -4,6 +4,7 @@
             [lgx.path :as path]
             [lgx.runner :as runner]
             [lgx.tasks :as tasks]
+            [lgx.test-runner :as test-runner]
             [string :as str]))
 
 (def version "0.1.0-alpha4")
@@ -17,6 +18,7 @@
        "                               (uses :main from lgx.edn when script is omitted)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
+       "  lgx test                     Run *_test.lg / *_test.cljc files under test/\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"
        "\n"
@@ -158,6 +160,29 @@
           (println "built" abs-out))
         (os/exit exit)))))
 
+(defn- cmd-test [forward-args verbose?]
+  (when (seq forward-args)
+    (write! *err* "lgx: test takes no arguments in this version\n")
+    (os/exit 1))
+  (let [project (config/find-project!)
+        {:keys [results paths]} (project-basis project)
+        test-dir (path/join project "test")]
+    (let [stat (os/stat test-dir)]
+      (when (or (nil? stat) (not (:dir? stat)))
+        (write! *err* "lgx: no test/ directory in project\n")
+        (os/exit 1)))
+    (let [files (test-runner/discover-test-files test-dir)]
+      (when (empty? files)
+        (println "No tests found in test/")
+        (os/exit 0))
+      (let [ns-syms (mapv #(test-runner/path->ns test-dir %) files)
+            harness (test-runner/write-harness! ns-syms)
+            source-paths (vec (concat paths [test-dir]))]
+        (when verbose?
+          (write! *err* (str "+ harness: " harness "\n")))
+        (print-installs! results)
+        (runner/exec-lg! source-paths [harness] verbose?)))))
+
 (defn- cmd-task [task verbose?]
   (let [project (config/find-project!)
         {:keys [results paths]} (project-basis project)]
@@ -225,6 +250,7 @@
     "install" (cmd-install)
     "run" (cmd-run (vec rest-args) verbose?)
     "build" (cmd-build (vec rest-args) verbose?)
+    "test" (cmd-test (vec rest-args) verbose?)
     "version" (cmd-version)
     "-v" (cmd-version)
     "--version" (cmd-version)
