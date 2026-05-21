@@ -76,22 +76,33 @@ cached lib paths before the join. Missing entries log a warning to
 stderr, but lgx still passes the resolved path through to `lg`.
 
 If `lgx.edn` sets top-level `:main`, lgx may substitute it as the
-script argument. Three rules apply to `cmd-run`; first match wins:
+script argument. Four rules apply to `cmd-run`; first match wins:
 
-1. **No forwarded args + `:main` set** → inject `:main`.
-2. **`--` appears in forwarded args** → split at the first `--` and
-   inject `:main`. Left side passes through to `lg` as flags; right
-   side trails the injected script as app args. The `--` itself is
-   stripped. The final shape is `lg <lg-flags...> -source-paths <X>
-   <main> <user-args...>`. With `:main` unset, lgx exits with
-   `lgx: -- requires :main to be set in lgx.edn`.
-3. **Anything else** → strict; no inject. (`lgx run foo.lg`,
-   `lgx run -r`, `lgx run -e '(...)'` all pass through unchanged.)
+1. **No forwarded args + `:main` set** → inject `:main`. Output:
+   `lg <lg-flags> <main>`. No `--`.
+2. **`--` present + pre-`--` slice contains a script** (suffix `.lg`,
+   `.cljc`, or `.clj`) → no inject; pass forward-args through verbatim
+   so the user's explicit script reaches `lg`. Output:
+   `lg <lg-flags> <pre> -- <post>`.
+3. **`--` present + pre-`--` slice contains no script** → inject
+   `:main` between the pre slice and the `--`. Output:
+   `lg <lg-flags> <pre> <main> -- <post>`. With `:main` unset, lgx
+   exits with `lgx: -- requires :main to be set in lgx.edn`.
+4. **Anything else** → strict; pass forward-args through verbatim.
+   (`lgx run foo.lg`, `lgx run -e '(...)'`, `lgx run -r` all
+   pass through unchanged.)
+
+The `--` is preserved in the outgoing argv when present in the user's
+invocation, so it lands in the script's `os/args` as a stable marker.
+A user script slices `(rest (drop-while #(not= "--" %) os/args))` to
+find its own args; lg's own flags (e.g. `-source-paths`) live before
+`--` and never reach a POSIX-style CLI parser. Only the *first* `--`
+is treated as the separator; later `--` tokens are literal args
+(standard getopt convention).
 
 When `:main` is being injected and the file does not exist on disk,
 lgx exits non-zero with `lgx: :main script not found: <path>` before
-exec. Only the *first* `--` is treated as the separator; later `--`
-tokens are literal args to the script (standard getopt convention).
+exec.
 
 5. Compute the `-source-paths` argument by joining the cached paths
    with the OS path-list separator.

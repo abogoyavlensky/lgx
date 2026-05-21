@@ -585,52 +585,63 @@ assert_contains "$err" "bin/myapp" "verbose build: trace includes :out path"
 rm -rf "$proj_b6" "$home_b6"
 
 # ---------------------------------------------------------------------------
-# Scenarios 31-35 cover `--` as the script/user-args separator for `lgx run`
-# when `:main` is auto-injected. No `supports_source_paths` gating needed —
-# minimal projects have no deps/paths.
+# Scenarios 31-38 cover `--` as the script/user-args separator for `lgx run`.
+# `--` is preserved in the outgoing argv; pre-`--` script suffixes
+# (.lg/.cljc/.clj) skip the :main injection. No `supports_source_paths`
+# gating needed — minimal projects have no deps/paths.
 echo "==> Scenario 31: lgx run -- <arg> forwards arg to :main"
 proj_dd="$(mktemp -d)"
 home_dd="$(mktemp -d)"
 cat > "$proj_dd/lgx.edn" <<'EOF'
 {:main "main.lg"}
 EOF
+# main.lg prints both the full os/args and the post-`--` slice so we
+# can assert both that `--` survives in os/args and that the slice is
+# what an app would actually consume.
 cat > "$proj_dd/main.lg" <<'EOF'
 (when-not *compiling-aot*
-  (println (str "args=" (rest os/args))))
+  (let [argv (vec os/args)
+        i (loop [k 0 xs (seq argv)]
+            (cond (nil? xs) -1
+                  (= "--" (first xs)) k
+                  :else (recur (inc k) (next xs))))
+        post (if (neg? i) [] (vec (drop (inc i) argv)))]
+    (println (str "all=" argv))
+    (println (str "post=" post))))
 EOF
 out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- list)"
-assert_contains "$out" "list" "run --: forwards list arg to :main"
-assert_contains "$out" "main.lg" "run --: os/args includes injected script"
+assert_contains "$out" "main.lg" "run -- list: os/args includes injected script"
+assert_contains "$out" "all=" "run -- list: full argv printed"
+assert_contains "$out" '"--"' "run -- list: -- preserved in os/args"
+assert_contains "$out" 'post=["list"]' "run -- list: post-slice is exactly [list]"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 32: lgx run -- -v shields single-dash flag from lg"
 out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- -v)"
-assert_contains "$out" "-v" "run --: -v reaches :main as user arg"
+assert_contains "$out" 'post=["-v"]' "run -- -v: -v lands in post-slice, not consumed by lg"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 33: lgx --verbose run -r -- foo trace shows -r before main"
+echo "==> Scenario 33: lgx --verbose run -r -- foo trace shows -r main.lg -- foo"
 # Stub LGX_LG to /usr/bin/true so the trace fires but no real lg runs
 # (avoids the -r REPL hanging without a TTY).
 set +e
 err="$(cd "$proj_dd" && LGX_HOME="$home_dd" LGX_LG=/usr/bin/true \
     "$LGX" --verbose run -r -- foo 2>&1 >/dev/null)"
 set -e
-if echo "$err" | grep -qE '\-r .*main\.lg foo'; then
-    pass "run -r -- foo: trace has -r before main and foo after"
+if echo "$err" | grep -qE '\-r .*main\.lg -- foo'; then
+    pass "run -r -- foo: trace reads '-r ... main.lg -- foo' ('-' before main, '--' after)"
 else
     echo "---- stderr ----" >&2
     echo "$err" >&2
-    fail "run -r -- foo: did not find '-r ... main.lg foo' in trace"
+    fail "run -r -- foo: did not find '-r ... main.lg -- foo' in trace"
 fi
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 34: lgx run -- (bare separator) injects :main with no user args"
+echo "==> Scenario 34: lgx run -- (bare separator) injects :main, keeps --"
 out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run --)"
 assert_contains "$out" "main.lg" "run -- (bare): injects :main"
-# main.lg prints `args=(...)` from (rest os/args). With no user args,
-# the only entry is the script path itself — no `list`/`-v`/`foo` leaks.
-assert_not_contains "$out" "list" "run -- (bare): no list arg leaked"
-assert_not_contains "$out" " foo" "run -- (bare): no foo arg leaked"
+assert_contains "$out" '"--"' "run -- (bare): -- preserved in os/args"
+assert_contains "$out" "post=[]" "run -- (bare): post-slice is empty"
 rm -rf "$proj_dd" "$home_dd"
 
 # ---------------------------------------------------------------------------
@@ -647,6 +658,59 @@ set -e
 assert_contains "$out" "lgx: -- requires :main to be set in lgx.edn" \
     "run -- without :main: clear error"
 rm -rf "$proj_dd2" "$home_dd2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 36: explicit foo.lg -- bar skips :main injection"
+proj_dd3="$(mktemp -d)"
+home_dd3="$(mktemp -d)"
+cat > "$proj_dd3/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_dd3/main.lg" <<'EOF'
+(when-not *compiling-aot* (println :main-ran))
+EOF
+cat > "$proj_dd3/other.lg" <<'EOF'
+(when-not *compiling-aot* (println :other-ran (rest os/args)))
+EOF
+out="$(cd "$proj_dd3" && LGX_HOME="$home_dd3" "$LGX" run other.lg -- bar)"
+assert_contains "$out" ":other-ran" "explicit script + --: explicit script runs"
+assert_not_contains "$out" ":main-ran" "explicit script + --: :main is NOT injected"
+assert_contains "$out" "bar" "explicit script + --: bar reaches the script"
+rm -rf "$proj_dd3" "$home_dd3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 37: explicit foo.lg -- bar works without :main set"
+proj_dd4="$(mktemp -d)"
+home_dd4="$(mktemp -d)"
+cat > "$proj_dd4/lgx.edn" <<'EOF'
+{}
+EOF
+cat > "$proj_dd4/other.lg" <<'EOF'
+(when-not *compiling-aot* (println :ran (rest os/args)))
+EOF
+out="$(cd "$proj_dd4" && LGX_HOME="$home_dd4" "$LGX" run other.lg -- bar)"
+assert_contains "$out" ":ran" "explicit script + -- (no :main): script runs"
+assert_contains "$out" "bar" "explicit script + -- (no :main): bar reaches the script"
+rm -rf "$proj_dd4" "$home_dd4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 38: .cljc suffix is recognized as an explicit script"
+proj_dd5="$(mktemp -d)"
+home_dd5="$(mktemp -d)"
+cat > "$proj_dd5/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_dd5/main.lg" <<'EOF'
+(when-not *compiling-aot* (println :main-ran))
+EOF
+cat > "$proj_dd5/other.cljc" <<'EOF'
+(when-not *compiling-aot* (println :cljc-ran (rest os/args)))
+EOF
+out="$(cd "$proj_dd5" && LGX_HOME="$home_dd5" "$LGX" run other.cljc -- baz)"
+assert_contains "$out" ":cljc-ran" "explicit .cljc + --: .cljc script runs"
+assert_not_contains "$out" ":main-ran" "explicit .cljc + --: :main NOT injected"
+assert_contains "$out" "baz" "explicit .cljc + --: baz reaches the script"
+rm -rf "$proj_dd5" "$home_dd5"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

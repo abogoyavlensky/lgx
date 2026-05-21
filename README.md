@@ -79,20 +79,38 @@ namespaces shadow lib namespaces. Missing entries print a warning and still
 pass through to `lg`.
 
 Top-level `:main` names a default entrypoint script relative to the project
-root. `lgx run` substitutes it as the script in two cases:
+root. `lgx run` substitutes it as the script when:
 
-- `lgx run` with no arguments at all.
-- `lgx run [lg-flags...] -- [user-args...]`. Everything left of `--` is
-  forwarded to `lg`; everything right of `--` becomes app args for `:main`.
-  For example, `lgx run -- list` runs `lg <X> main.lg list`, and
-  `lgx run -r -- foo` runs `lg <X> -r main.lg foo`. `--` is required
-  when you want to pass app args to the auto-injected `:main` (and is
-  the only way to forward a single-dash flag like `-v` past `lg`).
+- `lgx run` is called with no arguments → `lg <X> main.lg`.
+- `lgx run [lg-flags...] -- [app-args...]` is called *without* an
+  explicit script in the pre-`--` slice → lgx inserts `:main` between
+  the lg flags and the `--`. Examples: `lgx run -- list` becomes
+  `lg <X> main.lg -- list`; `lgx run -r -- foo` becomes
+  `lg <X> -r main.lg -- foo`.
 
-Anything else — `lgx run foo.lg`, `lgx run -e '(...)'`, `lgx run -r` —
-passes through to `lg` unchanged. `--` without `:main` set is an error.
-If `:main` points at a file that does not exist on disk, `lgx run` exits
-with `lgx: :main script not found: <path>`.
+When the pre-`--` args already contain an explicit script (suffix
+`.lg`, `.cljc`, or `.clj`), lgx skips injection and passes everything
+through, so `lgx run foo.lg -- bar` runs `lg <X> foo.lg -- bar`. Bare
+`lgx run -e '(...)'` and `lgx run foo.lg` (no `--`) likewise pass
+through unchanged.
+
+The `--` is preserved in the outgoing command line so it lands in
+`os/args` as a stable marker. Your script can slice past it to find
+its own args without seeing lg's flags:
+
+```clojure
+(def app-args
+  (vec (rest (drop-while #(not= "--" %) os/args))))
+```
+
+`-source-paths` and other lg flags live before `--`; a POSIX CLI
+parser (tiny-cli, babashka/cli, tools.cli) sees only `app-args` and
+nothing leaks.
+
+`lgx run -- foo` without `:main` set is an error
+(`lgx: -- requires :main to be set in lgx.edn`). If `:main` points at
+a file that does not exist on disk, `lgx run` exits with
+`lgx: :main script not found: <path>`.
 
 Top-level `:targets` declares how `lgx build` produces artifacts. Step 1
 supports the `:bin` target only, with a single required `:out` field giving

@@ -95,6 +95,15 @@
     (write! *err* "lgx: -- requires :main to be set in lgx.edn\n")
     (os/exit 1)))
 
+(def ^:private script-exts [".lg" ".cljc" ".clj"])
+
+(defn- script-arg? [s]
+  (and (string? s)
+       (some #(str/ends-with? s %) script-exts)))
+
+(defn- has-script? [args]
+  (some script-arg? args))
+
 (defn- cmd-run [forward-args verbose?]
   (let [project (config/find-project!)
         {:keys [results paths]} (project-basis project)
@@ -104,15 +113,17 @@
                (and (empty? forward-args) main-script)
                [(resolve-main-script! project main-script)]
 
-               (not (neg? dd))
-               (do (require-main-for-double-dash! main-script)
-                   (let [pre (vec (take dd forward-args))
-                         post (vec (drop (inc dd) forward-args))
-                         script (resolve-main-script! project main-script)]
-                     (vec (concat pre [script] post))))
+               (neg? dd)
+               forward-args
 
                :else
-               forward-args)]
+               (let [pre (vec (take dd forward-args))
+                     post (vec (drop (inc dd) forward-args))]
+                 (if (has-script? pre)
+                   forward-args
+                   (do (require-main-for-double-dash! main-script)
+                       (let [script (resolve-main-script! project main-script)]
+                         (vec (concat pre [script "--"] post)))))))]
     (print-installs! results)
     (runner/exec-lg! paths args verbose?)))
 
