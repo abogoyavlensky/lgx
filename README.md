@@ -200,7 +200,7 @@ Things that are currently missing or incomplete, in no particular order:
 - [x] `:paths` source paths.
 - [x] Per-coord `:deps/root`. Override the `<ref>/src` default per dependency, matching tools.deps' `:deps/root`.
 - [x] Per-coord `:local/root`. Point a dep at a local directory instead of a git URL, matching tools.deps' `:local/root`.
-- [x] `:tasks` - named command shortcuts.
+- [x] `:tasks` - named command shortcuts. (WIP)
 - [x] `lgx build` - build project binary.
 - [ ] `lgx test` - test runner.
 - [ ] `lgx new` - project scaffolding.
