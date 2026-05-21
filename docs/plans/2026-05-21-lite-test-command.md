@@ -254,23 +254,23 @@ The ✓/✗ output and exit code are validated via the e2e harness
 
 ### Task 4: End-to-end fixture run
 
-- [ ] add a self-test scenario in `tests/e2e.sh`:
-  - [ ] **N.** Happy path: create a throwaway project with one
+- [x] add a self-test scenario in `tests/e2e.sh`:
+  - [x] **N.** Happy path: create a throwaway project with one
     `test/foo_test.lg` containing two passing `deftest`s; assert
     `lgx test` exits 0 and stdout contains the expected `✓`
     lines for each test name
-  - [ ] **N+1.** Failure path: one passing + one failing test;
+  - [x] **N+1.** Failure path: one passing + one failing test;
     assert `lgx test` exits 1 and stdout contains `✗` for the
     failing test
-  - [ ] **N+2.** Empty dir: `mkdir test/` with nothing inside;
+  - [x] **N+2.** Empty dir: `mkdir test/` with nothing inside;
     assert exits 0 with `No tests found in test/`
-  - [ ] **N+3.** Missing dir: no `test/` at all; assert exits 1
+  - [x] **N+3.** Missing dir: no `test/` at all; assert exits 1
     with `lgx: no test/ directory in project`
-  - [ ] **N+4.** Nested layout: `test/foo/bar_test.lg`; assert
+  - [x] **N+4.** Nested layout: `test/foo/bar_test.lg`; assert
     the ✓ line is printed under ns `foo.bar-test`
-  - [ ] **N+5.** `lgx --verbose test`: trace contains the
+  - [x] **N+5.** `lgx --verbose test`: trace contains the
     generated harness path
-- [ ] `bash tests/run.sh` — both unit and e2e must pass
+- [x] `bash tests/run.sh` — both unit and e2e must pass
 
 ### Task 5: Migrate lgx's own tests onto `lgx test`
 

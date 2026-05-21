@@ -717,5 +717,169 @@ assert_not_contains "$out" ":main-ran" "explicit .cljc + --: :main NOT injected"
 assert_contains "$out" "baz" "explicit .cljc + --: baz reaches the script"
 rm -rf "$proj_dd5" "$home_dd5"
 
+# ---------------------------------------------------------------------------
+# Scenarios 39-44 cover `lgx test`. The command always passes -source-paths
+# (test/ is appended to the project basis), so the system `lg` must support
+# that flag — gate every scenario behind supports_source_paths.
+echo "==> Scenario 39: lgx test happy path"
+if supports_source_paths; then
+    proj_t1="$(mktemp -d)"
+    home_t1="$(mktemp -d)"
+    cat > "$proj_t1/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t1/test"
+    cat > "$proj_t1/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+
+(deftest pass-2
+  (is (= 2 2)))
+EOF
+    set +e
+    out="$(cd "$proj_t1" && LGX_HOME="$home_t1" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test happy: expected exit 0, got $rc (output: $out)"
+    pass "test happy: exits 0"
+    assert_contains "$out" "pass-1" "test happy: pass-1 row printed"
+    assert_contains "$out" "pass-2" "test happy: pass-2 row printed"
+    # ✓ = U+2713; check both deftests show the mark.
+    pass_marks="$(printf '%s\n' "$out" | grep -c $'\xe2\x9c\x93' || true)"
+    [[ "$pass_marks" -ge 2 ]] \
+        || fail "test happy: expected >=2 ✓ marks, got $pass_marks (output: $out)"
+    pass "test happy: ✓ printed for each passing deftest"
+    rm -rf "$proj_t1" "$home_t1"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 40: lgx test failure path"
+if supports_source_paths; then
+    proj_t2="$(mktemp -d)"
+    home_t2="$(mktemp -d)"
+    cat > "$proj_t2/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t2/test"
+    cat > "$proj_t2/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+
+(deftest fail-1
+  (is (= 1 2)))
+EOF
+    set +e
+    out="$(cd "$proj_t2" && LGX_HOME="$home_t2" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 1 ]] || fail "test fail: expected exit 1, got $rc (output: $out)"
+    pass "test fail: exits 1"
+    assert_contains "$out" "pass-1" "test fail: pass-1 row printed"
+    assert_contains "$out" "fail-1" "test fail: fail-1 row printed"
+    # ✗ = U+2717
+    if ! printf '%s\n' "$out" | grep -q $'\xe2\x9c\x97'; then
+        echo "---- output ----" >&2
+        echo "$out" >&2
+        fail "test fail: expected ✗ mark for failing test"
+    fi
+    pass "test fail: ✗ printed for failing deftest"
+    rm -rf "$proj_t2" "$home_t2"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 41: lgx test with empty test/ directory"
+proj_t3="$(mktemp -d)"
+home_t3="$(mktemp -d)"
+cat > "$proj_t3/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_t3/test"
+set +e
+out="$(cd "$proj_t3" && LGX_HOME="$home_t3" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "test empty: expected exit 0, got $rc (output: $out)"
+pass "test empty: exits 0"
+assert_contains "$out" "No tests found in test/" "test empty: friendly message"
+rm -rf "$proj_t3" "$home_t3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 42: lgx test with no test/ directory"
+proj_t4="$(mktemp -d)"
+home_t4="$(mktemp -d)"
+cat > "$proj_t4/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+out="$(cd "$proj_t4" && LGX_HOME="$home_t4" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test missing: expected exit 1, got $rc (output: $out)"
+pass "test missing: exits 1"
+assert_contains "$out" "lgx: no test/ directory in project" \
+    "test missing: friendly error"
+rm -rf "$proj_t4" "$home_t4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 43: lgx test nested layout"
+if supports_source_paths; then
+    proj_t5="$(mktemp -d)"
+    home_t5="$(mktemp -d)"
+    cat > "$proj_t5/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t5/test/foo"
+    cat > "$proj_t5/test/foo/bar_test.lg" <<'EOF'
+(ns foo.bar-test
+  (:require [test :refer [deftest is]]))
+
+(deftest nested-pass
+  (is (= :ok :ok)))
+EOF
+    set +e
+    out="$(cd "$proj_t5" && LGX_HOME="$home_t5" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test nested: expected exit 0, got $rc (output: $out)"
+    pass "test nested: exits 0"
+    assert_contains "$out" "foo.bar-test" "test nested: ns header printed"
+    assert_contains "$out" "nested-pass" "test nested: deftest row printed"
+    rm -rf "$proj_t5" "$home_t5"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 44: lgx --verbose test prints harness path on stderr"
+if supports_source_paths; then
+    proj_t6="$(mktemp -d)"
+    home_t6="$(mktemp -d)"
+    cat > "$proj_t6/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t6/test"
+    cat > "$proj_t6/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+EOF
+    set +e
+    err="$(cd "$proj_t6" && LGX_HOME="$home_t6" "$LGX" --verbose test 2>&1 >/dev/null)"
+    set -e
+    assert_contains "$err" "+ " "verbose test: trace line has + prefix"
+    assert_contains "$err" "lgx-test-" "verbose test: harness path mentioned"
+    assert_contains "$err" "-source-paths" "verbose test: trace includes -source-paths"
+    rm -rf "$proj_t6" "$home_t6"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
