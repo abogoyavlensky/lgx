@@ -203,26 +203,27 @@ The ✓/✗ output and exit code are validated via the e2e harness
 
 ### Task 2: Harness string template + generator
 
-- [ ] add `harness-source [ns-syms]` in `lgx/test_runner.lg` —
+- [x] add `harness-source [ns-syms]` in `lgx/test_runner.lg` —
   returns a `.lg` source string with:
-  - [ ] `(ns lgx.test-harness ...)` form that `:require`s every
+  - [x] `(ns lgx.test-harness ...)` form that `:require`s every
     discovered ns plus `test`, `term`, `os`
-  - [ ] the per-test iteration loop sketched in *Design*
-  - [ ] color helpers (green ✓ / red ✗ via `term/set-fg` +
-    `term/reset-style`)
-  - [ ] final summary line: `N tests, M assertions, K failures`
+  - [x] the per-test iteration loop sketched in *Design*
+  - [x] color helpers (green ✓ / red ✗ — implemented as raw
+    `[38;5;Nm` escapes since `term/set-fg` prints directly
+    to stdout rather than returning a string)
+  - [x] final summary line: `N tests, M assertions, K failures`
     (drawing from `*report-counters*`)
-  - [ ] `(os/exit (if (zero? (+ :fail :error)) 0 1))`
-- [ ] add `write-harness! [ns-syms]` — emits the source to a
-  tempfile under `os/temp-dir` (or fallback to project root /
-  `.lgx/`) and returns the absolute path
-- [ ] add tests:
-  - [ ] `harness-source` for `[]` ns list compiles to syntactically
-    valid let-go (parse via reading it back? — or assert on key
-    substrings if a parser API isn't exposed)
-  - [ ] `harness-source` for a non-empty list includes the
+  - [x] `(os/exit (if (zero? (+ :fail :error)) 0 1))`
+- [x] add `write-harness! [ns-syms]` — emits the source to a
+  tempfile under `os/temp-dir` (named `lgx-test-<rand>.lg`) and
+  returns the absolute path
+- [x] add tests:
+  - [x] `harness-source` for `[]` ns list parses (round-tripped
+    via `edn/read-string` wrapped in `(do ...)`) and contains the
+    expected ns/require/exit substrings
+  - [x] `harness-source` for a non-empty list includes the
     expected `:require` entries
-- [ ] `bash tests/run.sh` — must pass before next task
+- [x] `bash tests/run.sh` — must pass before next task
 
 ### Task 3: Wire `cmd-test` into `lgx.lg`
 

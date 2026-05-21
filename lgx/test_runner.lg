@@ -2,6 +2,9 @@
   (:require [lgx.path :as path]
             [string :as str]))
 
+(def ^:private harness-prefix "lgx-test-")
+(def ^:private harness-suffix ".lg")
+
 (defn- test-file? [name]
   (or (str/ends-with? name "_test.lg")
       (str/ends-with? name "_test.cljc")))
@@ -57,3 +60,93 @@
         segments (str/split bare sep)
         hyphenated (map #(str/replace % "_" "-") segments)]
     (symbol (str/join "." hyphenated))))
+
+;; ---------------------------------------------------------------------------
+;; Harness generation
+;;
+;; lgx ships as a bundled binary, so the test harness can't live as a
+;; static .lg file on the user's filesystem. Instead, we generate a small
+;; .lg source string from the discovered ns list, drop it in a tempfile,
+;; and hand it to `lg` like any other script.
+;; ---------------------------------------------------------------------------
+
+(defn- require-line [ns-sym]
+  (str "            [" ns-sym "]"))
+
+(def ^:private harness-header
+  (str "(ns lgx.test-harness\n"
+       "  (:require [test :refer [*registered-tests* *report-counters*\n"
+       "                          *test-result* *each-fixtures*]]\n"
+       "            [term :as term]\n"
+       "            [os :as os]"))
+
+(def ^:private harness-body
+  (str
+    "\n\n"
+    "(defn- color [code s]\n"
+    "  (str \"\\u001b[38;5;\" code \"m\" s \"\\u001b[0m\"))\n"
+    "\n"
+    "(defn- green [s] (color 2 s))\n"
+    "(defn- red   [s] (color 1 s))\n"
+    "\n"
+    "(defn- compose-fixtures [f g] (fn [t] (f (fn [] (g t)))))\n"
+    "(defn- default-fixture [t] (t))\n"
+    "(defn- join-fixtures [fs]\n"
+    "  (reduce compose-fixtures default-fixture fs))\n"
+    "\n"
+    "(println \"Running tests in test/...\")\n"
+    "(println)\n"
+    "\n"
+    "(doseq [entry *registered-tests*]\n"
+    "  (let [ns-sym (first entry)\n"
+    "        test-vars (second entry)]\n"
+    "    (println (str ns-sym))\n"
+    "    (doseq [tv test-vars]\n"
+    "      (set! *report-counters* (update *report-counters* :test inc))\n"
+    "      (let [before *report-counters*]\n"
+    "        (try\n"
+    "          ((join-fixtures *each-fixtures*) (fn [] ((deref tv))))\n"
+    "          (catch e\n"
+    "            (set! *report-counters*\n"
+    "                  (update *report-counters* :error inc))\n"
+    "            (set! *test-result* false)\n"
+    "            (println \"  ERROR:\" e)))\n"
+    "        (let [after *report-counters*\n"
+    "              failed? (or (> (:fail  after) (:fail  before))\n"
+    "                          (> (:error after) (:error before)))\n"
+    "              mark (if failed? (red \"\\u2717\") (green \"\\u2713\"))]\n"
+    "          (println \" \" mark (str (:name (meta tv)))))))\n"
+    "    (println)))\n"
+    "\n"
+    "(let [c *report-counters*\n"
+    "      asserts (+ (:pass c) (:fail c))\n"
+    "      failures (+ (:fail c) (:error c))]\n"
+    "  (println (str (:test c) \" tests, \" asserts \" assertions, \"\n"
+    "                failures \" failures\"))\n"
+    "  (println (if (zero? failures) \"OK\" \"FAIL\"))\n"
+    "  (os/exit (if (zero? failures) 0 1)))\n"))
+
+(defn harness-source
+  "Return a .lg source string for a test harness that loads each ns in
+   ns-syms and runs every registered test sequentially, printing a per-
+   test ✓/✗ mark and exiting non-zero if any test failed or errored."
+  [ns-syms]
+  (let [extra (if (empty? ns-syms)
+                ""
+                (str "\n"
+                     (str/join "\n" (map require-line ns-syms))))]
+    (str harness-header extra "))"
+         harness-body)))
+
+(defn- temp-path []
+  (let [dir (os/temp-dir)
+        name (str harness-prefix (rand-int 1000000000) harness-suffix)]
+    (path/join dir name)))
+
+(defn write-harness!
+  "Materialize the harness source for ns-syms to a tempfile under
+   os/temp-dir. Returns the absolute path of the written file."
+  [ns-syms]
+  (let [p (temp-path)]
+    (spit p (harness-source ns-syms))
+    p))

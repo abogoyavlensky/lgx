@@ -2,7 +2,8 @@
 ;; Run with: lg tests/test_runner_test.lg  (from project root)
 
 (ns lgx.test-runner-test
-  (:require [lgx.path :as path]
+  (:require [edn :as edn]
+            [lgx.path :as path]
             [lgx.test-runner :as tr]
             [string :as str]
             [test :refer [deftest is run-tests]]))
@@ -64,6 +65,39 @@
   (is (= :threw
          (threw? #(tr/discover-test-files
                     (path/join fixture-dir "no-such-subdir"))))))
+
+;; ---------------------------------------------------------------------------
+;; harness-source
+;; ---------------------------------------------------------------------------
+
+(defn- parses? [s]
+  ;; Wrap in (do ...) so the reader consumes the whole harness as one
+  ;; form; otherwise read-string only returns the first top-level form.
+  (try (do (edn/read-string (str "(do " s ")")) true)
+       (catch _ false)))
+
+(deftest harness-source-empty-ns-list-parses
+  (let [src (tr/harness-source [])]
+    (is (string? src))
+    (is (parses? src))
+    (is (str/includes? src "(ns lgx.test-harness"))
+    (is (str/includes? src "[test :refer"))
+    (is (str/includes? src "[term :as term]"))
+    (is (str/includes? src "(os/exit"))))
+
+(deftest harness-source-includes-each-ns
+  (let [src (tr/harness-source ['lgx.config-test 'lgx.path-test])]
+    (is (parses? src))
+    (is (str/includes? src "[lgx.config-test]"))
+    (is (str/includes? src "[lgx.path-test]"))))
+
+(deftest harness-source-summary-and-exit
+  (let [src (tr/harness-source ['foo-test])]
+    (is (str/includes? src "*registered-tests*"))
+    (is (str/includes? src "tests, "))
+    (is (str/includes? src "assertions, "))
+    (is (str/includes? src "failures"))
+    (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
