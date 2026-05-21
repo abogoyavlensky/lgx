@@ -178,27 +178,27 @@ The ✓/✗ output and exit code are validated via the e2e harness
 
 ### Task 1: Test discovery + ns-mapping helpers
 
-- [ ] create `lgx/test_runner.lg` with two pure helpers:
-  - [ ] `discover-test-files [test-dir]` — recursive walk using
+- [x] create `lgx/test_runner.lg` with two pure helpers:
+  - [x] `discover-test-files [test-dir]` — recursive walk using
     `os/ls` + `os/stat`, returns sorted vector of absolute paths
     for `*_test.lg` / `*_test.cljc`
-  - [ ] `path->ns [test-dir abs-path]` — strips `test-dir/` and
+  - [x] `path->ns [test-dir abs-path]` — strips `test-dir/` and
     extension, splits on `/`, hyphenates `_` per segment, joins
     with `.`, returns ns symbol
-- [ ] handle empty / missing `test-dir` (return `[]` for empty;
+- [x] handle empty / missing `test-dir` (return `[]` for empty;
   raise distinct value for missing so caller can print friendly
   error)
-- [ ] add `tests/test_runner_test.lg` covering:
-  - [ ] `path->ns` happy path (`test/foo_test.lg` →
+- [x] add `tests/test_runner_test.lg` covering:
+  - [x] `path->ns` happy path (`test/foo_test.lg` →
     `foo-test`)
-  - [ ] `path->ns` nested (`test/lgx/config_test.lg` →
+  - [x] `path->ns` nested (`test/lgx/config_test.lg` →
     `lgx.config-test`)
-  - [ ] `path->ns` `.cljc` extension
-  - [ ] `discover-test-files` finds `.lg` + `.cljc`, ignores
+  - [x] `path->ns` `.cljc` extension
+  - [x] `discover-test-files` finds `.lg` + `.cljc`, ignores
     non-`_test` files, recurses, returns sorted output (using
     a small fixture under `tests/fixtures/sample-tests/`)
-  - [ ] `discover-test-files` against a missing dir
-- [ ] `bash tests/run.sh` (or `lg tests/test_runner_test.lg`)
+  - [x] `discover-test-files` against a missing dir
+- [x] `bash tests/run.sh` (or `lg tests/test_runner_test.lg`)
   — must pass before next task
 
 ### Task 2: Harness string template + generator

@@ -1,0 +1,2 @@
+;; Discovery fixture for lgx.test-runner-test. Non-_test file: must be ignored.
+(ns helpers)

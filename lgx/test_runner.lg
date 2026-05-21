@@ -1,0 +1,59 @@
+(ns lgx.test-runner
+  (:require [lgx.path :as path]
+            [string :as str]))
+
+(defn- test-file? [name]
+  (or (str/ends-with? name "_test.lg")
+      (str/ends-with? name "_test.cljc")))
+
+(defn- walk* [dir]
+  (reduce
+    (fn [acc name]
+      (let [abs (path/join dir name)
+            stat (os/stat abs)]
+        (cond
+          (nil? stat) acc
+          (:dir? stat) (vec (concat acc (walk* abs)))
+          (test-file? name) (conj acc abs)
+          :else acc)))
+    []
+    (os/ls dir)))
+
+(defn discover-test-files
+  "Walk test-dir recursively for *_test.lg / *_test.cljc files.
+   Returns a sorted vector of absolute paths.
+   Throws ex-info (:reason :missing-dir) if test-dir does not exist
+   or is not a directory."
+  [test-dir]
+  (let [s (os/stat test-dir)]
+    (when (or (nil? s) (not (:dir? s)))
+      (throw (ex-info (str "test directory not found: " test-dir)
+                      {:reason :missing-dir
+                       :dir test-dir}))))
+  (vec (sort (walk* test-dir))))
+
+(defn- strip-ext [s]
+  (cond
+    (str/ends-with? s ".lg")   (subs s 0 (- (count s) 3))
+    (str/ends-with? s ".cljc") (subs s 0 (- (count s) 5))
+    :else s))
+
+(defn path->ns
+  "Convert a test file path to its namespace symbol.
+   test-dir is the directory the file was discovered under; abs-path is
+   the file path returned by discover-test-files (or any path that
+   begins with test-dir/).
+
+   test/foo_test.lg          -> 'foo-test
+   test/lgx/config_test.lg   -> 'lgx.config-test
+   test/foo_test.cljc        -> 'foo-test"
+  [test-dir abs-path]
+  (let [sep os/file-separator
+        prefix (str test-dir sep)
+        rel (if (str/starts-with? abs-path prefix)
+              (subs abs-path (count prefix))
+              abs-path)
+        bare (strip-ext rel)
+        segments (str/split bare sep)
+        hyphenated (map #(str/replace % "_" "-") segments)]
+    (symbol (str/join "." hyphenated))))

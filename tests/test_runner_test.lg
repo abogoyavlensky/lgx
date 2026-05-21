@@ -1,0 +1,73 @@
+;; Unit tests for lgx.test-runner.
+;; Run with: lg tests/test_runner_test.lg  (from project root)
+
+(ns lgx.test-runner-test
+  (:require [lgx.path :as path]
+            [lgx.test-runner :as tr]
+            [string :as str]
+            [test :refer [deftest is run-tests]]))
+
+(def sep os/file-separator)
+
+(defn- threw? [f]
+  (try (f) :no-throw (catch _ :threw)))
+
+(def fixture-dir
+  (path/join (os/cwd) "tests" "fixtures" "sample-tests"))
+
+;; ---------------------------------------------------------------------------
+;; path->ns
+;; ---------------------------------------------------------------------------
+
+(deftest path-ns-happy-path
+  (is (= 'foo-test
+         (tr/path->ns "test" (path/join "test" "foo_test.lg")))))
+
+(deftest path-ns-nested
+  (is (= 'lgx.config-test
+         (tr/path->ns "test"
+                      (path/join "test" "lgx" "config_test.lg")))))
+
+(deftest path-ns-cljc-extension
+  (is (= 'foo-test
+         (tr/path->ns "test" (path/join "test" "foo_test.cljc")))))
+
+(deftest path-ns-absolute-test-dir
+  (is (= 'foo.bar-test
+         (tr/path->ns (path/join sep "abs" "test")
+                      (path/join sep "abs" "test" "foo" "bar_test.lg")))))
+
+;; ---------------------------------------------------------------------------
+;; discover-test-files
+;; ---------------------------------------------------------------------------
+
+(deftest discover-finds-lg-and-cljc
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (some #(str/ends-with? % "alpha_test.lg") files))
+    (is (some #(str/ends-with? % "beta_test.cljc") files))))
+
+(deftest discover-ignores-non-test-files
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (not (some #(str/ends-with? % "helpers.lg") files)))))
+
+(deftest discover-recurses
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (some #(str/ends-with? % (path/join "nested" "gamma_test.lg"))
+              files))))
+
+(deftest discover-returns-sorted-vector
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (vector? files))
+    (is (= files (vec (sort files))))))
+
+(deftest discover-missing-dir-throws
+  (is (= :threw
+         (threw? #(tr/discover-test-files
+                    (path/join fixture-dir "no-such-subdir"))))))
+
+;; ---------------------------------------------------------------------------
+;; Run
+;; ---------------------------------------------------------------------------
+
+(run-tests)
+(when-not test/*test-result* (os/exit 1))

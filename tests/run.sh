@@ -17,6 +17,7 @@ echo "==> Unit tests..."
 lg tests/path_test.lg
 lg tests/config_test.lg
 lg tests/cache_test.lg
+lg tests/test_runner_test.lg
 
 echo
 echo "==> E2E tests..."
