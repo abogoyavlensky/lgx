@@ -95,17 +95,24 @@ through, so `lgx run foo.lg -- bar` runs `lg <X> foo.lg -- bar`. Bare
 through unchanged.
 
 The `--` is preserved in the outgoing command line so it lands in
-`os/args` as a stable marker. Your script can slice past it to find
-its own args without seeing lg's flags:
+`os/args` as a stable marker. lgx also appends a trailing `--` to
+the inject paths even when there are no user args (so bare `lgx run`
+produces `lg <X> main.lg --`), so the same parsing idiom works for
+both dev and built binary:
 
 ```clojure
-(def app-args
-  (vec (rest (drop-while #(not= "--" %) os/args))))
+(defn- cli-argv [argv]
+  "Return args after the `--` while developing, or CLI args in bundled mode."
+  (if (some #(= % "--") argv)
+    (rest (drop-while #(not (= % "--")) argv)) ; lgx run -- <args>
+    (rest argv)))  ; ./bin/myapp <args>
 ```
 
 `-source-paths` and other lg flags live before `--`; a POSIX CLI
 parser (tiny-cli, babashka/cli, tools.cli) sees only `app-args` and
-nothing leaks.
+nothing leaks. For the strict pass-through case (`lgx run foo.lg bar`,
+without `--`), you must add `--` yourself to use the same idiom —
+`lgx run foo.lg -- bar`.
 
 `lgx run -- foo` without `:main` set is an error
 (`lgx: -- requires :main to be set in lgx.edn`). If `:main` points at

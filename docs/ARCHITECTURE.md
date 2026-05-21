@@ -78,8 +78,10 @@ stderr, but lgx still passes the resolved path through to `lg`.
 If `lgx.edn` sets top-level `:main`, lgx may substitute it as the
 script argument. Four rules apply to `cmd-run`; first match wins:
 
-1. **No forwarded args + `:main` set** → inject `:main`. Output:
-   `lg <lg-flags> <main>`. No `--`.
+1. **No forwarded args + `:main` set** → inject `:main` *and* append
+   a trailing `--`. Output: `lg <lg-flags> <main> --`. The trailing
+   `--` is what makes the script's `os/args` parsing idiom universal
+   across dev mode and a built binary (where `--` is naturally absent).
 2. **`--` present + pre-`--` slice contains a script** (suffix `.lg`,
    `.cljc`, or `.clj`) → no inject; pass forward-args through verbatim
    so the user's explicit script reaches `lg`. Output:

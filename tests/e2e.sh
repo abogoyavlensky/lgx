@@ -425,11 +425,16 @@ home_main="$(mktemp -d)"
 cat > "$proj_main/lgx.edn" <<'EOF'
 {:main "main.lg"}
 EOF
+# main.lg also prints whether `--` lands in os/args, so we can verify
+# the universal-parser convention works for the bare `lgx run` case.
 cat > "$proj_main/main.lg" <<'EOF'
-(println :hello-from-main)
+(when-not *compiling-aot*
+  (println :hello-from-main)
+  (println (str "argv=" (vec os/args))))
 EOF
 out="$(cd "$proj_main" && LGX_HOME="$home_main" "$LGX" run)"
-assert_eq "$out" ":hello-from-main" "main: bare run uses :main script"
+assert_contains "$out" ":hello-from-main" "main: bare run uses :main script"
+assert_contains "$out" '"--"' "main: bare run appends -- so universal parser works"
 rm -rf "$proj_main" "$home_main"
 
 # ---------------------------------------------------------------------------

@@ -111,7 +111,10 @@
         dd (index-of forward-args "--")
         args (cond
                (and (empty? forward-args) main-script)
-               [(resolve-main-script! project main-script)]
+               ;; Always emit a trailing `--` so a script can use the
+               ;; universal `(drop-while #(not= "--" %) os/args)` idiom
+               ;; for arg parsing across dev (`lgx run`) and binary modes.
+               [(resolve-main-script! project main-script) "--"]
 
                (neg? dd)
                forward-args
