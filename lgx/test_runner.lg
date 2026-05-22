@@ -37,7 +37,7 @@
 
 (defn- strip-ext [s]
   (cond
-    (str/ends-with? s ".lg")   (subs s 0 (- (count s) 3))
+    (str/ends-with? s ".lg") (subs s 0 (- (count s) 3))
     (str/ends-with? s ".cljc") (subs s 0 (- (count s) 5))
     :else s))
 
