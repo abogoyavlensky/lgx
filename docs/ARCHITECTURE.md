@@ -139,6 +139,39 @@ Steps 1–3 match `install`. Then:
 resolution with `lgx run`; the only structural difference is the
 argument shape and the required-config / mkdir steps.
 
+### `lgx test`
+
+Steps 1–3 match `install`. Then:
+
+4. Resolve `<project-root>/test`. If it does not exist (or is not a
+   directory), exit 1 with `lgx: no test/ directory in project` on
+   stderr.
+5. Walk `test/` recursively for `*_test.lg` and `*_test.cljc` files.
+   `.clj` is not matched — let-go's resolver doesn't load that
+   extension. If the walk returns no files, print
+   `No tests found in test/` and exit 0.
+6. Map each absolute path to a namespace symbol: strip `test/` prefix
+   and the extension, split on `/`, hyphenate `_` per segment, join
+   with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
+   This is the reverse of let-go's resolver rule
+   ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
+7. Generate a one-shot harness `.lg` source string that `:require`s
+   every discovered ns plus `test`/`term`/`os`, iterates
+   `*registered-tests*`, prints a `✓`/`✗` line per `deftest`, and
+   ends with a `N tests, M assertions, K failures` summary and
+   `(os/exit (if (zero? failures) 0 1))`. Write it to
+   `os/temp-dir`/`lgx-test-<rand>.lg`.
+8. Compute `-source-paths` as project paths + dep paths + the
+   absolute `test/` path (so test namespaces can `require` each other
+   and the harness can `require` them).
+9. `exec lg -source-paths <X> <harness-path>`. The harness owns the
+   `os/exit`, so the exit code reaches the shell unchanged.
+
+`lgx test` accepts no positional args in v1; passing any prints
+`lgx: test takes no arguments in this version` and exits 1. Under
+`--verbose`, the trace also includes the harness path on stderr so
+the user can inspect the generated file.
+
 ### `lgx <task>`
 
 After built-in dispatch, lgx looks up `<task>` (as a keyword) in the
@@ -158,9 +191,9 @@ and becomes the task's exit code; lgx exits 0 only when every step
 returns 0.
 
 Task names that collide with built-in commands
-(`run`, `install`, `build`, `add`, `update`, `tasks`, `help`, `version`)
-are rejected at validation time — overriding built-ins is reserved for
-later via an `:lgx/<name>` form.
+(`run`, `install`, `build`, `test`, `add`, `update`, `tasks`, `help`,
+`version`) are rejected at validation time — overriding built-ins is
+reserved for later via an `:lgx/<name>` form.
 
 ## Cache layout
 

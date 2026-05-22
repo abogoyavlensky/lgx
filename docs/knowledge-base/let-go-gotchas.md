@@ -76,6 +76,27 @@ rebind them with `binding`. Write to the handle directly instead:
 `lg -b foo lgx.lg` fails when a directory named `foo/` already exists in
 the working directory. Bundle to a distinct path (`bin/lgx`, not `lgx`).
 
+## Test files loaded by `lgx test` must not call `(run-tests)` at top level
+
+`test/run-tests` walks `*registered-tests*` and runs every entry
+synchronously. When it appears at the top of a `*_test.lg` file, it
+fires during the file's load — before later tests in the same file
+register and before `lgx test`'s harness gets to iterate
+`*registered-tests*` itself. The harness then sees a partial registry,
+re-runs whatever was registered before the top-level call, and skips
+the rest.
+
+For files run through `lgx test`, define only `deftest` (and
+fixtures). The harness owns the run and the exit code; the file owns
+the definitions. The old idiom
+
+```clojure
+(run-tests)
+(when-not test/*test-result* (os/exit 1))
+```
+
+is exactly what the new command exists to replace — strip it.
+
 ---
 
 > **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**

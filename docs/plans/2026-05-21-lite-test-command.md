@@ -292,22 +292,22 @@ The ✓/✗ output and exit code are validated via the e2e harness
 
 ### Task 6: Docs
 
-- [ ] `docs/ARCHITECTURE.md` — new `### lgx test` subsection under
+- [x] `docs/ARCHITECTURE.md` — new `### lgx test` subsection under
   Data flow:
   - project basis (same as `run`/`build`)
   - walk `test/` for `*_test.{lg,cljc}`
   - generate harness `.lg`, hand it to `lg` with source-paths
     extended by `test/`
-- [ ] `README.md`:
+- [x] `README.md`:
   - add `lgx test` to the Commands list
   - add a short "Writing tests" section showing the minimal
     `deftest`-only file shape (no `(run-tests)`)
   - flip the roadmap `lgx test` entry from `[ ]` to `[x]` if
     present
-- [ ] `docs/knowledge-base/let-go-gotchas.md` — append a note:
+- [x] `docs/knowledge-base/let-go-gotchas.md` — append a note:
   test files loaded by `lgx test` must NOT call `(run-tests)` at
   the top level (it'll fire mid-load and skip everything after)
-- [ ] `bash tests/run.sh` — final green run
+- [x] `bash tests/run.sh` — final green run
 
 ## Technical Details
 
