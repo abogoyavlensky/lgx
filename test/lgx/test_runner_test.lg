@@ -119,8 +119,16 @@
 (deftest harness-source-uses-provided-header
   (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]]
                                "test/foo_test.lg")]
-    (is (str/includes? src "Running tests in test/foo_test.lg..."))
-    (is (not (str/includes? src "Running tests in test/...")))))
+    (is (str/includes? src "Running tests in \" \"test/foo_test.lg\" \"..."))
+    (is (not (str/includes? src "Running tests in test/...")))
+    (is (parses? src))))
+
+(deftest harness-source-escapes-special-header-chars
+  ;; A Windows-style path or quote-containing header must not break the
+  ;; generated source.
+  (let [src (tr/harness-source [["x" 'x]] "test\\lgx\\foo \"bar\".lg")]
+    (is (parses? src))
+    (is (str/includes? src "test\\\\lgx\\\\foo \\\"bar\\\".lg"))))
 
 ;; ---------------------------------------------------------------------------
 ;; validate-single-test-file!

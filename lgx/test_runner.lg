@@ -159,7 +159,7 @@
     "  (when (and (not (testing-line? line)) (not (pass-line? line)))\n"
     "    (println (str \"    \" (color-fail-token line)))))\n"
     "\n"
-    "(println \"Running tests in __TEST_HEADER__...\")\n"
+    "(println (str \"Running tests in \" __TEST_HEADER__ \"...\"))\n"
     "(println)\n"
     "\n"
     "(defn- var-name [tv]\n"
@@ -228,7 +228,7 @@
         entry-src (str/join "\n" (map entry-line entries))
         body (-> harness-body
                  (str/replace "__TEST_ENTRIES__" entry-src)
-                 (str/replace "__TEST_HEADER__" header))]
+                 (str/replace "__TEST_HEADER__" (pr-str header)))]
     (str harness-header extra "))" body)))
 
 (defn- temp-path [version]
