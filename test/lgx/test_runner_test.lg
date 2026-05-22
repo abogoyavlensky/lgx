@@ -82,7 +82,7 @@
        (catch _ false)))
 
 (deftest harness-source-empty-ns-list-parses
-  (let [src (tr/harness-source [])]
+  (let [src (tr/harness-source [] "test/")]
     (is (string? src))
     (is (parses? src))
     (is (str/includes? src "(ns lgx.test-harness"))
@@ -94,7 +94,8 @@
   (let [src (tr/harness-source [[(path/join "test" "lgx" "config_test.lg")
                                  'lgx.config-test]
                                 [(path/join "test" "lgx" "path_test.lg")
-                                 'lgx.path-test]])]
+                                 'lgx.path-test]]
+                               "test/")]
     (is (parses? src))
     (is (str/includes? src "[lgx.config-test]"))
     (is (str/includes? src "[lgx.path-test]"))
@@ -102,7 +103,7 @@
     (is (str/includes? src "'lgx.config-test"))))
 
 (deftest harness-source-summary-and-exit
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]] "test/")]
     (is (str/includes? src "*registered-tests*"))
     (is (str/includes? src "with-out-str"))
     (is (str/includes? src "Testing: "))
@@ -114,6 +115,12 @@
     (is (str/includes? src
                        "(println ((if (zero? failures) green red) summary))"))
     (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
+
+(deftest harness-source-uses-provided-header
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]]
+                               "test/foo_test.lg")]
+    (is (str/includes? src "Running tests in test/foo_test.lg..."))
+    (is (not (str/includes? src "Running tests in test/...")))))
 
 ;; ---------------------------------------------------------------------------
 ;; validate-single-test-file!
@@ -235,9 +242,9 @@
         version "0.1.0-test"
         expected (path/join home "tmp" (str "lgx-test-" version ".lg"))
         _ (os/setenv "LGX_HOME" home)
-        p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version)
+        p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version "test/")
         src1 (slurp p1)
-        p2 (tr/write-harness! [] version)
+        p2 (tr/write-harness! [] version "test/")
         src2 (slurp p2)]
     (is (= p1 p2))
     (is (= expected p1))

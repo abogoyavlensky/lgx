@@ -159,7 +159,7 @@
     "  (when (and (not (testing-line? line)) (not (pass-line? line)))\n"
     "    (println (str \"    \" (color-fail-token line)))))\n"
     "\n"
-    "(println \"Running tests in test/...\")\n"
+    "(println \"Running tests in __TEST_HEADER__...\")\n"
     "(println)\n"
     "\n"
     "(defn- var-name [tv]\n"
@@ -217,15 +217,19 @@
 (defn harness-source
   "Return a .lg source string for a test harness that loads each test
    entry and runs every registered test sequentially, printing file
-   names, per-test ✓/✗ marks, testing contexts, and failing details."
-  [entries]
+   names, per-test ✓/✗ marks, testing contexts, and failing details.
+   `header` is substituted into the `Running tests in <header>...`
+   banner."
+  [entries header]
   (let [extra (if (empty? entries)
                 ""
                 (str "\n"
                      (str/join "\n" (map require-line entries))))
-        entry-src (str/join "\n" (map entry-line entries))]
-    (str harness-header extra "))"
-         (str/replace harness-body "__TEST_ENTRIES__" entry-src))))
+        entry-src (str/join "\n" (map entry-line entries))
+        body (-> harness-body
+                 (str/replace "__TEST_ENTRIES__" entry-src)
+                 (str/replace "__TEST_HEADER__" header))]
+    (str harness-header extra "))" body)))
 
 (defn- temp-path [version]
   (let [dir (home/tmp-dir)
@@ -237,7 +241,7 @@
   "Materialize the harness source for entries under LGX_HOME/tmp,
    overwriting the previous harness for the same lgx version.
    Returns the absolute path of the written file."
-  [entries version]
+  [entries version header]
   (let [p (temp-path version)]
-    (spit p (harness-source entries))
+    (spit p (harness-source entries header))
     p))

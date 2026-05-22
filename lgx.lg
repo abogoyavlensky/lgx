@@ -176,7 +176,7 @@
         (println "No tests found in test/")
         (os/exit 0))
       (let [entries (mapv #(test-runner/test-entry test-dir %) files)
-            harness (test-runner/write-harness! entries version)
+            harness (test-runner/write-harness! entries version "test/")
             source-paths (vec (concat paths [test-dir]))]
         (when verbose?
           (write! *err* (str "+ test runner: " harness "\n")))
