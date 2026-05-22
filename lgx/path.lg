@@ -21,6 +21,30 @@
   (and (string? p)
        (str/starts-with? p os/file-separator)))
 
+(defn normalize
+  "Resolve `.` and `..` segments and collapse redundant separators.
+   Absolute paths stay absolute. `..` that would walk above the root
+   is bounded at the root."
+  [p]
+  (let [sep os/file-separator
+        absolute? (str/starts-with? p sep)
+        parts (str/split p sep)
+        non-empty (filter #(not (str/blank? %)) parts)
+        reduced (reduce
+                  (fn [acc seg]
+                    (cond
+                      (= seg ".") acc
+                      (= seg "..") (if (empty? acc) acc (pop acc))
+                      :else (conj acc seg)))
+                  []
+                  non-empty)
+        joined (str/join sep reduced)]
+    (cond
+      (and absolute? (empty? reduced)) sep
+      absolute? (str sep joined)
+      (empty? reduced) "."
+      :else joined)))
+
 (defn parent
   "Return the parent directory of path, or nil if path has no parent.
    Filesystem root returns nil. Trailing separator is ignored."

@@ -83,9 +83,10 @@
    in #{:not-found :bad-extension :outside-test-dir} and :path holding
    the original user-path."
   [test-dir user-path project-root]
-  (let [abs (if (path/absolute? user-path)
-              user-path
-              (path/join project-root user-path))
+  (let [joined (if (path/absolute? user-path)
+                 user-path
+                 (path/join project-root user-path))
+        abs (path/normalize joined)
         stat (os/stat abs)]
     (when (or (nil? stat) (:dir? stat))
       (throw (ex-info (str "test file not found: " user-path)
@@ -93,8 +94,8 @@
     (when-not (has-test-extension? abs)
       (throw (ex-info (str "not a test file: " user-path)
                       {:reason :bad-extension :path user-path})))
-    (let [prefix (str test-dir os/file-separator)]
-      (when-not (str/starts-with? abs prefix)
+    (let [test-prefix (str (path/normalize test-dir) os/file-separator)]
+      (when-not (str/starts-with? abs test-prefix)
         (throw (ex-info (str "test file must be under test/: " user-path)
                         {:reason :outside-test-dir :path user-path}))))
     abs))

@@ -69,3 +69,27 @@
 
 (deftest absolute?-root
   (is (= true (path/absolute? "/"))))
+
+;; ---------------------------------------------------------------------------
+;; normalize
+;; ---------------------------------------------------------------------------
+
+(deftest normalize-drops-dot-segment
+  (is (= (str sep "proj" sep "test" sep "foo.lg")
+         (path/normalize (str sep "proj" sep "." sep "test" sep "foo.lg")))))
+
+(deftest normalize-resolves-double-dot
+  (is (= (str sep "proj" sep "src" sep "foo.lg")
+         (path/normalize (str sep "proj" sep "test" sep ".." sep "src" sep "foo.lg")))))
+
+(deftest normalize-relative-paths
+  (is (= "test/foo.lg" (path/normalize "./test/foo.lg")))
+  (is (= "src/foo.lg" (path/normalize "test/../src/foo.lg"))))
+
+(deftest normalize-preserves-absolute-marker
+  (is (= sep (path/normalize sep)))
+  (is (= sep (path/normalize (str sep "a" sep "..")))))
+
+(deftest normalize-collapses-redundant-separators
+  (is (= (str sep "a" sep "b")
+         (path/normalize (str sep "a" sep sep "b")))))
