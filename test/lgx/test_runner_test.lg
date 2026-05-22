@@ -107,9 +107,12 @@
     (is (str/includes? src "with-out-str"))
     (is (str/includes? src "Testing: "))
     (is (str/includes? src "PASS "))
+    (is (str/includes? src "color-fail-token"))
     (is (str/includes? src "tests, "))
     (is (str/includes? src "assertions, "))
     (is (str/includes? src "failures"))
+    (is (str/includes? src
+                       "(println ((if (zero? failures) green red) summary))"))
     (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
 
 (deftest write-harness-uses-versioned-stable-path

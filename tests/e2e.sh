@@ -752,6 +752,8 @@ EOF
         "test happy: testing context printed"
     assert_not_contains "$out" "PASS (= 1 1)" \
         "test happy: passing assertion form suppressed"
+    assert_contains "$out" $'\e[38;5;2m2 tests, 2 assertions, 0 failures\e[0m' \
+        "test happy: summary line printed in green"
     # ✓ = U+2713; check both deftests show the mark.
     pass_marks="$(printf '%s\n' "$out" | grep -c $'\xe2\x9c\x93' || true)"
     [[ "$pass_marks" -ge 2 ]] \
@@ -792,8 +794,10 @@ EOF
     assert_contains "$out" "fail-1" "test fail: fail-1 row printed"
     assert_contains "$out" "failing assertion is explained" \
         "test fail: testing context printed"
-    assert_contains "$out" "FAIL (= 1 2)" \
-        "test fail: failing assertion detail printed"
+    assert_contains "$out" $'\e[38;5;1mFAIL\e[0m (= 1 2)' \
+        "test fail: failing assertion detail prints red FAIL"
+    assert_contains "$out" $'\e[38;5;1m2 tests, 2 assertions, 1 failures\e[0m' \
+        "test fail: summary line printed in red"
     assert_not_contains "$out" "PASS (= 1 1)" \
         "test fail: passing assertion form suppressed"
     # ✗ = U+2717
