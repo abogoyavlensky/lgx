@@ -72,6 +72,33 @@
   [(path/join "test" (relative-test-path test-dir abs-path))
    (path->ns test-dir abs-path)])
 
+(defn- has-test-extension? [p]
+  (or (str/ends-with? p ".lg")
+      (str/ends-with? p ".cljc")))
+
+(defn validate-single-test-file!
+  "Resolve user-path against project-root, stat the file, check its
+   extension and containment under test-dir. Returns the absolute path
+   on success; otherwise throws ex-info whose data has a :reason key
+   in #{:not-found :bad-extension :outside-test-dir} and :path holding
+   the original user-path."
+  [test-dir user-path project-root]
+  (let [abs (if (path/absolute? user-path)
+              user-path
+              (path/join project-root user-path))
+        stat (os/stat abs)]
+    (when (or (nil? stat) (:dir? stat))
+      (throw (ex-info (str "test file not found: " user-path)
+                      {:reason :not-found :path user-path})))
+    (when-not (has-test-extension? abs)
+      (throw (ex-info (str "not a test file: " user-path)
+                      {:reason :bad-extension :path user-path})))
+    (let [prefix (str test-dir os/file-separator)]
+      (when-not (str/starts-with? abs prefix)
+        (throw (ex-info (str "test file must be under test/: " user-path)
+                        {:reason :outside-test-dir :path user-path}))))
+    abs))
+
 ;; ---------------------------------------------------------------------------
 ;; Harness generation
 ;;

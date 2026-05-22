@@ -115,6 +115,95 @@
                        "(println ((if (zero? failures) green red) summary))"))
     (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
 
+;; ---------------------------------------------------------------------------
+;; validate-single-test-file!
+;; ---------------------------------------------------------------------------
+
+(defn- mktemp! [tag]
+  (let [d (str "/tmp/lgx-validate-" tag "-" (rand-int 100000000))]
+    (mkdir d)
+    d))
+
+(defn- caught-reason [f]
+  (try (f) nil
+       (catch e (:reason (ex-data e)))))
+
+(defn- caught-path [f]
+  (try (f) nil
+       (catch e (:path (ex-data e)))))
+
+(deftest validate-single-test-file-happy-lg
+  (let [scratch (mktemp! "happy-lg")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        file (path/join test-dir "foo_test.lg")
+        _ (spit file "(ns foo-test)")]
+    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
+    (delete-file file)))
+
+(deftest validate-single-test-file-happy-cljc
+  (let [scratch (mktemp! "happy-cljc")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        file (path/join test-dir "foo_test.cljc")
+        _ (spit file "(ns foo-test)")]
+    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
+    (delete-file file)))
+
+(deftest validate-single-test-file-relative-path-resolves-against-project-root
+  (let [scratch (mktemp! "relative")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        abs-file (path/join test-dir "foo_test.lg")
+        _ (spit abs-file "(ns foo-test)")
+        rel (path/join "test" "foo_test.lg")]
+    (is (= abs-file (tr/validate-single-test-file! test-dir rel scratch)))
+    (delete-file abs-file)))
+
+(deftest validate-single-test-file-not-found
+  (let [scratch (mktemp! "nf")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        user-path (path/join "test" "nope.lg")]
+    (is (= :not-found
+           (caught-reason #(tr/validate-single-test-file!
+                            test-dir user-path scratch))))
+    (is (= user-path
+           (caught-path #(tr/validate-single-test-file!
+                          test-dir user-path scratch))))))
+
+(deftest validate-single-test-file-bad-extension
+  (let [scratch (mktemp! "ext")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        file (path/join test-dir "foo.txt")
+        _ (spit file "")
+        user-path (path/join "test" "foo.txt")]
+    (is (= :bad-extension
+           (caught-reason #(tr/validate-single-test-file!
+                            test-dir user-path scratch))))
+    (is (= user-path
+           (caught-path #(tr/validate-single-test-file!
+                          test-dir user-path scratch))))
+    (delete-file file)))
+
+(deftest validate-single-test-file-outside-test-dir
+  (let [scratch (mktemp! "outside")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        other-dir (path/join scratch "src")
+        _ (mkdir other-dir)
+        file (path/join other-dir "foo.lg")
+        _ (spit file "(ns foo)")
+        user-path (path/join "src" "foo.lg")]
+    (is (= :outside-test-dir
+           (caught-reason #(tr/validate-single-test-file!
+                            test-dir user-path scratch))))
+    (is (= user-path
+           (caught-path #(tr/validate-single-test-file!
+                          test-dir user-path scratch))))
+    (delete-file file)))
+
 (deftest write-harness-uses-versioned-stable-path
   (let [home (str "/tmp/lgx-harness-test-" (rand-int 100000000))
         version "0.1.0-test"
