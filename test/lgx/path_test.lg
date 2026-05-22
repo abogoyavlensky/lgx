@@ -53,3 +53,19 @@
 
 (deftest parent-one-level-from-root
   (is (= sep (path/parent (str sep "abc")))))
+
+;; ---------------------------------------------------------------------------
+;; absolute?
+;; ---------------------------------------------------------------------------
+
+(deftest absolute?-leading-separator
+  (is (= true (path/absolute? "/foo/bar"))))
+
+(deftest absolute?-relative
+  (is (= false (path/absolute? "foo/bar"))))
+
+(deftest absolute?-empty
+  (is (= false (path/absolute? ""))))
+
+(deftest absolute?-root
+  (is (= true (path/absolute? "/"))))

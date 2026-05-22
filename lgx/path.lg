@@ -15,6 +15,12 @@
         joined (str/join sep cleaned)]
     (if absolute? (str sep joined) joined)))
 
+(defn absolute?
+  "Return true if path begins with the platform's file separator."
+  [p]
+  (and (string? p)
+       (str/starts-with? p os/file-separator)))
+
 (defn parent
   "Return the parent directory of path, or nil if path has no parent.
    Filesystem root returns nil. Trailing separator is ignored."
