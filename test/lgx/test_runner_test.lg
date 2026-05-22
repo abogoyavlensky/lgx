@@ -38,6 +38,11 @@
          (tr/path->ns (path/join sep "abs" "test")
                       (path/join sep "abs" "test" "foo" "bar_test.lg")))))
 
+(deftest test-entry-includes-display-file-and-ns
+  (is (= [(path/join "test" "lgx" "config_test.lg") 'lgx.config-test]
+         (tr/test-entry "test"
+                        (path/join "test" "lgx" "config_test.lg")))))
+
 ;; ---------------------------------------------------------------------------
 ;; discover-test-files
 ;; ---------------------------------------------------------------------------
@@ -86,16 +91,23 @@
     (is (str/includes? src "(os/exit"))))
 
 (deftest harness-source-includes-each-ns
-  (let [src (tr/harness-source ['lgx.config-test 'lgx.path-test])]
+  (let [src (tr/harness-source [[(path/join "test" "lgx" "config_test.lg")
+                                 'lgx.config-test]
+                                [(path/join "test" "lgx" "path_test.lg")
+                                 'lgx.path-test]])]
     (is (parses? src))
     (is (str/includes? src "[lgx.config-test]"))
-    (is (str/includes? src "[lgx.path-test]"))))
+    (is (str/includes? src "[lgx.path-test]"))
+    (is (str/includes? src (pr-str (path/join "test" "lgx" "config_test.lg"))))
+    (is (str/includes? src "'lgx.config-test"))))
 
 (deftest harness-source-summary-and-exit
-  (let [src (tr/harness-source ['foo-test])]
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
     (is (str/includes? src "*registered-tests*"))
+    (is (str/includes? src "with-out-str"))
+    (is (str/includes? src "Testing: "))
+    (is (str/includes? src "PASS "))
     (is (str/includes? src "tests, "))
     (is (str/includes? src "assertions, "))
     (is (str/includes? src "failures"))
     (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
-

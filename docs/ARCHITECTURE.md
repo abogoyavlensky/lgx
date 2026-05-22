@@ -156,9 +156,14 @@ Steps 1–3 match `install`. Then:
    This is the reverse of let-go's resolver rule
    ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
 7. Generate a one-shot harness `.lg` source string that `:require`s
-   every discovered ns plus `test`/`string`/`os`, iterates
-   `*registered-tests*`, prints a `✓`/`✗` line per `deftest`, and
-   ends with a `N tests, M assertions, K failures` summary and
+   every discovered ns plus `test`/`string`/`os`, embeds the discovered
+   `[file ns]` test plan, and iterates each file's entries in
+   `*registered-tests*`. Each `deftest` runs under `with-out-str` so
+   passing `PASS <form>` assertion chatter is suppressed while counters
+   still update. The harness prints the test file, a `✓`/`✗` line per
+   `deftest`, any `testing` context strings, and failure/error details
+   only for failing tests. It ends with a
+   `N tests, M assertions, K failures` summary and
    `(os/exit (if (zero? failures) 0 1))`. Write it to
    `os/temp-dir`/`lgx-test-<rand>.lg`.
 8. Compute `-source-paths` as project paths + dep paths + the

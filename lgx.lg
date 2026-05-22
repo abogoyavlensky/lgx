@@ -175,11 +175,11 @@
       (when (empty? files)
         (println "No tests found in test/")
         (os/exit 0))
-      (let [ns-syms (mapv #(test-runner/path->ns test-dir %) files)
-            harness (test-runner/write-harness! ns-syms)
+      (let [entries (mapv #(test-runner/test-entry test-dir %) files)
+            harness (test-runner/write-harness! entries)
             source-paths (vec (concat paths [test-dir]))]
         (when verbose?
-          (write! *err* (str "+ harness: " harness "\n")))
+          (write! *err* (str "+ test runner: " harness "\n")))
         (print-installs! results)
         (runner/exec-lg! source-paths [harness] verbose?)))))
 

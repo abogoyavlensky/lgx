@@ -172,9 +172,11 @@ by `_` for `:git/tag` coords.
   a clear error.
 - `lgx test` - walk `test/` for `*_test.lg` / `*_test.cljc` files,
   generate a one-shot test harness, and run every `deftest` against
-  the project's resolved `-source-paths`. Prints a `✓`/`✗` line per
-  test and a `N tests, M assertions, K failures` summary. Exits 1 if
-  any test fails or errors, or if `test/` is missing; exits 0 with
+  the project's resolved `-source-paths`. Groups output by test file,
+  prints a `✓`/`✗` line per test, prints `testing` context strings,
+  and shows assertion output only for failing tests. Ends with a
+  `N tests, M assertions, K failures` summary. Exits 1 if any test
+  fails or errors, or if `test/` is missing; exits 0 with
   `No tests found in test/` when the directory exists but is empty.
   Takes no arguments in this version.
 - `lgx help` - print usage.
@@ -193,7 +195,8 @@ nothing else:
             [wtr.format :as fmt]))
 
 (deftest render-list-empty
-  (is (= "(no worktrees)" (fmt/render-list [] "/any/path"))))
+  (testing "empty worktree list"
+    (is (= "(no worktrees)" (fmt/render-list [] "/any/path")))))
 ```
 
 Do **not** call `(run-tests)` at the top level. The let-go
