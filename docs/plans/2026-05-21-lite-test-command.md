@@ -274,21 +274,21 @@ The ✓/✗ output and exit code are validated via the e2e harness
 
 ### Task 5: Migrate lgx's own tests onto `lgx test`
 
-- [ ] rename `tests/` → `test/` (Clojure convention; same one
+- [x] rename `tests/` → `test/` (Clojure convention; same one
   `lgx test` enforces)
-- [ ] move `*_test.lg` files into `test/lgx/` so namespaces
+- [x] move `*_test.lg` files into `test/lgx/` so namespaces
   become `lgx.config-test`, `lgx.path-test`, `lgx.cache-test`
   (update each `(ns …)` form)
-- [ ] strip the trailing `(run-tests) (when-not test/*test-result*
+- [x] strip the trailing `(run-tests) (when-not test/*test-result*
   (os/exit 1))` from each test file (this is the boilerplate
   the new command exists to replace)
-- [ ] move `test_runner_test.lg` into `test/lgx/` too
-- [ ] rewrite the unit-test stage of `tests/run.sh` to just call
+- [x] move `test_runner_test.lg` into `test/lgx/` too
+- [x] rewrite the unit-test stage of `tests/run.sh` to just call
   `lgx test` (keep the e2e stage as-is; it tests the bundled
   binary)
-- [ ] update the `Makefile` `test` target only if `tests/run.sh`
+- [x] update the `Makefile` `test` target only if `tests/run.sh`
   references move
-- [ ] `make test` — must pass
+- [x] `make test` — must pass
 
 ### Task 6: Docs
 

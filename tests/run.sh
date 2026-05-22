@@ -14,10 +14,7 @@ make build >/dev/null
 
 echo
 echo "==> Unit tests..."
-lg tests/path_test.lg
-lg tests/config_test.lg
-lg tests/cache_test.lg
-lg tests/test_runner_test.lg
+"$ROOT/bin/lgx" test
 
 echo
 echo "==> E2E tests..."

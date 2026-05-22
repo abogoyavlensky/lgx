@@ -1,12 +1,12 @@
 ;; Unit tests for lgx.test-runner.
-;; Run with: lg tests/test_runner_test.lg  (from project root)
+;; Run with: lgx test  (from project root)
 
 (ns lgx.test-runner-test
   (:require [edn :as edn]
             [lgx.path :as path]
             [lgx.test-runner :as tr]
             [string :as str]
-            [test :refer [deftest is run-tests]]))
+            [test :refer [deftest is]]))
 
 (def sep os/file-separator)
 
@@ -99,9 +99,3 @@
     (is (str/includes? src "failures"))
     (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
 
-;; ---------------------------------------------------------------------------
-;; Run
-;; ---------------------------------------------------------------------------
-
-(run-tests)
-(when-not test/*test-result* (os/exit 1))

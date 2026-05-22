@@ -1,9 +1,9 @@
 ;; Unit tests for lgx.config — pure parsing/validation helpers.
-;; Run with: lg tests/config_test.lg  (from project root)
+;; Run with: lgx test  (from project root)
 
 (ns lgx.config-test
   (:require [lgx.config :as config]
-            [test :refer [deftest is run-tests]]))
+            [test :refer [deftest is]]))
 
 (defn- threw? [f]
   (try (f) :no-throw (catch e :threw)))
@@ -366,9 +366,3 @@
   (is (= :threw (threw? #(config/validate-config!
                            {:tasks {:test {:do [{:sh "echo hi"}]}}})))))
 
-;; ---------------------------------------------------------------------------
-;; Run
-;; ---------------------------------------------------------------------------
-
-(run-tests)
-(when-not test/*test-result* (os/exit 1))
