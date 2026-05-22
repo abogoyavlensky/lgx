@@ -163,9 +163,9 @@
 
 (defn- validate-error-line [reason user-path]
   (case reason
-    :not-found      (str "lgx: test file not found: " user-path "\n")
-    :bad-extension  (str "lgx: not a test file (expected .lg or .cljc): "
-                         user-path "\n")
+    :not-found (str "lgx: test file not found: " user-path "\n")
+    :bad-extension (str "lgx: not a test file (expected .lg or .cljc): "
+                        user-path "\n")
     :outside-test-dir (str "lgx: test file must be under test/: "
                            user-path "\n")
     (str "lgx: invalid test file: " user-path "\n")))
@@ -175,10 +175,10 @@
               (test-runner/validate-single-test-file!
                 test-dir user-path project)
               (catch e
-                (let [data (ex-data e)]
-                  (write! *err* (validate-error-line (:reason data)
-                                                    (:path data)))
-                  (os/exit 1))))]
+                     (let [data (ex-data e)]
+                       (write! *err* (validate-error-line (:reason data)
+                                                          (:path data)))
+                       (os/exit 1))))]
     [(test-runner/test-entry test-dir abs)]))
 
 (defn- cmd-test [forward-args verbose?]
