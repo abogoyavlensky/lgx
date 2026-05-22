@@ -903,5 +903,109 @@ else
     skip "lgx test requires lg with -source-paths support"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 45: lgx test <file> happy path"
+if supports_source_paths; then
+    proj_s1="$(mktemp -d)"
+    home_s1="$(mktemp -d)"
+    cat > "$proj_s1/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_s1/test"
+    cat > "$proj_s1/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-foo
+  (is (= 1 1)))
+EOF
+    cat > "$proj_s1/test/bar_test.lg" <<'EOF'
+(ns bar-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-bar
+  (is (= 2 2)))
+EOF
+    set +e
+    out="$(cd "$proj_s1" && LGX_HOME="$home_s1" "$LGX" test test/foo_test.lg 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test single: expected exit 0, got $rc (output: $out)"
+    pass "test single: exits 0"
+    assert_contains "$out" "Running tests in test/foo_test.lg" \
+        "test single: header reflects per-file display"
+    assert_contains "$out" "pass-foo" "test single: pass-foo printed"
+    assert_not_contains "$out" "pass-bar" \
+        "test single: bar_test.lg not loaded (discovery bypassed)"
+    rm -rf "$proj_s1" "$home_s1"
+else
+    skip "lgx test <file> requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 46: lgx test <file> missing file"
+proj_s2="$(mktemp -d)"
+home_s2="$(mktemp -d)"
+cat > "$proj_s2/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s2/test"
+set +e
+out="$(cd "$proj_s2" && LGX_HOME="$home_s2" "$LGX" test test/nope.lg 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test missing-file: expected exit 1, got $rc"
+assert_contains "$out" "lgx: test file not found: test/nope.lg" \
+    "test missing-file: clear error"
+rm -rf "$proj_s2" "$home_s2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 47: lgx test <file> wrong extension"
+proj_s3="$(mktemp -d)"
+home_s3="$(mktemp -d)"
+cat > "$proj_s3/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s3/test"
+touch "$proj_s3/test/foo.txt"
+set +e
+out="$(cd "$proj_s3" && LGX_HOME="$home_s3" "$LGX" test test/foo.txt 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test bad-ext: expected exit 1, got $rc"
+assert_contains "$out" "lgx: not a test file (expected .lg or .cljc): test/foo.txt" \
+    "test bad-ext: clear error"
+rm -rf "$proj_s3" "$home_s3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 48: lgx test <file> outside test/"
+proj_s4="$(mktemp -d)"
+home_s4="$(mktemp -d)"
+cat > "$proj_s4/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s4/test" "$proj_s4/src"
+touch "$proj_s4/src/foo.lg"
+set +e
+out="$(cd "$proj_s4" && LGX_HOME="$home_s4" "$LGX" test src/foo.lg 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test outside: expected exit 1, got $rc"
+assert_contains "$out" "lgx: test file must be under test/: src/foo.lg" \
+    "test outside: clear error"
+rm -rf "$proj_s4" "$home_s4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 49: lgx test rejects multiple args"
+proj_s5="$(mktemp -d)"
+home_s5="$(mktemp -d)"
+cat > "$proj_s5/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s5/test"
+set +e
+out="$(cd "$proj_s5" && LGX_HOME="$home_s5" "$LGX" test a.lg b.lg 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test too-many: expected exit 1, got $rc"
+assert_contains "$out" "lgx: test takes at most one argument" \
+    "test too-many: clear error"
+rm -rf "$proj_s5" "$home_s5"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
