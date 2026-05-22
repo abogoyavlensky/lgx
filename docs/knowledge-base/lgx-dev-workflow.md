@@ -81,8 +81,9 @@ worktree renamed atomically to the cache path.
 make test        # build bundle, run unit + e2e
 ```
 
-Unit tests live in `tests/*_test.lg` and use let-go's embedded `test`
-namespace. E2E tests live in `tests/e2e.sh` and drive the built
+Unit tests live under `test/` as `*_test.lg` / `*_test.cljc` files and
+use let-go's embedded `test` namespace. E2E tests live in `tests/e2e.sh`
+and drive the built
 `bin/lgx` against a file:// bare repo seeded under a throwaway
 `LGX_HOME` — hermetic, no network. Both are invoked by `tests/run.sh`.
 

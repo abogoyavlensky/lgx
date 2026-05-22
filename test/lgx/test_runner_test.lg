@@ -1,0 +1,260 @@
+;; Unit tests for lgx.test-runner.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.test-runner-test
+  (:require [edn :as edn]
+            [lgx.path :as path]
+            [lgx.test-runner :as tr]
+            [string :as str]
+            [test :refer [deftest is]]))
+
+(def sep os/file-separator)
+
+(defn- threw? [f]
+  (try (f) :no-throw (catch _ :threw)))
+
+(def fixture-dir
+  (path/join (os/cwd) "tests" "fixtures" "sample-tests"))
+
+;; ---------------------------------------------------------------------------
+;; path->ns
+;; ---------------------------------------------------------------------------
+
+(deftest path-ns-happy-path
+  (is (= 'foo-test
+         (tr/path->ns "test" (path/join "test" "foo_test.lg")))))
+
+(deftest path-ns-nested
+  (is (= 'lgx.config-test
+         (tr/path->ns "test"
+                      (path/join "test" "lgx" "config_test.lg")))))
+
+(deftest path-ns-cljc-extension
+  (is (= 'foo-test
+         (tr/path->ns "test" (path/join "test" "foo_test.cljc")))))
+
+(deftest path-ns-absolute-test-dir
+  (is (= 'foo.bar-test
+         (tr/path->ns (path/join sep "abs" "test")
+                      (path/join sep "abs" "test" "foo" "bar_test.lg")))))
+
+(deftest test-entry-includes-display-file-and-ns
+  (is (= [(path/join "test" "lgx" "config_test.lg") 'lgx.config-test]
+         (tr/test-entry "test"
+                        (path/join "test" "lgx" "config_test.lg")))))
+
+;; ---------------------------------------------------------------------------
+;; discover-test-files
+;; ---------------------------------------------------------------------------
+
+(deftest discover-finds-lg-and-cljc
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (some #(str/ends-with? % "alpha_test.lg") files))
+    (is (some #(str/ends-with? % "beta_test.cljc") files))))
+
+(deftest discover-ignores-non-test-files
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (not (some #(str/ends-with? % "helpers.lg") files)))))
+
+(deftest discover-recurses
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (some #(str/ends-with? % (path/join "nested" "gamma_test.lg"))
+              files))))
+
+(deftest discover-returns-sorted-vector
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (vector? files))
+    (is (= files (vec (sort files))))))
+
+(deftest discover-missing-dir-throws
+  (is (= :threw
+         (threw? #(tr/discover-test-files
+                    (path/join fixture-dir "no-such-subdir"))))))
+
+;; ---------------------------------------------------------------------------
+;; harness-source
+;; ---------------------------------------------------------------------------
+
+(defn- parses? [s]
+  ;; Wrap in (do ...) so the reader consumes the whole harness as one
+  ;; form; otherwise read-string only returns the first top-level form.
+  (try (do (edn/read-string (str "(do " s ")")) true)
+       (catch _ false)))
+
+(deftest harness-source-empty-ns-list-parses
+  (let [src (tr/harness-source [] "test/")]
+    (is (string? src))
+    (is (parses? src))
+    (is (str/includes? src "(ns lgx.test-harness"))
+    (is (str/includes? src "[test :refer"))
+    (is (str/includes? src "[os :as os]"))
+    (is (str/includes? src "(os/exit"))))
+
+(deftest harness-source-includes-each-ns
+  (let [src (tr/harness-source [[(path/join "test" "lgx" "config_test.lg")
+                                 'lgx.config-test]
+                                [(path/join "test" "lgx" "path_test.lg")
+                                 'lgx.path-test]]
+                               "test/")]
+    (is (parses? src))
+    (is (str/includes? src "[lgx.config-test]"))
+    (is (str/includes? src "[lgx.path-test]"))
+    (is (str/includes? src (pr-str (path/join "test" "lgx" "config_test.lg"))))
+    (is (str/includes? src "'lgx.config-test"))))
+
+(deftest harness-source-summary-and-exit
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]] "test/")]
+    (is (str/includes? src "*registered-tests*"))
+    (is (str/includes? src "with-out-str"))
+    (is (str/includes? src "Testing: "))
+    (is (str/includes? src "PASS "))
+    (is (str/includes? src "color-fail-token"))
+    (is (str/includes? src "tests, "))
+    (is (str/includes? src "assertions, "))
+    (is (str/includes? src "failures"))
+    (is (str/includes? src
+                       "(println ((if (zero? failures) green red) summary))"))
+    (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
+
+(deftest harness-source-uses-provided-header
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]]
+                               "test/foo_test.lg")]
+    (is (str/includes? src "Running tests in \" \"test/foo_test.lg\" \"..."))
+    (is (not (str/includes? src "Running tests in test/...")))
+    (is (parses? src))))
+
+(deftest harness-source-escapes-special-header-chars
+  ;; A Windows-style path or quote-containing header must not break the
+  ;; generated source.
+  (let [src (tr/harness-source [["x" 'x]] "test\\lgx\\foo \"bar\".lg")]
+    (is (parses? src))
+    (is (str/includes? src "test\\\\lgx\\\\foo \\\"bar\\\".lg"))))
+
+;; ---------------------------------------------------------------------------
+;; validate-single-test-file!
+;; ---------------------------------------------------------------------------
+
+(defn- mktemp! [tag]
+  (let [d (str "/tmp/lgx-validate-" tag "-" (rand-int 100000000))]
+    (mkdir d)
+    d))
+
+(defn- caught-reason [f]
+  (try (f) nil
+       (catch e (:reason (ex-data e)))))
+
+(defn- caught-path [f]
+  (try (f) nil
+       (catch e (:path (ex-data e)))))
+
+(deftest validate-single-test-file-happy-lg
+  (let [scratch (mktemp! "happy-lg")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        file (path/join test-dir "foo_test.lg")
+        _ (spit file "(ns foo-test)")]
+    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
+    (delete-file file)))
+
+(deftest validate-single-test-file-happy-cljc
+  (let [scratch (mktemp! "happy-cljc")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        file (path/join test-dir "foo_test.cljc")
+        _ (spit file "(ns foo-test)")]
+    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
+    (delete-file file)))
+
+(deftest validate-single-test-file-relative-path-resolves-against-project-root
+  (let [scratch (mktemp! "relative")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        abs-file (path/join test-dir "foo_test.lg")
+        _ (spit abs-file "(ns foo-test)")
+        rel (path/join "test" "foo_test.lg")]
+    (is (= abs-file (tr/validate-single-test-file! test-dir rel scratch)))
+    (delete-file abs-file)))
+
+(deftest validate-single-test-file-not-found
+  (let [scratch (mktemp! "nf")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        user-path (path/join "test" "nope.lg")]
+    (is (= :not-found
+           (caught-reason #(tr/validate-single-test-file!
+                            test-dir user-path scratch))))
+    (is (= user-path
+           (caught-path #(tr/validate-single-test-file!
+                          test-dir user-path scratch))))))
+
+(deftest validate-single-test-file-bad-extension
+  (let [scratch (mktemp! "ext")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        file (path/join test-dir "foo.txt")
+        _ (spit file "")
+        user-path (path/join "test" "foo.txt")]
+    (is (= :bad-extension
+           (caught-reason #(tr/validate-single-test-file!
+                            test-dir user-path scratch))))
+    (is (= user-path
+           (caught-path #(tr/validate-single-test-file!
+                          test-dir user-path scratch))))
+    (delete-file file)))
+
+(deftest validate-single-test-file-accepts-dot-segment
+  (let [scratch (mktemp! "dot")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        abs-file (path/join test-dir "foo_test.lg")
+        _ (spit abs-file "(ns foo-test)")
+        rel (str "." sep "test" sep "foo_test.lg")]
+    (is (= abs-file
+           (tr/validate-single-test-file! test-dir rel scratch)))
+    (delete-file abs-file)))
+
+(deftest validate-single-test-file-rejects-double-dot-escape
+  ;; test/../src/foo.lg normalizes to src/foo.lg → outside test-dir
+  (let [scratch (mktemp! "esc")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        src-dir (path/join scratch "src")
+        _ (mkdir src-dir)
+        escape-file (path/join src-dir "foo.lg")
+        _ (spit escape-file "(ns foo)")
+        rel (path/join "test" ".." "src" "foo.lg")]
+    (is (= :outside-test-dir
+           (caught-reason #(tr/validate-single-test-file!
+                            test-dir rel scratch))))
+    (delete-file escape-file)))
+
+(deftest validate-single-test-file-outside-test-dir
+  (let [scratch (mktemp! "outside")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        other-dir (path/join scratch "src")
+        _ (mkdir other-dir)
+        file (path/join other-dir "foo.lg")
+        _ (spit file "(ns foo)")
+        user-path (path/join "src" "foo.lg")]
+    (is (= :outside-test-dir
+           (caught-reason #(tr/validate-single-test-file!
+                            test-dir user-path scratch))))
+    (is (= user-path
+           (caught-path #(tr/validate-single-test-file!
+                          test-dir user-path scratch))))
+    (delete-file file)))
+
+(deftest write-harness-uses-versioned-stable-path
+  (let [home (str "/tmp/lgx-harness-test-" (rand-int 100000000))
+        version "0.1.0-test"
+        expected (path/join home "tmp" (str "lgx-test-" version ".lg"))
+        _ (os/setenv "LGX_HOME" home)
+        p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version "test/")
+        src1 (slurp p1)
+        p2 (tr/write-harness! [] version "test/")
+        src2 (slurp p2)]
+    (is (= p1 p2))
+    (is (= expected p1))
+    (is (not (= src1 src2)))
+    (delete-file p2)))

@@ -13,7 +13,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      LG_VERSION: 1.7.2
+      LG_VERSION: 2.0.2
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +37,7 @@ jobs:
     permissions:
       contents: write
     env:
-      LG_VERSION: 1.7.2
+      LG_VERSION: 2.0.2
     steps:
       - uses: actions/checkout@v4
 

@@ -366,14 +366,14 @@ assert_contains "$out" "'nope' is not a lgx command" "unknown task: error messag
 echo "==> Scenario 18: lgx help lists project tasks"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:fmt  {:doc "Format sources" :do [{:sh "echo fmt"}]}
-  :test {:doc "Run tests"      :do [{:sh "echo test"}]}}}
+ {:fmt   {:doc "Format sources" :do [{:sh "echo fmt"}]}
+  :check {:doc "Run checks"     :do [{:sh "echo check"}]}}}
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
 assert_contains "$out" "Project tasks:" "help: shows project tasks block"
 assert_contains "$out" "fmt" "help: lists fmt task"
 assert_contains "$out" "Format sources" "help: shows :doc string"
-assert_contains "$out" "Run tests" "help: shows test :doc"
+assert_contains "$out" "Run checks" "help: shows check :doc"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 19: task name conflicting with built-in command is rejected"
@@ -716,6 +716,296 @@ assert_contains "$out" ":cljc-ran" "explicit .cljc + --: .cljc script runs"
 assert_not_contains "$out" ":main-ran" "explicit .cljc + --: :main NOT injected"
 assert_contains "$out" "baz" "explicit .cljc + --: baz reaches the script"
 rm -rf "$proj_dd5" "$home_dd5"
+
+# ---------------------------------------------------------------------------
+# Scenarios 39-44 cover `lgx test`. The command always passes -source-paths
+# (test/ is appended to the project basis), so the system `lg` must support
+# that flag — gate every scenario behind supports_source_paths.
+echo "==> Scenario 39: lgx test happy path"
+if supports_source_paths; then
+    proj_t1="$(mktemp -d)"
+    home_t1="$(mktemp -d)"
+    cat > "$proj_t1/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t1/test"
+    cat > "$proj_t1/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is testing]]))
+
+(deftest pass-1
+  (testing "first assertion passes"
+    (is (= 1 1))))
+
+(deftest pass-2
+  (is (= 2 2)))
+EOF
+    set +e
+    out="$(cd "$proj_t1" && LGX_HOME="$home_t1" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test happy: expected exit 0, got $rc (output: $out)"
+    pass "test happy: exits 0"
+    assert_contains "$out" "test/foo_test.lg" "test happy: file header printed"
+    assert_contains "$out" "pass-1" "test happy: pass-1 row printed"
+    assert_contains "$out" "pass-2" "test happy: pass-2 row printed"
+    assert_contains "$out" "first assertion passes" \
+        "test happy: testing context printed"
+    assert_not_contains "$out" "PASS (= 1 1)" \
+        "test happy: passing assertion form suppressed"
+    assert_contains "$out" $'\e[38;5;2m2 tests, 2 assertions, 0 failures\e[0m' \
+        "test happy: summary line printed in green"
+    # ✓ = U+2713; check both deftests show the mark.
+    pass_marks="$(printf '%s\n' "$out" | grep -c $'\xe2\x9c\x93' || true)"
+    [[ "$pass_marks" -ge 2 ]] \
+        || fail "test happy: expected >=2 ✓ marks, got $pass_marks (output: $out)"
+    pass "test happy: ✓ printed for each passing deftest"
+    rm -rf "$proj_t1" "$home_t1"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 40: lgx test failure path"
+if supports_source_paths; then
+    proj_t2="$(mktemp -d)"
+    home_t2="$(mktemp -d)"
+    cat > "$proj_t2/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t2/test"
+    cat > "$proj_t2/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is testing]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+
+(deftest fail-1
+  (testing "failing assertion is explained"
+    (is (= 1 2))))
+EOF
+    set +e
+    out="$(cd "$proj_t2" && LGX_HOME="$home_t2" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 1 ]] || fail "test fail: expected exit 1, got $rc (output: $out)"
+    pass "test fail: exits 1"
+    assert_contains "$out" "test/foo_test.lg" "test fail: file header printed"
+    assert_contains "$out" "pass-1" "test fail: pass-1 row printed"
+    assert_contains "$out" "fail-1" "test fail: fail-1 row printed"
+    assert_contains "$out" "failing assertion is explained" \
+        "test fail: testing context printed"
+    assert_contains "$out" $'\e[38;5;1mFAIL\e[0m (= 1 2)' \
+        "test fail: failing assertion detail prints red FAIL"
+    assert_contains "$out" $'\e[38;5;1m2 tests, 2 assertions, 1 failures\e[0m' \
+        "test fail: summary line printed in red"
+    assert_not_contains "$out" "PASS (= 1 1)" \
+        "test fail: passing assertion form suppressed"
+    # ✗ = U+2717
+    if ! printf '%s\n' "$out" | grep -q $'\xe2\x9c\x97'; then
+        echo "---- output ----" >&2
+        echo "$out" >&2
+        fail "test fail: expected ✗ mark for failing test"
+    fi
+    pass "test fail: ✗ printed for failing deftest"
+    rm -rf "$proj_t2" "$home_t2"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 41: lgx test with empty test/ directory"
+proj_t3="$(mktemp -d)"
+home_t3="$(mktemp -d)"
+cat > "$proj_t3/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_t3/test"
+set +e
+out="$(cd "$proj_t3" && LGX_HOME="$home_t3" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "test empty: expected exit 0, got $rc (output: $out)"
+pass "test empty: exits 0"
+assert_contains "$out" "No tests found in test/" "test empty: friendly message"
+rm -rf "$proj_t3" "$home_t3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 42: lgx test with no test/ directory"
+proj_t4="$(mktemp -d)"
+home_t4="$(mktemp -d)"
+cat > "$proj_t4/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+out="$(cd "$proj_t4" && LGX_HOME="$home_t4" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test missing: expected exit 1, got $rc (output: $out)"
+pass "test missing: exits 1"
+assert_contains "$out" "lgx: no test/ directory in project" \
+    "test missing: friendly error"
+rm -rf "$proj_t4" "$home_t4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 43: lgx test nested layout"
+if supports_source_paths; then
+    proj_t5="$(mktemp -d)"
+    home_t5="$(mktemp -d)"
+    cat > "$proj_t5/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t5/test/foo"
+    cat > "$proj_t5/test/foo/bar_test.lg" <<'EOF'
+(ns foo.bar-test
+  (:require [test :refer [deftest is]]))
+
+(deftest nested-pass
+  (is (= :ok :ok)))
+EOF
+    set +e
+    out="$(cd "$proj_t5" && LGX_HOME="$home_t5" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test nested: expected exit 0, got $rc (output: $out)"
+    pass "test nested: exits 0"
+    assert_contains "$out" "test/foo/bar_test.lg" "test nested: file header printed"
+    assert_contains "$out" "nested-pass" "test nested: deftest row printed"
+    rm -rf "$proj_t5" "$home_t5"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 44: lgx --verbose test prints harness path on stderr"
+if supports_source_paths; then
+    proj_t6="$(mktemp -d)"
+    home_t6="$(mktemp -d)"
+    cat > "$proj_t6/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_t6/test"
+    cat > "$proj_t6/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+EOF
+    set +e
+    err="$(cd "$proj_t6" && LGX_HOME="$home_t6" "$LGX" --verbose test 2>&1 >/dev/null)"
+    set -e
+    version="$(awk -F '"' '/def[[:space:]]+version[[:space:]]+"/ { print $2; exit }' "$ROOT/lgx.lg")"
+    harness="$home_t6/tmp/lgx-test-$version.lg"
+    assert_contains "$err" "+ " "verbose test: trace line has + prefix"
+    assert_contains "$err" "$harness" "verbose test: LGX_HOME harness path mentioned"
+    assert_contains "$err" "-source-paths" "verbose test: trace includes -source-paths"
+    [[ -f "$harness" ]] || fail "verbose test: expected harness file at $harness"
+    pass "verbose test: harness file written under LGX_HOME/tmp"
+    rm -rf "$proj_t6" "$home_t6"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 45: lgx test <file> happy path"
+if supports_source_paths; then
+    proj_s1="$(mktemp -d)"
+    home_s1="$(mktemp -d)"
+    cat > "$proj_s1/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_s1/test"
+    cat > "$proj_s1/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-foo
+  (is (= 1 1)))
+EOF
+    cat > "$proj_s1/test/bar_test.lg" <<'EOF'
+(ns bar-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-bar
+  (is (= 2 2)))
+EOF
+    set +e
+    out="$(cd "$proj_s1" && LGX_HOME="$home_s1" "$LGX" test test/foo_test.lg 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test single: expected exit 0, got $rc (output: $out)"
+    pass "test single: exits 0"
+    assert_contains "$out" "Running tests in test/foo_test.lg" \
+        "test single: header reflects per-file display"
+    assert_contains "$out" "pass-foo" "test single: pass-foo printed"
+    assert_not_contains "$out" "pass-bar" \
+        "test single: bar_test.lg not loaded (discovery bypassed)"
+    rm -rf "$proj_s1" "$home_s1"
+else
+    skip "lgx test <file> requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 46: lgx test <file> missing file"
+proj_s2="$(mktemp -d)"
+home_s2="$(mktemp -d)"
+cat > "$proj_s2/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s2/test"
+set +e
+out="$(cd "$proj_s2" && LGX_HOME="$home_s2" "$LGX" test test/nope.lg 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test missing-file: expected exit 1, got $rc"
+assert_contains "$out" "lgx: test file not found: test/nope.lg" \
+    "test missing-file: clear error"
+rm -rf "$proj_s2" "$home_s2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 47: lgx test <file> wrong extension"
+proj_s3="$(mktemp -d)"
+home_s3="$(mktemp -d)"
+cat > "$proj_s3/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s3/test"
+touch "$proj_s3/test/foo.txt"
+set +e
+out="$(cd "$proj_s3" && LGX_HOME="$home_s3" "$LGX" test test/foo.txt 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test bad-ext: expected exit 1, got $rc"
+assert_contains "$out" "lgx: not a test file (expected .lg or .cljc): test/foo.txt" \
+    "test bad-ext: clear error"
+rm -rf "$proj_s3" "$home_s3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 48: lgx test <file> outside test/"
+proj_s4="$(mktemp -d)"
+home_s4="$(mktemp -d)"
+cat > "$proj_s4/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s4/test" "$proj_s4/src"
+touch "$proj_s4/src/foo.lg"
+set +e
+out="$(cd "$proj_s4" && LGX_HOME="$home_s4" "$LGX" test src/foo.lg 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test outside: expected exit 1, got $rc"
+assert_contains "$out" "lgx: test file must be under test/: src/foo.lg" \
+    "test outside: clear error"
+rm -rf "$proj_s4" "$home_s4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 49: lgx test rejects multiple args"
+proj_s5="$(mktemp -d)"
+home_s5="$(mktemp -d)"
+cat > "$proj_s5/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_s5/test"
+set +e
+out="$(cd "$proj_s5" && LGX_HOME="$home_s5" "$LGX" test a.lg b.lg 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test too-many: expected exit 1, got $rc"
+assert_contains "$out" "lgx: test takes at most one argument" \
+    "test too-many: clear error"
+rm -rf "$proj_s5" "$home_s5"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

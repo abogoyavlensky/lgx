@@ -1,0 +1,15 @@
+;; Unit tests for lgx.home.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.home-test
+  (:require [lgx.home :as home]
+            [lgx.path :as path]
+            [test :refer [deftest is]]))
+
+(deftest root-uses-lgx-home-override
+  (os/setenv "LGX_HOME" "/tmp/lgx-home-test")
+  (is (= "/tmp/lgx-home-test" (home/root))))
+
+(deftest tmp-dir-lives-under-lgx-home
+  (os/setenv "LGX_HOME" "/tmp/lgx-home-test")
+  (is (= (path/join "/tmp/lgx-home-test" "tmp") (home/tmp-dir))))

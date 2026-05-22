@@ -1,9 +1,9 @@
 ;; Unit tests for lgx.cache — URL parsing, coord-dir, cached path of ensure-lib!.
-;; Run with: lg tests/cache_test.lg  (from project root)
+;; Run with: lgx test  (from project root)
 
 (ns lgx.cache-test
   (:require [lgx.cache :as cache]
-            [test :refer [deftest is run-tests]]))
+            [test :refer [deftest is]]))
 
 (defn- threw? [f]
   (try (f) :no-throw (catch e :threw)))
@@ -219,9 +219,3 @@
            (cache/ensure-lib! {:local/root "lib"} project)))
     (os/sh "rm" "-rf" project)))
 
-;; ---------------------------------------------------------------------------
-;; Run
-;; ---------------------------------------------------------------------------
-
-(run-tests)
-(when-not test/*test-result* (os/exit 1))

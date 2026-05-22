@@ -145,15 +145,19 @@ mixing them is an error.
 
 Current limitations: HTTPS URLs only (no SSH), no transitive deps.
 
-## Deps cache layout
+## State layout
 
 ```
-$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<ref>/
+$LGX_HOME/
+  gitlibs/<host>/<owner>/<repo>/<ref>/
+  tmp/lgx-test-<version>.lg
 ```
 
 Default `LGX_HOME` is `~/.lgx`.
 `<ref>` is the sha for `:git/sha` coords, or the tag with `/` replaced
-by `_` for `:git/tag` coords.
+by `_` for `:git/tag` coords. `lgx test` writes its generated harness to
+`$LGX_HOME/tmp/` and overwrites the file for the current lgx version on
+each run.
 
 ## Commands
 
@@ -170,8 +174,46 @@ by `_` for `:git/tag` coords.
   example, `-bundle-base /path/to/lg` for cross-OS builds). Both
   `:main` and `:targets/:bin` are required; either being absent prints
   a clear error.
+- `lgx test [file]` - walk `test/` for `*_test.lg` / `*_test.cljc` files,
+  generate a one-shot test harness, and run every `deftest` against
+  the project's resolved `-source-paths`. Groups output by test file,
+  prints a `✓`/`✗` line per test, prints `testing` context strings,
+  and shows assertion output only for failing tests. Ends with a
+  `N tests, M assertions, K failures` summary. Exits 1 if any test
+  fails or errors, or if `test/` is missing; exits 0 with
+  `No tests found in test/` when the directory exists but is empty.
+  With `<file>`, only that file's tests run. `<file>` is
+  project-root-relative, must end in `.lg` or `.cljc`, and must live
+  under `test/`. Passing more than one argument is an error.
 - `lgx help` - print usage.
 - `lgx version` - print version.
+
+### Writing tests
+
+`lgx test` discovers files matching `*_test.lg` or `*_test.cljc`
+under `test/` and runs every `deftest` in their `*registered-tests*`
+registration order. A test file is just `deftest` and fixtures —
+nothing else:
+
+```clojure
+(ns wtr.list-test
+  (:require [test :refer [deftest is testing]]
+            [wtr.format :as fmt]))
+
+(deftest render-list-empty
+  (testing "empty worktree list"
+    (is (= "(no worktrees)" (fmt/render-list [] "/any/path")))))
+```
+
+Do **not** call `(run-tests)` at the top level. The let-go
+`run-tests` form runs synchronously during file load, before lgx's
+harness can register the file's tests in its own iteration loop, so
+top-level invocations short-circuit the run. The harness owns the
+run; the file owns the definitions.
+
+The file-path-to-namespace rule mirrors let-go's resolver:
+`test/lgx/config_test.lg` resolves to `lgx.config-test`. Underscores
+in path segments become hyphens; `/` becomes `.`.
 
 ## Development
 
@@ -202,7 +244,7 @@ Things that are currently missing or incomplete, in no particular order:
 - [x] Per-coord `:local/root`. Point a dep at a local directory instead of a git URL, matching tools.deps' `:local/root`.
 - [x] `:tasks` - named command shortcuts. (WIP)
 - [x] `lgx build` - build project binary.
-- [ ] `lgx test` - test runner.
+- [x] `lgx test` - test runner.
 - [ ] `lgx new` - project scaffolding.
 - [ ] `lgx repl` - run repl.
 - [ ] `lgx init` - create a default `lgx.edn` in the current directory.

@@ -1,0 +1,250 @@
+(ns lgx.test-runner
+  (:require [lgx.home :as home]
+            [lgx.path :as path]
+            [string :as str]))
+
+(def ^:private harness-prefix "lgx-test-")
+(def ^:private harness-suffix ".lg")
+
+(defn- test-file? [name]
+  (or (str/ends-with? name "_test.lg")
+      (str/ends-with? name "_test.cljc")))
+
+(defn- walk* [dir]
+  (reduce
+    (fn [acc name]
+      (let [abs (path/join dir name)
+            stat (os/stat abs)]
+        (cond
+          (nil? stat) acc
+          (:dir? stat) (vec (concat acc (walk* abs)))
+          (test-file? name) (conj acc abs)
+          :else acc)))
+    []
+    (os/ls dir)))
+
+(defn discover-test-files
+  "Walk test-dir recursively for *_test.lg / *_test.cljc files.
+   Returns a sorted vector of absolute paths.
+   Throws ex-info (:reason :missing-dir) if test-dir does not exist
+   or is not a directory."
+  [test-dir]
+  (let [s (os/stat test-dir)]
+    (when (or (nil? s) (not (:dir? s)))
+      (throw (ex-info (str "test directory not found: " test-dir)
+                      {:reason :missing-dir
+                       :dir test-dir}))))
+  (vec (sort (walk* test-dir))))
+
+(defn- strip-ext [s]
+  (cond
+    (str/ends-with? s ".lg") (subs s 0 (- (count s) 3))
+    (str/ends-with? s ".cljc") (subs s 0 (- (count s) 5))
+    :else s))
+
+(defn- relative-test-path [test-dir abs-path]
+  (let [sep os/file-separator
+        prefix (str test-dir sep)]
+    (if (str/starts-with? abs-path prefix)
+      (subs abs-path (count prefix))
+      abs-path)))
+
+(defn path->ns
+  "Convert a test file path to its namespace symbol.
+   test-dir is the directory the file was discovered under; abs-path is
+   the file path returned by discover-test-files (or any path that
+   begins with test-dir/).
+
+   test/foo_test.lg          -> 'foo-test
+   test/lgx/config_test.lg   -> 'lgx.config-test
+   test/foo_test.cljc        -> 'foo-test"
+  [test-dir abs-path]
+  (let [sep os/file-separator
+        rel (relative-test-path test-dir abs-path)
+        bare (strip-ext rel)
+        segments (str/split bare sep)
+        hyphenated (map #(str/replace % "_" "-") segments)]
+    (symbol (str/join "." hyphenated))))
+
+(defn test-entry
+  "Return the harness entry for abs-path: [display-file ns-symbol]."
+  [test-dir abs-path]
+  [(path/join "test" (relative-test-path test-dir abs-path))
+   (path->ns test-dir abs-path)])
+
+(defn- has-test-extension? [p]
+  (or (str/ends-with? p ".lg")
+      (str/ends-with? p ".cljc")))
+
+(defn validate-single-test-file!
+  "Resolve user-path against project-root, stat the file, check its
+   extension and containment under test-dir. Returns the absolute path
+   on success; otherwise throws ex-info whose data has a :reason key
+   in #{:not-found :bad-extension :outside-test-dir} and :path holding
+   the original user-path."
+  [test-dir user-path project-root]
+  (let [joined (if (path/absolute? user-path)
+                 user-path
+                 (path/join project-root user-path))
+        abs (path/normalize joined)
+        stat (os/stat abs)]
+    (when (or (nil? stat) (:dir? stat))
+      (throw (ex-info (str "test file not found: " user-path)
+                      {:reason :not-found
+                       :path user-path})))
+    (when-not (has-test-extension? abs)
+      (throw (ex-info (str "not a test file: " user-path)
+                      {:reason :bad-extension
+                       :path user-path})))
+    (let [test-prefix (str (path/normalize test-dir) os/file-separator)]
+      (when-not (str/starts-with? abs test-prefix)
+        (throw (ex-info (str "test file must be under test/: " user-path)
+                        {:reason :outside-test-dir
+                         :path user-path}))))
+    abs))
+
+;; ---------------------------------------------------------------------------
+;; Harness generation
+;;
+;; lgx ships as a bundled binary, so the test harness can't live as a
+;; static .lg file on the user's filesystem. Instead, we generate a small
+;; .lg source string from the discovered test entries, drop it in a tempfile,
+;; and hand it to `lg` like any other script.
+;; ---------------------------------------------------------------------------
+
+(defn- require-line [entry]
+  (str "            [" (second entry) "]"))
+
+(defn- entry-line [entry]
+  (str "  [" (pr-str (first entry)) " '" (second entry) "]"))
+
+(def ^:private harness-header
+  (str "(ns lgx.test-harness\n"
+       "  (:require [test :refer [*registered-tests* *report-counters*\n"
+       "                          *test-result* *each-fixtures*]]\n"
+       "            [string :as str]\n"
+       "            [os :as os]"))
+
+(def ^:private harness-body
+  (str
+    "\n\n"
+    "(defn- color [code s]\n"
+    "  (str \"\\u001b[38;5;\" code \"m\" s \"\\u001b[0m\"))\n"
+    "\n"
+    "(defn- green [s] (color 2 s))\n"
+    "(defn- red   [s] (color 1 s))\n"
+    "\n"
+    "(defn- compose-fixtures [f g] (fn [t] (f (fn [] (g t)))))\n"
+    "(defn- default-fixture [t] (t))\n"
+    "(defn- join-fixtures [fs]\n"
+    "  (reduce compose-fixtures default-fixture fs))\n"
+    "\n"
+    "(defn- nonblank-lines [s]\n"
+    "  (filter #(not (str/blank? %)) (str/split s \"\\n\")))\n"
+    "\n"
+    "(defn- testing-line? [line]\n"
+    "  (str/starts-with? line \"Testing: \"))\n"
+    "\n"
+    "(defn- pass-line? [line]\n"
+    "  (str/starts-with? line \"PASS \"))\n"
+    "\n"
+    "(defn- print-testing-line [line]\n"
+    "  (println (str \"    \" (subs line (count \"Testing: \")))))\n"
+    "\n"
+    "(defn- color-fail-token [line]\n"
+    "  (cond\n"
+    "    (= line \"FAIL\") (red \"FAIL\")\n"
+    "    (str/starts-with? line \"FAIL \") (str (red \"FAIL\")\n"
+    "                                       (subs line (count \"FAIL\")))\n"
+    "    :else line))\n"
+    "\n"
+    "(defn- print-detail-line [line]\n"
+    "  (when (and (not (testing-line? line)) (not (pass-line? line)))\n"
+    "    (println (str \"    \" (color-fail-token line)))))\n"
+    "\n"
+    "(println (str \"Running tests in \" __TEST_HEADER__ \"...\"))\n"
+    "(println)\n"
+    "\n"
+    "(defn- var-name [tv]\n"
+    "  ;; let-go vars print as #'<ns>/<name>; pull the last segment.\n"
+    "  (last (str/split (str tv) \"/\")))\n"
+    "\n"
+    "(def test-plan\n"
+    "  [\n"
+    "__TEST_ENTRIES__\n"
+    "  ])\n"
+    "\n"
+    "(doseq [entry test-plan]\n"
+    "  (let [file-name (first entry)\n"
+    "        ns-sym (second entry)\n"
+    "        test-vars (get *registered-tests* (the-ns ns-sym) [])]\n"
+    "    (println file-name)\n"
+    "    (doseq [tv test-vars]\n"
+    "      (set! *report-counters* (update *report-counters* :test inc))\n"
+    "      (let [before *report-counters*]\n"
+    "        (let [result (try\n"
+    "                       {:out (with-out-str\n"
+    "                               ((join-fixtures *each-fixtures*)\n"
+    "                                (fn [] ((deref tv)))))\n"
+    "                        :error nil}\n"
+    "                       (catch e\n"
+    "                         (set! *report-counters*\n"
+    "                               (update *report-counters* :error inc))\n"
+    "                         (set! *test-result* false)\n"
+    "                         {:out \"\" :error e}))\n"
+    "              after *report-counters*\n"
+    "              lines (nonblank-lines (:out result))\n"
+    "              failed? (or (> (:fail  after) (:fail  before))\n"
+    "                          (> (:error after) (:error before)))\n"
+    "              mark (if failed? (red \"\\u2717\") (green \"\\u2713\"))]\n"
+    "          (println (str \"  \" mark \" \" (var-name tv)))\n"
+    "          (doseq [line lines]\n"
+    "            (when (testing-line? line)\n"
+    "              (print-testing-line line)))\n"
+    "          (when failed?\n"
+    "            (doseq [line lines]\n"
+    "              (print-detail-line line))\n"
+    "            (when (:error result)\n"
+    "              (println (str \"    ERROR: \" (:error result))))))))\n"
+    "    (println)))\n"
+    "\n"
+    "(let [c *report-counters*\n"
+    "      asserts (+ (:pass c) (:fail c))\n"
+    "      failures (+ (:fail c) (:error c))\n"
+    "      summary (str (:test c) \" tests, \" asserts \" assertions, \"\n"
+    "                   failures \" failures\")]\n"
+    "  (println ((if (zero? failures) green red) summary))\n"
+    "  (println (if (zero? failures) \"OK\" \"FAIL\"))\n"
+    "  (os/exit (if (zero? failures) 0 1)))\n"))
+
+(defn harness-source
+  "Return a .lg source string for a test harness that loads each test
+   entry and runs every registered test sequentially, printing file
+   names, per-test ✓/✗ marks, testing contexts, and failing details.
+   `header` is substituted into the `Running tests in <header>...`
+   banner."
+  [entries header]
+  (let [extra (if (empty? entries)
+                ""
+                (str "\n"
+                     (str/join "\n" (map require-line entries))))
+        entry-src (str/join "\n" (map entry-line entries))
+        body (-> harness-body
+                 (str/replace "__TEST_ENTRIES__" entry-src)
+                 (str/replace "__TEST_HEADER__" (pr-str header)))]
+    (str harness-header extra "))" body)))
+
+(defn- temp-path [version]
+  (let [dir (home/tmp-dir)
+        name (str harness-prefix version harness-suffix)]
+    (mkdir dir)
+    (path/join dir name)))
+
+(defn write-harness!
+  "Materialize the harness source for entries under LGX_HOME/tmp,
+   overwriting the previous harness for the same lgx version.
+   Returns the absolute path of the written file."
+  [entries version header]
+  (let [p (temp-path version)]
+    (spit p (harness-source entries header))
+    p))

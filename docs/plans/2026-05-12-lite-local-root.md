@@ -313,6 +313,6 @@ supports `-source-paths`. Updated README, architecture docs, and added
 `examples/local-dep/`.
 
 Verification: `make test` passes. In this environment, the local-run e2e
-branch is skipped because `lg 1.7.2` does not support `-source-paths`;
+branch is skipped because `lg 2.0.2` does not support `-source-paths`;
 the test runs automatically when `LGX_LG` or `lg` points at a compatible
 let-go binary.

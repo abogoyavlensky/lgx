@@ -139,6 +139,59 @@ Steps 1–3 match `install`. Then:
 resolution with `lgx run`; the only structural difference is the
 argument shape and the required-config / mkdir steps.
 
+### `lgx test`
+
+Steps 1–3 match `install`. Then:
+
+4. Resolve `<project-root>/test`. If it does not exist (or is not a
+   directory), exit 1 with `lgx: no test/ directory in project` on
+   stderr.
+5. Select the test files. If a positional `<file>` arg is provided,
+   resolve it to an absolute path (project-root-relative inputs are
+   joined against the project root), then `path/normalize` away any
+   `.`/`..` segments and validate it against three rules:
+   - file exists on disk →
+     `lgx: test file not found: <path>` on stderr + exit 1 if not.
+   - extension is `.lg` or `.cljc` →
+     `lgx: not a test file (expected .lg or .cljc): <path>` + exit 1
+     if not.
+   - normalized absolute path starts with `<abs test-dir>/` →
+     `lgx: test file must be under test/: <path>` + exit 1 if not.
+   On success, the test plan is a one-entry vector with that file.
+   With no arg, walk `test/` recursively for `*_test.lg` and
+   `*_test.cljc` files. `.clj` is not matched — let-go's resolver
+   doesn't load that extension. If the walk returns no files, print
+   `No tests found in test/` and exit 0.
+6. Map each absolute path to a namespace symbol: strip `test/` prefix
+   and the extension, split on `/`, hyphenate `_` per segment, join
+   with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
+   This is the reverse of let-go's resolver rule
+   ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
+7. Generate a one-shot harness `.lg` source string that `:require`s
+   every discovered ns plus `test`/`string`/`os`, embeds the discovered
+   `[file ns]` test plan, and iterates each file's entries in
+   `*registered-tests*`. Each `deftest` runs under `with-out-str` so
+   passing `PASS <form>` assertion chatter is suppressed while counters
+   still update. The harness prints the test file, a `✓`/`✗` line per
+   `deftest`, any `testing` context strings, and failure/error details
+   only for failing tests. The opening banner is
+   `Running tests in <header>...` — walk-mode passes `test/`, single
+   -file mode passes the entry's display path (e.g. `test/foo_test.lg`).
+   It ends with a `N tests, M assertions, K failures` summary and
+   `(os/exit (if (zero? failures) 0 1))`. Write it to
+   `$LGX_HOME/tmp/lgx-test-<version>.lg`, overwriting the previous
+   harness for the same lgx version.
+8. Compute `-source-paths` as project paths + dep paths + the
+   absolute `test/` path (so test namespaces can `require` each other
+   and the harness can `require` them).
+9. `exec lg -source-paths <X> <harness-path>`. The harness owns the
+   `os/exit`, so the exit code reaches the shell unchanged.
+
+`lgx test` accepts 0 or 1 positional arg. Passing 2 or more prints
+`lgx: test takes at most one argument` on stderr and exits 1. Under
+`--verbose`, the trace also includes the harness path on stderr so
+the user can inspect the generated file.
+
 ### `lgx <task>`
 
 After built-in dispatch, lgx looks up `<task>` (as a keyword) in the
@@ -158,20 +211,23 @@ and becomes the task's exit code; lgx exits 0 only when every step
 returns 0.
 
 Task names that collide with built-in commands
-(`run`, `install`, `build`, `add`, `update`, `tasks`, `help`, `version`)
-are rejected at validation time — overriding built-ins is reserved for
-later via an `:lgx/<name>` form.
+(`run`, `install`, `build`, `test`, `add`, `update`, `tasks`, `help`,
+`version`) are rejected at validation time — overriding built-ins is
+reserved for later via an `:lgx/<name>` form.
 
-## Cache layout
+## State layout
 
 ```
-$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<ref>/
+$LGX_HOME/
+  gitlibs/<host>/<owner>/<repo>/<ref>/
+  tmp/lgx-test-<version>.lg
 ```
 
-`LGX_HOME` defaults to `~/.lgx`. The path is a pure function of the git
-URL and ref. For `:git/sha` coords, `<ref>` is the sha. For `:git/tag`
-coords, `<ref>` is the tag with `/` replaced by `_`. Each leaf is a
-read-only worktree.
+`LGX_HOME` defaults to `~/.lgx`. Gitlib cache paths are pure functions
+of the git URL and ref. For `:git/sha` coords, `<ref>` is the sha. For
+`:git/tag` coords, `<ref>` is the tag with `/` replaced by `_`. Each
+leaf is a read-only worktree. The `tmp` directory holds generated lgx
+runtime files such as the test harness.
 
 By default, `cache/ensure-lib!` returns `<ref>/src/` if that
 subdirectory exists, otherwise `<ref>/`. This matches the `tools.deps`
