@@ -190,15 +190,16 @@
     (str harness-header extra "))"
          (str/replace harness-body "__TEST_ENTRIES__" entry-src))))
 
-(defn- temp-path []
+(defn- temp-path [version]
   (let [dir (os/temp-dir)
-        name (str harness-prefix (random-uuid) harness-suffix)]
+        name (str harness-prefix version harness-suffix)]
     (path/join dir name)))
 
 (defn write-harness!
-  "Materialize the harness source for entries to a tempfile under
-   os/temp-dir. Returns the absolute path of the written file."
-  [entries]
-  (let [p (temp-path)]
+  "Materialize the harness source for entries to a versioned tempfile under
+   os/temp-dir, overwriting the previous harness for the same lgx version.
+   Returns the absolute path of the written file."
+  [entries version]
+  (let [p (temp-path version)]
     (spit p (harness-source entries))
     p))

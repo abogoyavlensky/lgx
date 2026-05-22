@@ -887,8 +887,9 @@ EOF
     set +e
     err="$(cd "$proj_t6" && LGX_HOME="$home_t6" "$LGX" --verbose test 2>&1 >/dev/null)"
     set -e
+    version="$(awk -F '"' '/def[[:space:]]+version[[:space:]]+"/ { print $2; exit }' "$ROOT/lgx.lg")"
     assert_contains "$err" "+ " "verbose test: trace line has + prefix"
-    assert_contains "$err" "lgx-test-" "verbose test: harness path mentioned"
+    assert_contains "$err" "lgx-test-$version.lg" "verbose test: versioned harness path mentioned"
     assert_contains "$err" "-source-paths" "verbose test: trace includes -source-paths"
     rm -rf "$proj_t6" "$home_t6"
 else

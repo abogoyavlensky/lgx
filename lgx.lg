@@ -23,7 +23,7 @@
        "  lgx help                     Show this help\n"
        "\n"
        "Global flags:\n"
-       "  --verbose                    Print the lg invocation before running (run/build/test/tasks)\n"))
+       "  --verbose                    Print the lg invocation before running (run/build/test/user tasks)\n"))
 
 (defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]
@@ -176,7 +176,7 @@
         (println "No tests found in test/")
         (os/exit 0))
       (let [entries (mapv #(test-runner/test-entry test-dir %) files)
-            harness (test-runner/write-harness! entries)
+            harness (test-runner/write-harness! entries version)
             source-paths (vec (concat paths [test-dir]))]
         (when verbose?
           (write! *err* (str "+ test runner: " harness "\n")))

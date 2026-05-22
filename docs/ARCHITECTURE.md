@@ -165,7 +165,8 @@ Steps 1–3 match `install`. Then:
    only for failing tests. It ends with a
    `N tests, M assertions, K failures` summary and
    `(os/exit (if (zero? failures) 0 1))`. Write it to
-   `os/temp-dir`/`lgx-test-<rand>.lg`.
+   `os/temp-dir`/`lgx-test-<version>.lg`, overwriting the previous
+   harness for the same lgx version.
 8. Compute `-source-paths` as project paths + dep paths + the
    absolute `test/` path (so test namespaces can `require` each other
    and the harness can `require` them).

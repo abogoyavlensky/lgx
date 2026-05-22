@@ -111,3 +111,14 @@
     (is (str/includes? src "assertions, "))
     (is (str/includes? src "failures"))
     (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
+
+(deftest write-harness-uses-versioned-stable-path
+  (let [version "0.1.0-test"
+        p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version)
+        src1 (slurp p1)
+        p2 (tr/write-harness! [] version)
+        src2 (slurp p2)]
+    (is (= p1 p2))
+    (is (str/ends-with? p1 (str "lgx-test-" version ".lg")))
+    (is (not (= src1 src2)))
+    (delete-file p2)))
