@@ -144,7 +144,7 @@
 
 (defn- temp-path []
   (let [dir (os/temp-dir)
-        name (str harness-prefix (rand-int 1000000000) harness-suffix)]
+        name (str harness-prefix (random-uuid) harness-suffix)]
     (path/join dir name)))
 
 (defn write-harness!
