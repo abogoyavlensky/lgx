@@ -78,7 +78,6 @@
        "  (:require [test :refer [*registered-tests* *report-counters*\n"
        "                          *test-result* *each-fixtures*]]\n"
        "            [string :as str]\n"
-       "            [term :as term]\n"
        "            [os :as os]"))
 
 (def ^:private harness-body

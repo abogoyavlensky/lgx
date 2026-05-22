@@ -23,7 +23,7 @@
        "  lgx help                     Show this help\n"
        "\n"
        "Global flags:\n"
-       "  --verbose                    Print the lg invocation before running (run/build/tasks)\n"))
+       "  --verbose                    Print the lg invocation before running (run/build/test/tasks)\n"))
 
 (defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]

@@ -82,7 +82,7 @@
     (is (parses? src))
     (is (str/includes? src "(ns lgx.test-harness"))
     (is (str/includes? src "[test :refer"))
-    (is (str/includes? src "[term :as term]"))
+    (is (str/includes? src "[os :as os]"))
     (is (str/includes? src "(os/exit"))))
 
 (deftest harness-source-includes-each-ns

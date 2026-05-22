@@ -156,7 +156,7 @@ Steps 1–3 match `install`. Then:
    This is the reverse of let-go's resolver rule
    ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
 7. Generate a one-shot harness `.lg` source string that `:require`s
-   every discovered ns plus `test`/`term`/`os`, iterates
+   every discovered ns plus `test`/`string`/`os`, iterates
    `*registered-tests*`, prints a `✓`/`✗` line per `deftest`, and
    ends with a `N tests, M assertions, K failures` summary and
    `(os/exit (if (zero? failures) 0 1))`. Write it to
