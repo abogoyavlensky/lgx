@@ -174,7 +174,7 @@ each run.
   example, `-bundle-base /path/to/lg` for cross-OS builds). Both
   `:main` and `:targets/:bin` are required; either being absent prints
   a clear error.
-- `lgx test` - walk `test/` for `*_test.lg` / `*_test.cljc` files,
+- `lgx test [file]` - walk `test/` for `*_test.lg` / `*_test.cljc` files,
   generate a one-shot test harness, and run every `deftest` against
   the project's resolved `-source-paths`. Groups output by test file,
   prints a `✓`/`✗` line per test, prints `testing` context strings,
@@ -182,7 +182,9 @@ each run.
   `N tests, M assertions, K failures` summary. Exits 1 if any test
   fails or errors, or if `test/` is missing; exits 0 with
   `No tests found in test/` when the directory exists but is empty.
-  Takes no arguments in this version.
+  With `<file>`, only that file's tests run. `<file>` is
+  project-root-relative, must end in `.lg` or `.cljc`, and must live
+  under `test/`. Passing more than one argument is an error.
 - `lgx help` - print usage.
 - `lgx version` - print version.
 

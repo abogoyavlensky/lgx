@@ -146,9 +146,21 @@ Steps 1–3 match `install`. Then:
 4. Resolve `<project-root>/test`. If it does not exist (or is not a
    directory), exit 1 with `lgx: no test/ directory in project` on
    stderr.
-5. Walk `test/` recursively for `*_test.lg` and `*_test.cljc` files.
-   `.clj` is not matched — let-go's resolver doesn't load that
-   extension. If the walk returns no files, print
+5. Select the test files. If a positional `<file>` arg is provided,
+   resolve it to an absolute path (project-root-relative inputs are
+   joined against the project root), then `path/normalize` away any
+   `.`/`..` segments and validate it against three rules:
+   - file exists on disk →
+     `lgx: test file not found: <path>` on stderr + exit 1 if not.
+   - extension is `.lg` or `.cljc` →
+     `lgx: not a test file (expected .lg or .cljc): <path>` + exit 1
+     if not.
+   - normalized absolute path starts with `<abs test-dir>/` →
+     `lgx: test file must be under test/: <path>` + exit 1 if not.
+   On success, the test plan is a one-entry vector with that file.
+   With no arg, walk `test/` recursively for `*_test.lg` and
+   `*_test.cljc` files. `.clj` is not matched — let-go's resolver
+   doesn't load that extension. If the walk returns no files, print
    `No tests found in test/` and exit 0.
 6. Map each absolute path to a namespace symbol: strip `test/` prefix
    and the extension, split on `/`, hyphenate `_` per segment, join
@@ -162,8 +174,10 @@ Steps 1–3 match `install`. Then:
    passing `PASS <form>` assertion chatter is suppressed while counters
    still update. The harness prints the test file, a `✓`/`✗` line per
    `deftest`, any `testing` context strings, and failure/error details
-   only for failing tests. It ends with a
-   `N tests, M assertions, K failures` summary and
+   only for failing tests. The opening banner is
+   `Running tests in <header>...` — walk-mode passes `test/`, single
+   -file mode passes the entry's display path (e.g. `test/foo_test.lg`).
+   It ends with a `N tests, M assertions, K failures` summary and
    `(os/exit (if (zero? failures) 0 1))`. Write it to
    `$LGX_HOME/tmp/lgx-test-<version>.lg`, overwriting the previous
    harness for the same lgx version.
@@ -173,8 +187,8 @@ Steps 1–3 match `install`. Then:
 9. `exec lg -source-paths <X> <harness-path>`. The harness owns the
    `os/exit`, so the exit code reaches the shell unchanged.
 
-`lgx test` accepts no positional args in v1; passing any prints
-`lgx: test takes no arguments in this version` and exits 1. Under
+`lgx test` accepts 0 or 1 positional arg. Passing 2 or more prints
+`lgx: test takes at most one argument` on stderr and exits 1. Under
 `--verbose`, the trace also includes the harness path on stderr so
 the user can inspect the generated file.
 
