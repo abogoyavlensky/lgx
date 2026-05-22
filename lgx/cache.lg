@@ -1,5 +1,6 @@
 (ns lgx.cache
-  (:require [lgx.path :as path]
+  (:require [lgx.home :as home]
+            [lgx.path :as path]
             [string :as str]))
 
 ;; ---------------------------------------------------------------------------
@@ -13,14 +14,8 @@
 ;; the lib resolve relative to the repo root.
 ;; ---------------------------------------------------------------------------
 
-(defn- home-dir []
-  (let [override (os/getenv "LGX_HOME")]
-    (if (str/blank? override)
-      (path/join (os/getenv "HOME") ".lgx")
-      override)))
-
 (defn- gitlibs-root []
-  (path/join (home-dir) "gitlibs"))
+  (path/join (home/root) "gitlibs"))
 
 ;; Parse a git URL into ["host" "owner" "repo"] used as the cache key.
 ;; Supported forms:

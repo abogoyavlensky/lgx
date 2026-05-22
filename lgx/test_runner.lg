@@ -1,5 +1,6 @@
 (ns lgx.test-runner
-  (:require [lgx.path :as path]
+  (:require [lgx.home :as home]
+            [lgx.path :as path]
             [string :as str]))
 
 (def ^:private harness-prefix "lgx-test-")
@@ -191,13 +192,14 @@
          (str/replace harness-body "__TEST_ENTRIES__" entry-src))))
 
 (defn- temp-path [version]
-  (let [dir (os/temp-dir)
+  (let [dir (home/tmp-dir)
         name (str harness-prefix version harness-suffix)]
+    (mkdir dir)
     (path/join dir name)))
 
 (defn write-harness!
-  "Materialize the harness source for entries to a versioned tempfile under
-   os/temp-dir, overwriting the previous harness for the same lgx version.
+  "Materialize the harness source for entries under LGX_HOME/tmp,
+   overwriting the previous harness for the same lgx version.
    Returns the absolute path of the written file."
   [entries version]
   (let [p (temp-path version)]

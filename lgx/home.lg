@@ -1,0 +1,16 @@
+(ns lgx.home
+  (:require [lgx.path :as path]
+            [string :as str]))
+
+(defn root
+  "Return the lgx state root. LGX_HOME overrides the default ~/.lgx."
+  []
+  (let [override (os/getenv "LGX_HOME")]
+    (if (str/blank? override)
+      (path/join (os/getenv "HOME") ".lgx")
+      override)))
+
+(defn tmp-dir
+  "Return the directory for generated lgx runtime files."
+  []
+  (path/join (root) "tmp"))

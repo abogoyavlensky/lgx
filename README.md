@@ -145,15 +145,19 @@ mixing them is an error.
 
 Current limitations: HTTPS URLs only (no SSH), no transitive deps.
 
-## Deps cache layout
+## State layout
 
 ```
-$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<ref>/
+$LGX_HOME/
+  gitlibs/<host>/<owner>/<repo>/<ref>/
+  tmp/lgx-test-<version>.lg
 ```
 
 Default `LGX_HOME` is `~/.lgx`.
 `<ref>` is the sha for `:git/sha` coords, or the tag with `/` replaced
-by `_` for `:git/tag` coords.
+by `_` for `:git/tag` coords. `lgx test` writes its generated harness to
+`$LGX_HOME/tmp/` and overwrites the file for the current lgx version on
+each run.
 
 ## Commands
 

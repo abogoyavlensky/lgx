@@ -165,7 +165,7 @@ Steps 1–3 match `install`. Then:
    only for failing tests. It ends with a
    `N tests, M assertions, K failures` summary and
    `(os/exit (if (zero? failures) 0 1))`. Write it to
-   `os/temp-dir`/`lgx-test-<version>.lg`, overwriting the previous
+   `$LGX_HOME/tmp/lgx-test-<version>.lg`, overwriting the previous
    harness for the same lgx version.
 8. Compute `-source-paths` as project paths + dep paths + the
    absolute `test/` path (so test namespaces can `require` each other
@@ -201,16 +201,19 @@ Task names that collide with built-in commands
 `version`) are rejected at validation time — overriding built-ins is
 reserved for later via an `:lgx/<name>` form.
 
-## Cache layout
+## State layout
 
 ```
-$LGX_HOME/gitlibs/<host>/<owner>/<repo>/<ref>/
+$LGX_HOME/
+  gitlibs/<host>/<owner>/<repo>/<ref>/
+  tmp/lgx-test-<version>.lg
 ```
 
-`LGX_HOME` defaults to `~/.lgx`. The path is a pure function of the git
-URL and ref. For `:git/sha` coords, `<ref>` is the sha. For `:git/tag`
-coords, `<ref>` is the tag with `/` replaced by `_`. Each leaf is a
-read-only worktree.
+`LGX_HOME` defaults to `~/.lgx`. Gitlib cache paths are pure functions
+of the git URL and ref. For `:git/sha` coords, `<ref>` is the sha. For
+`:git/tag` coords, `<ref>` is the tag with `/` replaced by `_`. Each
+leaf is a read-only worktree. The `tmp` directory holds generated lgx
+runtime files such as the test harness.
 
 By default, `cache/ensure-lib!` returns `<ref>/src/` if that
 subdirectory exists, otherwise `<ref>/`. This matches the `tools.deps`
