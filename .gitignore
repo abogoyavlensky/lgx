@@ -5,3 +5,4 @@ lgx-bundle
 .claude
 .clj-lsp
 .idea/
+.tmp/
