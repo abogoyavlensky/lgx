@@ -1,13 +1,14 @@
 (ns lgx.main
   (:require [lgx.cache :as cache]
             [lgx.config :as config]
+            [lgx.new :as new]
             [lgx.path :as path]
             [lgx.runner :as runner]
             [lgx.tasks :as tasks]
             [lgx.test-runner :as test-runner]
             [string :as str]))
 
-(def version "0.1.0-alpha5")
+(def version "0.1.0-alpha6")
 
 (def base-usage
   (str "lgx - project manager for let-go\n"
@@ -20,6 +21,7 @@
        "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc files under test/\n"
        "                               (one file if given, else walk test/)\n"
+       "  lgx new <project-name>       Scaffold a new let-go app from the default template\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"
        "\n"
@@ -276,6 +278,7 @@
     "run" (cmd-run (vec rest-args) verbose?)
     "build" (cmd-build (vec rest-args) verbose?)
     "test" (cmd-test (vec rest-args) verbose?)
+    "new" (new/cmd-new! (vec rest-args) verbose?)
     "version" (cmd-version)
     "-v" (cmd-version)
     "--version" (cmd-version)

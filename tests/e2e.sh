@@ -1007,5 +1007,174 @@ assert_contains "$out" "lgx: test takes at most one argument" \
     "test too-many: clear error"
 rm -rf "$proj_s5" "$home_s5"
 
+# Seed a template fixture repo for `lgx new` tests. Sets FIXTURE_REPO_URL
+# (a file:// URL) and FIXTURE_REPO_SHA. The repo mirrors lgx-template-base
+# structure with the `projectname` placeholder so substitution can be
+# observed end-to-end.
+setup_template_fixture() {
+    FIXTURE_REPO_DIR="$(mktemp -d)"
+    git init --quiet -b master "$FIXTURE_REPO_DIR"
+    mkdir -p "$FIXTURE_REPO_DIR/src/projectname"
+    cat > "$FIXTURE_REPO_DIR/lgx.edn" <<'EOF'
+{:paths ["src"]
+ :main "main.lg"
+ :targets {:bin {:out "bin/projectname"}}
+ :deps {}}
+EOF
+    cat > "$FIXTURE_REPO_DIR/main.lg" <<'EOF'
+(ns projectname.main
+  (:require [projectname.greeter :as greeter]))
+(defn- main [] (prn (greeter/greet "let-go")))
+(when-not *compiling-aot* (main))
+EOF
+    cat > "$FIXTURE_REPO_DIR/src/projectname/greeter.lg" <<'EOF'
+(ns projectname.greeter)
+(defn greet [name] (str "Welcome to " name "!"))
+EOF
+    git -C "$FIXTURE_REPO_DIR" add -A
+    git -C "$FIXTURE_REPO_DIR" commit --quiet -m fixture
+    FIXTURE_REPO_URL="file://$FIXTURE_REPO_DIR"
+    FIXTURE_REPO_SHA="$(git -C "$FIXTURE_REPO_DIR" rev-parse HEAD)"
+    FIXTURE_REPO_BASENAME="$(basename "$FIXTURE_REPO_DIR")"
+    export FIXTURE_REPO_URL FIXTURE_REPO_SHA FIXTURE_REPO_BASENAME
+}
+setup_template_fixture
+
+echo "==> Scenario 50: lgx new happy path with hyphenated name"
+work_s50="$(mktemp -d)"
+home_s50="$(mktemp -d)"
+set +e
+out="$(cd "$work_s50" \
+    && LGX_HOME="$home_s50" \
+       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
+       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
+       "$LGX" new my-app 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new hyphen: expected exit 0, got $rc"; }
+assert_contains "$out" "Created my-app at" "new hyphen: success line"
+[[ -f "$work_s50/my-app/main.lg" ]] || fail "new hyphen: main.lg missing"
+[[ -f "$work_s50/my-app/src/my_app/greeter.lg" ]] \
+    || fail "new hyphen: underscore path missing"
+[[ ! -d "$work_s50/my-app/src/projectname" ]] \
+    || fail "new hyphen: placeholder dir still present"
+assert_contains "$(cat "$work_s50/my-app/main.lg")" "(ns my-app.main" \
+    "new hyphen: ns substituted in main.lg"
+assert_contains "$(cat "$work_s50/my-app/lgx.edn")" "bin/my-app" \
+    "new hyphen: bin/ name substituted in lgx.edn"
+if supports_source_paths; then
+    set +e
+    run_out="$(cd "$work_s50/my-app" && LGX_HOME="$home_s50" "$LGX" run 2>&1)"; run_rc=$?
+    set -e
+    [[ $run_rc -eq 0 ]] || { echo "$run_out" >&2; fail "new hyphen: lgx run failed"; }
+    assert_contains "$run_out" "Welcome to let-go!" \
+        "new hyphen: scaffolded project runs"
+else
+    skip "new hyphen: lgx run gated on -source-paths"
+fi
+rm -rf "$work_s50" "$home_s50"
+
+echo "==> Scenario 51: lgx new happy path with non-hyphenated name"
+work_s51="$(mktemp -d)"
+home_s51="$(mktemp -d)"
+set +e
+out="$(cd "$work_s51" \
+    && LGX_HOME="$home_s51" \
+       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
+       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
+       "$LGX" new myapp 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new nohy: expected exit 0, got $rc"; }
+[[ -f "$work_s51/myapp/src/myapp/greeter.lg" ]] \
+    || fail "new nohy: src/myapp/greeter.lg missing"
+assert_contains "$(cat "$work_s51/myapp/main.lg")" "(ns myapp.main" \
+    "new nohy: ns substituted"
+assert_contains "$(cat "$work_s51/myapp/lgx.edn")" "bin/myapp" \
+    "new nohy: bin/ name substituted"
+rm -rf "$work_s51" "$home_s51"
+
+echo "==> Scenario 52: lgx new rejects invalid name"
+work_s52="$(mktemp -d)"
+home_s52="$(mktemp -d)"
+set +e
+out="$(cd "$work_s52" \
+    && LGX_HOME="$home_s52" \
+       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
+       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
+       "$LGX" new Foo 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "new invalid-name: expected exit 1, got $rc"
+assert_contains "$out" "lgx: invalid project name: Foo" \
+    "new invalid-name: clear error"
+assert_contains "$out" \
+    "name must start with a letter and contain only lowercase letters" \
+    "new invalid-name: rule description"
+rm -rf "$work_s52" "$home_s52"
+
+echo "==> Scenario 53: lgx new rejects existing non-empty target"
+work_s53="$(mktemp -d)"
+home_s53="$(mktemp -d)"
+mkdir -p "$work_s53/foo"
+touch "$work_s53/foo/existing-file"
+set +e
+out="$(cd "$work_s53" \
+    && LGX_HOME="$home_s53" \
+       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
+       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
+       "$LGX" new foo 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "new non-empty: expected exit 1, got $rc"
+assert_contains "$out" "lgx: target directory already exists and is not empty" \
+    "new non-empty: clear error"
+rm -rf "$work_s53" "$home_s53"
+
+echo "==> Scenario 54: lgx new reuses cache on subsequent calls"
+work_s54="$(mktemp -d)"
+home_s54="$(mktemp -d)"
+cache_dir="$home_s54/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA"
+set +e
+out="$(cd "$work_s54" \
+    && LGX_HOME="$home_s54" \
+       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
+       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
+       "$LGX" new alpha 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new cache: first call failed"; }
+[[ -d "$cache_dir" ]] || fail "new cache: cache dir not created"
+# Drop a sentinel into the cache. A re-clone would wipe the dir, so the
+# sentinel surviving the second call proves cache short-circuit.
+echo sentinel > "$cache_dir/.cache-sentinel"
+set +e
+out2="$(cd "$work_s54" \
+    && LGX_HOME="$home_s54" \
+       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
+       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
+       "$LGX" new beta 2>&1)"; rc2=$?
+set -e
+[[ $rc2 -eq 0 ]] || { echo "$out2" >&2; fail "new cache: second call failed"; }
+[[ -f "$cache_dir/.cache-sentinel" ]] \
+    || fail "new cache: sentinel removed (cache was re-cloned)"
+pass "new cache: sentinel survives second call (cache reused)"
+rm -rf "$work_s54" "$home_s54"
+
+echo "==> Scenario 55: lgx new cold cache clones fresh"
+work_s55="$(mktemp -d)"
+home_s55="$(mktemp -d)"
+# Ensure LGX_HOME is empty so the cache path doesn't exist yet.
+rm -rf "$home_s55/templates"
+set +e
+out="$(cd "$work_s55" \
+    && LGX_HOME="$home_s55" \
+       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
+       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
+       "$LGX" new gamma 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new cold: expected exit 0, got $rc"; }
+[[ -d "$home_s55/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA" ]] \
+    || fail "new cold: cache dir not created"
+pass "new cold: cache dir created on first call"
+rm -rf "$work_s55" "$home_s55"
+
+rm -rf "$FIXTURE_REPO_DIR"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

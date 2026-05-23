@@ -1,0 +1,217 @@
+(ns lgx.new
+  (:require [lgx.cache :as cache]
+            [lgx.home :as home]
+            [lgx.path :as path]
+            [string :as str]))
+
+;; ---------------------------------------------------------------------------
+;; Constants
+;; ---------------------------------------------------------------------------
+
+(def ^:private placeholder "projectname")
+
+(def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
+
+(def default-template
+  "Default template coord used when no env override is set."
+  {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
+   :git/sha "eade5971bff8fe828202c7c4f9af031ef976140c"})
+
+;; ---------------------------------------------------------------------------
+;; Validation
+;; ---------------------------------------------------------------------------
+
+(defn valid-name?
+  "Return true if name is a non-blank string matching ^[a-z][a-z0-9-]*$."
+  [name]
+  (and (string? name)
+       (not (nil? (re-matches name-pattern name)))))
+
+(defn validate-name!
+  "Return name on success. Throw ex-info with :reason :invalid-name and
+   :name <input> otherwise."
+  [name]
+  (when-not (valid-name? name)
+    (throw (ex-info (str "invalid project name: " name)
+                    {:reason :invalid-name
+                     :name name})))
+  name)
+
+(defn validate-target!
+  "Return target on success. Throws ex-info if target exists and is either
+   a regular file (:reason :not-a-dir) or a non-empty directory
+   (:reason :non-empty). Both branches set :path to the input."
+  [target]
+  (let [stat (os/stat target)]
+    (cond
+      (nil? stat)
+      target
+
+      (not (:dir? stat))
+      (throw (ex-info (str "target exists and is not a directory: " target)
+                      {:reason :not-a-dir
+                       :path target}))
+
+      (seq (os/ls target))
+      (throw (ex-info (str "target directory already exists and is not empty: " target)
+                      {:reason :non-empty
+                       :path target}))
+
+      :else
+      target)))
+
+;; ---------------------------------------------------------------------------
+;; Substitution
+;; ---------------------------------------------------------------------------
+
+(defn name-pair
+  "Return {:hyphen <name as-is> :underscore <name with - -> _>} for use as
+   the substitution table for paths and contents."
+  [name]
+  {:hyphen name
+   :underscore (str/replace name "-" "_")})
+
+(defn substitute-contents
+  "Replace every literal `projectname` in s with the hyphenated form from
+   the name-pair."
+  [s pair]
+  (str/replace s placeholder (:hyphen pair)))
+
+(defn substitute-path-segments
+  "Split rel-path on `/`, replace every literal `projectname` segment with
+   the underscored form from the name-pair, rejoin with `/`. Relative paths
+   stored internally always use `/` separators; absolute paths are produced
+   only via path/join."
+  [rel-path pair]
+  (let [segments (str/split rel-path "/")
+        replaced (map #(str/replace % placeholder (:underscore pair)) segments)]
+    (str/join "/" replaced)))
+
+;; ---------------------------------------------------------------------------
+;; Template cache
+;; ---------------------------------------------------------------------------
+
+(defn- env-or [var default]
+  (let [v (os/getenv var)]
+    (if (str/blank? v) default v)))
+
+(defn resolve-template-coord
+  "Read LGX_TEMPLATE_BASE_URL / LGX_TEMPLATE_BASE_SHA. Blank or unset envs
+   fall back to default-template."
+  []
+  {:git/url (env-or "LGX_TEMPLATE_BASE_URL" (:git/url default-template))
+   :git/sha (env-or "LGX_TEMPLATE_BASE_SHA" (:git/sha default-template))})
+
+(defn- templates-root []
+  (path/join (home/root) "templates"))
+
+(defn- template-dir [url sha]
+  (let [[host owner repo] (cache/parse-git-url url)]
+    (path/join (templates-root) host owner repo sha)))
+
+(defn ensure-template!
+  "Return the absolute path of the cached template worktree. Clones via
+   cache/clone-sha! when the cache is missing; reuses otherwise."
+  [coord]
+  (let [url (:git/url coord)
+        sha (:git/sha coord)
+        dir (template-dir url sha)]
+    (when-not (file-exists? dir)
+      (cache/clone-sha! url sha dir))
+    dir))
+
+;; ---------------------------------------------------------------------------
+;; Render
+;; ---------------------------------------------------------------------------
+
+(defn- walk* [dir]
+  (reduce
+    (fn [acc name]
+      (let [abs (path/join dir name)
+            stat (os/stat abs)]
+        (cond
+          (nil? stat) acc
+          (:dir? stat) (vec (concat acc (walk* abs)))
+          :else (conj acc abs))))
+    []
+    (os/ls dir)))
+
+(defn walk-template
+  "Recursively walk root and return a sorted vector of absolute file paths."
+  [root]
+  (vec (sort (walk* root))))
+
+(defn- relative-to [root abs]
+  (let [prefix (str root os/file-separator)]
+    (if (str/starts-with? abs prefix)
+      (subs abs (count prefix))
+      abs)))
+
+(defn render!
+  "For each file under src, compute the destination path under target by
+   replacing `projectname` segments with the underscored form, mkdir its
+   parent, slurp the source, replace `projectname` in the contents with the
+   hyphenated form, and spit to the destination."
+  [src target pair]
+  (mkdir target)
+  (doseq [abs (walk-template src)]
+    (let [rel (relative-to src abs)
+          rel-sep (str/replace rel os/file-separator "/")
+          dst-rel (substitute-path-segments rel-sep pair)
+          dst-abs (path/join target dst-rel)
+          parent (path/parent dst-abs)]
+      (when parent (mkdir parent))
+      (spit dst-abs (substitute-contents (slurp abs) pair)))))
+
+;; ---------------------------------------------------------------------------
+;; Command entry
+;; ---------------------------------------------------------------------------
+
+(defn- die! [line]
+  (write! *err* (str "lgx: " line "\n"))
+  (os/exit 1))
+
+(defn- die-name-invalid! [name]
+  (write! *err* (str "lgx: invalid project name: " name "\n"))
+  (write! *err* (str "name must start with a letter and contain only "
+                     "lowercase letters, digits, and hyphens\n"))
+  (os/exit 1))
+
+(defn- handle-target-error! [e]
+  (let [{:keys [reason path]} (ex-data e)]
+    (case reason
+      :not-a-dir
+      (die! (str "target exists and is not a directory: " path))
+
+      :non-empty
+      (die! (str "target directory already exists and is not empty: " path))
+
+      (die! (str "target invalid: " path)))))
+
+(defn cmd-new!
+  "Scaffold a new let-go project at <project-name> under cwd. args is the
+   forwarded positional vector."
+  [args _verbose?]
+  (cond
+    (empty? args) (die! "new requires a project name")
+    (> (count args) 1) (die! "new takes exactly one argument"))
+  (let [name (first args)]
+    (try (validate-name! name)
+         (catch _ (die-name-invalid! name)))
+    (let [target (path/join (os/cwd) name)]
+      (try (validate-target! target)
+           (catch e (handle-target-error! e)))
+      (let [coord (resolve-template-coord)
+            cache-path (try (ensure-template! coord)
+                            (catch e
+                                   (die! (str "failed to fetch template: "
+                                              (or (:stderr (ex-data e))
+                                                  (str e))))))]
+        (try (render! cache-path target (name-pair name))
+             (catch e
+                    (die! (str "failed to render template: " (str e)))))
+        (println (str "Created " name " at " target))
+        (println)
+        (println "Next steps:")
+        (println (str "  cd " name))
+        (println "  lgx run")))))
