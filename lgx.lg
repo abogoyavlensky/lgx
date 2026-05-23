@@ -258,15 +258,12 @@
       :else
       (rest argv))))
 
-(defn- try-find-project []
-  (try (config/find-project!) (catch _ nil)))
-
 (defn- print-usage! []
-  (let [project (try-find-project)]
+  (let [project (config/find-project)]
     (print (if project (usage-for project) base-usage))))
 
 (defn- lookup-task [cmd]
-  (when-let [project (try-find-project)]
+  (when-let [project (config/find-project)]
     (let [t (config/tasks project)
           k (keyword cmd)]
       (when (contains? t k)

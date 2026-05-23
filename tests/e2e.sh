@@ -1176,5 +1176,56 @@ rm -rf "$work_s55" "$home_s55"
 
 rm -rf "$FIXTURE_REPO_DIR"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 56: config-free commands work outside a project"
+no_proj="$(mktemp -d)"
+# Sanity check: the tmpdir really has no lgx.edn here or anywhere above it
+# we could walk into. /tmp on macOS resolves under /private; either way the
+# tmpdir itself starts empty.
+[[ -e "$no_proj/lgx.edn" ]] && fail "no-project: tmpdir unexpectedly has lgx.edn"
+
+set +e
+out="$(cd "$no_proj" && "$LGX" help 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "no-project: 'lgx help' should exit 0 (got $rc)"
+assert_contains "$out" "Usage:" "no-project: help prints usage"
+assert_contains "$out" "lgx install" "no-project: help lists install"
+assert_not_contains "$out" "no lgx.edn" "no-project: help does not print missing-config error"
+
+set +e
+out="$(cd "$no_proj" && "$LGX" --help 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "no-project: 'lgx --help' should exit 0 (got $rc)"
+assert_contains "$out" "Usage:" "no-project: --help prints usage"
+
+set +e
+out="$(cd "$no_proj" && "$LGX" -h 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "no-project: 'lgx -h' should exit 0 (got $rc)"
+assert_contains "$out" "Usage:" "no-project: -h prints usage"
+
+set +e
+out="$(cd "$no_proj" && "$LGX" 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "no-project: 'lgx' (no args) should exit 1 (got $rc)"
+assert_contains "$out" "Usage:" "no-project: bare lgx prints usage"
+assert_not_contains "$out" "no lgx.edn" "no-project: bare lgx does not print missing-config error"
+
+set +e
+out="$(cd "$no_proj" && "$LGX" nope 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "no-project: 'lgx nope' should exit 1 (got $rc)"
+assert_contains "$out" "lgx: 'nope' is not a lgx command. See 'lgx --help'." \
+    "no-project: unknown command message is shown"
+assert_not_contains "$out" "no lgx.edn" "no-project: unknown command does not print missing-config error"
+
+set +e
+out="$(cd "$no_proj" && "$LGX" version 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "no-project: 'lgx version' should exit 0 (got $rc)"
+assert_contains "$out" "lgx " "no-project: version prints version line"
+
+rm -rf "$no_proj"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

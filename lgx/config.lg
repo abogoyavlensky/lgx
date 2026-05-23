@@ -5,20 +5,21 @@
 
 (def config-name "lgx.edn")
 
-(defn find-project!
-  "Walk up from CWD looking for lgx.edn. Returns the project root or exits."
+(defn find-project
+  "Walk up from CWD looking for lgx.edn. Returns the project root or nil."
   []
   (loop [dir (os/cwd)]
     (cond
-      (nil? dir)
+      (nil? dir) nil
+      (file-exists? (path/join dir config-name)) dir
+      :else (recur (path/parent dir)))))
+
+(defn find-project!
+  "Like find-project, but exits with an error if no lgx.edn is found."
+  []
+  (or (find-project)
       (do (println "error: no" config-name "found in this or any parent directory")
-          (os/exit 1))
-
-      (file-exists? (path/join dir config-name))
-      dir
-
-      :else
-      (recur (path/parent dir)))))
+          (os/exit 1))))
 
 (defn- bad! [msg ctx]
   (throw (ex-info (str "lgx.edn: " msg) (or ctx {}))))
