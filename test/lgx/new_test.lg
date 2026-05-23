@@ -175,3 +175,38 @@
     (is (= :not-a-dir (caught-reason #(new/validate-target! f))))
     (is (= f (caught-path #(new/validate-target! f))))
     (rm-rf! scratch)))
+
+;; ---------------------------------------------------------------------------
+;; resolve-template-coord
+;; ---------------------------------------------------------------------------
+
+(deftest resolve-template-coord-defaults-when-unset
+  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
+  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
+  (is (= new/default-template (new/resolve-template-coord))))
+
+(deftest resolve-template-coord-overrides-url
+  (os/setenv "LGX_TEMPLATE_BASE_URL" "https://example.com/a/b")
+  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
+  (is (= {:git/url "https://example.com/a/b"
+          :git/sha (:git/sha new/default-template)}
+         (new/resolve-template-coord))))
+
+(deftest resolve-template-coord-overrides-sha
+  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
+  (os/setenv "LGX_TEMPLATE_BASE_SHA" "abc123")
+  (is (= {:git/url (:git/url new/default-template)
+          :git/sha "abc123"}
+         (new/resolve-template-coord))))
+
+(deftest resolve-template-coord-overrides-both
+  (os/setenv "LGX_TEMPLATE_BASE_URL" "file:///tmp/x")
+  (os/setenv "LGX_TEMPLATE_BASE_SHA" "deadbeef")
+  (is (= {:git/url "file:///tmp/x"
+          :git/sha "deadbeef"}
+         (new/resolve-template-coord))))
+
+(deftest resolve-template-coord-blank-treated-as-unset
+  (os/setenv "LGX_TEMPLATE_BASE_URL" "   ")
+  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
+  (is (= new/default-template (new/resolve-template-coord))))

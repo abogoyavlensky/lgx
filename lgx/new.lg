@@ -3,6 +3,22 @@
 
 (def ^:private placeholder "projectname")
 
+(def default-template
+  "Default template coord used when no env override is set."
+  {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
+   :git/sha "eade5971bff8fe828202c7c4f9af031ef976140c"})
+
+(defn- env-or [var default]
+  (let [v (os/getenv var)]
+    (if (str/blank? v) default v)))
+
+(defn resolve-template-coord
+  "Read LGX_TEMPLATE_BASE_URL / LGX_TEMPLATE_BASE_SHA. Blank or unset envs
+   fall back to default-template."
+  []
+  {:git/url (env-or "LGX_TEMPLATE_BASE_URL" (:git/url default-template))
+   :git/sha (env-or "LGX_TEMPLATE_BASE_SHA" (:git/sha default-template))})
+
 (def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
 
 (defn valid-name?
