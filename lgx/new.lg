@@ -15,7 +15,7 @@
 (def default-template
   "Default template coord used when no env override is set."
   {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
-   :git/sha "eade5971bff8fe828202c7c4f9af031ef976140c"})
+   :git/sha "1d71ab376f1467ab05d98a8b22570336a1a28c5b"})
 
 ;; ---------------------------------------------------------------------------
 ;; Validation
