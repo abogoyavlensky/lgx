@@ -162,3 +162,56 @@
           parent (path/parent dst-abs)]
       (when parent (mkdir parent))
       (spit dst-abs (substitute-contents (slurp abs) pair)))))
+
+;; ---------------------------------------------------------------------------
+;; Command entry
+;; ---------------------------------------------------------------------------
+
+(defn- die! [line]
+  (write! *err* (str "lgx: " line "\n"))
+  (os/exit 1))
+
+(defn- die-name-invalid! [name]
+  (write! *err* (str "lgx: invalid project name: " name "\n"))
+  (write! *err* (str "name must start with a letter and contain only "
+                     "lowercase letters, digits, and hyphens\n"))
+  (os/exit 1))
+
+(defn- handle-target-error! [e]
+  (let [{:keys [reason path]} (ex-data e)]
+    (case reason
+      :not-a-dir
+      (die! (str "target exists and is not a directory: " path))
+
+      :non-empty
+      (die! (str "target directory already exists and is not empty: " path))
+
+      (die! (str "target invalid: " path)))))
+
+(defn cmd-new!
+  "Scaffold a new let-go project at <project-name> under cwd. args is the
+   forwarded positional vector."
+  [args _verbose?]
+  (cond
+    (empty? args) (die! "new requires a project name")
+    (> (count args) 1) (die! "new takes exactly one argument"))
+  (let [name (first args)]
+    (try (validate-name! name)
+         (catch _ (die-name-invalid! name)))
+    (let [target (path/join (os/cwd) name)]
+      (try (validate-target! target)
+           (catch e (handle-target-error! e)))
+      (let [coord (resolve-template-coord)
+            cache-path (try (ensure-template! coord)
+                            (catch e
+                              (die! (str "failed to fetch template: "
+                                         (or (:stderr (ex-data e))
+                                             (str e))))))]
+        (try (render! cache-path target (name-pair name))
+             (catch e
+               (die! (str "failed to render template: " (str e)))))
+        (println (str "Created " name " at " target))
+        (println)
+        (println "Next steps:")
+        (println (str "  cd " name))
+        (println "  lgx run")))))
