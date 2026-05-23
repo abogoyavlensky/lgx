@@ -150,6 +150,7 @@ Current limitations: HTTPS URLs only (no SSH), no transitive deps.
 ```
 $LGX_HOME/
   gitlibs/<host>/<owner>/<repo>/<ref>/
+  templates/<host>/<owner>/<repo>/<sha>/
   tmp/lgx-test-<version>.lg
 ```
 
@@ -157,7 +158,9 @@ Default `LGX_HOME` is `~/.lgx`.
 `<ref>` is the sha for `:git/sha` coords, or the tag with `/` replaced
 by `_` for `:git/tag` coords. `lgx test` writes its generated harness to
 `$LGX_HOME/tmp/` and overwrites the file for the current lgx version on
-each run.
+each run. `lgx new` caches the scaffolded template under
+`$LGX_HOME/templates/` keyed by repo + sha; subsequent runs reuse the
+cache and skip the clone.
 
 ## Commands
 
@@ -174,6 +177,15 @@ each run.
   example, `-bundle-base /path/to/lg` for cross-OS builds). Both
   `:main` and `:targets/:bin` are required; either being absent prints
   a clear error.
+- `lgx new <project-name>` - scaffold a new let-go app from the default
+  template. Fetches the template from
+  `https://github.com/abogoyavlensky/lgx-template-base` on first use,
+  caches under `$LGX_HOME/templates/`, then renders into `./<project-name>`
+  substituting `projectname` for `<project-name>` (hyphen form in file
+  contents, underscore form in path segments). The name must match
+  `^[a-z][a-z0-9-]*$` and the target must not exist as a non-empty
+  directory. Override the template source for testing or alternate
+  defaults with `LGX_TEMPLATE_BASE_URL` and `LGX_TEMPLATE_BASE_SHA`.
 - `lgx test [file]` - walk `test/` for `*_test.lg` / `*_test.cljc` files,
   generate a one-shot test harness, and run every `deftest` against
   the project's resolved `-source-paths`. Groups output by test file,
@@ -245,7 +257,7 @@ Things that are currently missing or incomplete, in no particular order:
 - [x] `:tasks` - named command shortcuts. (WIP)
 - [x] `lgx build` - build project binary.
 - [x] `lgx test` - test runner.
-- [ ] `lgx new` - project scaffolding.
+- [x] `lgx new` - project scaffolding.
 - [ ] `lgx repl` - run repl.
 - [ ] `lgx init` - create a default `lgx.edn` in the current directory.
 - [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched libs and resolve the union, with first-wins on conflicts.

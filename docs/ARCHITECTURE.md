@@ -32,6 +32,7 @@ lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
+lgx/new.lg          scaffold a new project from the default template
 ```
 
 `lgx.main` holds the entry point; the other namespaces are stateless helper
@@ -211,15 +212,62 @@ and becomes the task's exit code; lgx exits 0 only when every step
 returns 0.
 
 Task names that collide with built-in commands
-(`run`, `install`, `build`, `test`, `add`, `update`, `tasks`, `help`,
-`version`) are rejected at validation time — overriding built-ins is
-reserved for later via an `:lgx/<name>` form.
+(`run`, `install`, `new`, `build`, `test`, `add`, `update`, `tasks`,
+`help`, `version`) are rejected at validation time — overriding
+built-ins is reserved for later via an `:lgx/<name>` form.
+
+### `lgx new <project-name>`
+
+Scaffolds a new project directory from a hardcoded default template.
+The command never touches an existing project's `lgx.edn`.
+
+1. Validate `<project-name>` against `^[a-z][a-z0-9-]*$`. Bad input →
+   `lgx: invalid project name: <input>` plus the rule description on
+   the next line, exit 1.
+2. Resolve the target dir as `<cwd>/<project-name>`. If it exists as
+   a regular file or as a non-empty directory, exit 1 with
+   `lgx: target exists and is not a directory: <path>` or
+   `lgx: target directory already exists and is not empty: <path>`.
+   An empty pre-existing directory is allowed; the render lays files
+   into it.
+3. Resolve the template coord. Default is
+   `{:git/url "https://github.com/abogoyavlensky/lgx-template-base"
+   :git/sha "<pinned>"}`. Both fields may be overridden by the env
+   vars `LGX_TEMPLATE_BASE_URL` and `LGX_TEMPLATE_BASE_SHA`; blank or
+   unset envs fall back to the default. Sha-pin only — tag-pinned
+   templates are deferred to the future `-t/--template <git-url>`
+   flag.
+4. Ensure the template is cached under
+   `$LGX_HOME/templates/<host>/<owner>/<repo>/<sha>/`. If the leaf
+   exists, reuse it. Otherwise clone via `cache/clone-sha!` (same
+   atomic clone-into-tmp → checkout → drop-`.git/` → mv pattern used
+   for `:deps`). Clone failures replay `git`'s stderr after a
+   `lgx: failed to fetch template:` prefix, exit 1.
+5. Walk the cached template recursively. For each source file, compute
+   a destination relative to the target by replacing every
+   `projectname` path segment with the underscored form of the project
+   name (`my-app` → `my_app`). Then `mkdir` the destination's parent,
+   `slurp` the source, replace every `projectname` in the contents
+   with the hyphenated form of the project name (verbatim user input,
+   `-` preserved), and `spit` to the destination.
+6. Print `Created <name> at <abs>` followed by a two-line next-steps
+   block (`cd <name>` / `lgx run`).
+
+The unified `projectname` token splits along the natural axis: path
+segments need `_` per let-go's resolver, while file contents (ns
+forms, README display name, binary name in `lgx.edn`) want `-`. The
+template repo holds one form of the token; the substitution rule
+encodes the per-site form.
+
+No git init or initial commit in the new project — the user owns the
+choice of VCS.
 
 ## State layout
 
 ```
 $LGX_HOME/
   gitlibs/<host>/<owner>/<repo>/<ref>/
+  templates/<host>/<owner>/<repo>/<sha>/
   tmp/lgx-test-<version>.lg
 ```
 
@@ -227,7 +275,9 @@ $LGX_HOME/
 of the git URL and ref. For `:git/sha` coords, `<ref>` is the sha. For
 `:git/tag` coords, `<ref>` is the tag with `/` replaced by `_`. Each
 leaf is a read-only worktree. The `tmp` directory holds generated lgx
-runtime files such as the test harness.
+runtime files such as the test harness. The `templates/` tree parallels
+gitlibs but uses sha-only keying — populated by `lgx new` on first use
+and reused on subsequent runs.
 
 By default, `cache/ensure-lib!` returns `<ref>/src/` if that
 subdirectory exists, otherwise `<ref>/`. This matches the `tools.deps`
@@ -258,6 +308,10 @@ transitive.
 - **`git`** on `PATH` — clone and checkout. lgx never bundles git.
 - **`lg`** — either on `PATH` or pointed to by `LGX_LG`. `lgx run` fails
   loudly if `lg` is missing; `lgx install` does not need it.
+- **Default template repo** — `lgx new` pulls from
+  `https://github.com/abogoyavlensky/lgx-template-base` at a sha pinned
+  in lgx source. Override with `LGX_TEMPLATE_BASE_URL` and
+  `LGX_TEMPLATE_BASE_SHA`; both blank or unset → defaults.
 - Two let-go-side changes lgx depends on, both tracked in
   [`issues/`](issues/):
   - `-source-paths` flag and `LG_SOURCE_PATHS` env var (PR open).
