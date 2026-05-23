@@ -1,6 +1,6 @@
 # `lgx new <project-name>` Command Implementation Plan
 
-> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a `lgx new <project-name>` subcommand that scaffolds a new let-go application from a hardcoded default template fetched from GitHub and cached locally, substituting `projectname` for the user's chosen project name in both file paths and file contents.
 
@@ -279,15 +279,15 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 **Files:**
 - Modify: `lgx/cache.lg`
 
-- [ ] **Step 1: Promote `clone-sha!` and `finalize-worktree!` to public**
+- [x] **Step 1: Promote `clone-sha!` and `finalize-worktree!` to public**
   Change `defn-` to `defn` for `clone-sha!` and `finalize-worktree!` in `lgx/cache.lg`. Leave
   `clone-tag!` and `git!` private — neither is needed yet.
 
-- [ ] **Step 2: Run existing tests to verify nothing broke**
+- [x] **Step 2: Run existing tests to verify nothing broke**
   Run: `make test`
   Expected: PASS — public-vs-private change has no semantic effect on `cache.lg` callers.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "refactor: expose cache/clone-sha! and finalize-worktree!"`
 
 ### Task 2: `valid-name?` and `validate-name!` helpers
@@ -296,7 +296,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Create: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `test/lgx/new_test.lg`, add tests asserting:
   - `(new/valid-name? "foo")` → true
   - `(new/valid-name? "foo-bar")` → true
@@ -314,22 +314,22 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   - `(new/validate-name! "Foo")` throws ex-info with
     `(:reason (ex-data e))` = `:invalid-name` and `(:name (ex-data e))` = `"Foo"`
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL — `lgx/new.lg` does not exist yet.
 
-- [ ] **Step 3: Implement the helpers**
+- [x] **Step 3: Implement the helpers**
   Create `lgx/new.lg`. ns: `lgx.new`. Add:
   - `valid-name?` — uses `re-matches` against `#"^[a-z][a-z0-9-]*$"`. Guards against non-string
     input by checking `string?` first.
   - `validate-name!` — returns the input on success; throws ex-info on failure with
     `{:reason :invalid-name :name <input>}`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: name validation for lgx new"`
 
 ### Task 3: `name-pair` and substitution helpers
@@ -338,7 +338,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Modify: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Add to `test/lgx/new_test.lg`:
   - `(new/name-pair "foo-bar")` → `{:hyphen "foo-bar" :underscore "foo_bar"}`
   - `(new/name-pair "myapp")` → `{:hyphen "myapp" :underscore "myapp"}`
@@ -358,11 +358,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   - `(new/substitute-path-segments "src/nothing/here.lg" {:hyphen "a" :underscore "b"})`
     → `"src/nothing/here.lg"`
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL — helpers not defined.
 
-- [ ] **Step 3: Implement the helpers**
+- [x] **Step 3: Implement the helpers**
   In `lgx/new.lg`:
   - `name-pair` — returns `{:hyphen name :underscore (str/replace name "-" "_")}`.
   - `substitute-contents` — `(str/replace s "projectname" (:hyphen pair))`.
@@ -372,11 +372,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
     is only needed when assembling absolute filesystem paths. Stored template-relative paths
     use `/` per the convention in `lgx/path.lg`'s docstring.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: placeholder substitution helpers for lgx new"`
 
 ### Task 4: `validate-target!` helper
@@ -385,7 +385,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Modify: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Add tests using tmpfs scratch dirs (mirror the pattern in `test/lgx/test_runner_test.lg`):
   - Non-existent path → returns the path.
   - Empty dir → returns the path.
@@ -395,22 +395,22 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   Use `(str "/tmp/lgx-new-validate-" (rand-int 1000000))` for scratch dirs; clean up after each
   test via try/finally (matching test_runner_test patterns).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `lgx/new.lg`, add `validate-target!`:
   - `os/stat` the path. If nil → return path (will be created).
   - If `:dir?` is false → throw `{:reason :not-a-dir :path p}`.
   - If `:dir?` is true → check `(empty? (os/ls p))`. Non-empty → throw `{:reason :non-empty :path p}`.
     Empty → return path.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: target-dir validation for lgx new"`
 
 ### Task 5: Template coord resolution
@@ -419,7 +419,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Modify: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Add tests asserting `resolve-template-coord`:
   - With no env vars set → returns `default-template`.
   - With `LGX_TEMPLATE_BASE_URL=https://example.com/a/b` → returns coord with that URL and
@@ -431,22 +431,22 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   Use `os/setenv` to set the vars in tests; reset to a known sentinel value or empty string
   between tests. Watch ordering: tests must not leak state.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `lgx/new.lg`:
   - `def default-template` with the URL `https://github.com/abogoyavlensky/lgx-template-base`
     and sha `eade5971bff8fe828202c7c4f9af031ef976140c`.
   - `resolve-template-coord` reads `LGX_TEMPLATE_BASE_URL` / `LGX_TEMPLATE_BASE_SHA`, treats
     blank as unset, applies overrides on top of the default coord.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: template coord resolution with env overrides"`
 
 ### Task 6: `ensure-template!` — cache + clone
@@ -455,7 +455,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Modify: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg` (unit test against a local fixture repo)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   Add a test that:
   - Creates a tiny throwaway git repo in `/tmp/lgx-template-fixture-<rand>` with one file and one
     commit. Captures its sha with `os/sh` calling `git rev-parse HEAD`.
@@ -468,11 +468,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   - Calls `ensure-template!` again, captures mtime, asserts the second call is a no-op (mtime
     unchanged — proves cache short-circuit).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `make test`
   Expected: FAIL — `ensure-template!` not defined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `lgx/new.lg`:
   - `templates-root` — `(path/join (home/root) "templates")`.
   - `template-dir` — `(let [[host owner repo] (cache/parse-git-url url)] (path/join (templates-root) host owner repo sha))`.
@@ -481,11 +481,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 
   Require `[lgx.cache :as cache]`, `[lgx.home :as home]`, `[lgx.path :as path]` in the ns form.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: ensure-template! cache + clone for lgx new"`
 
 ### Task 7: `walk-template` and `render!`
@@ -494,7 +494,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Modify: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Add tests for `render!` against a hand-built source tree on tmpfs:
   - Setup: build `/tmp/lgx-new-src-<rand>/` with:
     - `lgx.edn` containing `bin/projectname`
@@ -509,11 +509,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   Also add a test that `walk-template` against the same fixture returns the three absolute source
   paths in sorted order.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `lgx/new.lg`:
   - `walk-template` — recursive file walker. Returns a sorted vector of absolute source paths.
     Pattern matches `walk*` in `lgx/test_runner.lg:13-24` but with no extension filter.
@@ -525,11 +525,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   only when producing an absolute path. This mirrors how `lgx/config.lg` validates `:paths`
   entries with `/`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: walk-template and render! for lgx new"`
 
 ### Task 8: `cmd-new!` and dispatcher wiring
@@ -539,7 +539,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Modify: `lgx.lg`
 - Modify: `lgx/config.lg`
 
-- [ ] **Step 1: Implement `cmd-new!` in `lgx/new.lg`**
+- [x] **Step 1: Implement `cmd-new!` in `lgx/new.lg`**
   Public function. Steps:
   1. Validate arg count (0 → error, > 1 → error).
   2. `validate-name!` the single arg. On throw, write the two-line error message to stderr and `os/exit 1`.
@@ -559,11 +559,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
        lgx run
      ```
 
-- [ ] **Step 2: Add `"new"` to `reserved-task-names` in `lgx/config.lg`**
+- [x] **Step 2: Add `"new"` to `reserved-task-names` in `lgx/config.lg`**
   In the `reserved-task-names` set, add the string `"new"` between `"add"` and `"update"` (keep
   alphabetical-ish order matching existing style).
 
-- [ ] **Step 3: Wire dispatch in `lgx.lg`**
+- [x] **Step 3: Wire dispatch in `lgx.lg`**
   - Add `[lgx.new :as new]` to the `:require`.
   - Add a `"new" (cmd-new! (vec rest-args) verbose?)` arm to `dispatch`, immediately after `"build"`.
     Mirror the pattern of `cmd-test`. (`verbose?` is accepted but currently unused; reserved
@@ -574,7 +574,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
     ```
     Place it after the `lgx test` line. Indent to match.
 
-- [ ] **Step 4: Build and smoke-test manually**
+- [x] **Step 4: Build and smoke-test manually**
   Run: `make build`
   Then in a scratch dir:
   ```
@@ -592,11 +592,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   ```
   Both exit 1 with the documented stderr lines.
 
-- [ ] **Step 5: Run the unit suite**
+- [x] **Step 5: Run the unit suite**
   Run: `make test`
   Expected: PASS, including all `new_test.lg` cases.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "feat: lgx new command"`
 
 ### Task 9: E2E scenarios
@@ -604,7 +604,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add fixture bootstrap helper at the top of e2e.sh**
+- [x] **Step 1: Add fixture bootstrap helper at the top of e2e.sh**
   After existing setup, add a helper that builds a tiny git fixture repo once per e2e run:
   ```bash
   setup_template_fixture() {
@@ -637,7 +637,7 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
   setup_template_fixture
   ```
 
-- [ ] **Step 2: Add the six scenarios after the current final scenario**
+- [x] **Step 2: Add the six scenarios after the current final scenario**
   - **Scenario X: lgx new happy path with hyphenated name.**
     `LGX_HOME=$(mktemp -d)`. `LGX_TEMPLATE_BASE_URL=$FIXTURE_REPO_URL`,
     `LGX_TEMPLATE_BASE_SHA=$FIXTURE_REPO_SHA`. Run `lgx new my-app` in another tmp dir.
@@ -666,11 +666,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 
   Follow the existing `mktemp`, `assert_contains`, `assert_eq`, cleanup conventions.
 
-- [ ] **Step 3: Run e2e**
+- [x] **Step 3: Run e2e**
   Run: `make build && bash tests/e2e.sh`
   Expected: all scenarios pass, including all six new ones.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "test: e2e scenarios for lgx new"`
 
 ### Task 10: Docs
@@ -679,14 +679,14 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README**
+- [x] **Step 1: README**
   - In the Commands section, add a `lgx new <project-name>` entry. Body: one sentence on what
     it does (scaffolds from the default template, fetched once and cached locally). One sentence
     on name rules (`^[a-z][a-z0-9-]*$`, hyphens become underscores in path segments).
   - Add `LGX_TEMPLATE_BASE_URL` and `LGX_TEMPLATE_BASE_SHA` to the env-vars list near the
     existing `LGX_LG` / `LGX_HOME` entries, with one line each.
 
-- [ ] **Step 2: ARCHITECTURE**
+- [x] **Step 2: ARCHITECTURE**
   - Add a `### lgx new` subsection after `### lgx <task>`. Cover: argv shape (one positional),
     validation order (name → target → coord → ensure-template → render), the per-file
     substitution rule (paths use `_` form; contents use `-` form), error-message table.
@@ -696,11 +696,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
     `LGX_TEMPLATE_BASE_URL` / `LGX_TEMPLATE_BASE_SHA` can override it.
   - In `reserved-task-names` paragraph, add `"new"` to the listed names.
 
-- [ ] **Step 3: Final green run**
+- [x] **Step 3: Final green run**
   Run: `make test && make build && bash tests/e2e.sh`
   Expected: full green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "docs: lgx new command"`
 
 ### Task 11: Version bump
@@ -708,11 +708,11 @@ Verify with `gh api repos/abogoyavlensky/lgx-template-base/git/trees/<sha>?recur
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Bump version**
+- [x] **Step 1: Bump version**
   Increment the `version` def in `lgx.lg` to the next alpha (likely `0.1.0-alpha6` based on the
   current `0.1.0-alpha5`). Match the style of prior `Bump version` commits in the history.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "Bump version"`
 
 ## Verification
@@ -744,3 +744,44 @@ After all tasks land:
   "Update tasks item in the roadmap") should note that `-t / --template <git-url>` remains the
   next step.
 - No consumer-side migration. The first release containing `lgx new` is purely additive.
+
+## Implementation Summary (status: completed)
+
+All 11 tasks landed across 11 commits on `new-cmd`:
+
+- `e52d424 refactor: expose cache/clone-sha! and finalize-worktree!`
+- `945c0ce feat: name validation for lgx new`
+- `b463a20 feat: placeholder substitution helpers for lgx new`
+- `0bc428a feat: target-dir validation for lgx new`
+- `67028bd feat: template coord resolution with env overrides`
+- `d866f0e feat: ensure-template! cache + clone for lgx new`
+- `5032bdb feat: walk-template and render! for lgx new`
+- `b1678ff feat: lgx new command`
+- `13c73c5 test: e2e scenarios for lgx new`
+- `24d6b73 docs: lgx new command`
+- `4c5538e Bump version`
+
+Final test totals: 38 unit tests / 54 assertions in `new_test.lg`; 124 e2e
+assertions (up from 113). `make test` green end-to-end. Manual smoke test
+(`lgx new my-app` against the live `lgx-template-base@eade5971` sha)
+produces a runnable project with correct hyphen/underscore substitution.
+
+### Notes / deviations
+
+- **File ordering in `lgx/new.lg`** — let-go compiles top-level forms
+  sequentially, so `render!` referencing `substitute-path-segments`
+  defined later failed to compile. Reorganized the file mid-Task-7 into
+  dependency order: constants → validation → substitution → template
+  cache → render → command entry. No semantic change.
+- **`os/getenv` blank-vs-unset** — followed the `LGX_LG` precedent in
+  `lgx/runner.lg`: `(str/blank? v)` falls back to default. Trailing
+  whitespace and the empty string both fall back to the hardcoded
+  template coord.
+- **E2E cache-reuse assertion (Scenario 54)** — used a sentinel file
+  written into the cache leaf after the first call. A re-clone would
+  wipe the leaf via `cache/clone-sha!`'s mv-into-place, so the sentinel
+  surviving the second call is a stronger and more portable proof of
+  cache short-circuit than mtime checks.
+- **Codex review** — passed cleanly ("I did not find any blocking
+  correctness issues in the diff") after the core wiring (Tasks 1–8) was
+  done. No follow-up commits required.
