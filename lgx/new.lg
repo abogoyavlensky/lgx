@@ -4,12 +4,92 @@
             [lgx.path :as path]
             [string :as str]))
 
+;; ---------------------------------------------------------------------------
+;; Constants
+;; ---------------------------------------------------------------------------
+
 (def ^:private placeholder "projectname")
+
+(def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
 
 (def default-template
   "Default template coord used when no env override is set."
   {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
    :git/sha "eade5971bff8fe828202c7c4f9af031ef976140c"})
+
+;; ---------------------------------------------------------------------------
+;; Validation
+;; ---------------------------------------------------------------------------
+
+(defn valid-name?
+  "Return true if name is a non-blank string matching ^[a-z][a-z0-9-]*$."
+  [name]
+  (and (string? name)
+       (not (nil? (re-matches name-pattern name)))))
+
+(defn validate-name!
+  "Return name on success. Throw ex-info with :reason :invalid-name and
+   :name <input> otherwise."
+  [name]
+  (when-not (valid-name? name)
+    (throw (ex-info (str "invalid project name: " name)
+                    {:reason :invalid-name
+                     :name name})))
+  name)
+
+(defn validate-target!
+  "Return target on success. Throws ex-info if target exists and is either
+   a regular file (:reason :not-a-dir) or a non-empty directory
+   (:reason :non-empty). Both branches set :path to the input."
+  [target]
+  (let [stat (os/stat target)]
+    (cond
+      (nil? stat)
+      target
+
+      (not (:dir? stat))
+      (throw (ex-info (str "target exists and is not a directory: " target)
+                      {:reason :not-a-dir
+                       :path target}))
+
+      (seq (os/ls target))
+      (throw (ex-info (str "target directory already exists and is not empty: " target)
+                      {:reason :non-empty
+                       :path target}))
+
+      :else
+      target)))
+
+;; ---------------------------------------------------------------------------
+;; Substitution
+;; ---------------------------------------------------------------------------
+
+(defn name-pair
+  "Return {:hyphen <name as-is> :underscore <name with - -> _>} for use as
+   the substitution table for paths and contents."
+  [name]
+  {:hyphen name
+   :underscore (str/replace name "-" "_")})
+
+(defn substitute-contents
+  "Replace every literal `projectname` in s with the hyphenated form from
+   the name-pair."
+  [s pair]
+  (str/replace s placeholder (:hyphen pair)))
+
+(defn substitute-path-segments
+  "Split rel-path on `/`, replace every literal `projectname` segment with
+   the underscored form from the name-pair, rejoin with `/`. Relative paths
+   stored internally always use `/` separators; absolute paths are produced
+   only via path/join."
+  [rel-path pair]
+  (let [segments (str/split rel-path "/")
+        replaced (map #(str/replace % placeholder (:underscore pair)) segments)]
+    (str/join "/" replaced)))
+
+;; ---------------------------------------------------------------------------
+;; Template cache
+;; ---------------------------------------------------------------------------
 
 (defn- env-or [var default]
   (let [v (os/getenv var)]
@@ -40,66 +120,45 @@
       (cache/clone-sha! url sha dir))
     dir))
 
-(def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
+;; ---------------------------------------------------------------------------
+;; Render
+;; ---------------------------------------------------------------------------
 
-(defn valid-name?
-  "Return true if name is a non-blank string matching ^[a-z][a-z0-9-]*$."
-  [name]
-  (and (string? name)
-       (not (nil? (re-matches name-pattern name)))))
+(defn- walk* [dir]
+  (reduce
+    (fn [acc name]
+      (let [abs (path/join dir name)
+            stat (os/stat abs)]
+        (cond
+          (nil? stat) acc
+          (:dir? stat) (vec (concat acc (walk* abs)))
+          :else (conj acc abs))))
+    []
+    (os/ls dir)))
 
-(defn validate-name!
-  "Return name on success. Throw ex-info with :reason :invalid-name and
-   :name <input> otherwise."
-  [name]
-  (when-not (valid-name? name)
-    (throw (ex-info (str "invalid project name: " name)
-                    {:reason :invalid-name
-                     :name name})))
-  name)
+(defn walk-template
+  "Recursively walk root and return a sorted vector of absolute file paths."
+  [root]
+  (vec (sort (walk* root))))
 
-(defn name-pair
-  "Return {:hyphen <name as-is> :underscore <name with - -> _>} for use as
-   the substitution table for paths and contents."
-  [name]
-  {:hyphen name
-   :underscore (str/replace name "-" "_")})
+(defn- relative-to [root abs]
+  (let [prefix (str root os/file-separator)]
+    (if (str/starts-with? abs prefix)
+      (subs abs (count prefix))
+      abs)))
 
-(defn substitute-contents
-  "Replace every literal `projectname` in s with the hyphenated form from
-   the name-pair."
-  [s pair]
-  (str/replace s placeholder (:hyphen pair)))
-
-(defn validate-target!
-  "Return target on success. Throws ex-info if target exists and is either
-   a regular file (:reason :not-a-dir) or a non-empty directory
-   (:reason :non-empty). Both branches set :path to the input."
-  [target]
-  (let [stat (os/stat target)]
-    (cond
-      (nil? stat)
-      target
-
-      (not (:dir? stat))
-      (throw (ex-info (str "target exists and is not a directory: " target)
-                      {:reason :not-a-dir
-                       :path target}))
-
-      (seq (os/ls target))
-      (throw (ex-info (str "target directory already exists and is not empty: " target)
-                      {:reason :non-empty
-                       :path target}))
-
-      :else
-      target)))
-
-(defn substitute-path-segments
-  "Split rel-path on `/`, replace every literal `projectname` segment with
-   the underscored form from the name-pair, rejoin with `/`. Relative paths
-   stored internally always use `/` separators; absolute paths are produced
-   only via path/join."
-  [rel-path pair]
-  (let [segments (str/split rel-path "/")
-        replaced (map #(str/replace % placeholder (:underscore pair)) segments)]
-    (str/join "/" replaced)))
+(defn render!
+  "For each file under src, compute the destination path under target by
+   replacing `projectname` segments with the underscored form, mkdir its
+   parent, slurp the source, replace `projectname` in the contents with the
+   hyphenated form, and spit to the destination."
+  [src target pair]
+  (mkdir target)
+  (doseq [abs (walk-template src)]
+    (let [rel (relative-to src abs)
+          rel-sep (str/replace rel os/file-separator "/")
+          dst-rel (substitute-path-segments rel-sep pair)
+          dst-abs (path/join target dst-rel)
+          parent (path/parent dst-abs)]
+      (when parent (mkdir parent))
+      (spit dst-abs (substitute-contents (slurp abs) pair)))))

@@ -253,3 +253,47 @@
       (is (= true (file-exists? (str path2 "/sentinel")))))
     (rm-rf! home)
     (rm-rf! (:dir repo))))
+
+;; ---------------------------------------------------------------------------
+;; walk-template + render!
+;; ---------------------------------------------------------------------------
+
+(defn- setup-template-tree! [tag]
+  (let [src (mktemp! (str "src-" tag))]
+    (spit (str src "/lgx.edn") "bin/projectname")
+    (spit (str src "/main.lg") "(ns projectname.main)")
+    (mkdir (str src "/src/projectname"))
+    (spit (str src "/src/projectname/greeter.lg") "(ns projectname.greeter)")
+    src))
+
+(deftest walk-template-returns-sorted-paths
+  (let [src (setup-template-tree! "walk")
+        paths (new/walk-template src)]
+    (is (= [(str src "/lgx.edn")
+            (str src "/main.lg")
+            (str src "/src/projectname/greeter.lg")]
+           paths))
+    (rm-rf! src)))
+
+(deftest render-creates-target-and-substitutes
+  (let [src (setup-template-tree! "render")
+        tgt (str "/tmp/lgx-new-tgt-" (rand-int 100000000))]
+    (new/render! src tgt (new/name-pair "foo-bar"))
+    (is (= true (file-exists? tgt)))
+    (is (= "bin/foo-bar" (slurp (str tgt "/lgx.edn"))))
+    (is (= "(ns foo-bar.main)" (slurp (str tgt "/main.lg"))))
+    (is (= true (file-exists? (str tgt "/src/foo_bar/greeter.lg"))))
+    (is (= "(ns foo-bar.greeter)" (slurp (str tgt "/src/foo_bar/greeter.lg"))))
+    (is (= false (file-exists? (str tgt "/src/projectname/greeter.lg"))))
+    (rm-rf! src)
+    (rm-rf! tgt)))
+
+(deftest render-no-hyphen-input
+  (let [src (setup-template-tree! "render-nohy")
+        tgt (str "/tmp/lgx-new-tgt-" (rand-int 100000000))]
+    (new/render! src tgt (new/name-pair "myapp"))
+    (is (= true (file-exists? (str tgt "/src/myapp/greeter.lg"))))
+    (is (= "(ns myapp.main)" (slurp (str tgt "/main.lg"))))
+    (is (= "bin/myapp" (slurp (str tgt "/lgx.edn"))))
+    (rm-rf! src)
+    (rm-rf! tgt)))
