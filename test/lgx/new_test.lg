@@ -1,0 +1,69 @@
+;; Unit tests for lgx.new.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.new-test
+  (:require [lgx.new :as new]
+            [test :refer [deftest is]]))
+
+(defn- caught-reason [f]
+  (try (f) nil
+       (catch e (:reason (ex-data e)))))
+
+(defn- caught-name [f]
+  (try (f) nil
+       (catch e (:name (ex-data e)))))
+
+;; ---------------------------------------------------------------------------
+;; valid-name?
+;; ---------------------------------------------------------------------------
+
+(deftest valid-name-accepts-single-letter
+  (is (= true (new/valid-name? "f"))))
+
+(deftest valid-name-accepts-simple
+  (is (= true (new/valid-name? "foo"))))
+
+(deftest valid-name-accepts-hyphenated
+  (is (= true (new/valid-name? "foo-bar"))))
+
+(deftest valid-name-accepts-digits-after-letter
+  (is (= true (new/valid-name? "f1")))
+  (is (= true (new/valid-name? "foo123"))))
+
+(deftest valid-name-rejects-uppercase
+  (is (= false (new/valid-name? "Foo"))))
+
+(deftest valid-name-rejects-leading-digit
+  (is (= false (new/valid-name? "1foo"))))
+
+(deftest valid-name-rejects-underscore
+  (is (= false (new/valid-name? "foo_bar"))))
+
+(deftest valid-name-rejects-slash
+  (is (= false (new/valid-name? "foo/bar"))))
+
+(deftest valid-name-rejects-dot
+  (is (= false (new/valid-name? "foo.bar"))))
+
+(deftest valid-name-rejects-empty
+  (is (= false (new/valid-name? ""))))
+
+(deftest valid-name-rejects-leading-hyphen
+  (is (= false (new/valid-name? "-foo"))))
+
+(deftest valid-name-rejects-nil
+  (is (= false (new/valid-name? nil))))
+
+;; ---------------------------------------------------------------------------
+;; validate-name!
+;; ---------------------------------------------------------------------------
+
+(deftest validate-name-returns-input-on-success
+  (is (= "foo-bar" (new/validate-name! "foo-bar"))))
+
+(deftest validate-name-throws-on-invalid
+  (is (= :invalid-name (caught-reason #(new/validate-name! "Foo"))))
+  (is (= "Foo" (caught-name #(new/validate-name! "Foo")))))
+
+(deftest validate-name-throws-on-nil
+  (is (= :invalid-name (caught-reason #(new/validate-name! nil)))))

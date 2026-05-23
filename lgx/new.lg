@@ -1,0 +1,19 @@
+(ns lgx.new)
+
+(def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
+
+(defn valid-name?
+  "Return true if name is a non-blank string matching ^[a-z][a-z0-9-]*$."
+  [name]
+  (and (string? name)
+       (not (nil? (re-matches name-pattern name)))))
+
+(defn validate-name!
+  "Return name on success. Throw ex-info with :reason :invalid-name and
+   :name <input> otherwise."
+  [name]
+  (when-not (valid-name? name)
+    (throw (ex-info (str "invalid project name: " name)
+                    {:reason :invalid-name
+                     :name name})))
+  name)
