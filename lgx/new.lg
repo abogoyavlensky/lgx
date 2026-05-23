@@ -1,5 +1,8 @@
 (ns lgx.new
-  (:require [string :as str]))
+  (:require [lgx.cache :as cache]
+            [lgx.home :as home]
+            [lgx.path :as path]
+            [string :as str]))
 
 (def ^:private placeholder "projectname")
 
@@ -18,6 +21,24 @@
   []
   {:git/url (env-or "LGX_TEMPLATE_BASE_URL" (:git/url default-template))
    :git/sha (env-or "LGX_TEMPLATE_BASE_SHA" (:git/sha default-template))})
+
+(defn- templates-root []
+  (path/join (home/root) "templates"))
+
+(defn- template-dir [url sha]
+  (let [[host owner repo] (cache/parse-git-url url)]
+    (path/join (templates-root) host owner repo sha)))
+
+(defn ensure-template!
+  "Return the absolute path of the cached template worktree. Clones via
+   cache/clone-sha! when the cache is missing; reuses otherwise."
+  [coord]
+  (let [url (:git/url coord)
+        sha (:git/sha coord)
+        dir (template-dir url sha)]
+    (when-not (file-exists? dir)
+      (cache/clone-sha! url sha dir))
+    dir))
 
 (def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
 

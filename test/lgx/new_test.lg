@@ -3,6 +3,7 @@
 
 (ns lgx.new-test
   (:require [lgx.new :as new]
+            [string :as str]
             [test :refer [deftest is]]))
 
 (defn- caught-reason [f]
@@ -210,3 +211,45 @@
   (os/setenv "LGX_TEMPLATE_BASE_URL" "   ")
   (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
   (is (= new/default-template (new/resolve-template-coord))))
+
+;; ---------------------------------------------------------------------------
+;; ensure-template!
+;; ---------------------------------------------------------------------------
+
+(defn- setup-fixture-repo! [tag]
+  (let [dir (mktemp! (str "fixture-" tag))
+        run (fn [& args] (apply os/sh args))]
+    (spit (str dir "/hello.txt") "hi\n")
+    (run "git" "-C" dir "init" "-q" "-b" "master")
+    (run "git" "-C" dir "-c" "user.email=t@t" "-c" "user.name=t"
+         "add" "-A")
+    (run "git" "-C" dir "-c" "user.email=t@t" "-c" "user.name=t"
+         "commit" "-q" "-m" "fixture")
+    (let [sha (str/trim (:out (run "git" "-C" dir "rev-parse" "HEAD")))]
+      {:dir dir
+       :url (str "file://" dir)
+       :sha sha})))
+
+(deftest ensure-template-clones-then-reuses
+  (let [home (mktemp! "ensure-home")
+        _ (os/setenv "LGX_HOME" home)
+        repo (setup-fixture-repo! "ensure")
+        coord {:git/url (:url repo) :git/sha (:sha repo)}
+        path1 (new/ensure-template! coord)]
+    ;; First call clones; expected path mirrors cache.lg layout.
+    (is (= (str home "/templates/_local/_/"
+                (last (str/split (:dir repo) "/"))
+                "/" (:sha repo))
+           path1))
+    (is (= true (file-exists? path1)))
+    (is (= true (file-exists? (str path1 "/hello.txt"))))
+    ;; .git/ dropped during finalize.
+    (is (= false (file-exists? (str path1 "/.git"))))
+    ;; Drop a sentinel into the cache. Second call must not re-clone, so
+    ;; the sentinel must survive.
+    (spit (str path1 "/sentinel") "x")
+    (let [path2 (new/ensure-template! coord)]
+      (is (= path1 path2))
+      (is (= true (file-exists? (str path2 "/sentinel")))))
+    (rm-rf! home)
+    (rm-rf! (:dir repo))))
