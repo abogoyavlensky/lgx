@@ -60,7 +60,7 @@
                        :stderr (:err r)})))
     r))
 
-(defn- finalize-worktree! [tmp dest]
+(defn finalize-worktree! [tmp dest]
   ;; Drop the .git dir - we don't need history once the ref is checked out.
   (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
     (when-not (zero? (:exit r))
@@ -74,7 +74,7 @@
                        :to dest
                        :stderr (:err r)})))))
 
-(defn- clone-sha! [url sha dest]
+(defn clone-sha! [url sha dest]
   ;; Use a tmp dir as parent for atomicity, then rename.
   (let [parent (path/parent dest)
         tmp (str dest ".tmp." (str (rand-int 1000000)))]
