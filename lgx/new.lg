@@ -204,12 +204,12 @@
       (let [coord (resolve-template-coord)
             cache-path (try (ensure-template! coord)
                             (catch e
-                              (die! (str "failed to fetch template: "
-                                         (or (:stderr (ex-data e))
-                                             (str e))))))]
+                                   (die! (str "failed to fetch template: "
+                                              (or (:stderr (ex-data e))
+                                                  (str e))))))]
         (try (render! cache-path target (name-pair name))
              (catch e
-               (die! (str "failed to render template: " (str e)))))
+                    (die! (str "failed to render template: " (str e)))))
         (println (str "Created " name " at " target))
         (println)
         (println "Next steps:")
