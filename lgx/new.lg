@@ -34,6 +34,29 @@
   [s pair]
   (str/replace s placeholder (:hyphen pair)))
 
+(defn validate-target!
+  "Return target on success. Throws ex-info if target exists and is either
+   a regular file (:reason :not-a-dir) or a non-empty directory
+   (:reason :non-empty). Both branches set :path to the input."
+  [target]
+  (let [stat (os/stat target)]
+    (cond
+      (nil? stat)
+      target
+
+      (not (:dir? stat))
+      (throw (ex-info (str "target exists and is not a directory: " target)
+                      {:reason :not-a-dir
+                       :path target}))
+
+      (seq (os/ls target))
+      (throw (ex-info (str "target directory already exists and is not empty: " target)
+                      {:reason :non-empty
+                       :path target}))
+
+      :else
+      target)))
+
 (defn substitute-path-segments
   "Split rel-path on `/`, replace every literal `projectname` segment with
    the underscored form from the name-pair, rejoin with `/`. Relative paths

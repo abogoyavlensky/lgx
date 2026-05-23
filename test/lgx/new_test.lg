@@ -13,6 +13,18 @@
   (try (f) nil
        (catch e (:name (ex-data e)))))
 
+(defn- caught-path [f]
+  (try (f) nil
+       (catch e (:path (ex-data e)))))
+
+(defn- mktemp! [tag]
+  (let [d (str "/tmp/lgx-new-" tag "-" (rand-int 100000000))]
+    (mkdir d)
+    d))
+
+(defn- rm-rf! [p]
+  (os/sh "rm" "-rf" p))
+
 ;; ---------------------------------------------------------------------------
 ;; valid-name?
 ;; ---------------------------------------------------------------------------
@@ -133,3 +145,33 @@
          (new/substitute-path-segments "src/nothing/here.lg"
                                        {:hyphen "a"
                                         :underscore "b"}))))
+
+;; ---------------------------------------------------------------------------
+;; validate-target!
+;; ---------------------------------------------------------------------------
+
+(deftest validate-target-non-existent-returns-path
+  (let [scratch (mktemp! "tgt-noexist")
+        tgt (str scratch "/missing")]
+    (is (= tgt (new/validate-target! tgt)))
+    (rm-rf! scratch)))
+
+(deftest validate-target-empty-dir-returns-path
+  (let [scratch (mktemp! "tgt-empty")]
+    (is (= scratch (new/validate-target! scratch)))
+    (rm-rf! scratch)))
+
+(deftest validate-target-non-empty-dir-throws
+  (let [scratch (mktemp! "tgt-nonempty")
+        _ (spit (str scratch "/file") "x")]
+    (is (= :non-empty (caught-reason #(new/validate-target! scratch))))
+    (is (= scratch (caught-path #(new/validate-target! scratch))))
+    (rm-rf! scratch)))
+
+(deftest validate-target-regular-file-throws
+  (let [scratch (mktemp! "tgt-file")
+        f (str scratch "/regular")
+        _ (spit f "x")]
+    (is (= :not-a-dir (caught-reason #(new/validate-target! f))))
+    (is (= f (caught-path #(new/validate-target! f))))
+    (rm-rf! scratch)))
