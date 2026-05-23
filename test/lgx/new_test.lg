@@ -67,3 +67,69 @@
 
 (deftest validate-name-throws-on-nil
   (is (= :invalid-name (caught-reason #(new/validate-name! nil)))))
+
+;; ---------------------------------------------------------------------------
+;; name-pair
+;; ---------------------------------------------------------------------------
+
+(deftest name-pair-hyphenated
+  (is (= {:hyphen "foo-bar" :underscore "foo_bar"}
+         (new/name-pair "foo-bar"))))
+
+(deftest name-pair-no-hyphen-noop
+  (is (= {:hyphen "myapp" :underscore "myapp"}
+         (new/name-pair "myapp"))))
+
+(deftest name-pair-multiple-hyphens
+  (is (= {:hyphen "a-b-c" :underscore "a_b_c"}
+         (new/name-pair "a-b-c"))))
+
+;; ---------------------------------------------------------------------------
+;; substitute-contents
+;; ---------------------------------------------------------------------------
+
+(deftest substitute-contents-replaces-ns
+  (is (= "(ns foo-bar.main)"
+         (new/substitute-contents "(ns projectname.main)"
+                                  {:hyphen "foo-bar"
+                                   :underscore "foo_bar"}))))
+
+(deftest substitute-contents-replaces-with-no-hyphen
+  (is (= "before x after"
+         (new/substitute-contents "before projectname after"
+                                  {:hyphen "x"
+                                   :underscore "x"}))))
+
+(deftest substitute-contents-no-token-unchanged
+  (is (= "no token here"
+         (new/substitute-contents "no token here"
+                                  {:hyphen "x"
+                                   :underscore "x"}))))
+
+(deftest substitute-contents-replaces-all
+  (is (= "abc abc"
+         (new/substitute-contents "projectname projectname"
+                                  {:hyphen "abc"
+                                   :underscore "abc"}))))
+
+;; ---------------------------------------------------------------------------
+;; substitute-path-segments
+;; ---------------------------------------------------------------------------
+
+(deftest substitute-path-segments-replaces-segment
+  (is (= "src/foo_bar/greeter.lg"
+         (new/substitute-path-segments "src/projectname/greeter.lg"
+                                       {:hyphen "foo-bar"
+                                        :underscore "foo_bar"}))))
+
+(deftest substitute-path-segments-multiple-segments
+  (is (= "y/y.lg"
+         (new/substitute-path-segments "projectname/projectname.lg"
+                                       {:hyphen "x"
+                                        :underscore "y"}))))
+
+(deftest substitute-path-segments-no-token-unchanged
+  (is (= "src/nothing/here.lg"
+         (new/substitute-path-segments "src/nothing/here.lg"
+                                       {:hyphen "a"
+                                        :underscore "b"}))))

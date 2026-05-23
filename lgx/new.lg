@@ -1,4 +1,7 @@
-(ns lgx.new)
+(ns lgx.new
+  (:require [string :as str]))
+
+(def ^:private placeholder "projectname")
 
 (def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
 
@@ -17,3 +20,26 @@
                     {:reason :invalid-name
                      :name name})))
   name)
+
+(defn name-pair
+  "Return {:hyphen <name as-is> :underscore <name with - -> _>} for use as
+   the substitution table for paths and contents."
+  [name]
+  {:hyphen name
+   :underscore (str/replace name "-" "_")})
+
+(defn substitute-contents
+  "Replace every literal `projectname` in s with the hyphenated form from
+   the name-pair."
+  [s pair]
+  (str/replace s placeholder (:hyphen pair)))
+
+(defn substitute-path-segments
+  "Split rel-path on `/`, replace every literal `projectname` segment with
+   the underscored form from the name-pair, rejoin with `/`. Relative paths
+   stored internally always use `/` separators; absolute paths are produced
+   only via path/join."
+  [rel-path pair]
+  (let [segments (str/split rel-path "/")
+        replaced (map #(str/replace % placeholder (:underscore pair)) segments)]
+    (str/join "/" replaced)))
