@@ -16,7 +16,7 @@ lgx <task>           # run a custom task from lgx.edn
 ## Status
 
 Pre-alpha. The CLI surface and `lgx.edn` schema may still change. lgx is
-used in real projects today; see [Projects using lgx](#projects-using-lgx).
+used in some projects today; see [Projects using lgx](#projects-using-lgx).
 
 ## Requirements
 
@@ -86,9 +86,9 @@ lgx run
 | Command | What it does |
 | --- | --- |
 | `lgx new <name>` | Scaffold a new let-go project from the default template into `./<name>`. |
-| `lgx install` | Fetch deps declared in `lgx.edn`. Idempotent. |
+| `lgx install` | Fetch deps declared in `:deps` key of `lgx.edn`. Idempotent. |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. |
-| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` via `lg -b`. |
+| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
 | `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` files under `test/`. With `<file>`, run just that file. |
 | `lgx <task>` | Run a custom task defined under `:tasks` in `lgx.edn`. |
 | `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
@@ -125,7 +125,7 @@ Forms:
 
 ### `lgx build` details
 
-`lgx build` is sugar for `lg <paths> [extra-args...] -b <:out> <:main>`.
+`lgx build` is shortcut for `lg <paths> [extra-args...] -b <:out> <:main>`.
 Extra args go before `-b`, so cross-OS bundling works as:
 
 ```sh
@@ -138,14 +138,9 @@ Both `:main` and `:targets/:bin` are required.
 
 `lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` files, generates
 a one-shot harness under `$LGX_HOME/tmp/`, and runs every `deftest`
-against the project's resolved `-source-paths`. It prints a `✓`/`✗` per
-test and ends with a `N tests, M assertions, K failures` summary. Exits
-1 on failure, errors, or missing `test/`; exits 0 with
-`No tests found in test/` when the directory exists but is empty.
+against the project's resolved `-source-paths`. Prints summary results.
 
-A test file contains only `deftest` forms and fixtures. Do **not** call
-`(run-tests)` at the top level: let-go's `run-tests` runs synchronously
-during file load, before lgx can register the file's tests.
+A test file may contain `deftest` forms, fixtures and some helpers.
 
 ```clojure
 (ns myapp.list-test
@@ -166,7 +161,7 @@ become hyphens; `/` becomes `.`.
 `lgx.edn` lives at the project root. The smallest valid file:
 
 ```edn
-{:deps {}}
+{}
 ```
 
 Top-level keys: `:paths`, `:deps`, `:main`, `:targets`, `:tasks`.
@@ -174,8 +169,8 @@ Top-level keys: `:paths`, `:deps`, `:main`, `:targets`, `:tasks`.
 ### Source paths and entrypoint
 
 ```edn
-{:paths ["src" "resources"]
- :main  "src/myapp/main.lg"}
+{:paths ["src"]
+ :main  "main.lg"}
 ```
 
 - `:paths` lists project source paths relative to the project root.
@@ -209,8 +204,9 @@ Each coord uses either a git source or `:local/root`, never both.
   the source. Defaults to `src` if that directory exists, else the repo
   root. Matches tools.deps' `:deps/root`.
 
-Transitive deps are not yet followed: lgx resolves only the coords
-listed in your own `lgx.edn`.
+> [!IMPORTANT]
+> Transitive deps are not yet followed: lgx resolves only the coords
+> listed in your own `lgx.edn`.
 
 ### Build target (`:targets`)
 
@@ -219,7 +215,7 @@ listed in your own `lgx.edn`.
  :targets {:bin {:out "bin/myapp"}}}
 ```
 
-Step 1 supports the `:bin` target only. `:out` is the output path
+Currently, supports the `:bin` target only. `:out` is the output path
 relative to the project root; lgx creates the parent directory if
 missing.
 
@@ -232,16 +228,16 @@ non-zero exit code stops the chain.
 
 ```edn
 {:tasks
- {:lint       {:doc "Run clj-kondo against the project"
-               :do  [{:sh "clj-kondo --lint src test"}]}
+ {:lint {:doc "Run clj-kondo against the project"
+         :do  [{:sh "clj-kondo --lint src test"}]}
 
-  :ci         {:doc "Format check, lint, and tests"
-               :do  [{:sh "cljfmt check"}
-                     {:sh "clj-kondo --lint src test"}
-                     {:run "test/myapp/smoke.lg"}]}
+  :ci {:doc "Format check, lint, and tests"
+       :do  [{:sh "cljfmt check"}
+             {:sh "clj-kondo --lint src test"}
+             {:run "test/myapp/smoke.lg"}]}
 
-  :greet      {:doc "Run main with a fixed arg"
-               :do  [{:run ["src/myapp/main.lg" "--" "world"]}]}}}
+  :greet {:doc "Run main with a fixed arg"
+          :do  [{:run ["src/myapp/main.lg" "--" "world"]}]}}}
 ```
 
 Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
@@ -283,9 +279,7 @@ clone.
 - [`examples/local-dep/`](./examples/local-dep) - project plus sibling
   library using `:local/root`.
 - [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real
-  Clojure libraries on let-go. [ruuter](./examples/clojure-libs/ruuter)
-  works as-is; others surface the let-go-side gaps that currently block
-  them.
+  Clojure libraries on let-go.
 
 ## Projects using lgx
 
@@ -308,12 +302,14 @@ In no particular order:
 - [ ] `lgx repl` - run repl.
 - [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
   libs and resolve the union, with first-wins on conflicts.
+- [ ] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
+- [ ] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
+- [ ] `--with`/`:with` - ability to extend tasks with contexts.
 - [ ] `lgx deps` - print dependency tree.
 - [ ] `lgx init` - create a default `lgx.edn` in the current directory.
 - [ ] `lgx fmt` / `lgx lint`.
 - [ ] `lgx outdated` - check for outdated deps.
 - [ ] `lgx clean` - clean build artifacts from `:targets`.
-- [ ] `:contexts` - environment-specific paths and deps configurations.
 - [ ] Non-source resources (let-go-side). `lg`'s resolver finds `.lg`
   and `.cljc` only; libs that ship templates, JSON, or other assets
   have no resolution story. Likely needs an upstream change.
