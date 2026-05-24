@@ -8,9 +8,3 @@ Shows a project using a sibling library through `:local/root`.
 cd project
 lgx run main.lg
 ```
-
-## Expected output
-
-```
-hello from local lib
-```
