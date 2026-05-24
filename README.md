@@ -264,9 +264,9 @@ Things that are currently missing or incomplete, in no particular order:
 - [x] `lgx test` - test runner.
 - [x] `lgx new` - project scaffolding.
 - [ ] `lgx repl` - run repl.
-- [ ] `lgx init` - create a default `lgx.edn` in the current directory.
 - [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched libs and resolve the union, with first-wins on conflicts.
 - [ ] `lgx deps` - print dependency tree.
+- [ ] `lgx init` - create a default `lgx.edn` in the current directory.
 - [ ] `lgx fmt` / `lgx lint`
 - [ ] `lgx outdate` - check for outdated deps.
 - [ ] `lgx clean` - clean build artifacts from `:targets`.
