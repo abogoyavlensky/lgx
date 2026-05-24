@@ -1,4 +1,0 @@
-{:deps
- {babashka/cli {:git/url "https://github.com/babashka/cli"
-                :git/tag "v0.8.67"
-                :git/sha "4ca06937cd9d50917ad7112855815960365cb474"}}}

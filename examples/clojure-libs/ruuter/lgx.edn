@@ -1,3 +1,0 @@
-{:deps
- {askonomm/ruuter {:git/url "https://git.nmm.ee/asko/ruuter"
-                   :git/sha "31209771dafba33e36e8f72bbf31de95555ca511"}}}
