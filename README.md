@@ -7,29 +7,34 @@ Manage dependencies, run, build, test your app, and extend with custom tasks.
 
 Pre-alpha. Breaking changes are possible.
 
-## Installation
-
-Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
-`darwin_arm64` are attached to each GitHub Release.
-
-### Requirements
+## Requirements
 
 - [`lg`](https://github.com/nooga/let-go) on `PATH`, or pointed to by
-  `LGX_LG`. `lgx run` shells out to it; `lgx install` does not need it.
+  `LGX_LG`. `lgx run` shells out to it.
+  (Installation: `brew install nooga/let-go/let-go`)
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out
   dependencies.
 
+
+## Installation
+
+> [!NOTE]
+> Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
+> `darwin_arm64` are attached to each GitHub Release.
+
 ### Install script
 
-One-liner - installs the latest release to `~/.local/bin/lgx`:
+Install the latest release to `~/.local/bin/lgx`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
 ```
 
+Check [script's readme](./scripts/README.md) for detailed instructions.
+
 ### With [mise](https://mise.jdx.dev)
 
-Ad hoc: `mise use github:abogoyavlensky/lgx@0.1.0-alpha1`
+Ad hoc: `mise use github:abogoyavlensky/lgx@latest`
 
 or add to your project:
 

@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/i
 Pin a version or change the install directory with env vars:
 
 ```sh
-LGX_VERSION=0.1.0-alpha1 LGX_INSTALL_DIR=~/bin \
+LGX_VERSION=0.1.0-alpha8 LGX_INSTALL_DIR=~/bin \
   bash -c "$(curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh)"
 ```
 
@@ -21,7 +21,7 @@ before piping if you'd rather see what runs.
 
 `lgx run` also needs `lg` on `PATH`. Install it via
 [mise](https://mise.jdx.dev) (`mise use github:nooga/let-go`), Homebrew
-(`brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`),
+(`brew install nooga/let-go/let-go`),
 or grab a binary from
 [let-go releases](https://github.com/nooga/let-go/releases).
 
@@ -30,7 +30,7 @@ or grab a binary from
 If you'd rather skip the script entirely:
 
 ```sh
-VERSION=0.1.0-alpha1
+VERSION=0.1.0-alpha8
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # linux | darwin
 ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 curl -sSL -o lgx.tar.gz \
