@@ -1,44 +1,55 @@
 # lgx
 
-A project manager for [let-go](https://github.com/nooga/let-go). 
-Manage dependencies, run, build, test your app, and extend with custom tasks.
+A project manager for [let-go](https://github.com/nooga/let-go): git-based
+dependency manager, runner, build tool, test runner, scaffolder, and task
+runner, in one binary.
+
+```sh
+lgx new myapp        # scaffold a project
+cd myapp
+lgx run              # fetch deps, run :main
+lgx build            # bundle a standalone binary
+lgx test             # run tests under test/
+lgx <task>           # run a custom task from lgx.edn
+```
 
 ## Status
 
-Pre-alpha. Breaking changes are possible.
+Pre-alpha. The CLI surface and `lgx.edn` schema may still change. lgx is
+used in real projects today; see [Projects using lgx](#projects-using-lgx).
 
 ## Requirements
 
-- [`lg`](https://github.com/nooga/let-go) on `PATH`, or pointed to by
-  `LGX_LG`. `lgx run` shells out to it.
-  (Installation: `brew install nooga/let-go/let-go`)
-- `git` on `PATH`. lgx uses it to clone, fetch, and check out
-  dependencies.
-
+- [`lg`](https://github.com/nooga/let-go) on `PATH` (or pointed to by
+  `LGX_LG`). lgx shells out to it.
+  Install with `brew install nooga/let-go/let-go`.
+- `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
 
 ## Installation
 
-> [!NOTE]
-> Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
-> `darwin_arm64` are attached to each GitHub Release.
+Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
+`darwin_arm64` are attached to each [GitHub Release](https://github.com/abogoyavlensky/lgx/releases).
 
 ### Install script
 
-Install the latest release to `~/.local/bin/lgx`:
+Installs the latest release to `~/.local/bin/lgx`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
 ```
 
-Check [script's readme](./scripts/README.md) for detailed instructions.
+See the [script's README](./scripts/README.md) for options.
 
 ### With [mise](https://mise.jdx.dev)
 
-Ad hoc: `mise use github:abogoyavlensky/lgx@latest`
+Ad hoc:
 
-or add to your project:
+```sh
+mise use github:abogoyavlensky/lgx@latest
+```
 
-*.mise.toml*
+Or pin per project in `.mise.toml`:
+
 ```toml
 [tools]
 lg = "latest"
@@ -47,108 +58,208 @@ lgx = "latest"
 [tool_alias]
 lg = "github:nooga/let-go"
 lgx = "github:abogoyavlensky/lgx"
-
 ```
 
-Then install with:
-
-```bash
-mise install
-```
+Then run `mise install`.
 
 > [!TIP]
-> If you hit github auth problem with mise then you can pin specific version of the tools in `.mise.toml`,
-> or set `export GITHUB_TOKEN="$(gh auth token)"` in your shell config.
+> If mise hits a GitHub auth problem, pin specific versions in
+> `.mise.toml` or set `export GITHUB_TOKEN="$(gh auth token)"` in your
+> shell config.
 
-## `lgx.edn`
+## Quickstart
 
-```edn
-{:paths   ["src" "resources"]
- :main    "main.lg"
- :targets {:bin {:out "bin/myapp"}}
- :deps
- {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
-                          :git/tag "v0.2.0"}
-  org.clojure/tools.cli {:git/url "https://github.com/clojure/tools.cli"
-                         :git/sha "0123456789abcdef0123456789abcdef01234567"
-                         :deps/root "src/main/clojure"}
-  my/lib {:local/root "../my-lib"}}}
+Create a new project and run it:
+
+```sh
+lgx new hello
+cd hello
+lgx run
 ```
 
-Each git coord must specify `:git/url` plus one of `:git/sha` or
-`:git/tag`. Tag-pinned coords cache under the tag name itself.
+`lgx new` scaffolds from the [default template](https://github.com/abogoyavlensky/lgx-template-base).
+`lgx run` resolves `:main` from `lgx.edn`, fetches any deps under
+`$LGX_HOME/gitlibs/`, then execs `lg`.
 
-Top-level `:paths` lists project source paths relative to the project root.
-`lgx run` prepends them to dependency paths in `-source-paths`, so project
-namespaces shadow lib namespaces. Missing entries print a warning and still
-pass through to `lg`.
+## Commands
 
-Top-level `:main` names a default entrypoint script relative to the project
-root. `lgx run` substitutes it as the script when:
+| Command | What it does |
+| --- | --- |
+| `lgx new <name>` | Scaffold a new let-go project from the default template into `./<name>`. |
+| `lgx install` | Fetch deps declared in `lgx.edn`. Idempotent. |
+| `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. |
+| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` via `lg -b`. |
+| `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` files under `test/`. With `<file>`, run just that file. |
+| `lgx <task>` | Run a custom task defined under `:tasks` in `lgx.edn`. |
+| `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
+| `lgx version` | Print version. |
 
-- `lgx run` is called with no arguments → `lg <X> main.lg`.
-- `lgx run [lg-flags...] -- [app-args...]` is called *without* an
-  explicit script in the pre-`--` slice → lgx inserts `:main` between
-  the lg flags and the `--`. Examples: `lgx run -- list` becomes
-  `lg <X> main.lg -- list`; `lgx run -r -- foo` becomes
-  `lg <X> -r main.lg -- foo`.
+Global flag: `--verbose` prints the resolved `lg` invocation before
+running (applies to `run`, `build`, `test`, and user tasks).
 
-When the pre-`--` args already contain an explicit script (suffix
-`.lg`, `.cljc`, or `.clj`), lgx skips injection and passes everything
-through, so `lgx run foo.lg -- bar` runs `lg <X> foo.lg -- bar`. Bare
-`lgx run -e '(...)'` and `lgx run foo.lg` (no `--`) likewise pass
-through unchanged.
+`lgx run`, `build`, `test`, and tasks find the nearest `lgx.edn` by
+walking up from the current directory.
 
-The `--` is preserved in the outgoing command line so it lands in
-`os/args` as a stable marker. lgx also appends a trailing `--` to
-the inject paths even when there are no user args (so bare `lgx run`
-produces `lg <X> main.lg --`), so the same parsing idiom works for
-both dev and built binary:
+### `lgx run` details
+
+With no arguments, `lgx run` execs `lg <paths> :main --`, so a script
+can parse its CLI args with a single idiom that works in both dev and
+bundled modes:
 
 ```clojure
 (defn- cli-argv [argv]
   "Return args after the `--` while developing, or CLI args in bundled mode."
   (if (some #(= % "--") argv)
-    (rest (drop-while #(not (= % "--")) argv)) ; lgx run -- <args>
-    (rest argv)))  ; ./bin/myapp <args>
+    (rest (drop-while #(not (= % "--")) argv))  ; lgx run -- <args>
+    (rest argv)))                                ; ./bin/myapp <args>
 ```
 
-`-source-paths` and other lg flags live before `--`; a POSIX CLI
-parser (tiny-cli, babashka/cli, tools.cli) sees only `app-args` and
-nothing leaks. For the strict pass-through case (`lgx run foo.lg bar`,
-without `--`), you must add `--` yourself to use the same idiom —
-`lgx run foo.lg -- bar`.
+Forms:
 
-`lgx run -- foo` without `:main` set is an error
-(`lgx: -- requires :main to be set in lgx.edn`). If `:main` points at
-a file that does not exist on disk, `lgx run` exits with
-`lgx: :main script not found: <path>`.
+- `lgx run` -> `lg <paths> :main --`.
+- `lgx run -- foo bar` -> `lg <paths> :main -- foo bar` (requires `:main`).
+- `lgx run -r -- foo` -> `lg <paths> -r :main -- foo` (lg flags before `--`).
+- `lgx run foo.lg` -> `lg <paths> foo.lg` (explicit script, pass-through).
+- `lgx run foo.lg -- bar` -> `lg <paths> foo.lg -- bar`.
+- `lgx run -e '(...)'` -> pass-through.
 
-Top-level `:targets` declares how `lgx build` produces artifacts. Step 1
-supports the `:bin` target only, with a single required `:out` field giving
-the output path relative to the project root. `lgx build` is sugar for
-`lg -source-paths <resolved> -b <out> <main>`; the parent of `:out` is
-auto-created if missing. Extra args go before `-b`, so cross-OS bundling
-works as `lgx build -bundle-base /path/to/lg`. Both `:main` and
-`:targets/:bin` are required for `lgx build` — a missing one prints a
-clear error.
+### `lgx build` details
 
-For each lib, the path added to `-source-paths` is `<ref>/src` if that dir
-exists, else the repo root. This matches the tools.deps default of
-`:paths ["src"]` and works out of the box for most Clojure-style libraries.
-Set `:deps/root` on a coord to override that default. For example,
-`org.clojure/tools.cli` uses `:deps/root "src/main/clojure"`.
+`lgx build` is sugar for `lg <paths> [extra-args...] -b <:out> <:main>`.
+Extra args go before `-b`, so cross-OS bundling works as:
 
-Use `:local/root` instead of `:git/url` to point at a directory on disk
-when iterating on a library beside the project. The path may be relative
-to the project root (`../sibling`, `./libs/x`) or absolute
-(`/abs/path`). `:deps/root` still applies, so
-`{:local/root "../mylib" :deps/root "src/main/clojure"}` works the same
-as with a git coord. Local deps bypass the gitlibs cache and do not
-appear in install output. A coord uses either `:local/root` or `:git/*`;
-mixing them is an error.
+```sh
+lgx build -bundle-base /path/to/lg
+```
 
-Current limitations: HTTPS URLs only (no SSH), no transitive deps.
+Both `:main` and `:targets/:bin` are required.
+
+### `lgx test` details
+
+`lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` files, generates
+a one-shot harness under `$LGX_HOME/tmp/`, and runs every `deftest`
+against the project's resolved `-source-paths`. It prints a `✓`/`✗` per
+test and ends with a `N tests, M assertions, K failures` summary. Exits
+1 on failure, errors, or missing `test/`; exits 0 with
+`No tests found in test/` when the directory exists but is empty.
+
+A test file contains only `deftest` forms and fixtures. Do **not** call
+`(run-tests)` at the top level: let-go's `run-tests` runs synchronously
+during file load, before lgx can register the file's tests.
+
+```clojure
+(ns myapp.list-test
+  (:require [test :refer [deftest is testing]]
+            [myapp.format :as fmt]))
+
+(deftest render-list-empty
+  (testing "empty list"
+    (is (= "(empty)" (fmt/render-list [])))))
+```
+
+The path-to-namespace rule mirrors let-go's resolver:
+`test/myapp/config_test.lg` resolves to `myapp.config-test`. Underscores
+become hyphens; `/` becomes `.`.
+
+## Configuration: `lgx.edn`
+
+`lgx.edn` lives at the project root. The smallest valid file:
+
+```edn
+{:deps {}}
+```
+
+Top-level keys: `:paths`, `:deps`, `:main`, `:targets`, `:tasks`.
+
+### Source paths and entrypoint
+
+```edn
+{:paths ["src" "resources"]
+ :main  "src/myapp/main.lg"}
+```
+
+- `:paths` lists project source paths relative to the project root.
+  `lgx run` prepends them to dependency paths so project namespaces
+  shadow lib namespaces. Missing entries print a warning.
+- `:main` names the default entrypoint script. `lgx run` substitutes it
+  when no script is given; `lgx build` bundles it.
+
+### Dependencies (`:deps`)
+
+```edn
+{:deps
+ {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
+                          :git/tag "v0.2.0"}
+
+  org.clojure/tools.cli  {:git/url "https://github.com/clojure/tools.cli"
+                          :git/sha "0123456789abcdef0123456789abcdef01234567"
+                          :deps/root "src/main/clojure"}
+
+  my/lib                 {:local/root "../my-lib"}}}
+```
+
+Each coord uses either a git source or `:local/root`, never both.
+
+- **Git coord.** `:git/url` plus one of `:git/sha` or `:git/tag`.
+  Tag-pinned coords cache under the tag name itself. HTTPS URLs only
+  (no SSH).
+- **Local coord.** `:local/root` points at a directory on disk, relative
+  to the project root or absolute. Local deps bypass the gitlibs cache.
+- **`:deps/root`** (optional). The subdirectory inside the dep that holds
+  the source. Defaults to `src` if that directory exists, else the repo
+  root. Matches tools.deps' `:deps/root`.
+
+Transitive deps are not yet followed: lgx resolves only the coords
+listed in your own `lgx.edn`.
+
+### Build target (`:targets`)
+
+```edn
+{:main    "src/myapp/main.lg"
+ :targets {:bin {:out "bin/myapp"}}}
+```
+
+Step 1 supports the `:bin` target only. `:out` is the output path
+relative to the project root; lgx creates the parent directory if
+missing.
+
+### Tasks (`:tasks`)
+
+Tasks replace ad-hoc Makefile or Taskfile recipes for let-go projects.
+A task is a sequence of steps; each step is either `:sh` (shell command)
+or `:run` (invoked like `lgx run ...` with the project basis). The first
+non-zero exit code stops the chain.
+
+```edn
+{:tasks
+ {:lint       {:doc "Run clj-kondo against the project"
+               :do  [{:sh "clj-kondo --lint src test"}]}
+
+  :ci         {:doc "Format check, lint, and tests"
+               :do  [{:sh "cljfmt check"}
+                     {:sh "clj-kondo --lint src test"}
+                     {:run "test/myapp/smoke.lg"}]}
+
+  :greet      {:doc "Run main with a fixed arg"
+               :do  [{:run ["src/myapp/main.lg" "--" "world"]}]}}}
+```
+
+Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
+tasks defined in the current project. Task names are keywords; they
+cannot shadow built-in commands (`install`, `run`, `build`, `test`,
+`new`, `help`, `version`, plus reserved `add`, `update`, `tasks`).
+
+Step values may be a string (split on whitespace) or a vector of
+strings. Output is buffered and replayed after each step completes.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. |
+| `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, template cache, and test harness tmp dir. |
+| `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo for `lgx new`. |
+| `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the template revision for `lgx new`. |
 
 ## State layout
 
@@ -159,134 +270,68 @@ $LGX_HOME/
   tmp/lgx-test-<version>.lg
 ```
 
-Default `LGX_HOME` is `~/.lgx`.
 `<ref>` is the sha for `:git/sha` coords, or the tag with `/` replaced
-by `_` for `:git/tag` coords. `lgx test` writes its generated harness to
-`$LGX_HOME/tmp/` and overwrites the file for the current lgx version on
-each run. `lgx new` caches the scaffolded template under
-`$LGX_HOME/templates/` keyed by repo + sha; subsequent runs reuse the
-cache and skip the clone.
+by `_` for `:git/tag` coords. `lgx test` rewrites the version-stamped
+harness on each run. `lgx new` reuses the template cache after the first
+clone.
 
-## Commands
+## Examples
 
-- `lgx install` - read `lgx.edn`, fetch missing deps. Idempotent.
-- `lgx run [script] [args...]` - find the nearest `lgx.edn` walking up
-  from the current directory, install missing deps, then exec
-  `lg -source-paths <resolved> [script] [args...]`. If `script` is
-  omitted and `:main` is set in `lgx.edn`, it is used as the script. All
-  args reach `lg` verbatim. Global option `--verbose` prints the
-  resolved `lg` command first.
-- `lgx build [args...]` - bundle `:main` into `:targets/:bin/:out` via
-  `lg -b`. Reads `:main`, `:paths`, `:deps`, and `:targets/:bin/:out`
-  from `lgx.edn`. Extra args are forwarded to `lg` before `-b` (for
-  example, `-bundle-base /path/to/lg` for cross-OS builds). Both
-  `:main` and `:targets/:bin` are required; either being absent prints
-  a clear error.
-- `lgx new <project-name>` - scaffold a new let-go app from the default
-  template. Fetches the template from
-  `https://github.com/abogoyavlensky/lgx-template-base` on first use,
-  caches under `$LGX_HOME/templates/`, then renders into `./<project-name>`
-  substituting `projectname` for `<project-name>` (hyphen form in file
-  contents, underscore form in path segments). The name must match
-  `^[a-z][a-z0-9-]*$` and the target must not exist as a non-empty
-  directory. Override the template source for testing or alternate
-  defaults with `LGX_TEMPLATE_BASE_URL` and `LGX_TEMPLATE_BASE_SHA`.
-- `lgx test [file]` - walk `test/` for `*_test.lg` / `*_test.cljc` files,
-  generate a one-shot test harness, and run every `deftest` against
-  the project's resolved `-source-paths`. Groups output by test file,
-  prints a `✓`/`✗` line per test, prints `testing` context strings,
-  and shows assertion output only for failing tests. Ends with a
-  `N tests, M assertions, K failures` summary. Exits 1 if any test
-  fails or errors, or if `test/` is missing; exits 0 with
-  `No tests found in test/` when the directory exists but is empty.
-  With `<file>`, only that file's tests run. `<file>` is
-  project-root-relative, must end in `.lg` or `.cljc`, and must live
-  under `test/`. Passing more than one argument is an error.
-- `lgx help` - print usage.
-- `lgx version` - print version.
+- [`examples/hello/`](./examples/hello) - no-deps script.
+- [`examples/with-lib/`](./examples/with-lib) - fetch-and-require flow
+  using let-go's own repo as the dep.
+- [`examples/local-dep/`](./examples/local-dep) - project plus sibling
+  library using `:local/root`.
+- [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real
+  Clojure libraries on let-go. [ruuter](./examples/clojure-libs/ruuter)
+  works as-is; others surface the let-go-side gaps that currently block
+  them.
 
-### Writing tests
+## Projects using lgx
 
-`lgx test` discovers files matching `*_test.lg` or `*_test.cljc`
-under `test/` and runs every `deftest` in their `*registered-tests*`
-registration order. A test file is just `deftest` and fixtures —
-nothing else:
+- [tiny-cli](https://github.com/abogoyavlensky/tiny-cli) - a CLI parser
+  library for let-go, distributed as a git dep.
+- [wtr](https://github.com/abogoyavlensky/wtr) - a git worktree CLI
+  built with let-go and lgx, using tiny-cli for argument parsing.
 
-```clojure
-(ns wtr.list-test
-  (:require [test :refer [deftest is testing]]
-            [wtr.format :as fmt]))
+## Roadmap (draft)
 
-(deftest render-list-empty
-  (testing "empty worktree list"
-    (is (= "(no worktrees)" (fmt/render-list [] "/any/path")))))
-```
+In no particular order:
 
-Do **not** call `(run-tests)` at the top level. The let-go
-`run-tests` form runs synchronously during file load, before lgx's
-harness can register the file's tests in its own iteration loop, so
-top-level invocations short-circuit the run. The harness owns the
-run; the file owns the definitions.
-
-The file-path-to-namespace rule mirrors let-go's resolver:
-`test/lgx/config_test.lg` resolves to `lgx.config-test`. Underscores
-in path segments become hyphens; `/` becomes `.`.
+- [x] `:paths` source paths.
+- [x] Per-coord `:deps/root`.
+- [x] Per-coord `:local/root`.
+- [x] `:tasks` - named command shortcuts.
+- [x] `lgx build` - build project binary.
+- [x] `lgx test` - test runner.
+- [x] `lgx new` - project scaffolding.
+- [ ] `lgx repl` - run repl.
+- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
+  libs and resolve the union, with first-wins on conflicts.
+- [ ] `lgx deps` - print dependency tree.
+- [ ] `lgx init` - create a default `lgx.edn` in the current directory.
+- [ ] `lgx fmt` / `lgx lint`.
+- [ ] `lgx outdated` - check for outdated deps.
+- [ ] `lgx clean` - clean build artifacts from `:targets`.
+- [ ] `:contexts` - environment-specific paths and deps configurations.
+- [ ] Non-source resources (let-go-side). `lg`'s resolver finds `.lg`
+  and `.cljc` only; libs that ship templates, JSON, or other assets
+  have no resolution story. Likely needs an upstream change.
 
 ## Development
 
 ```
-make build       # produces bin/lgx - bundled standalone binary
+make build       # produces bin/lgx, a bundled standalone binary
 make dev-install # runs `lg lgx.lg install` from the lgx project root
 make dev-run     # runs examples/hello/main.lg through dev `lg lgx.lg ...`
 make test        # runs all tests through dev `lg lgx.lg ...`
 make clean       # remove bin/lgx and all build artifacts
 ```
 
-For dev iteration, run from the lgx project root so the resolver finds
-`lgx/*.lg`. Once built, the bundled `bin/lgx` works from any directory.
-
-To run lgx against a non-default `lg` binary (testing an unreleased PR,
-debugging a custom build), set `LGX_LG`:
-
-```
-LGX_LG=/path/to/lg bin/lgx run script.lg
-```
-
-## Roadmap (draft)
-
-Things that are currently missing or incomplete, in no particular order:
-
-- [x] `:paths` source paths.
-- [x] Per-coord `:deps/root`. Override the `<ref>/src` default per dependency, matching tools.deps' `:deps/root`.
-- [x] Per-coord `:local/root`. Point a dep at a local directory instead of a git URL, matching tools.deps' `:local/root`.
-- [x] `:tasks` - named command shortcuts. (WIP)
-- [x] `lgx build` - build project binary.
-- [x] `lgx test` - test runner.
-- [x] `lgx new` - project scaffolding.
-- [ ] `lgx repl` - run repl.
-- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched libs and resolve the union, with first-wins on conflicts.
-- [ ] `lgx deps` - print dependency tree.
-- [ ] `lgx init` - create a default `lgx.edn` in the current directory.
-- [ ] `lgx fmt` / `lgx lint`
-- [ ] `lgx outdate` - check for outdated deps.
-- [ ] `lgx clean` - clean build artifacts from `:targets`.
-- [ ] `:contexts` - set environment-specific patha and deps configurations.
-- [ ] Non-source resources (let-go-side). `lg`'s resolver finds `.lg`
-  and `.cljc` only; libs that ship templates, JSON, or other assets
-  have no resolution story. Likely needs an upstream change.
-
-## Examples
-
-- [`examples/hello/`](./examples/hello) - no-deps script.
-- [`examples/with-lib/`](./examples/with-lib) - real fetch-and-require flow
-  using let-go's own repo as the dep (until a real let-go library ecosystem
-  exists).
-- [`examples/local-dep/`](./examples/local-dep) - project plus sibling
-  local library using `:local/root`.
-- [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real
-  Clojure libraries (medley, babashka/cli, ruuter) and the let-go-side gaps
-  that currently block them.
+Run from the lgx project root during dev so the resolver finds
+`lgx/*.lg`. Once built, `bin/lgx` works from any directory. Point at a
+non-default `lg` binary with `LGX_LG=/path/to/lg`.
 
 ## License
-MIT License
-Copyright (c) 2026 Andrey Bogoyavlenskiy
+
+MIT License. Copyright (c) 2026 Andrey Bogoyavlenskiy.
