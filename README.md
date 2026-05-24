@@ -211,7 +211,7 @@ Each coord uses either a git source or `:local/root`, never both.
 ### Build target (`:targets`)
 
 ```edn
-{:main    "src/myapp/main.lg"
+{:main    "main.lg"
  :targets {:bin {:out "bin/myapp"}}}
 ```
 
@@ -237,7 +237,7 @@ non-zero exit code stops the chain.
              {:run "test/myapp/smoke.lg"}]}
 
   :greet {:doc "Run main with a fixed arg"
-          :do  [{:run ["src/myapp/main.lg" "--" "world"]}]}}}
+          :do  [{:run ["main.lg" "--" "world"]}]}}}
 ```
 
 Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
