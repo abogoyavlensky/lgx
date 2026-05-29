@@ -1,9 +1,9 @@
 {:deps
- {;; Example coords. Replace with real let-go libs as the ecosystem grows.
+ {};; Example coords. Replace with real let-go libs as the ecosystem grows.
   ;; example.org/foo {:git/url "https://github.com/example-org/foo"
   ;;                  :git/tag "v0.1.0"}
   ;; example.org/bar {:git/url "https://github.com/example-org/bar"
   ;;                  :git/sha "0123456789abcdef0123456789abcdef01234567"}
-  }
+
  :main "main.lg"
  :targets {:bin {:out "bin/hello"}}}

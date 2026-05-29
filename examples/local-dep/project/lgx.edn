@@ -1,1 +1,2 @@
-{:deps {my/lib {:local/root "../mylib"}}}
+{:main "main.lg"
+ :deps {my/lib {:local/root "../mylib"}}}

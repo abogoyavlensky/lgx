@@ -1,4 +1,4 @@
-(ns demo.app
+(ns main
   (:require [ruuter.core :as r]))
 
 (def routes
