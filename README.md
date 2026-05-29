@@ -288,6 +288,10 @@ clone.
 - [wtr](https://github.com/abogoyavlensky/wtr) - a git worktree CLI
   built with let-go and lgx, using tiny-cli for argument parsing.
 
+## Clojure libs compatible with let-go
+
+- [ruuter](https://git.nmm.ee/asko/ruuter)
+
 ## Roadmap (draft)
 
 In no particular order:

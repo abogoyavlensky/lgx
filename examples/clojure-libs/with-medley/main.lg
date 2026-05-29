@@ -1,0 +1,4 @@
+(ns demo.app
+  (:require [medley.core :as m]))
+
+(prn "Bool?" (m/boolean? 1))
