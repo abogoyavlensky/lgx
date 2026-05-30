@@ -23,6 +23,9 @@ used in some projects today; see [Projects using lgx](#projects-using-lgx).
 - [`lg`](https://github.com/nooga/let-go) on `PATH` (or pointed to by
   `LGX_LG`). lgx shells out to it.
   Install with `brew install nooga/let-go/let-go`.
+  `.clj` library files require let-go ≥ vN.N (**TODO:** pin once
+  [`letgo-clj-support.md`](./docs/issues/letgo-clj-support.md) ships
+  upstream).
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
 
 ## Installation
@@ -89,7 +92,7 @@ lgx run
 | `lgx install` | Fetch deps declared in `:deps` key of `lgx.edn`. Idempotent. |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
-| `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` files under `test/`. With `<file>`, run just that file. |
+| `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
 | `lgx <task>` | Run a custom task defined under `:tasks` in `lgx.edn`. |
 | `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
@@ -136,7 +139,7 @@ Both `:main` and `:targets/:bin` are required.
 
 ### `lgx test` details
 
-`lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` files, generates
+`lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` / `*_test.clj` files, generates
 a one-shot harness under `$LGX_HOME/tmp/`, and runs every `deftest`
 against the project's resolved `-source-paths`. Prints summary results.
 
