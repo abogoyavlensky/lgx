@@ -19,7 +19,7 @@
        "                               (uses :main from lgx.edn when script is omitted)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
-       "  lgx test [file]              Run *_test.lg / *_test.cljc files under test/\n"
+       "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
        "                               (one file if given, else walk test/)\n"
        "  lgx new <project-name>       Scaffold a new let-go app from the default template\n"
        "  lgx version                  Print version\n"
@@ -85,7 +85,7 @@
       (os/exit 1))
     main-script))
 
-(defn- index-of
+(defn- position
   "Index of the first occurrence of x in v, or -1 if absent."
   [v x]
   (loop [i 0
@@ -113,7 +113,7 @@
   (let [project (config/find-project!)
         {:keys [results paths]} (project-basis project)
         main-script (config/main project)
-        dd (index-of forward-args "--")
+        dd (position forward-args "--")
         args (cond
                (and (empty? forward-args) main-script)
                ;; Always emit a trailing `--` so a script can use the
@@ -166,7 +166,7 @@
 (defn- validate-error-line [reason user-path]
   (case reason
     :not-found (str "lgx: test file not found: " user-path "\n")
-    :bad-extension (str "lgx: not a test file (expected .lg or .cljc): "
+    :bad-extension (str "lgx: not a test file (expected .lg, .cljc, or .clj): "
                         user-path "\n")
     :outside-test-dir (str "lgx: test file must be under test/: "
                            user-path "\n")

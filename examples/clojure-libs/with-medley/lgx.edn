@@ -1,0 +1,4 @@
+{:main "main.lg"
+ :targets {:bin {:out "bin/with-lib"}}
+ :deps {dev.weavejester/medley {:git/url "https://github.com/weavejester/medley"
+                                :git/tag "1.10.0"}}}

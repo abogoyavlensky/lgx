@@ -153,16 +153,15 @@ Steps 1–3 match `install`. Then:
    `.`/`..` segments and validate it against three rules:
    - file exists on disk →
      `lgx: test file not found: <path>` on stderr + exit 1 if not.
-   - extension is `.lg` or `.cljc` →
-     `lgx: not a test file (expected .lg or .cljc): <path>` + exit 1
+   - extension is `.lg`, `.cljc`, or `.clj` →
+     `lgx: not a test file (expected .lg, .cljc, or .clj): <path>` + exit 1
      if not.
    - normalized absolute path starts with `<abs test-dir>/` →
      `lgx: test file must be under test/: <path>` + exit 1 if not.
    On success, the test plan is a one-entry vector with that file.
-   With no arg, walk `test/` recursively for `*_test.lg` and
-   `*_test.cljc` files. `.clj` is not matched — let-go's resolver
-   doesn't load that extension. If the walk returns no files, print
-   `No tests found in test/` and exit 0.
+   With no arg, walk `test/` recursively for `*_test.lg`,
+   `*_test.cljc`, and `*_test.clj` files. If the walk returns no files,
+   print `No tests found in test/` and exit 0.
 6. Map each absolute path to a namespace symbol: strip `test/` prefix
    and the extension, split on `/`, hyphenate `_` per segment, join
    with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
@@ -307,7 +306,11 @@ transitive.
 
 - **`git`** on `PATH` — clone and checkout. lgx never bundles git.
 - **`lg`** — either on `PATH` or pointed to by `LGX_LG`. `lgx run` fails
-  loudly if `lg` is missing; `lgx install` does not need it.
+  loudly if `lg` is missing; `lgx install` does not need it. lgx exports
+  `LG_READ_CLJ=1` before every spawn so `.clj` library files are
+  resolvable and `:clj` reader-conditional branches match; `.clj` library
+  support requires let-go ≥ vN.N (**TODO before merge:** fill in once
+  upstream tags a release).
 - **Default template repo** — `lgx new` pulls from
   `https://github.com/abogoyavlensky/lgx-template-base` at a sha pinned
   in lgx source. Override with `LGX_TEMPLATE_BASE_URL` and

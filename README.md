@@ -89,7 +89,7 @@ lgx run
 | `lgx install` | Fetch deps declared in `:deps` key of `lgx.edn`. Idempotent. |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
-| `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` files under `test/`. With `<file>`, run just that file. |
+| `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
 | `lgx <task>` | Run a custom task defined under `:tasks` in `lgx.edn`. |
 | `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
@@ -136,7 +136,7 @@ Both `:main` and `:targets/:bin` are required.
 
 ### `lgx test` details
 
-`lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` files, generates
+`lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` / `*_test.clj` files, generates
 a one-shot harness under `$LGX_HOME/tmp/`, and runs every `deftest`
 against the project's resolved `-source-paths`. Prints summary results.
 
@@ -287,6 +287,10 @@ clone.
   library for let-go, distributed as a git dep.
 - [wtr](https://github.com/abogoyavlensky/wtr) - a git worktree CLI
   built with let-go and lgx, using tiny-cli for argument parsing.
+
+## Clojure libs compatible with let-go
+
+- [ruuter](https://git.nmm.ee/asko/ruuter)
 
 ## Roadmap (draft)
 

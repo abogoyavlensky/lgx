@@ -970,7 +970,7 @@ set +e
 out="$(cd "$proj_s3" && LGX_HOME="$home_s3" "$LGX" test test/foo.txt 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "test bad-ext: expected exit 1, got $rc"
-assert_contains "$out" "lgx: not a test file (expected .lg or .cljc): test/foo.txt" \
+assert_contains "$out" "lgx: not a test file (expected .lg, .cljc, or .clj): test/foo.txt" \
     "test bad-ext: clear error"
 rm -rf "$proj_s3" "$home_s3"
 
@@ -1226,6 +1226,144 @@ set -e
 assert_contains "$out" "lgx " "no-project: version prints version line"
 
 rm -rf "$no_proj"
+
+# ---------------------------------------------------------------------------
+# Scenarios 57-58 and 61 below run the *.clj file through lg's resolver and
+# require the upstream resolver patch (see docs/issues/letgo-clj-support.md).
+# Gated behind LGX_CLJ_REQUIRE_E2E until that lands in a released lg.
+echo "==> Scenario 57: lgx test discovers *_test.clj (gated on upstream resolver patch)"
+if [[ -n "${LGX_CLJ_REQUIRE_E2E:-}" ]]; then
+    if supports_source_paths; then
+        proj_clj="$(mktemp -d)"
+        home_clj="$(mktemp -d)"
+        cat > "$proj_clj/lgx.edn" <<'EOF'
+{}
+EOF
+        mkdir -p "$proj_clj/test"
+        cat > "$proj_clj/test/foo_test.clj" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-clj
+  (is (= 1 1)))
+EOF
+        set +e
+        out="$(cd "$proj_clj" && LGX_HOME="$home_clj" "$LGX" test 2>&1)"; rc=$?
+        set -e
+        [[ $rc -eq 0 ]] || fail "test .clj discovery: expected exit 0, got $rc (output: $out)"
+        pass "test .clj discovery: exits 0"
+        assert_contains "$out" "test/foo_test.clj" "test .clj discovery: file header printed"
+        assert_contains "$out" "pass-clj" "test .clj discovery: deftest row printed"
+        rm -rf "$proj_clj" "$home_clj"
+    else
+        skip "lgx test requires lg with -source-paths support"
+    fi
+else
+    skip ".clj discovery gated on upstream resolver patch (set LGX_CLJ_REQUIRE_E2E=1 to run)"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 58: lgx test <file> accepts *_test.clj (gated on upstream resolver patch)"
+if [[ -n "${LGX_CLJ_REQUIRE_E2E:-}" ]]; then
+    if supports_source_paths; then
+        proj_cljf="$(mktemp -d)"
+        home_cljf="$(mktemp -d)"
+        cat > "$proj_cljf/lgx.edn" <<'EOF'
+{}
+EOF
+        mkdir -p "$proj_cljf/test"
+        cat > "$proj_cljf/test/single_test.clj" <<'EOF'
+(ns single-test
+  (:require [test :refer [deftest is]]))
+
+(deftest single-clj
+  (is (= 42 42)))
+EOF
+        set +e
+        out="$(cd "$proj_cljf" && LGX_HOME="$home_cljf" \
+                "$LGX" test test/single_test.clj 2>&1)"; rc=$?
+        set -e
+        [[ $rc -eq 0 ]] || fail "test .clj single-file: expected exit 0, got $rc (output: $out)"
+        pass "test .clj single-file: exits 0"
+        assert_contains "$out" "single-clj" "test .clj single-file: deftest row printed"
+        rm -rf "$proj_cljf" "$home_cljf"
+    else
+        skip "lgx test requires lg with -source-paths support"
+    fi
+else
+    skip ".clj single-file gated on upstream resolver patch (set LGX_CLJ_REQUIRE_E2E=1 to run)"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 59: lgx test <file> wrong extension lists .clj"
+proj_ext="$(mktemp -d)"
+home_ext="$(mktemp -d)"
+cat > "$proj_ext/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_ext/test"
+touch "$proj_ext/test/foo.txt"
+set +e
+out="$(cd "$proj_ext" && LGX_HOME="$home_ext" "$LGX" test test/foo.txt 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test .clj ext error: expected exit 1, got $rc"
+assert_contains "$out" ".clj" "test .clj ext error: message mentions .clj"
+rm -rf "$proj_ext" "$home_ext"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 60: lgx run exports LG_READ_CLJ=1 to child lg"
+if supports_source_paths; then
+    proj_env="$(mktemp -d)"
+    home_env="$(mktemp -d)"
+    cat > "$proj_env/lgx.edn" <<'EOF'
+{}
+EOF
+    set +e
+    out="$(cd "$proj_env" && LGX_HOME="$home_env" \
+            "$LGX" run -e '(println (os/getenv "LG_READ_CLJ"))' 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test LG_READ_CLJ: expected exit 0, got $rc (output: $out)"
+    pass "test LG_READ_CLJ: exits 0"
+    # `lg -e` prints the form's value (nil) after the println output. The
+    # first line is what we set.
+    first_line="$(printf '%s\n' "$out" | head -n 1)"
+    assert_eq "$first_line" "1" "test LG_READ_CLJ: child sees value 1"
+    rm -rf "$proj_env" "$home_env"
+else
+    skip "lgx run -e requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 61: .clj library require (gated on upstream resolver patch)"
+if [[ -n "${LGX_CLJ_REQUIRE_E2E:-}" ]]; then
+    if supports_source_paths; then
+        proj_req="$(mktemp -d)"
+        home_req="$(mktemp -d)"
+        cat > "$proj_req/lgx.edn" <<'EOF'
+{:paths ["src"]}
+EOF
+        mkdir -p "$proj_req/src"
+        cat > "$proj_req/src/greeter.clj" <<'EOF'
+(ns greeter)
+(defn greet [n] (str "Hello, " n "!"))
+EOF
+        cat > "$proj_req/main.lg" <<'EOF'
+(require '[greeter])
+(println (greeter/greet "world"))
+EOF
+        set +e
+        out="$(cd "$proj_req" && LGX_HOME="$home_req" \
+                "$LGX" run main.lg 2>&1)"; rc=$?
+        set -e
+        [[ $rc -eq 0 ]] || fail "test .clj require: expected exit 0, got $rc (output: $out)"
+        assert_contains "$out" "Hello, world!" "test .clj require: greeter output printed"
+        rm -rf "$proj_req" "$home_req"
+    else
+        skip ".clj require requires lg with -source-paths support"
+    fi
+else
+    skip ".clj require gated on upstream resolver patch (set LGX_CLJ_REQUIRE_E2E=1 to run)"
+fi
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

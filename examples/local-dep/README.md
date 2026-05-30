@@ -6,5 +6,5 @@ Shows a project using a sibling library through `:local/root`.
 
 ```
 cd project
-lgx run main.lg
+lgx run
 ```

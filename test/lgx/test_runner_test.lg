@@ -33,6 +33,15 @@
   (is (= 'foo-test
          (tr/path->ns "test" (path/join "test" "foo_test.cljc")))))
 
+(deftest path-ns-clj-extension
+  (is (= 'foo-test
+         (tr/path->ns "test" (path/join "test" "foo_test.clj")))))
+
+(deftest path-ns-clj-nested
+  (is (= 'lgx.config-test
+         (tr/path->ns "test"
+                      (path/join "test" "lgx" "config_test.clj")))))
+
 (deftest path-ns-absolute-test-dir
   (is (= 'foo.bar-test
          (tr/path->ns (path/join sep "abs" "test")
@@ -51,6 +60,10 @@
   (let [files (tr/discover-test-files fixture-dir)]
     (is (some #(str/ends-with? % "alpha_test.lg") files))
     (is (some #(str/ends-with? % "beta_test.cljc") files))))
+
+(deftest discover-finds-clj
+  (let [files (tr/discover-test-files fixture-dir)]
+    (is (some #(str/ends-with? % "delta_test.clj") files))))
 
 (deftest discover-ignores-non-test-files
   (let [files (tr/discover-test-files fixture-dir)]
@@ -161,6 +174,15 @@
         test-dir (path/join scratch "test")
         _ (mkdir test-dir)
         file (path/join test-dir "foo_test.cljc")
+        _ (spit file "(ns foo-test)")]
+    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
+    (delete-file file)))
+
+(deftest validate-single-test-file-happy-clj
+  (let [scratch (mktemp! "happy-clj")
+        test-dir (path/join scratch "test")
+        _ (mkdir test-dir)
+        file (path/join test-dir "foo_test.clj")
         _ (spit file "(ns foo-test)")]
     (is (= file (tr/validate-single-test-file! test-dir file scratch)))
     (delete-file file)))

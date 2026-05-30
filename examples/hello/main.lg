@@ -1,3 +1,9 @@
-(ns hello)
+(ns main)
 
-(println "hello from lgx-managed let-go")
+(defn- main []
+  (println "hello from lgx-managed let-go"))
+
+; Top-level forms run during AOT compilation too. Guard so `lg -b` doesn't
+; execute the CLI while bundling.
+(when-not *compiling-aot*
+  (main))

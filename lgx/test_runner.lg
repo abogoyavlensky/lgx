@@ -8,7 +8,8 @@
 
 (defn- test-file? [name]
   (or (str/ends-with? name "_test.lg")
-      (str/ends-with? name "_test.cljc")))
+      (str/ends-with? name "_test.cljc")
+      (str/ends-with? name "_test.clj")))
 
 (defn- walk* [dir]
   (reduce
@@ -40,6 +41,7 @@
   (cond
     (str/ends-with? s ".lg") (subs s 0 (- (count s) 3))
     (str/ends-with? s ".cljc") (subs s 0 (- (count s) 5))
+    (str/ends-with? s ".clj") (subs s 0 (- (count s) 4))
     :else s))
 
 (defn- relative-test-path [test-dir abs-path]
@@ -74,7 +76,8 @@
 
 (defn- has-test-extension? [p]
   (or (str/ends-with? p ".lg")
-      (str/ends-with? p ".cljc")))
+      (str/ends-with? p ".cljc")
+      (str/ends-with? p ".clj")))
 
 (defn validate-single-test-file!
   "Resolve user-path against project-root, stat the file, check its
