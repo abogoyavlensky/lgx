@@ -23,9 +23,6 @@ used in some projects today; see [Projects using lgx](#projects-using-lgx).
 - [`lg`](https://github.com/nooga/let-go) on `PATH` (or pointed to by
   `LGX_LG`). lgx shells out to it.
   Install with `brew install nooga/let-go/let-go`.
-  `.clj` library files require let-go ≥ vN.N (**TODO:** pin once
-  [`letgo-clj-support.md`](./docs/issues/letgo-clj-support.md) ships
-  upstream).
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
 
 ## Installation
