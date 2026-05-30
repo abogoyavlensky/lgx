@@ -196,13 +196,19 @@ they're additive on the lgx side too — but the user-facing payoff
 ## Implementation status (2026-05-30)
 
 All three diffs have landed on the local `read-clj-option` branch in
-`/Users/andrew/Projects/let-go` (12 commits). Verified end-to-end:
+`/Users/andrew/Projects/let-go` (squashed into one commit
+`feat(reader+resolver): support .clj namespaces — LG_READ_CLJ env +
+priority-based reader conditionals`). Verified end-to-end:
 
 - A `.clj` file in `src/x/greet.clj` resolves and runs via
   `(require '[x.greet :as g])`.
-- `LG_READ_CLJ=1` (and the legacy alias `LETGO_READ_CLJ=1`) enables
-  `:clj`-branch matching in reader conditionals.
+- `LG_READ_CLJ=1` enables `:clj`-branch matching in reader
+  conditionals at process startup.
 - `#?(:default Z :lg X)` now selects `X` regardless of branch order.
+- Full lgx e2e suite (`tests/e2e.sh`) passes with
+  `LGX_LG=/path/to/let-go/lg LGX_CLJ_REQUIRE_E2E=1` — 143 assertions,
+  including the previously-gated scenarios 57 (test discovery), 58
+  (single-file test), and 61 (library `require`).
 
 ### What grew beyond the three-diff scope
 
@@ -222,26 +228,6 @@ Diff 1 (resolver) was split into two passes — `.lg`/`.cljc` across all
 search dirs first, only then `.clj` across all dirs — so an earlier
 dir's `.clj` can never outrank a later dir's `.lg`/`.cljc`.
 
-### Branch commits (let-go)
-
-```
-e7735e0 fix(reader): surface leftover content after reparse + skip legacy #^
-59d96a9 fix(reader): treat ; line comments as whitespace in namespaced-map peek
-ba75a55 fix(reader): skip namespaced map literals (#:foo{…}, #::foo{…})
-cc9705c fix(reader): recurse into inner forms when capturing delimited branch
-1e79d84 fix(reader): preserve whitespace between prefix macros and form on capture
-af63677 fix(reader): insert merged conditional-branch tokens at correct position
-995a3ac fix(reader): preserve source positions and tokens when reparsing branch
-b10b221 fix: codex round-3 — tagged literals, escaped delimiters, resolver pass order
-0bf09d8 fix(reader): full reader-macro coverage in conditional skip/capture
-8db1354 fix(reader): skip-then-reparse winner for priority conditionals
-732a7d2 feat(reader): wire LG_READ_CLJ env var + priority-based conditional matching
-08cf94f feat(resolver): support .clj namespace files
-```
-
-The three feat commits (`08cf94f`, `732a7d2`, `8db1354`) are the
-"three small diffs" of the original plan. The remaining nine fix
-commits address corner cases surfaced by an 11-round codex-CLI review
-loop (only the last review came back clean). Tests for every fix live
-in `test/reader_conditional_test.lg` and
-`pkg/compiler/reader_test.go`; `make test` is green.
+Files touched: `pkg/compiler/reader.go`, `pkg/compiler/reader_test.go`,
+`pkg/resolver/resolver.go`, `test/reader_conditional_test.lg`. `make
+test` is green.

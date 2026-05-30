@@ -85,7 +85,7 @@
       (os/exit 1))
     main-script))
 
-(defn- index-of
+(defn- position
   "Index of the first occurrence of x in v, or -1 if absent."
   [v x]
   (loop [i 0
@@ -113,7 +113,7 @@
   (let [project (config/find-project!)
         {:keys [results paths]} (project-basis project)
         main-script (config/main project)
-        dd (index-of forward-args "--")
+        dd (position forward-args "--")
         args (cond
                (and (empty? forward-args) main-script)
                ;; Always emit a trailing `--` so a script can use the
