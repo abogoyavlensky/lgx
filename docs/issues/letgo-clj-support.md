@@ -192,3 +192,56 @@ they're additive on the lgx side too — but the user-facing payoff
 - [`pkg/compiler/eval.go`](https://github.com/nooga/let-go/blob/main/pkg/compiler/eval.go)
   (`set-read-clj!` runtime function — for context; this issue doesn't
   change it)
+
+## Implementation status (2026-05-30)
+
+All three diffs have landed on the local `read-clj-option` branch in
+`/Users/andrew/Projects/let-go` (12 commits). Verified end-to-end:
+
+- A `.clj` file in `src/x/greet.clj` resolves and runs via
+  `(require '[x.greet :as g])`.
+- `LG_READ_CLJ=1` (and the legacy alias `LETGO_READ_CLJ=1`) enables
+  `:clj`-branch matching in reader conditionals.
+- `#?(:default Z :lg X)` now selects `X` regardless of branch order.
+
+### What grew beyond the three-diff scope
+
+Diff 3 (priority-based matching) required replacing first-match-wins
+with skip-every-branch-then-reparse-the-winner so lower-priority
+branches can't error or pollute reader state. That capture-then-reparse
+machinery had to mirror most of let-go's reader dispatch table —
+prefix macros, hash-dispatch (`#'`, `#_`, `#?`, `#"`, `##`, `#^`,
+`#:foo{…}`), tagged literals (`#uuid`), char/string literals — and
+preserve source positions, tokens (for the REPL highlighter), and the
+`%n` counter for enclosing `#()`. A defensive
+`assertSubReaderConsumed` surfaces any case where the skipper's notion
+of "one form" diverges from the reader's, instead of silently dropping
+trailing content.
+
+Diff 1 (resolver) was split into two passes — `.lg`/`.cljc` across all
+search dirs first, only then `.clj` across all dirs — so an earlier
+dir's `.clj` can never outrank a later dir's `.lg`/`.cljc`.
+
+### Branch commits (let-go)
+
+```
+e7735e0 fix(reader): surface leftover content after reparse + skip legacy #^
+59d96a9 fix(reader): treat ; line comments as whitespace in namespaced-map peek
+ba75a55 fix(reader): skip namespaced map literals (#:foo{…}, #::foo{…})
+cc9705c fix(reader): recurse into inner forms when capturing delimited branch
+1e79d84 fix(reader): preserve whitespace between prefix macros and form on capture
+af63677 fix(reader): insert merged conditional-branch tokens at correct position
+995a3ac fix(reader): preserve source positions and tokens when reparsing branch
+b10b221 fix: codex round-3 — tagged literals, escaped delimiters, resolver pass order
+0bf09d8 fix(reader): full reader-macro coverage in conditional skip/capture
+8db1354 fix(reader): skip-then-reparse winner for priority conditionals
+732a7d2 feat(reader): wire LG_READ_CLJ env var + priority-based conditional matching
+08cf94f feat(resolver): support .clj namespace files
+```
+
+The three feat commits (`08cf94f`, `732a7d2`, `8db1354`) are the
+"three small diffs" of the original plan. The remaining nine fix
+commits address corner cases surfaced by an 11-round codex-CLI review
+loop (only the last review came back clean). Tests for every fix live
+in `test/reader_conditional_test.lg` and
+`pkg/compiler/reader_test.go`; `make test` is green.
