@@ -45,6 +45,11 @@ JVM-only body. Hardest of the four - possible directions:
 
 ## 2. Resolver: `.clj` extension not searched
 
+> **Superseded by** [`letgo-clj-support.md`](./letgo-clj-support.md), which
+> covers the resolver change plus the `LG_READ_CLJ` env-var wiring and the
+> reader-conditional priority fix needed to make `.clj` libraries actually
+> usable end-to-end. The note below is kept for history.
+
 **Repro:** [weavejester/hiccup](https://github.com/weavejester/hiccup) - all
 source files end in `.clj`, none in `.cljc`.
 
