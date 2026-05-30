@@ -970,7 +970,7 @@ set +e
 out="$(cd "$proj_s3" && LGX_HOME="$home_s3" "$LGX" test test/foo.txt 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "test bad-ext: expected exit 1, got $rc"
-assert_contains "$out" "lgx: not a test file (expected .lg or .cljc): test/foo.txt" \
+assert_contains "$out" "lgx: not a test file (expected .lg, .cljc, or .clj): test/foo.txt" \
     "test bad-ext: clear error"
 rm -rf "$proj_s3" "$home_s3"
 
