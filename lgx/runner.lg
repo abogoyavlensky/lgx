@@ -26,6 +26,10 @@
                           forward-args))]
     (when verbose?
       (write! *err* (str "+ " bin " " (str/join " " args) "\n")))
+    ;; lg's resolver doesn't search .clj by default and its reader leaves
+    ;; #?(:clj ...) branches unmatched unless this is set. See
+    ;; docs/issues/letgo-clj-support.md.
+    (os/setenv "LG_READ_CLJ" "1")
     (let [r (apply os/sh bin args)]
       ;; Replay captured output. Imperfect substitute for inherited stdio.
       (when (seq (:out r)) (write! *out* (:out r)))
