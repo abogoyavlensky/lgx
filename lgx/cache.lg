@@ -60,6 +60,28 @@
                        :stderr (:err r)})))
     r))
 
+;; Name of the per-worktree memo recording the commit sha a coord resolved to.
+;; Written while .git still exists, so ensure-lib! can report the sha offline
+;; after history is dropped. lg's resolver only loads .lg/.cljc, so a stray
+;; dotfile in the source tree is inert. Underpins lgx.lock (see lgx.lg).
+(def ^:private sha-memo-name ".lgx-sha")
+
+(defn- capture-sha! [tmp]
+  ;; Resolve HEAD locally (no network) and memoize it in the worktree.
+  (let [r (git! ["-C" tmp "rev-parse" "HEAD"]
+                (str "git rev-parse failed in " tmp))
+        sha (str/trim (:out r))]
+    (spit (path/join tmp sha-memo-name) sha)
+    sha))
+
+(defn read-sha-memo
+  "Return the commit sha recorded for a cached coord dir, or nil if the memo
+   is absent (e.g. a dir cloned by an older lgx)."
+  [dir]
+  (let [memo (path/join dir sha-memo-name)]
+    (when (file-exists? memo)
+      (str/trim (slurp memo)))))
+
 (defn finalize-worktree! [tmp dest]
   ;; Drop the .git dir - we don't need history once the ref is checked out.
   (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
@@ -75,7 +97,7 @@
                        :stderr (:err r)})))))
 
 (defn clone-sha! [url sha dest]
-  ;; Use a tmp dir as parent for atomicity, then rename.
+  ;; Use a tmp dir as parent for atomicity, then rename. Returns the sha.
   (let [parent (path/parent dest)
         tmp (str dest ".tmp." (str (rand-int 1000000)))]
     (mkdir parent)
@@ -83,16 +105,21 @@
           (str "git clone failed: " url))
     (git! ["-C" tmp "checkout" "--quiet" sha]
           (str "git checkout failed: " sha))
-    (finalize-worktree! tmp dest)))
+    (capture-sha! tmp)
+    (finalize-worktree! tmp dest)
+    sha))
 
 (defn- clone-tag! [url tag dest]
-  ;; Use a tmp dir as parent for atomicity, then rename.
+  ;; Use a tmp dir as parent for atomicity, then rename. Returns the commit sha
+  ;; the tag resolved to (captured locally; no extra network round-trip).
   (let [parent (path/parent dest)
         tmp (str dest ".tmp." (str (rand-int 1000000)))]
     (mkdir parent)
     (git! ["clone" "--quiet" "--branch" tag "--depth" "1" url tmp]
           (str "git clone failed: " url))
-    (finalize-worktree! tmp dest)))
+    (let [sha (capture-sha! tmp)]
+      (finalize-worktree! tmp dest)
+      sha)))
 
 ;; ---------------------------------------------------------------------------
 ;; Source path resolution
@@ -126,7 +153,11 @@
 
 (defn ensure-lib!
   "Fetch the coord into the gitlibs cache if missing. Returns
-   {:path <local path> :installed? <true if this call cloned>}."
+   {:path <local path> :installed? <true if this call cloned>
+    :sha <resolved commit sha, or nil for :local/root and pre-memo caches>}.
+   The cache key is unchanged (sha coords by sha, tag coords by sanitized tag);
+   :sha is captured locally so lgx.lock can pin tags to commits without ever
+   resolving over the network at run time."
   [coord project]
   (let [root (:deps/root coord)
         local (:local/root coord)]
@@ -137,16 +168,21 @@
                           {:local local
                            :resolved dir})))
         {:path (resolve-source-path dir root local nil)
-         :installed? false})
+         :installed? false
+         :sha nil})
       (let [url (:git/url coord)
             sha (:git/sha coord)
             tag (:git/tag coord)
             ref (or sha (tag->ref tag))
             dir (coord-dir url ref)
-            installed? (not (file-exists? dir))]
-        (when installed?
-          (if sha
-            (clone-sha! url sha dir)
-            (clone-tag! url tag dir)))
+            installed? (not (file-exists? dir))
+            resolved-sha (if installed?
+                           (if sha
+                             (clone-sha! url sha dir)
+                             (clone-tag! url tag dir))
+                           ;; Cached: a sha coord is its own sha; a tag coord
+                           ;; reads the memo (nil for a pre-memo cache).
+                           (or sha (read-sha-memo dir)))]
         {:path (resolve-source-path dir root url ref)
-         :installed? installed?}))))
+         :installed? installed?
+         :sha resolved-sha}))))

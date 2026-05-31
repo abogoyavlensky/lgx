@@ -3,6 +3,7 @@
 
 (ns lgx.config-test
   (:require [lgx.config :as config]
+            [string :as str]
             [test :refer [deftest is]]))
 
 (defn- threw? [f]
@@ -366,3 +367,53 @@
   (is (= :threw (threw? #(config/validate-config!
                            {:tasks {:test {:do [{:sh "echo hi"}]}}})))))
 
+;; ---------------------------------------------------------------------------
+;; lgx.lock read/write
+;; ---------------------------------------------------------------------------
+
+(deftest read-lock-returns-nil-when-absent
+  (let [dir (str "/tmp/lgx-lock-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (is (nil? (config/read-lock dir)))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest write-then-read-lock-round-trips
+  (let [dir (str "/tmp/lgx-lock-test-" (rand-int 100000000))
+        locked {'foo/bar {:git/url "https://github.com/foo/bar" :git/sha "abc123"}
+                'my/lib {:local/root "../lib"}}]
+    (mkdir dir)
+    (config/write-lock! dir locked)
+    (is (= locked (config/read-lock dir)))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest write-lock-sorts-libs-for-stable-diff
+  (let [dir (str "/tmp/lgx-lock-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (config/write-lock! dir {'zzz/last {:git/url "https://github.com/z/last" :git/sha "9"}
+                             'aaa/first {:git/url "https://github.com/a/first" :git/sha "1"}})
+    (let [content (slurp (str dir "/lgx.lock"))]
+      ;; aaa/first must be written before zzz/last
+      (is (< (str/index-of content "aaa/first")
+             (str/index-of content "zzz/last"))))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest read-lock-validates-coords
+  (let [dir (str "/tmp/lgx-lock-test-" (rand-int 100000000))]
+    (mkdir dir)
+    ;; a coord mixing :local/root with :git/* is invalid and must throw on read
+    (spit (str dir "/lgx.lock")
+          "{:deps {bad/coord {:local/root \"x\" :git/url \"y\" :git/sha \"z\"}}}")
+    (is (= :threw (threw? #(config/read-lock dir))))
+    (os/sh "rm" "-rf" dir)))
+
+
+(deftest write-lock-uses-canonical-key-order
+  ;; :git/url must precede :git/sha in the serialized coord, regardless of the
+  ;; in-memory map order, so the lock diff is stable across machines.
+  (let [dir (str "/tmp/lgx-lock-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (config/write-lock! dir {'foo/bar {:git/sha "s" :git/url "u" :deps/root "src"}})
+    (let [content (slurp (str dir "/lgx.lock"))]
+      (is (< (str/index-of content ":git/url")
+             (str/index-of content ":git/sha"))))
+    (os/sh "rm" "-rf" dir)))

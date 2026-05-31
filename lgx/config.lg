@@ -269,3 +269,48 @@
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (or (:targets cfg) {})))
+
+;; ---------------------------------------------------------------------------
+;; Lock file (lgx.lock)
+;;
+;; A generated record of the fully-resolved dependency set: every git coord
+;; pinned to a commit sha (tags resolved). `lgx install` writes it; run/build/
+;; test consume it when present, so a moved tag can't drift the resolved code
+;; between machines or over time. Commit it for reproducible installs; delete
+;; it to fall back to resolving lgx.edn coords as written.
+;; ---------------------------------------------------------------------------
+
+(def lock-name "lgx.lock")
+
+(defn read-lock
+  "Return the locked {lib coord} map from lgx.lock, or nil when absent. Locked
+   coords are validated exactly like lgx.edn coords, so a corrupt lock fails
+   loudly instead of silently mis-resolving."
+  [project]
+  (let [p (path/join project lock-name)]
+    (when (file-exists? p)
+      (let [deps (or (:deps (edn/read-string (slurp p))) {})]
+        (doseq [[lib c] deps]
+          (validate-coord! lib c))
+        deps))))
+
+;; Fixed key order for serialized coords, so a coord always renders the same
+;; way regardless of map iteration order (which is hash- not insertion-ordered)
+;; — otherwise lgx.lock could diff spuriously between machines or lg versions.
+(def ^:private lock-key-order [:git/url :git/sha :git/tag :local/root :deps/root])
+
+(defn- coord->edn [coord]
+  (let [pairs (->> lock-key-order
+                   (filter #(contains? coord %))
+                   (map (fn [k] (str (pr-str k) " " (pr-str (get coord k))))))]
+    (str "{" (str/join " " pairs) "}")))
+
+(defn write-lock!
+  "Write {lib coord} pairs to lgx.lock — one lib per line, sorted by lib name,
+   each coord's keys in a fixed order, for a stable, review-friendly diff."
+  [project locked]
+  (let [entries (sort-by (fn [[lib _]] (str lib)) (seq locked))
+        lines (map (fn [[lib coord]] (str (pr-str lib) " " (coord->edn coord)))
+                   entries)]
+    (spit (path/join project lock-name)
+          (str "{:deps\n {" (str/join "\n  " lines) "}}\n"))))

@@ -30,11 +30,35 @@
 
 (defn- ensure-all! [project coords]
   (mapv (fn [[lib c]]
-          (let [{:keys [path installed?]} (cache/ensure-lib! c project)]
+          (let [{:keys [path installed? sha]} (cache/ensure-lib! c project)]
             {:lib lib
              :path path
-             :installed? installed?}))
+             :installed? installed?
+             :sha sha}))
         coords))
+
+(defn- lock-entry
+  "The fully-resolved coord to record in lgx.lock: a git coord pinned to its
+   commit sha (preferring the freshly-resolved sha, falling back to a sha
+   written in lgx.edn, and finally to the tag when no sha is known yet -- e.g.
+   a cache cloned by an older lgx without a sha memo). Local coords pass
+   through. :deps/root is preserved."
+  [coord sha]
+  (let [base (if-let [root (:deps/root coord)] {:deps/root root} {})]
+    (cond
+      (:local/root coord) (assoc base :local/root (:local/root coord))
+      sha                 (assoc base :git/url (:git/url coord) :git/sha sha)
+      (:git/sha coord)    (assoc base :git/url (:git/url coord) :git/sha (:git/sha coord))
+      :else               (assoc base :git/url (:git/url coord) :git/tag (:git/tag coord)))))
+
+(defn- build-lock
+  "Pair each [lib coord] from lgx.edn with its resolved sha into a {lib coord}
+   lock map."
+  [coords results]
+  (into {}
+        (map (fn [[lib coord] result]
+               [lib (lock-entry coord (:sha result))])
+             coords results)))
 
 (defn- print-installs! [results]
   (let [new-installs (filter :installed? results)]
@@ -45,14 +69,17 @@
       (println "done"))))
 
 (defn- cmd-install []
+  ;; install resolves lgx.edn coords as written, then (re)writes lgx.lock with
+  ;; the resolved shas — always, so emptying :deps clears the lock instead of
+  ;; leaving a stale entry that run/build/test would keep resolving.
   (let [project (config/find-project!)
-        coords (config/coords project)]
-    (if (empty? coords)
-      (println "no deps in lgx.edn")
-      (let [results (ensure-all! project coords)]
-        (if (some :installed? results)
-          (print-installs! results)
-          (println "all deps up to date"))))))
+        coords (config/coords project)
+        results (when (seq coords) (ensure-all! project coords))]
+    (config/write-lock! project (build-lock coords (or results [])))
+    (cond
+      (empty? coords)            (println "no deps in lgx.edn")
+      (some :installed? results) (print-installs! results)
+      :else                      (println "all deps up to date"))))
 
 (defn- cmd-version []
   (println (str "lgx " version)))
@@ -65,12 +92,30 @@
             abs))
         paths))
 
+(defn- locked-coords
+  "Override each lgx.edn [lib coord] with the locked coord when lgx.lock pins
+   it, so a tag resolves to the recorded commit. A lib missing from the lock
+   (newly added, not yet installed) falls back to its lgx.edn coord. Warns once
+   when the lock's lib set diverges from lgx.edn's, since that means the lock is
+   stale - run `lgx install` to refresh it."
+  [edn-coords lock]
+  (if (nil? lock)
+    edn-coords
+    (let [edn-libs (set (map first edn-coords))
+          lock-libs (set (keys lock))]
+      (when (not= edn-libs lock-libs)
+        (write! *err*
+                (str "warning: lgx.lock is out of sync with lgx.edn; "
+                     "run `lgx install` to refresh it\n")))
+      (mapv (fn [[lib c]] [lib (get lock lib c)]) edn-coords))))
+
 (defn- project-basis
   "Resolve deps and project paths for the active project. Returns a map
    with the project root, the install results, and the joined source path
-   vector used for `-source-paths`."
+   vector used for `-source-paths`. When lgx.lock is present its pinned shas
+   are used in place of lgx.edn coords (reproducible, offline)."
   [project]
-  (let [coords (config/coords project)
+  (let [coords (locked-coords (config/coords project) (config/read-lock project))
         results (ensure-all! project coords)
         own-paths (resolve-project-paths project (config/paths project))
         paths (vec (concat own-paths (mapv :path results)))]

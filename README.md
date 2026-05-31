@@ -208,6 +208,39 @@ Each coord uses either a git source or `:local/root`, never both.
 > Transitive deps are not yet followed: lgx resolves only the coords
 > listed in your own `lgx.edn`.
 
+### Lock file (`lgx.lock`)
+
+`lgx install` writes a generated `lgx.lock` at the project root recording
+the fully-resolved dependency set — every git coord pinned to the commit
+sha it resolved to, with `:git/tag` coords resolved to their commit:
+
+```edn
+{:deps
+ {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
+                          :git/sha "0123456789abcdef0123456789abcdef01234567"}
+  my/lib                 {:local/root "../my-lib"}}}
+```
+
+When `lgx.lock` is present, `lgx run`/`build`/`test` resolve from the
+locked shas instead of the `lgx.edn` coords, so a tag that moves upstream
+can't change the code you run between machines or over time. The commit
+sha is captured locally during the clone (`git rev-parse`), so resolution
+stays fully offline — no network round-trip at run time.
+
+- **Commit `lgx.lock`** for reproducible installs; delete it to fall back
+  to resolving `lgx.edn` coords as written.
+- After editing `:deps`, run `lgx install` to refresh the lock. `run`,
+  `build`, and `test` warn when the lock's dependency set has drifted from
+  `lgx.edn`.
+- The cache layout is unchanged; `:git/tag` coords still cache under the
+  tag name. The lock just adds sha-pinned *resolution*.
+
+> [!NOTE]
+> The lock pins **dependencies**, not the **toolchain**. Two machines with
+> the same `lgx.lock` but different `lg` versions can still differ. lgx has
+> no `lg`-version pinning of its own yet (use [mise](#with-mise) to pin
+> `lg`); recording the `lg` version in the lock is future work.
+
 ### Build target (`:targets`)
 
 ```edn

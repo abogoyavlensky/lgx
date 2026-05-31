@@ -234,11 +234,11 @@ out="$(cd "$nested" && LGX_HOME="$home" "$LGX" install)"
 assert_eq "$out" "all deps up to date" "walk-up finds lgx.edn"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 10: install via :git/tag caches by tag name"
+echo "==> Scenario 10: install via :git/tag caches by tag name and writes lgx.lock"
 home_tag="$(mktemp -d)"
 bare_tag="$home_tag/_fixtures/test-repo.git"
 mkdir -p "$(dirname "$bare_tag")"
-make_bare_repo "$bare_tag" >/dev/null
+tag_sha="$(make_bare_repo "$bare_tag")"
 proj_tag="$(mktemp -d)"
 make_project_tag "$proj_tag" "file://$bare_tag" "v0.1.0"
 
@@ -247,7 +247,16 @@ assert_contains "$out" "installing 1 dep(s)..." "tag: install header"
 assert_contains "$out" "test/lib ->" "tag: per-lib line"
 [[ -d "$home_tag/gitlibs/_local/_/test-repo/v0.1.0" ]] \
     || fail "tag: expected cache dir at <home>/gitlibs/_local/_/test-repo/v0.1.0"
-pass "tag: cache dir uses tag name"
+pass "tag: cache dir uses tag name (layout unchanged)"
+
+# The clone records the resolved commit sha in a memo, read offline thereafter.
+assert_eq "$(cat "$home_tag/gitlibs/_local/_/test-repo/v0.1.0/.lgx-sha")" "$tag_sha" \
+    "tag: .lgx-sha memo records the resolved commit"
+
+# install writes lgx.lock pinning the tag to its commit sha.
+[[ -f "$proj_tag/lgx.lock" ]] || fail "tag: expected lgx.lock to be written"
+assert_contains "$(cat "$proj_tag/lgx.lock")" "$tag_sha" "tag: lgx.lock pins resolved sha"
+assert_contains "$(cat "$proj_tag/lgx.lock")" ":git/sha" "tag: lgx.lock uses :git/sha"
 
 fake_path="$home_tag/no-git-bin"
 mkdir -p "$fake_path"
@@ -259,6 +268,14 @@ EOF
 chmod +x "$fake_path/git"
 out="$(cd "$proj_tag" && PATH="$fake_path" LGX_HOME="$home_tag" "$LGX" install)"
 assert_eq "$out" "all deps up to date" "tag: cached install does not invoke git"
+
+# With lgx.lock present, run resolves via the locked sha -> a sha-named cache
+# entry appears (reproducible, pinned). Needs real git (cold sha clone).
+out="$(cd "$proj_tag" && LGX_HOME="$home_tag" "$LGX" run -e '(println :locked-ok)' 2>&1)"
+assert_contains "$out" ":locked-ok" "tag: run with lock executes"
+[[ -d "$home_tag/gitlibs/_local/_/test-repo/$tag_sha" ]] \
+    || fail "tag: expected sha-pinned cache dir from lockfile resolution"
+pass "tag: lockfile resolves to sha-named cache"
 
 rm -rf "$proj_tag" "$home_tag"
 
@@ -1364,6 +1381,34 @@ EOF
 else
     skip ".clj require gated on upstream resolver patch (set LGX_CLJ_REQUIRE_E2E=1 to run)"
 fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 62: lgx.lock drift — a dep added after install warns and falls back"
+droot="$(mktemp -d)"
+home_d="$(mktemp -d)"
+# two local libs
+mkdir -p "$droot/libA/src/a"; printf '(ns a.core)\n(defn v [] :A)\n' > "$droot/libA/src/a/core.lg"
+printf '{:deps {}}\n' > "$droot/libA/lgx.edn"
+mkdir -p "$droot/libB/src/b"; printf '(ns b.core)\n(defn v [] :B)\n' > "$droot/libB/src/b/core.lg"
+printf '{:deps {}}\n' > "$droot/libB/lgx.edn"
+mkdir -p "$droot/proj"
+printf '{:deps {dev/libA {:local/root "../libA"}}}\n' > "$droot/proj/lgx.edn"
+
+# install with only libA -> lock pins libA
+out="$(cd "$droot/proj" && LGX_HOME="$home_d" "$LGX" install 2>&1)"
+assert_contains "$(cat "$droot/proj/lgx.lock")" "dev/libA" "drift: lock has libA after install"
+
+# now add libB to lgx.edn WITHOUT re-installing; run must warn + still resolve both
+cat > "$droot/proj/lgx.edn" <<EOF
+{:deps {dev/libA {:local/root "../libA"}
+        dev/libB {:local/root "../libB"}}}
+EOF
+printf '(require (quote a.core) (quote b.core))\n(println [(a.core/v) (b.core/v)])\n' \
+    > "$droot/proj/main.lg"
+out="$(cd "$droot/proj" && LGX_HOME="$home_d" "$LGX" run main.lg 2>&1)"
+assert_contains "$out" "out of sync" "drift: run warns lock is stale"
+assert_contains "$out" "[:A :B]" "drift: newly-added dep falls back to lgx.edn and resolves"
+rm -rf "$droot" "$home_d"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

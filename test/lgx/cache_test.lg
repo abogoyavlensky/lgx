@@ -66,7 +66,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :sha sha}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha}
                               "/tmp/project")))
@@ -81,12 +82,16 @@
     (os/setenv "LGX_HOME" home)
     (mkdir dir)
     (is (= {:path dir
-            :installed? false}
+            :installed? false
+            :sha sha}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha}
                               "/tmp/project")))
     (os/sh "rm" "-rf" home)))
 
+;; Tag coords still cache under the sanitized tag name (unchanged layout, so
+;; existing caches keep working). A hand-made dir has no .lgx-sha memo, so the
+;; resolved sha is nil until a real clone writes one.
 (deftest ensure-lib-caches-tag-by-name
   (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
         tag "v1.0.0"
@@ -96,7 +101,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :sha nil}
            (cache/ensure-lib! {:git/url url
                                :git/tag tag}
                               "/tmp/project")))
@@ -110,7 +116,28 @@
     (os/setenv "LGX_HOME" home)
     (mkdir dir)
     (is (= {:path dir
-            :installed? false}
+            :installed? false
+            :sha nil}
+           (cache/ensure-lib! {:git/url url
+                               :git/tag tag}
+                              "/tmp/project")))
+    (os/sh "rm" "-rf" home)))
+
+;; A tag cache dir carrying a .lgx-sha memo reports that sha (offline) - this
+;; is what a real clone leaves behind, and what lgx.lock pins.
+(deftest ensure-lib-reads-tag-sha-memo
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        tag "v2.0.0"
+        sha "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        url "file:///tmp/lgx-memo-repo"
+        dir (str home "/gitlibs/_local/_/lgx-memo-repo/" tag)
+        src-dir (str dir "/src")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir src-dir)
+    (spit (str dir "/.lgx-sha") sha)
+    (is (= {:path src-dir
+            :installed? false
+            :sha sha}
            (cache/ensure-lib! {:git/url url
                                :git/tag tag}
                               "/tmp/project")))
@@ -125,7 +152,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir root-dir)
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :sha sha}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
                                :deps/root "src/main/clojure"}
@@ -154,13 +182,15 @@
     (os/setenv "LGX_HOME" home)
     (mkdir root-dir)
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :sha sha}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
                                :deps/root "lib/core/"}
                               "/tmp/project")))
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :sha sha}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
                                :deps/root "lib/core"}
@@ -172,7 +202,8 @@
         src-dir (str project "/lib/src")]
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :sha nil}
            (cache/ensure-lib! {:local/root "lib"} project)))
     (os/sh "rm" "-rf" project)))
 
@@ -181,7 +212,8 @@
         src-dir (str dir "/src")]
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :sha nil}
            (cache/ensure-lib! {:local/root dir} "/tmp/project")))
     (os/sh "rm" "-rf" dir)))
 
@@ -190,7 +222,8 @@
         root-dir (str project "/lib/src/main")]
     (mkdir root-dir)
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :sha nil}
            (cache/ensure-lib! {:local/root "lib"
                                :deps/root "src/main"}
                               project)))
@@ -215,7 +248,8 @@
         dir (str project "/lib")]
     (mkdir dir)
     (is (= {:path dir
-            :installed? false}
+            :installed? false
+            :sha nil}
            (cache/ensure-lib! {:local/root "lib"} project)))
     (os/sh "rm" "-rf" project)))
 
