@@ -1365,5 +1365,88 @@ else
     skip ".clj require gated on upstream resolver patch (set LGX_CLJ_REQUIRE_E2E=1 to run)"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 62: transitive deps are followed, nested relative paths resolve against the dep"
+troot="$(mktemp -d)"
+home_tr="$(mktemp -d)"
+# leaf libB, nested next to libA (NOT next to the project)
+mkdir -p "$troot/nested/libB/src/libb"
+printf '(ns libb.core)\n(defn b [] :B)\n' > "$troot/nested/libB/src/libb/core.lg"
+printf '{:deps {}}\n' > "$troot/nested/libB/lgx.edn"
+# libA (nested) depends on libB via a path relative to libA itself
+mkdir -p "$troot/nested/libA/src/liba"
+printf '(ns liba.core (:require [libb.core :as b]))\n(defn a [] [:A (b/b)])\n' \
+    > "$troot/nested/libA/src/liba/core.lg"
+printf '{:deps {dev/libB {:local/root "../libB"}}}\n' > "$troot/nested/libA/lgx.edn"
+# project depends on libA ONLY (libB is transitive). "../libB" must resolve
+# relative to libA (-> nested/libB), not relative to the project root.
+mkdir -p "$troot/proj"
+printf '{:deps {dev/libA {:local/root "../nested/libA"}}}\n' > "$troot/proj/lgx.edn"
+printf '(require (quote liba.core))\n(println (liba.core/a))\n' > "$troot/proj/main.lg"
+
+out="$(cd "$troot/proj" && LGX_HOME="$home_tr" "$LGX" run main.lg 2>&1)"
+# liba.core can only require libb.core if the transitive dep resolved correctly
+assert_contains "$out" "[:A :B]" "transitive: nested libB resolved relative to libA"
+rm -rf "$troot" "$home_tr"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 63: transitive conflict resolves first-wins with a warning"
+croot="$(mktemp -d)"
+home_c="$(mktemp -d)"
+# two versions of the same lib name `dev/dup`
+mkdir -p "$croot/dupRoot/src/dup"
+printf '(ns dup.core)\n(defn which [] :root)\n' > "$croot/dupRoot/src/dup/core.lg"
+printf '{:deps {}}\n' > "$croot/dupRoot/lgx.edn"
+mkdir -p "$croot/dupDeep/src/dup"
+printf '(ns dup.core)\n(defn which [] :deep)\n' > "$croot/dupDeep/src/dup/core.lg"
+printf '{:deps {}}\n' > "$croot/dupDeep/lgx.edn"
+# libMid depends on the DEEP dup
+mkdir -p "$croot/libMid/src/mid"
+printf '(ns mid.core)\n' > "$croot/libMid/src/mid/core.lg"
+printf '{:deps {dev/dup {:local/root "../dupDeep"}}}\n' > "$croot/libMid/lgx.edn"
+# project lists dev/dup (root version) FIRST, then libMid (pulls deep dup)
+mkdir -p "$croot/proj"
+cat > "$croot/proj/lgx.edn" <<EOF
+{:deps {dev/dup {:local/root "../dupRoot"}
+        dev/libMid {:local/root "../libMid"}}}
+EOF
+printf '(require (quote dup.core))\n(println (dup.core/which))\n' > "$croot/proj/main.lg"
+
+out="$(cd "$croot/proj" && LGX_HOME="$home_c" "$LGX" run main.lg 2>&1)"
+# project's dup (root) is shallower, so first-wins keeps :root
+assert_contains "$out" ":root" "conflict: shallower coord wins (first-wins)"
+assert_contains "$out" "already resolved as" "conflict: prints a divergence warning"
+rm -rf "$croot" "$home_c"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 64: a dependency cycle terminates, and a repeated identical coord doesn't warn"
+yroot="$(mktemp -d)"
+home_y="$(mktemp -d)"
+# cycA and cycB depend on EACH OTHER (deps cycle), but their code does not
+# require circularly — so this exercises lgx's cycle handling, not let-go's.
+mkdir -p "$yroot/cycA/src/cyca"
+printf '(ns cyca.core)\n(defn v [] :A)\n' > "$yroot/cycA/src/cyca/core.lg"
+printf '{:deps {dev/cycB {:local/root "../cycB"}}}\n' > "$yroot/cycA/lgx.edn"
+mkdir -p "$yroot/cycB/src/cycb"
+printf '(ns cycb.core)\n(defn v [] :B)\n' > "$yroot/cycB/src/cycb/core.lg"
+printf '{:deps {dev/cycA {:local/root "../cycA"}}}\n' > "$yroot/cycB/lgx.edn"
+mkdir -p "$yroot/proj"
+printf '{:deps {dev/cycA {:local/root "../cycA"}}}\n' > "$yroot/proj/lgx.edn"
+printf '(require (quote cyca.core) (quote cycb.core))\n(println [(cyca.core/v) (cycb.core/v)])\n' \
+    > "$yroot/proj/main.lg"
+
+# The walk re-reaches cycA via cycB with the SAME coord: it must stop (the seen
+# set terminates the cycle) and must NOT warn (identical coord = silent dedup).
+out="$(cd "$yroot/proj" && LGX_HOME="$home_y" timeout 30 "$LGX" run main.lg 2>&1)"
+rc=$?
+[[ $rc -ne 124 ]] || fail "cycle: lgx run timed out (cycle did not terminate)"
+assert_contains "$out" "[:A :B]" "cycle: both cyclic deps resolved, walk terminated"
+if printf '%s' "$out" | grep -q "already resolved as"; then
+    fail "cycle: identical repeated coord must not warn (silent dedup)"
+else
+    pass "cycle: identical repeated coord is deduped silently"
+fi
+rm -rf "$yroot" "$home_y"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

@@ -28,13 +28,49 @@
        "Global flags:\n"
        "  --verbose                    Print the lg invocation before running (run/build/test/user tasks)\n"))
 
-(defn- ensure-all! [project coords]
-  (mapv (fn [[lib c]]
-          (let [{:keys [path installed?]} (cache/ensure-lib! c project)]
-            {:lib lib
-             :path path
-             :installed? installed?}))
-        coords))
+(defn- coord-label [c]
+  (cond
+    (:local/root c) (str "local:" (:local/root c))
+    (:git/sha c)    (str (:git/url c) "@" (:git/sha c))
+    (:git/tag c)    (str (:git/url c) "#" (:git/tag c))
+    :else           (str c)))
+
+(defn- ensure-all!
+  "Resolve the project's coords and, transitively, the coords each fetched dep
+   declares in its own lgx.edn. Breadth-first from the project root, so a coord
+   listed closer to the root wins on conflicts (first-wins): the first coord
+   seen for a lib name is kept, and a later, differing coord for the same lib is
+   skipped with a warning. The `seen` set also terminates cycles. Returns the
+   install results in resolution order.
+
+   Each queue entry carries its resolution base — the directory a relative
+   :local/root is resolved against. Top-level coords use the project root;
+   a dep's transitive coords use that dep's own directory, so a relative
+   local path in a dep means \"relative to the dep\", not to the consumer."
+  [project coords]
+  (loop [queue (mapv (fn [[lib c]] [lib c project]) coords)
+         seen  {}
+         out   []]
+    (if (empty? queue)
+      out
+      (let [[lib c base] (first queue)
+            rest-q       (vec (rest queue))]
+        (if (contains? seen lib)
+          (do
+            (when (not= (get seen lib) c)
+              (write! *err*
+                      (str "warning: " lib " already resolved as "
+                           (coord-label (get seen lib)) "; ignoring "
+                           (coord-label c) "\n")))
+            (recur rest-q seen out))
+          (let [{:keys [path dir installed?]} (cache/ensure-lib! c base)
+                children (mapv (fn [[clib cc]] [clib cc dir])
+                               (config/coords-at dir))]
+            (recur (vec (concat rest-q children))
+                   (assoc seen lib c)
+                   (conj out {:lib lib
+                              :path path
+                              :installed? installed?}))))))))
 
 (defn- print-installs! [results]
   (let [new-installs (filter :installed? results)]

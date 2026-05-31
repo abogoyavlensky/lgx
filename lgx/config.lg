@@ -249,6 +249,25 @@
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (or (:paths cfg) [])))
 
+(defn coords-at
+  "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
+   is absent. Unlike `coords`, a missing file is not an error: most deps ship
+   no lgx.edn, and only a dep's :deps matters for transitive resolution.
+
+   Read leniently: only the :deps coords are validated. A dep's other keys
+   (:paths, :main, :tasks, :targets) describe how to build that project, not
+   how to consume it — and a dep built with a newer lgx may carry top-level
+   keys this version doesn't know. Running full validate-config! here would let
+   either break a consumer that only needs the dep's :deps."
+  [dir]
+  (let [config-path (path/join dir config-name)]
+    (if (file-exists? config-path)
+      (let [deps (vec (:deps (edn/read-string (slurp config-path))))]
+        (doseq [[lib c] deps]
+          (validate-coord! lib c))
+        deps)
+      [])))
+
 (defn tasks
   "Return the project's :tasks map from lgx.edn, or {} if absent."
   [project]

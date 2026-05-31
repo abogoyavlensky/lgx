@@ -204,9 +204,25 @@ Each coord uses either a git source or `:local/root`, never both.
   the source. Defaults to `src` if that directory exists, else the repo
   root. Matches tools.deps' `:deps/root`.
 
-> [!IMPORTANT]
-> Transitive deps are not yet followed: lgx resolves only the coords
-> listed in your own `lgx.edn`.
+### Transitive dependencies
+
+lgx follows transitive deps: after fetching a dep, it reads that dep's own
+`lgx.edn` (if it ships one) and resolves its `:deps` too, recursively. Only
+a dep's `:deps` is consulted — its `:paths`, `:main`, `:tasks`, and
+`:targets` describe how to build *that* project, not how to consume it.
+
+Resolution is breadth-first from your project, and conflicts are
+**first-wins**: the first coord seen for a given lib name is kept, and a
+later, differing coord for the same lib is skipped with a warning on
+stderr. A coord you list directly therefore overrides the same lib pulled
+in transitively. (Git coords have no version ordering, so first-wins —
+shallowest — is the resolution rule; pin the exact coord you want at the
+top level to override a transitive one.)
+
+> [!NOTE]
+> This is a behavior change from earlier lgx, which resolved only the
+> coords in your own `lgx.edn`. If you depend on a lib that ships its own
+> `lgx.edn` with `:deps`, those deps are now fetched as well.
 
 ### Build target (`:targets`)
 
