@@ -20,6 +20,31 @@ Other gaps from the same investigation now have dedicated tickets:
 
 ## 1. Runtime: `:default` reader-conditional referring to JVM classes
 
+> **Resolved for medley (2026-05-31).** With `LG_READ_CLJ=1`, medley 1.10.0's
+> `medley.core` now loads cleanly under let-go and the pure data/map/seq fns
+> plus several interop fns work. Fixed by additive Clojure-compat aliases in
+> let-go's `installClojureCompatAliases` (`pkg/rt/lang.go`) plus type-ancestry
+> wiring (`pkg/rt/hierarchy.go`) — the "stub common `clojure.lang.*` classes as
+> markers" direction below. Specifics (see let-go branch `medley-compat-minimal`
+> / `docs/plans/2026-05-31-medley-compat.md`):
+> - `clojure.lang.IEditableCollection` marker + ancestry on editable colls;
+>   `clojure.lang.MapEntry.` constructor sugar.
+> - `clojure.lang.PersistentQueue` marker + load-only `EMPTY` stub (fails loudly
+>   if conj'd, rather than returning a wrong reversed list).
+> - `java.util.ArrayList` load-only constructor stub.
+> - `Throwable` made **real**: `ExInfoType` reports it as an ancestor and
+>   `ExInfo` implements `Receiver` (`getMessage`/`getCause`) + `IMeta`, so
+>   `m/ex-message`/`m/ex-cause` work on ex-info (incl. the `^Throwable` type-hint
+>   path) and return nil for everything else.
+> - `java.util.UUID/fromString` + `/randomUUID` (real) and
+>   `java.util.regex.Pattern` → `RegexType` (real): `m/uuid`, `m/random-uuid`,
+>   `m/regexp?` all work.
+> - `compare-and-set!` added as a real Atom primitive (was missing) — unblocks
+>   `m/deref-swap!`/`m/deref-reset!`.
+>
+> Remaining degraded (load-only, by design): `queue`/`queue?` and
+> `partition-between`/`sliding`.
+
 **Repro:** [weavejester/medley@1.10.0](https://github.com/weavejester/medley/blob/1.10.0/src/medley/core.cljc#L41-L43)
 
 ```clojure
