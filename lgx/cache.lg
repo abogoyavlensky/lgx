@@ -126,7 +126,10 @@
 
 (defn ensure-lib!
   "Fetch the coord into the gitlibs cache if missing. Returns
-   {:path <local path> :installed? <true if this call cloned>}."
+   {:path <source dir> :dir <checkout root> :installed? <true if this call
+   cloned>}. :path is what goes on -source-paths (honoring :deps/root); :dir
+   is the repo/local root, where the dep's own lgx.edn lives (used for
+   transitive resolution)."
   [coord project]
   (let [root (:deps/root coord)
         local (:local/root coord)]
@@ -137,6 +140,7 @@
                           {:local local
                            :resolved dir})))
         {:path (resolve-source-path dir root local nil)
+         :dir dir
          :installed? false})
       (let [url (:git/url coord)
             sha (:git/sha coord)
@@ -149,4 +153,5 @@
             (clone-sha! url sha dir)
             (clone-tag! url tag dir)))
         {:path (resolve-source-path dir root url ref)
+         :dir dir
          :installed? installed?}))))

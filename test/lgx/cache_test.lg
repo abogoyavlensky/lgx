@@ -66,7 +66,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha}
                               "/tmp/project")))
@@ -81,7 +82,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir dir)
     (is (= {:path dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha}
                               "/tmp/project")))
@@ -96,7 +98,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/tag tag}
                               "/tmp/project")))
@@ -110,7 +113,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir dir)
     (is (= {:path dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/tag tag}
                               "/tmp/project")))
@@ -125,7 +129,8 @@
     (os/setenv "LGX_HOME" home)
     (mkdir root-dir)
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
                                :deps/root "src/main/clojure"}
@@ -154,13 +159,15 @@
     (os/setenv "LGX_HOME" home)
     (mkdir root-dir)
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
                                :deps/root "lib/core/"}
                               "/tmp/project")))
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
                                :deps/root "lib/core"}
@@ -172,7 +179,8 @@
         src-dir (str project "/lib/src")]
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :dir (str project "/lib")}
            (cache/ensure-lib! {:local/root "lib"} project)))
     (os/sh "rm" "-rf" project)))
 
@@ -181,7 +189,8 @@
         src-dir (str dir "/src")]
     (mkdir src-dir)
     (is (= {:path src-dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:local/root dir} "/tmp/project")))
     (os/sh "rm" "-rf" dir)))
 
@@ -190,7 +199,8 @@
         root-dir (str project "/lib/src/main")]
     (mkdir root-dir)
     (is (= {:path root-dir
-            :installed? false}
+            :installed? false
+            :dir (str project "/lib")}
            (cache/ensure-lib! {:local/root "lib"
                                :deps/root "src/main"}
                               project)))
@@ -215,7 +225,8 @@
         dir (str project "/lib")]
     (mkdir dir)
     (is (= {:path dir
-            :installed? false}
+            :installed? false
+            :dir dir}
            (cache/ensure-lib! {:local/root "lib"} project)))
     (os/sh "rm" "-rf" project)))
 
