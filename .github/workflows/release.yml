@@ -12,21 +12,10 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      LG_VERSION: 2.0.2
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install let-go (lg)
-        run: |
-          base="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
-          tarball="let-go_${LG_VERSION}_linux_amd64.tar.gz"
-          curl -sSL -o "$tarball" "$base/$tarball"
-          curl -sSL -o checksums.txt "$base/checksums.txt"
-          grep " $tarball\$" checksums.txt | sha256sum -c -
-          tar -xzf "$tarball"
-          sudo mv lg /usr/local/bin/lg
-          lg -v
+      - uses: ./.github/actions/setup-lg
 
       - name: Run tests
         run: make test
@@ -36,26 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      LG_VERSION: 2.0.2
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch let-go checksums
-        run: |
-          base="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
-          curl -sSL -o lg-checksums.txt "$base/checksums.txt"
-
-      - name: Install host let-go (lg)
-        run: |
-          base="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
-          tarball="let-go_${LG_VERSION}_linux_amd64.tar.gz"
-          curl -sSL -o "$tarball" "$base/$tarball"
-          grep " $tarball\$" lg-checksums.txt | sha256sum -c -
-          tar -xzf "$tarball"
-          sudo mv lg /usr/local/bin/lg
-          rm -f "$tarball"
-          lg -v
+      - uses: ./.github/actions/setup-lg
 
       - name: Build bundles for all targets
         env:

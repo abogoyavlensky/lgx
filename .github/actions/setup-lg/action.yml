@@ -1,0 +1,37 @@
+name: "Setup lg"
+description: "Install the let-go (lg) compiler at the version pinned in .mise.toml and export LG_VERSION."
+
+runs:
+  using: "composite"
+  steps:
+    - name: Read lg version from .mise.toml
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="$(awk -F= '
+          /^\[tools\]/ { in_tools = 1; next }
+          /^\[/        { in_tools = 0 }
+          in_tools && $1 ~ /^[[:space:]]*lg[[:space:]]*$/ {
+            gsub(/[" ]/, "", $2); print $2; exit
+          }
+        ' .mise.toml)"
+        if [ -z "$version" ]; then
+          echo "could not read lg version from .mise.toml" >&2
+          exit 1
+        fi
+        echo "LG_VERSION=$version" >> "$GITHUB_ENV"
+        echo "Resolved lg version from .mise.toml: $version"
+
+    - name: Install let-go (lg)
+      shell: bash
+      run: |
+        set -euo pipefail
+        base="https://github.com/nooga/let-go/releases/download/v${LG_VERSION}"
+        tarball="let-go_${LG_VERSION}_linux_amd64.tar.gz"
+        curl -sSL -o "$tarball" "$base/$tarball"
+        curl -sSL -o lg-checksums.txt "$base/checksums.txt"
+        grep " $tarball\$" lg-checksums.txt | sha256sum -c -
+        tar -xzf "$tarball"
+        sudo mv lg /usr/local/bin/lg
+        rm -f "$tarball"
+        lg -v
