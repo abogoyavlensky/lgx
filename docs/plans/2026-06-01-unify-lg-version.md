@@ -1,5 +1,7 @@
 # Unify the `lg` Build Version Implementation Plan
 
+> **Status: Completed (2026-06-01).** See the Implementation Summary at the end.
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `.mise.toml` the single source of truth for the let-go (`lg`) version used to build `lgx` itself, so local dev and CI (all target platforms) can never drift.
@@ -105,7 +107,7 @@ present = fixed coloring), confirming the embedded let-go is the intended one.
 **Files:**
 - Create: `.github/actions/setup-lg/action.yml`
 
-- [ ] **Step 1: Author the action**
+- [x] **Step 1: Author the action**
   `runs: using: "composite"`. Two `shell: bash` steps:
   (a) the reference awk parse above, exporting `LG_VERSION` to `$GITHUB_ENV`
   with the non-empty guard;
@@ -114,7 +116,7 @@ present = fixed coloring), confirming the embedded let-go is the intended one.
   `sha256sum -c`, extract, `sudo mv lg /usr/local/bin/lg`, `lg -v`), leaving
   `lg-checksums.txt` in the workspace.
 
-- [ ] **Step 2: Verify the parse in isolation**
+- [x] **Step 2: Verify the parse in isolation**
   Run: `awk -F= '/^\[tools\]/{f=1;next} /^\[/{f=0} f && $1 ~ /^[[:space:]]*lg[[:space:]]*$/ {gsub(/[" ]/,"",$2);print $2;exit}' .mise.toml`
   Expected: `1.9.0`
 
@@ -123,12 +125,12 @@ present = fixed coloring), confirming the embedded let-go is the intended one.
 **Files:**
 - Modify: `.github/workflows/test.yml`
 
-- [ ] **Step 1: Use the action**
+- [x] **Step 1: Use the action**
   In the `test` job, remove `env: LG_VERSION: 2.0.2` and the inline
   "Install let-go (lg)" step. After `actions/checkout@v4`, add
   `- uses: ./.github/actions/setup-lg`. Leave `make test` unchanged.
 
-- [ ] **Step 2: Validate YAML**
+- [x] **Step 2: Validate YAML**
   Run: `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/test.yml'))" && echo OK`
   Expected: `OK`
 
@@ -137,18 +139,18 @@ present = fixed coloring), confirming the embedded let-go is the intended one.
 **Files:**
 - Modify: `.github/workflows/release.yml`
 
-- [ ] **Step 1: Use the action in the `test` job**
+- [x] **Step 1: Use the action in the `test` job**
   Remove `env: LG_VERSION` and the inline "Install let-go (lg)" step; add
   `- uses: ./.github/actions/setup-lg` after checkout.
 
-- [ ] **Step 2: Use the action in the `release` job**
+- [x] **Step 2: Use the action in the `release` job**
   Remove `env: LG_VERSION`, the "Fetch let-go checksums" step, and the
   "Install host let-go (lg)" step; add `- uses: ./.github/actions/setup-lg`
   after checkout. Keep the "Build bundles for all targets" step as-is — it now
   reads `$LG_VERSION` from the action and reuses the `lg-checksums.txt` the
   action left in the workspace.
 
-- [ ] **Step 3: Validate YAML**
+- [x] **Step 3: Validate YAML**
   Run: `python3 -c "import yaml,sys; yaml.safe_load(open('.github/workflows/release.yml'))" && echo OK`
   Expected: `OK`
 
@@ -157,12 +159,43 @@ present = fixed coloring), confirming the embedded let-go is the intended one.
 **Files:**
 - (none — verification only)
 
-- [ ] **Step 1: Confirm no stray hardcoded versions remain**
+- [x] **Step 1: Confirm no stray hardcoded versions remain**
   Run: `grep -rn "LG_VERSION:\s*[0-9]" .github/workflows/ || echo "none"`
   Expected: `none`
 
-- [ ] **Step 2: Prove the local bundle embeds the intended let-go**
+- [x] **Step 2: Prove the local bundle embeds the intended let-go**
   Run: `LG=$(command -v lg); "$LG" -b /tmp/lgx-verify lgx.lg && grep -c -a $'\x1b\[1;31m' /tmp/lgx-verify`
   Expected: a non-zero count (ESC-prefixed sequence present = correct coloring).
   Note: the authoritative CI proof is the next tagged release bundle; this local
   check confirms the source/bundling path.
+
+## Implementation Summary
+
+Done on branch `unify-lg-version`.
+
+- **Created `.github/actions/setup-lg/action.yml`** — composite action with two
+  bash steps: (1) section-aware awk reads `[tools] lg` from `.mise.toml` (skips
+  the duplicate `lg` key under `[tool_alias]`), fails loudly if empty, exports
+  `LG_VERSION` via `$GITHUB_ENV`; (2) curl-installs host `lg`
+  (`linux_amd64`), verifies via `sha256sum -c`, leaves `lg-checksums.txt` in the
+  workspace for the release loop.
+- **`test.yml`** — `test` job now uses `./.github/actions/setup-lg`; hardcoded
+  `LG_VERSION: 2.0.2` and the inline install step removed.
+- **`release.yml`** — both `test` and `release` jobs use the action; the release
+  job's separate "Fetch checksums" + "Install host let-go" steps were folded into
+  the action. The "Build bundles for all targets" loop is unchanged and now reads
+  `$LG_VERSION` (from the action) and reuses the action's `lg-checksums.txt`.
+- **`.mise.toml`** — unchanged; `lg = "1.9.0"` is now the single source of truth.
+
+**Verification:** awk parse returns `1.9.0`; all three YAML files parse; no
+`LG_VERSION:` literals remain in `.github/workflows/`; a local bundle built with
+mise `lg 1.9.0` contains `\x1b[1;31m` ×2 (0 bare) — correct, ESC-prefixed coloring.
+
+**Second opinion:** `review-with-codex` (scope: uncommitted) reported no blocking
+correctness issues.
+
+**Notes / follow-ups:**
+- No drift-check step was needed: with `.mise.toml` as the only declaration, there
+  is nothing left to drift against.
+- The authoritative end-to-end proof is the next tagged release; the local bundle
+  check stands in for it here.
