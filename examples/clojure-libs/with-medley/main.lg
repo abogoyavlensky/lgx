@@ -1,4 +1,62 @@
 (ns main
   (:require [medley.core :as m]))
 
-(prn "Bool?" (m/boolean? 1))
+;; medley.core running under let-go. Each section below calls a few of
+;; medley's functions and prints the result.
+
+(defn demo [label value]
+  (println (str label ":")) (prn value))
+
+;; --- Maps: transform keys and values ---
+(demo "map-vals"     (m/map-vals inc {:a 1 :b 2 :c 3}))
+(demo "map-keys"     (m/map-keys name {:a 1 :b 2}))
+(demo "map-kv"       (m/map-kv (fn [k v] [k (* v 10)]) {:a 1 :b 2}))
+(demo "filter-vals"  (m/filter-vals even? {:a 1 :b 2 :c 4}))
+(demo "remove-vals"  (m/remove-vals even? {:a 1 :b 2 :c 4}))
+(demo "filter-keys"  (m/filter-keys #{:a :c} {:a 1 :b 2 :c 3}))
+(demo "map-entry"    (m/map-entry :k 42))
+
+;; --- Maps: assoc, update, merge ---
+(demo "assoc-some"   (m/assoc-some {:a 1} :b 2 :c nil))
+(demo "dissoc-in"    (m/dissoc-in {:a {:b 1 :c 2}} [:a :b]))
+(demo "deep-merge"   (m/deep-merge {:a {:b 1}} {:a {:c 2}}))
+(demo "find-in"      (m/find-in {:a {:b {:c 9}}} [:a :b :c]))
+
+;; --- Sequences ---
+(demo "find-first"     (m/find-first even? [1 3 5 6 7]))
+(demo "index-by"       (m/index-by :id [{:id 1 :n "a"} {:id 2 :n "b"}]))
+(demo "distinct-by"    (m/distinct-by count ["a" "bb" "cc" "ddd"]))
+(demo "dedupe-by"      (m/dedupe-by even? [1 3 2 4 5]))
+(demo "take-upto"      (m/take-upto even? [1 3 5 6 7]))
+(demo "drop-upto"      (m/drop-upto even? [1 3 5 6 7]))
+(demo "interleave-all" (m/interleave-all [1 2 3] [:a :b]))
+(demo "indexed"        (m/indexed [:x :y :z]))
+(demo "insert-nth"     (m/insert-nth 1 :NEW [:a :b :c]))
+(demo "remove-nth"     (m/remove-nth 1 [:a :b :c]))
+(demo "replace-nth"    (m/replace-nth 1 :B [:a :b :c]))
+(demo "join"           (m/join [[1 2] [3 4] [5]]))
+(demo "partition-after" (m/partition-after even? [1 2 3 4 5 6]))
+(demo "window"         (m/window 2 [1 2 3 4]))
+
+;; --- Numbers ---
+(demo "least"    (m/least 7 2 9 4))
+(demo "greatest" (m/greatest 7 2 9 4))
+(demo "abs"      (m/abs -12))
+
+;; --- UUIDs (real, backed by let-go's UUID support) ---
+(demo "uuid"        (m/uuid "00000000-0000-0000-0000-000000000000"))
+(demo "uuid?"       (m/uuid? (m/uuid "00000000-0000-0000-0000-000000000000")))
+(demo "random-uuid" (m/uuid? (m/random-uuid)))
+
+;; --- Regex / predicates ---
+(demo "regexp? #\"x\"" (m/regexp? #"x"))
+(demo "regexp? \"x\""  (m/regexp? "x"))
+(demo "boolean?"       (m/boolean? false))
+
+;; --- Exceptions (real, backed by let-go ex-info) ---
+(demo "ex-message" (m/ex-message (ex-info "kaboom" {:code 1})))
+(demo "ex-cause"   (m/ex-cause (ex-info "outer" {} (ex-info "inner" {}))))
+
+;; --- Atoms ---
+(demo "deref-swap!"  (let [a (atom 10)] [(m/deref-swap! a inc) @a]))
+(demo "deref-reset!" (let [a (atom 10)] [(m/deref-reset! a 99) @a]))

@@ -307,6 +307,7 @@ clone.
 ## Clojure libs compatible with let-go
 
 - [ruuter](https://git.nmm.ee/asko/ruuter)
+- [medley](https://github.com/weavejester/medley) (partial compatibility)
 
 ## Roadmap (draft)
 
