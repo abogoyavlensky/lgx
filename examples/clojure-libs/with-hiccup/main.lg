@@ -1,0 +1,4 @@
+(ns main
+  (:require [hiccup2.core :as h]))
+
+(prn (str (h/html [:span {:class "foo"} "bar"])))
