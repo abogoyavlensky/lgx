@@ -262,10 +262,18 @@
   [dir]
   (let [config-path (path/join dir config-name)]
     (if (file-exists? config-path)
-      (let [deps (vec (:deps (edn/read-string (slurp config-path))))]
-        (doseq [[lib c] deps]
-          (validate-coord! lib c))
-        deps)
+      (let [cfg (edn/read-string (slurp config-path))]
+        (when-not (map? cfg)
+          (bad! "top-level form must be a map" {}))
+        (let [deps (:deps cfg)]
+          (if (nil? deps)
+            []
+            (do
+              (when-not (map? deps)
+                (bad! ":deps must be a map" {}))
+              (doseq [[lib c] deps]
+                (validate-coord! lib c))
+              (vec deps)))))
       [])))
 
 (defn tasks

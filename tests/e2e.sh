@@ -1365,6 +1365,10 @@ else
     skip ".clj require gated on upstream resolver patch (set LGX_CLJ_REQUIRE_E2E=1 to run)"
 fi
 
+# Scenarios 62-65 run projects with dependencies, so they need an lg that
+# supports -source-paths.
+if supports_source_paths; then
+
 # ---------------------------------------------------------------------------
 echo "==> Scenario 62: transitive deps are followed, nested relative paths resolve against the dep"
 troot="$(mktemp -d)"
@@ -1447,6 +1451,40 @@ else
     pass "cycle: identical repeated coord is deduped silently"
 fi
 rm -rf "$yroot" "$home_y"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 65: relative local conflicts compare resolved dirs"
+rroot="$(mktemp -d)"
+home_r="$(mktemp -d)"
+# libA and libB both declare dev/shared with the same raw coord
+# {:local/root "shared"}, but the base dirs differ.
+mkdir -p "$rroot/libA/src/liba" "$rroot/libA/shared/src/shared"
+printf '(ns liba.core)\n' > "$rroot/libA/src/liba/core.lg"
+printf '(ns shared.core)\n(defn which [] :A)\n' > "$rroot/libA/shared/src/shared/core.lg"
+printf '{:deps {}}\n' > "$rroot/libA/shared/lgx.edn"
+printf '{:deps {dev/shared {:local/root "shared"}}}\n' > "$rroot/libA/lgx.edn"
+
+mkdir -p "$rroot/libB/src/libb" "$rroot/libB/shared/src/shared"
+printf '(ns libb.core)\n' > "$rroot/libB/src/libb/core.lg"
+printf '(ns shared.core)\n(defn which [] :B)\n' > "$rroot/libB/shared/src/shared/core.lg"
+printf '{:deps {}}\n' > "$rroot/libB/shared/lgx.edn"
+printf '{:deps {dev/shared {:local/root "shared"}}}\n' > "$rroot/libB/lgx.edn"
+
+mkdir -p "$rroot/proj"
+cat > "$rroot/proj/lgx.edn" <<EOF
+{:deps {dev/libA {:local/root "../libA"}
+        dev/libB {:local/root "../libB"}}}
+EOF
+printf '(require (quote shared.core))\n(println (shared.core/which))\n' > "$rroot/proj/main.lg"
+
+out="$(cd "$rroot/proj" && LGX_HOME="$home_r" "$LGX" run main.lg 2>&1)"
+assert_contains "$out" ":A" "relative conflict: first resolved local dir wins"
+assert_contains "$out" "already resolved as" "relative conflict: differing resolved dirs warn"
+rm -rf "$rroot" "$home_r"
+
+else
+    skip "transitive deps require lg with -source-paths support"
+fi
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

@@ -319,9 +319,9 @@ In no particular order:
 - [x] `lgx build` - build project binary.
 - [x] `lgx test` - test runner.
 - [x] `lgx new` - project scaffolding.
-- [ ] `lgx repl` - run repl.
-- [ ] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
+- [x] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
   libs and resolve the union, with first-wins on conflicts.
+- [ ] `lgx repl` - run repl.
 - [ ] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
 - [ ] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
 - [ ] `--with`/`:with` - ability to extend tasks with contexts.

@@ -390,6 +390,21 @@
     (is (= [] (config/coords-at dir)))
     (os/sh "rm" "-rf" dir)))
 
+(deftest coords-at-rejects-non-map-top-level
+  (let [dir (str "/tmp/lgx-coords-at-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn") "[:not :a :map]")
+    (is (= :threw (threw? #(config/coords-at dir))))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest coords-at-rejects-deps-not-a-map
+  (doseq [form ["{:deps []}" "{:deps \"not-a-map\"}"]]
+    (let [dir (str "/tmp/lgx-coords-at-test-" (rand-int 100000000))]
+      (mkdir dir)
+      (spit (str dir "/lgx.edn") form)
+      (is (= :threw (threw? #(config/coords-at dir))))
+      (os/sh "rm" "-rf" dir))))
+
 (deftest coords-at-is-lenient-about-other-keys
   ;; A dep's lgx.edn may carry a malformed :tasks or a top-level key a newer
   ;; lgx added; only its :deps matter and must still be returned.

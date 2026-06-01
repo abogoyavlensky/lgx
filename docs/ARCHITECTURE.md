@@ -48,25 +48,31 @@ namespaces it requires.
    (`{:paths [<rel-path> ...] :main <rel-path> :targets {:bin {:out <rel-path>}} :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
    or `{<lib> {:local/root … :deps/root <opt>}}`),
    and return the coord vector.
-3. For each coord, call `cache/ensure-lib!`. Git coords compute a cache
-   ref first: the sha for `:git/sha`, or the tag with `/` replaced by
-   `_` for `:git/tag`. If the cache directory for `(url, ref)` already
-   exists, return its path without invoking `git`. Otherwise clone the
-   repo into a temp dir, check out the sha for `:git/sha` coords or use
+3. Resolve coords breadth-first. For each unseen lib name, call
+   `cache/ensure-lib!`. Git coords compute a cache ref first: the sha
+   for `:git/sha`, or the tag with `/` replaced by `_` for `:git/tag`.
+   If the cache directory for `(url, ref)` already exists, return its
+   path without invoking `git`. Otherwise clone the repo into a temp
+   dir, check out the sha for `:git/sha` coords or use
    `git clone --branch <tag> --depth 1` for `:git/tag` coords, drop
    `.git/`, and rename atomically to the final cache path. Local coords
    resolve from disk and never clone. `ensure-lib!` reports whether
    this call did the clone.
-4. If any dep was newly cloned, print `installing N dep(s)...`, one
+4. After a dep resolves, read that dep's own `lgx.edn` if present and
+   append only its `:deps` entries to the queue. Other top-level keys in
+   a dep's config are ignored by consumers. Duplicate lib names are
+   first-wins: a later differing coord is skipped with a warning. The
+   seen set also terminates cycles.
+5. If any dep was newly cloned, print `installing N dep(s)...`, one
    `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
    already cached, print `all deps up to date`. Empty `:deps` prints
    `no deps in lgx.edn`.
 
 ### `lgx run [args...]`
 
-Steps 1–3 match `install` — deps are auto-installed if missing. Then:
+Steps 1–4 match `install` — deps are auto-installed if missing. Then:
 
-4. If any dep was newly cloned during step 3, print the same install
+5. If any dep was newly cloned during dependency resolution, print the same install
    block as `lgx install` (header + per-new-dep lines + `done`).
    Otherwise stay silent — no `all deps up to date` chatter before the
    script.
@@ -119,17 +125,17 @@ the child exits. Streaming output and stdin (so `lgx run -r` can drive
 
 ### `lgx build [args...]`
 
-Steps 1–3 match `install`. Then:
+Steps 1–4 match `install`. Then:
 
-4. Read `:main` and `:targets/:bin` from the validated config. Either
+5. Read `:main` and `:targets/:bin` from the validated config. Either
    being absent exits 1 with a clear error (`lgx: :main is required for
    build` / `lgx: :targets/:bin is required for build`).
-5. Verify the `:main` script exists on disk (resolved against the
+6. Verify the `:main` script exists on disk (resolved against the
    project root). Missing → `lgx: :main script not found: <path>` and
    exit 1.
-6. Resolve `:targets/:bin/:out` to an absolute path under the project
+7. Resolve `:targets/:bin/:out` to an absolute path under the project
    root and `mkdir` its parent (recursive, idempotent).
-7. Exec `lg [forwarded-args...] -source-paths <X> -b <abs-out> <abs-main>`.
+8. Exec `lg [forwarded-args...] -source-paths <X> -b <abs-out> <abs-main>`.
    Forwarded args come first so they extend `lg`'s flag list before
    `-b` (real example: `-bundle-base /path/to/lg` for cross-OS builds).
    Both `-b` target and main script are absolute paths so `lgx build`
@@ -142,12 +148,12 @@ argument shape and the required-config / mkdir steps.
 
 ### `lgx test`
 
-Steps 1–3 match `install`. Then:
+Steps 1–4 match `install`. Then:
 
-4. Resolve `<project-root>/test`. If it does not exist (or is not a
+5. Resolve `<project-root>/test`. If it does not exist (or is not a
    directory), exit 1 with `lgx: no test/ directory in project` on
    stderr.
-5. Select the test files. If a positional `<file>` arg is provided,
+6. Select the test files. If a positional `<file>` arg is provided,
    resolve it to an absolute path (project-root-relative inputs are
    joined against the project root), then `path/normalize` away any
    `.`/`..` segments and validate it against three rules:
@@ -162,12 +168,12 @@ Steps 1–3 match `install`. Then:
    With no arg, walk `test/` recursively for `*_test.lg`,
    `*_test.cljc`, and `*_test.clj` files. If the walk returns no files,
    print `No tests found in test/` and exit 0.
-6. Map each absolute path to a namespace symbol: strip `test/` prefix
+7. Map each absolute path to a namespace symbol: strip `test/` prefix
    and the extension, split on `/`, hyphenate `_` per segment, join
    with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
    This is the reverse of let-go's resolver rule
    ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
-7. Generate a one-shot harness `.lg` source string that `:require`s
+8. Generate a one-shot harness `.lg` source string that `:require`s
    every discovered ns plus `test`/`string`/`os`, embeds the discovered
    `[file ns]` test plan, and iterates each file's entries in
    `*registered-tests*`. Each `deftest` runs under `with-out-str` so
@@ -181,10 +187,10 @@ Steps 1–3 match `install`. Then:
    `(os/exit (if (zero? failures) 0 1))`. Write it to
    `$LGX_HOME/tmp/lgx-test-<version>.lg`, overwriting the previous
    harness for the same lgx version.
-8. Compute `-source-paths` as project paths + dep paths + the
+9. Compute `-source-paths` as project paths + dep paths + the
    absolute `test/` path (so test namespaces can `require` each other
    and the harness can `require` them).
-9. `exec lg -source-paths <X> <harness-path>`. The harness owns the
+10. `exec lg -source-paths <X> <harness-path>`. The harness owns the
    `os/exit`, so the exit code reaches the shell unchanged.
 
 `lgx test` accepts 0 or 1 positional arg. Passing 2 or more prints
@@ -292,15 +298,16 @@ locations, e.g. `org.clojure/tools.cli` with `:deps/root "src/main/clojure"`.
 
 ### Local deps
 
-A coord may use `:local/root <path>` instead of `:git/url`. The path may
-be absolute or relative to the project root. Local coords bypass the
-gitlibs cache, never clone, and never appear in install output.
+A coord may use `:local/root <path>` instead of `:git/url`. For top-level
+coords, a relative path is resolved against the project root. For
+transitive coords, a relative path is resolved against the dependency
+root that declared it. Local coords bypass the gitlibs cache, never
+clone, and never appear in install output.
 
 Local deps use the same source path rule as git deps: `:deps/root`
 overrides the default probe; otherwise lgx uses `<local>/src/` when it
-exists and `<local>/` when it does not. lgx does not read the local
-lib's own `lgx.edn`, so local deps do not make dependency resolution
-transitive.
+exists and `<local>/` when it does not. lgx reads a local lib's own
+`lgx.edn` for transitive `:deps`, just as it does for git deps.
 
 ## External dependencies
 
@@ -327,8 +334,5 @@ transitive.
 - **Not a let-go version manager.** A future `:lg/version` field in
   `lgx.edn` is plausible, but V1 uses whatever `lg` is on `PATH` or
   `LGX_LG`.
-- **Not transitive.** lgx reads only the project's `lgx.edn`; it does
-  not follow `lgx.edn` files inside fetched libs. Transitive resolution
-  is a V2 concern.
 - **Not a lockfile system.** `lgx.edn` itself is the lock when coords
   use `:git/sha`. Tag-pinned coords re-resolve on each `install`.
