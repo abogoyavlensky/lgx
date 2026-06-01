@@ -102,16 +102,22 @@ walking up from the current directory.
 
 ### `lgx run` details
 
-With no arguments, `lgx run` execs `lg <paths> :main --`, so a script
-can parse its CLI args with a single idiom that works in both dev and
-bundled modes:
+With no arguments, `lgx run` execs `lg <paths> :main --`, injecting a
+trailing `--` marker so a script can find where its CLI args begin.
+`lgx run` also sets **`LGX_RUN=1`** in the spawned process, so a tool can
+tell it is running under `lgx run` (dev) vs. as a bundled binary.
+
+Prefer keying off `LGX_RUN` rather than sniffing for `--`. The `--`-only
+idiom is wrong for a bundled binary, where there is no injected marker and
+a `--` may legitimately appear inside the user's command (e.g.
+`myapp run wt git checkout -- file`):
 
 ```clojure
 (defn- cli-argv [argv]
-  "Return args after the `--` while developing, or CLI args in bundled mode."
-  (if (some #(= % "--") argv)
-    (rest (drop-while #(not (= % "--")) argv))  ; lgx run -- <args>
-    (rest argv)))                                ; ./bin/myapp <args>
+  "Application args, in both dev (lgx run) and bundled-binary modes."
+  (if (str/blank? (os/getenv "LGX_RUN"))
+    (rest argv)                                 ; ./bin/myapp <args>
+    (rest (drop-while #(not= "--" %) argv))))   ; lgx run -- <args>
 ```
 
 Forms:
@@ -269,6 +275,7 @@ strings. Output is buffered and replayed after each step completes.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. |
+| `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev-vs-bundled mode (see [`lgx run` details](#lgx-run-details)). |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, template cache, and test harness tmp dir. |
 | `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo for `lgx new`. |
 | `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the template revision for `lgx new`. |

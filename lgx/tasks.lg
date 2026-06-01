@@ -33,7 +33,15 @@
       (:exit r))))
 
 (defn- run-run-step! [value lib-paths verbose?]
-  (runner/invoke-lg! lib-paths (as-arg-vec value) verbose?))
+  ;; A `:run` step is "invoked like `lgx run`", so it carries the same
+  ;; LGX_RUN=1 contract (set in cmd-run). Set it around the child only and
+  ;; restore, so a later `:sh` step that runs a bundled binary isn't misled
+  ;; into dev-mode arg parsing.
+  (let [prev (os/getenv "LGX_RUN")]
+    (os/setenv "LGX_RUN" "1")
+    (let [exit (runner/invoke-lg! lib-paths (as-arg-vec value) verbose?)]
+      (os/setenv "LGX_RUN" (or prev ""))
+      exit)))
 
 (defn- run-step! [step lib-paths verbose?]
   (cond

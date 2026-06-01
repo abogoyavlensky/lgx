@@ -8,7 +8,7 @@
             [lgx.test-runner :as test-runner]
             [string :as str]))
 
-(def version "0.1.0-alpha11")
+(def version "0.1.0-alpha12")
 
 (def base-usage
   (str "lgx - project manager for let-go\n"
@@ -177,6 +177,11 @@
                        (let [script (resolve-main-script! project main-script)]
                          (vec (concat pre [script "--"] post)))))))]
     (print-installs! results)
+    ;; Advertise to the spawned program that it is running under `lgx run`
+    ;; (vs. as a bundled binary). Tools use this to strip runner args without
+    ;; relying on the injected `--` marker, which can collide with a user
+    ;; command that legitimately contains `--`. Inherited by the child via env.
+    (os/setenv "LGX_RUN" "1")
     (runner/exec-lg! paths args verbose?)))
 
 (defn- ensure-out-dir! [project rel-out]

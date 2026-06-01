@@ -1486,5 +1486,36 @@ else
     skip "transitive deps require lg with -source-paths support"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 66: lgx run sets LGX_RUN=1 for the spawned program"
+proj_run="$(mktemp -d)"
+home_run="$(mktemp -d)"
+cat > "$proj_run/lgx.edn" <<'EOF'
+{:main "main.lg"}
+EOF
+cat > "$proj_run/main.lg" <<'EOF'
+(when-not *compiling-aot*
+  (println (str "LGX_RUN=" (os/getenv "LGX_RUN"))))
+EOF
+out="$(cd "$proj_run" && LGX_HOME="$home_run" "$LGX" run)"
+assert_contains "$out" "LGX_RUN=1" "run: LGX_RUN=1 is set in the spawned process"
+rm -rf "$proj_run" "$home_run"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 67: a task :run step also sets LGX_RUN=1"
+proj_trun="$(mktemp -d)"
+home_trun="$(mktemp -d)"
+cat > "$proj_trun/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :tasks {:show {:do [{:run "main.lg"}]}}}
+EOF
+cat > "$proj_trun/main.lg" <<'EOF'
+(when-not *compiling-aot*
+  (println (str "LGX_RUN=" (os/getenv "LGX_RUN"))))
+EOF
+out="$(cd "$proj_trun" && LGX_HOME="$home_trun" "$LGX" show)"
+assert_contains "$out" "LGX_RUN=1" "task :run: LGX_RUN=1 is set in the spawned process"
+rm -rf "$proj_trun" "$home_trun"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
