@@ -6,6 +6,13 @@
 (def ^:private harness-prefix "lgx-test-")
 (def ^:private harness-suffix ".lg")
 
+;; The harness writes this marker to *err* as its first body action, after
+;; the (ns ... :require ...) form has loaded every test namespace. It marks
+;; the boundary in lg's captured stderr between lg's pre-harness load
+;; diagnostics and any stderr the tests themselves emit. No regex
+;; metacharacters, so it is safe as a str/split separator.
+(def harness-ready-marker "<<<lgx-test-harness-ready>>>")
+
 (defn- test-file? [name]
   (or (str/ends-with? name "_test.lg")
       (str/ends-with? name "_test.cljc")
@@ -131,6 +138,10 @@
 (def ^:private harness-body
   (str
     "\n\n"
+    ;; First body form: emit the ready marker once the ns :require above
+    ;; has loaded every test ns. Everything lg printed to stderr before
+    ;; this point is a load diagnostic; everything after is test output.
+    "(write! *err* \"" harness-ready-marker "\\n\")\n\n"
     "(defn- color [code s]\n"
     "  (str \"\\u001b[38;5;\" code \"m\" s \"\\u001b[0m\"))\n"
     "\n"
@@ -251,3 +262,61 @@
   (let [p (temp-path version)]
     (spit p (harness-source entries header))
     p))
+
+;; ---------------------------------------------------------------------------
+;; Swallowed load-error detection
+;;
+;; let-go's `require` prints `error: failed to load <path>: CompileError ...`
+;; to stderr but does NOT throw or set a non-zero exit, so a test file that
+;; fails to compile would otherwise be reported as 0 tests / 0 failures and
+;; pass silently. The harness writes harness-ready-marker to stderr right
+;; after its requires, so the captured stderr splits cleanly into lg's
+;; pre-harness load diagnostics (before the marker) and test-emitted stderr
+;; (after it). We only inspect the former.
+;; ---------------------------------------------------------------------------
+
+(defn strip-ready-marker
+  "Remove the harness-ready marker line from lg's captured stderr so it
+   never reaches the user. nil-safe."
+  [err]
+  (when (some? err)
+    (str/replace err (str harness-ready-marker "\n") "")))
+
+(defn- lg-load-error-line?
+  "True if `line` is one of lg's loader diagnostics. lg emits them as
+   `error: failed to load <path>: <diagnostic>` for every load failure —
+   CompileError, ExecutionError, and `Syntax error reading source` alike —
+   where <path> is the source file it was loading. We key off that
+   invariant structure (line starts with the phrase AND names a
+   `.lg:`/`.cljc:`/`.clj:` source file) rather than the varying diagnostic
+   text, so no failure type is missed. The source-file token plus the
+   line-start anchor also keep arbitrary user stderr that merely mentions
+   the phrase — even at load time, before the marker — from matching."
+  [line]
+  (and (str/starts-with? line "error: failed to load ")
+       (or (str/includes? line ".lg:")
+           (str/includes? line ".cljc:")
+           (str/includes? line ".clj:"))))
+
+(defn load-error-before-harness?
+  "True if lg reported a swallowed load failure BEFORE the harness body
+   started — i.e. a test file (or something it requires) failed to load.
+   Two filters keep genuine test output from counting: only stderr
+   preceding harness-ready-marker is inspected (so stderr the tests emit
+   during execution is ignored), and each line must match lg's specific
+   diagnostic shape (so user stderr that merely mentions the phrase, even
+   from a top-level form during load, is ignored). nil-safe.
+
+   Known limitation: lg has no userspace load-status API (require swallows
+   source compile errors and find-ns still returns the registered ns), so
+   detection must read lg's stderr — and lg writes loader diagnostics to
+   the same stderr/phase as a test's own top-level code. A test that
+   deliberately writes a line matching lg's exact loader shape from a
+   top-level form would thus be misread as a failure. This is adversarial
+   and fails loud (a spurious failure, never a silent pass), so it is
+   accepted rather than chased with an ever-stricter string match."
+  [err]
+  (if (some? err)
+    (let [prefix (first (str/split err harness-ready-marker))]
+      (if (some lg-load-error-line? (str/split prefix "\n")) true false))
+    false))

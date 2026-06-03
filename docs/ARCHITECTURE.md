@@ -184,14 +184,37 @@ Steps 1–4 match `install`. Then:
    `Running tests in <header>...` — walk-mode passes `test/`, single
    -file mode passes the entry's display path (e.g. `test/foo_test.lg`).
    It ends with a `N tests, M assertions, K failures` summary and
-   `(os/exit (if (zero? failures) 0 1))`. Write it to
+   `(os/exit (if (zero? failures) 0 1))`. As its first body form (right
+   after the `:require` loads every test ns) it writes a `harness-ready`
+   marker to stderr; this splits lg's captured stderr into pre-harness
+   load diagnostics and test-emitted output (see step 10). Write it to
    `$LGX_HOME/tmp/lgx-test-<version>.lg`, overwriting the previous
    harness for the same lgx version.
 9. Compute `-source-paths` as project paths + dep paths + the
    absolute `test/` path (so test namespaces can `require` each other
    and the harness can `require` them).
-10. `exec lg -source-paths <X> <harness-path>`. The harness owns the
-   `os/exit`, so the exit code reaches the shell unchanged.
+10. Run `lg -source-paths <X> <harness-path>` and capture its output.
+   Normally the harness owns the `os/exit` and that exit code is passed
+   through. But let-go's `require` swallows a test file's load failure —
+   it prints `error: failed to load <path>: <ErrorType> ...` to stderr
+   yet does not throw or fail, so the harness would report 0 failures and
+   exit 0. To catch that, lgx scans the stderr *before* the harness-ready
+   marker for lg's diagnostic line shape — `error: failed to load <src>:
+   ...`, naming a `.lg`/`.cljc`/`.clj` file, which covers compile, runtime,
+   and syntax load failures. If found on an otherwise-zero exit, it prints
+   `lgx: a test file failed to load (see errors above)` and exits 1. lg's
+   stdout and stderr are replayed to the user with the internal marker
+   stripped out.
+
+   This stderr heuristic is necessary because let-go has no userspace
+   load-status API: `require` swallows a source file's compile error
+   (printing the diagnostic to stderr but not throwing, and `find-ns`
+   still returns the registered namespace), so the harness cannot tell a
+   failed load from an empty one. Known limitation: a test that writes a
+   line matching lg's exact loader diagnostic shape from a *top-level*
+   form (during load, before the marker) would be misread as a failure.
+   That is adversarial and fails loud — a spurious failure, never a silent
+   pass — so it is accepted rather than chased with a stricter match.
 
 `lgx test` accepts 0 or 1 positional arg. Passing 2 or more prints
 `lgx: test takes at most one argument` on stderr and exits 1. Under

@@ -115,6 +115,11 @@
     (is (str/includes? src (pr-str (path/join "test" "lgx" "config_test.lg"))))
     (is (str/includes? src "'lgx.config-test"))))
 
+(deftest harness-source-emits-ready-marker
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]] "test/")]
+    (is (parses? src))
+    (is (str/includes? src (str "(write! *err* \"" tr/harness-ready-marker)))))
+
 (deftest harness-source-summary-and-exit
   (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]] "test/")]
     (is (str/includes? src "*registered-tests*"))
@@ -266,6 +271,69 @@
            (caught-path #(tr/validate-single-test-file!
                           test-dir user-path scratch))))
     (delete-file file)))
+
+;; ---------------------------------------------------------------------------
+;; Swallowed load-error detection
+;; ---------------------------------------------------------------------------
+
+(def marker tr/harness-ready-marker)
+
+(deftest strip-ready-marker-removes-the-marker-line
+  (is (= "before\nafter\n"
+         (tr/strip-ready-marker (str "before\n" marker "\n" "after\n")))))
+
+(deftest strip-ready-marker-nil-safe
+  (is (nil? (tr/strip-ready-marker nil))))
+
+(deftest load-error-before-harness-true-when-load-fails-pre-marker
+  (is (true?
+       (tr/load-error-before-harness?
+        (str "error: failed to load /p/foo_test.lg: CompileError: boom\n"
+             marker "\n"
+             "test output\n")))))
+
+(deftest load-error-before-harness-detects-non-compile-load-failure
+  ;; A top-level form that throws during load is an ExecutionError, not a
+  ;; CompileError — still a real swallowed load failure.
+  (is (true?
+       (tr/load-error-before-harness?
+        (str "error: failed to load /p/foo_test.lg: ExecutionError: boom\n"
+             marker "\n")))))
+
+(deftest load-error-before-harness-detects-syntax-error
+  ;; A reader/syntax error has neither CompileError nor ExecutionError in
+  ;; the line, but still names the source file — must count.
+  (is (true?
+       (tr/load-error-before-harness?
+        (str "error: failed to load /p/foo_test.lg: "
+             "Syntax error reading source at (/p/foo_test.lg:2:10).\n"
+             marker "\n")))))
+
+(deftest load-error-before-harness-false-when-marker-only-after
+  ;; Even a perfectly-shaped diagnostic emitted AFTER the marker (i.e. by a
+  ;; test during execution) must NOT count — the phase boundary excludes it.
+  (is (false?
+       (tr/load-error-before-harness?
+        (str marker "\n"
+             "error: failed to load /x/foo_test.lg: CompileError: boom\n")))))
+
+(deftest load-error-before-harness-ignores-lookalike-load-stderr
+  ;; A top-level form during load (before the marker) prints a phrase that
+  ;; starts like lg's diagnostic but names no source file. Not a real load
+  ;; failure -> must not count.
+  (is (false?
+       (tr/load-error-before-harness?
+        (str "error: failed to load my config, using defaults\n"
+             marker "\n"
+             "ok\n")))))
+
+(deftest load-error-before-harness-false-on-clean-stderr
+  (is (false? (tr/load-error-before-harness?
+               (str marker "\n" "all good\n")))))
+
+(deftest load-error-before-harness-nil-safe
+  (is (false? (tr/load-error-before-harness? nil)))
+  (is (false? (tr/load-error-before-harness? ""))))
 
 (deftest write-harness-uses-versioned-stable-path
   (let [home (str "/tmp/lgx-harness-test-" (rand-int 100000000))

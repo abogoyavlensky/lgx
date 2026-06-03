@@ -1522,5 +1522,114 @@ out="$(cd "$proj_trun" && LGX_HOME="$home_trun" "$LGX" show)"
 assert_contains "$out" "LGX_RUN=1" "task :run: LGX_RUN=1 is set in the spawned process"
 rm -rf "$proj_trun" "$home_trun"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 68: lgx test fails when a test file does not compile"
+if supports_source_paths; then
+    proj_brk="$(mktemp -d)"
+    home_brk="$(mktemp -d)"
+    cat > "$proj_brk/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_brk/test"
+    cat > "$proj_brk/test/ok_test.lg" <<'EOF'
+(ns ok-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+EOF
+    # References an undefined symbol -> let-go's require prints
+    # "error: failed to load ..." to stderr but does not throw or set a
+    # non-zero exit. lgx must detect that and fail.
+    cat > "$proj_brk/test/broken_test.lg" <<'EOF'
+(ns broken-test
+  (:require [test :refer [deftest is]]))
+
+(deftest references-undefined
+  (is (= 1 (totally-undefined-symbol 1))))
+EOF
+    set +e
+    out="$(cd "$proj_brk" && LGX_HOME="$home_brk" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -ne 0 ]] || fail "broken test: expected non-zero exit, got $rc (output: $out)"
+    pass "broken test: lgx test exits non-zero"
+    assert_contains "$out" "error: failed to load" \
+        "broken test: lg's load error is surfaced"
+    assert_contains "$out" "a test file failed to load" \
+        "broken test: lgx explains the failure"
+    rm -rf "$proj_brk" "$home_brk"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 69: a passing test that prints the load-error phrase still passes"
+if supports_source_paths; then
+    proj_fp="$(mktemp -d)"
+    home_fp="$(mktemp -d)"
+    cat > "$proj_fp/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_fp/test"
+    # Two lookalikes that must NOT trip detection: a top-level form writes a
+    # phrase during load (before the harness marker) that starts like lg's
+    # diagnostic but lacks the error-type tag, and a passing test writes the
+    # phrase during execution (after the marker). The run must exit 0.
+    cat > "$proj_fp/test/sneaky_test.lg" <<'EOF'
+(ns sneaky-test
+  (:require [test :refer [deftest is]]))
+
+(write! *err* "error: failed to load preferences, using defaults\n")
+
+(deftest passes-but-prints-scary-stderr
+  (write! *err* "error: failed to load /not-real from a passing test\n")
+  (is (= 1 1)))
+EOF
+    set +e
+    out="$(cd "$proj_fp" && LGX_HOME="$home_fp" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "false positive: expected exit 0, got $rc (output: $out)"
+    pass "false positive: passing test with scary stderr exits 0"
+    assert_not_contains "$out" "lgx-test-harness-ready" \
+        "false positive: harness marker is stripped from output"
+    rm -rf "$proj_fp" "$home_fp"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 70: lgx test fails on a reader/syntax error (not just compile)"
+if supports_source_paths; then
+    proj_syn="$(mktemp -d)"
+    home_syn="$(mktemp -d)"
+    cat > "$proj_syn/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_syn/test"
+    # `#` with no following macro is a reader error: lg emits
+    # "error: failed to load ...: Syntax error reading source ..." (no
+    # CompileError/ExecutionError tag) and still exits 0. Must be caught.
+    cat > "$proj_syn/test/syn_test.lg" <<'EOF'
+(ns syn-test
+  (:require [test :refer [deftest is]]))
+
+(def y #)
+
+(deftest t (is (= 1 1)))
+EOF
+    set +e
+    out="$(cd "$proj_syn" && LGX_HOME="$home_syn" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -ne 0 ]] || fail "syntax error: expected non-zero exit, got $rc (output: $out)"
+    pass "syntax error: lgx test exits non-zero"
+    assert_contains "$out" "Syntax error reading source" \
+        "syntax error: lg's reader error is surfaced"
+    assert_contains "$out" "a test file failed to load" \
+        "syntax error: lgx explains the failure"
+    rm -rf "$proj_syn" "$home_syn"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

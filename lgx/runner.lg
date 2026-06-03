@@ -27,17 +27,27 @@
     (when (seq pairs)
       (str "+ env " (str/join " " pairs) "\n"))))
 
+(defn replay-output!
+  "Write lg's captured {:out :err} back to *out*/*err*. Imperfect
+   substitute for inherited stdio."
+  [r]
+  (when (seq (:out r)) (write! *out* (:out r)))
+  (when (seq (:err r)) (write! *err* (:err r))))
+
 ;; --------------------------------------------------------------------------
 ;; TODO: this calls os/sh which buffers stdout/stderr until the child exits.
 ;; That's wrong for `lgx run`: script output won't stream and stdin is dead
 ;; (so `-r` REPL will not work). Replace with an inherited-stdio runner once
 ;; let-go ships one (see upstream issue link in the README).
 ;; --------------------------------------------------------------------------
-(defn invoke-lg!
+(defn run-lg!
   "Run `lg` with -source-paths set to the resolved lib paths plus the
-   user's forwarded args. When `verbose?` is truthy, print the resolved
-   command (binary + args) to *err* before exec. Returns lg's exit code
-   after replaying captured stdout/stderr."
+   user's forwarded args. When `verbose?` is truthy, print the env vars
+   lgx sets and the resolved command to *err* before exec. Returns the
+   full {:out :err :exit} result WITHOUT replaying output, so callers can
+   inspect or transform lg's captured streams (e.g. cmd-test stripping its
+   harness marker and detecting swallowed load errors). Most callers want
+   invoke-lg!, which replays the output for them."
   [lib-paths forward-args verbose?]
   ;; lg's resolver doesn't search .clj by default and its reader leaves
   ;; #?(:clj ...) branches unmatched unless this is set. See
@@ -51,11 +61,15 @@
       (when-let [env-line (env-trace-line os/getenv)]
         (write! *err* env-line))
       (write! *err* (str "+ " bin " " (str/join " " args) "\n")))
-    (let [r (apply os/sh bin args)]
-      ;; Replay captured output. Imperfect substitute for inherited stdio.
-      (when (seq (:out r)) (write! *out* (:out r)))
-      (when (seq (:err r)) (write! *err* (:err r)))
-      (:exit r))))
+    (apply os/sh bin args)))
+
+(defn invoke-lg!
+  "Run lg via run-lg!, replay its captured output, and return its exit
+   code."
+  [lib-paths forward-args verbose?]
+  (let [r (run-lg! lib-paths forward-args verbose?)]
+    (replay-output! r)
+    (:exit r)))
 
 (defn exec-lg!
   "Like invoke-lg! but exits with lg's exit code."

@@ -257,7 +257,20 @@
       (when verbose?
         (write! *err* (str "+ test runner: " harness "\n")))
       (print-installs! results)
-      (runner/exec-lg! source-paths [harness] verbose?))))
+      ;; let-go's require swallows a test file's compile error: lg prints
+      ;; "error: failed to load ..." to stderr but exits 0, so the harness
+      ;; reports 0 failures. Replay lg's output (minus the harness marker)
+      ;; and, if a pre-harness load error slipped through a zero exit, fail.
+      (let [r (runner/run-lg! source-paths [harness] verbose?)
+            exit (:exit r)]
+        (when (seq (:out r)) (write! *out* (:out r)))
+        (let [shown-err (test-runner/strip-ready-marker (:err r))]
+          (when (seq shown-err) (write! *err* shown-err)))
+        (if (and (zero? exit)
+                 (test-runner/load-error-before-harness? (:err r)))
+          (do (write! *err* "lgx: a test file failed to load (see errors above)\n")
+              (os/exit 1))
+          (os/exit exit))))))
 
 (defn- cmd-task [task verbose?]
   (let [project (config/find-project!)
