@@ -1,4 +1,4 @@
-# Task `:extra-paths` / `:extra-deps` Implementation Plan
+# Task `:extra-paths` / `:extra-deps` Implementation Plan — ✅ COMPLETED
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -146,7 +146,7 @@ dep's `:deps`, never its `:tasks`.
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
   In `test/lgx/config_test.lg`, near the existing `;; :tasks validation`
   block (around line 270), add `deftest`s using the file's `threw?`
   helper and `is`:
@@ -161,14 +161,14 @@ dep's `:deps`, never its `:tasks`.
   - rejects an unknown task key, e.g.
     `{:tasks {:t {:do [{:sh "x"}] :extra-dep {}}}}` → `:threw`.
 
-- [ ] **Step 2: Run unit tests to verify they fail**
+- [x] **Step 2: Run unit tests to verify they fail**
   Run: `bin/lgx test test/lgx/config_test.lg` (build first with
   `make build` if `bin/lgx` is stale, or run the whole suite via
   `bash tests/run.sh`).
   Expected: the new assertions fail — accepts-cases throw (keys not yet
   allowed) or rejects-cases don't throw (validation not added yet).
 
-- [ ] **Step 3: Implement validation in `validate-task!`**
+- [x] **Step 3: Implement validation in `validate-task!`**
   In `lgx/config.lg`, extend `validate-task!` (lines ~139–168):
   - Add `(def ^:private allowed-task-keys #{:doc :do :extra-paths :extra-deps})`
     near the other `allowed-*` sets, and at the top of `validate-task!`
@@ -184,12 +184,12 @@ dep's `:deps`, never its `:tasks`.
   `validate-paths!` and `validate-coord!` are already defined above
   `validate-task!`, so no reordering is needed.
 
-- [ ] **Step 4: Run unit tests to verify they pass**
+- [x] **Step 4: Run unit tests to verify they pass**
   Run: `bash tests/run.sh` (or `bin/lgx test test/lgx/config_test.lg`
   after `make build`).
   Expected: all config_test assertions pass; rest of suite unaffected.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "feat: validate task :extra-paths and :extra-deps"`
 
 ### Task 2: `merge-coords` helper
@@ -198,7 +198,7 @@ dep's `:deps`, never its `:tasks`.
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
   In `test/lgx/config_test.lg`, add `deftest`s for `config/merge-coords`
   (takes two coord-pair vectors `[[lib coord] ...]`, returns a merged
   vector):
@@ -210,12 +210,12 @@ dep's `:deps`, never its `:tasks`.
     original index (assert the index/order, e.g. via `(map first ...)`,
     and that the coord is the extra's).
 
-- [ ] **Step 2: Run unit tests to verify they fail**
+- [x] **Step 2: Run unit tests to verify they fail**
   Run: `bin/lgx test test/lgx/config_test.lg` (or `bash tests/run.sh`).
   Expected: fail — `merge-coords` is unresolved (compile error) /
   assertions red.
 
-- [ ] **Step 3: Implement `merge-coords`**
+- [x] **Step 3: Implement `merge-coords`**
   In `lgx/config.lg`, add a pure public `merge-coords [project-pairs
   extra-pairs]`:
   - Build a set of project lib names.
@@ -227,11 +227,11 @@ dep's `:deps`, never its `:tasks`.
   Keep it free of disk I/O (callers pass `config/coords` output and the
   task's `(vec (:extra-deps task))`).
 
-- [ ] **Step 4: Run unit tests to verify they pass**
+- [x] **Step 4: Run unit tests to verify they pass**
   Run: `bash tests/run.sh`.
   Expected: all config_test assertions pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "feat: add config/merge-coords (extra-over-project override)"`
 
 ### Task 3: Wire extras into `cmd-task` (basis refactor + e2e)
@@ -240,7 +240,7 @@ dep's `:deps`, never its `:tasks`.
 - Modify: `lgx.lg`
 - Test: `tests/e2e.sh`
 
-- [ ] **Step 1: Write the failing e2e scenarios**
+- [x] **Step 1: Write the failing e2e scenarios**
   In `tests/e2e.sh`, append two scenarios after the current final one
   (use the next free scenario numbers). Reuse the existing helpers.
 
@@ -269,12 +269,12 @@ dep's `:deps`, never its `:tasks`.
   (`supports_source_paths` / lg availability) so the scenario skips
   cleanly where the others do.
 
-- [ ] **Step 2: Run e2e to verify it fails**
+- [x] **Step 2: Run e2e to verify it fails**
   Run: `bash tests/run.sh`.
   Expected: the new scenarios fail — `cmd-task` does not yet add extras,
   so `devtool` / `test.fib` fail to resolve in the `:run` step.
 
-- [ ] **Step 3: Refactor `project-basis` and wire `cmd-task`**
+- [x] **Step 3: Refactor `project-basis` and wire `cmd-task`**
   In `lgx.lg`:
   - Extract a private `basis [project coords raw-paths]` from
     `project-basis` (lines ~112–123): it runs `ensure-all!` on `coords`,
@@ -290,11 +290,11 @@ dep's `:deps`, never its `:tasks`.
     task) [])))`, then `(basis project coords raw-paths)`, `print-installs!`
     the results, and `(tasks/run-task! task paths verbose?)`.
 
-- [ ] **Step 4: Run e2e to verify it passes**
+- [x] **Step 4: Run e2e to verify it passes**
   Run: `bash tests/run.sh`.
   Expected: the two new scenarios pass; all existing scenarios still pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "feat: apply task :extra-paths and :extra-deps to :run steps"`
 
 ### Task 4: Documentation
@@ -303,7 +303,7 @@ dep's `:deps`, never its `:tasks`.
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
   In `README.md` `### Tasks (:tasks)` (around line 246), document the two
   optional per-task keys: `:extra-paths` (extra project-relative source
   dirs) and `:extra-deps` (extra coords, same grammar as top-level
@@ -316,16 +316,51 @@ dep's `:deps`, never its `:tasks`.
   `- [ ] :extra-deps/:extra-paths - ad-hoc overrides for custom tasks.`
   to `- [x] ...`.
 
-- [ ] **Step 2: Update ARCHITECTURE.md**
+- [x] **Step 2: Update ARCHITECTURE.md**
   In `docs/ARCHITECTURE.md` `### lgx <task>` (around line 224), note that
   a task may declare `:extra-paths`/`:extra-deps`, that lgx merges the
   extras over the project basis (extra-deps override same-named project
   deps, silently) before resolving, and that the augmented source path
   applies to the task's `:run` steps.
 
-- [ ] **Step 3: Verify formatting and run the full suite**
+- [x] **Step 3: Verify formatting and run the full suite**
   Run: `make fmt-check && bash tests/run.sh`.
   Expected: formatting clean; all unit + e2e tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "docs: document task :extra-paths and :extra-deps"`
+
+---
+
+## Implementation Summary
+
+All four tasks landed as designed.
+
+- `lgx/config.lg`: added `allowed-task-keys` (`#{:doc :do :extra-paths
+  :extra-deps}`) + `validate-extra-deps!`, and extended `validate-task!`
+  to reject unknown task keys and validate `:extra-paths`
+  (`validate-paths!`) / `:extra-deps` (map of `validate-coord!`). Added
+  the pure public `merge-coords [project-pairs extra-pairs]` — extras
+  override a same-named project coord in place, new extras appended,
+  order preserved; deduped before `ensure-all!` so the override is silent.
+- `lgx.lg`: extracted `basis [project coords raw-paths]` from
+  `project-basis` (which is now its no-extras caller). `cmd-task` merges
+  the task's `:extra-deps` over project coords and appends `:extra-paths`
+  after project `:paths`, then resolves via `basis`. Extras affect only
+  `:run` steps' `-source-paths`; `:sh` steps are untouched.
+- `test/lgx/config_test.lg`: 8 validation tests (accept extra-paths /
+  extra-deps / both; reject non-vector extra-paths, `..` path, non-map
+  extra-deps, bad coord, unknown task key) + 3 `merge-coords` tests
+  (no-extras unchanged, new lib appended, collision overrides in place).
+- `tests/e2e.sh`: scenario 71 (`:extra-paths` adds a `dev/` source dir so
+  a `:run` step resolves `devtool`) and scenario 72 (`:extra-deps` cold-
+  fetches a git lib — asserts `installing 1 dep(s)...` and `fib 10` = 55).
+- Docs: README `### Tasks` (new `#### Per-task :extra-paths and
+  :extra-deps` subsection + strict-keys note + `:contexts` forward
+  reference + roadmap tick) and `docs/ARCHITECTURE.md` `### lgx <task>`.
+
+**Verification:** `make fmt-check` clean; `bash tests/run.sh` →
+89 unit tests / 118 assertions / 0 failures, 162 e2e assertions passed
+(3 new). Second-opinion review via `review-with-codex` (scope: branch vs
+master) found no code issues — its only finding was the same-PR doc
+update, which Task 4 delivered.
