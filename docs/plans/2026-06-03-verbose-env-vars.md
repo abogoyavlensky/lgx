@@ -1,4 +1,4 @@
-# Verbose Env Vars Implementation Plan
+# Verbose Env Vars Implementation Plan — ✅ COMPLETED
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -76,7 +76,7 @@ is covered by extending the existing verbose e2e scenarios (12 for `run`,
 - Modify: `lgx/runner.lg`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Write the focused unit test**
+- [x] **Step 1: Write the focused unit test**
   Create `test/lgx/runner_test.lg` (ns `lgx.runner-test`, requiring
   `lgx.runner` and the test framework — mirror an existing test such as
   `test/lgx/home_test.lg`). Assert `env-trace-line` behavior using map
@@ -88,12 +88,14 @@ is covered by extending the existing verbose e2e scenarios (12 for `run`,
   - `(env-trace-line {"LG_READ_CLJ" "" "LGX_RUN" ""})` → `nil`
     (all blank → no line).
 
-- [ ] **Step 2: Run the focused test (expected: fail)**
+- [x] **Step 2: Run the focused test (expected: fail)**
   Run: `bash tests/run.sh`
   Expected: the new `lgx.runner-test` assertions fail (helper not defined
   yet); other tests still pass.
+  Result: test file failed to compile — `Can't resolve
+  runner/env-trace-line` (expected red).
 
-- [ ] **Step 3: Implement the helper**
+- [x] **Step 3: Implement the helper**
   In `lgx/runner.lg`, add an ordered name list and a pure formatter:
   - `(def ^:private lgx-set-env-names ["LG_READ_CLJ" "LGX_RUN"])` — the
     vars lgx sets, in display order.
@@ -102,9 +104,11 @@ is covered by extending the existing verbose e2e scenarios (12 for `run`,
     (`str/blank?`), and return `"+ env <joined>\n"` or `nil` when none.
     Reuse `str/join`. Keep it free of `os/getenv` so it stays pure.
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
   Run: `bash tests/run.sh`
   Expected: all unit + e2e tests pass.
+  Result: 192 tests, 269 assertions, 0 failures (4 new env-trace-line
+  tests green).
 
 ### Task 2: Wire env line into invoke-lg! and reorder LG_READ_CLJ
 
@@ -112,7 +116,7 @@ is covered by extending the existing verbose e2e scenarios (12 for `run`,
 - Modify: `lgx/runner.lg`
 - Test: `tests/e2e.sh`
 
-- [ ] **Step 1: Extend the e2e assertions**
+- [x] **Step 1: Extend the e2e assertions**
   In `tests/e2e.sh`:
   - Scenario 12 (`--verbose run`): assert the captured stderr contains
     `+ env ` and `LG_READ_CLJ=1` and `LGX_RUN=1`.
@@ -120,12 +124,13 @@ is covered by extending the existing verbose e2e scenarios (12 for `run`,
     `LG_READ_CLJ=1`, and assert it does **not** contain `LGX_RUN`
     (`assert_not_contains` already exists in the harness).
 
-- [ ] **Step 2: Run the e2e tests (expected: fail)**
+- [x] **Step 2: Run the e2e tests (expected: fail)**
   Run: `bash tests/run.sh`
   Expected: the new scenario 12/30 assertions fail (env line not emitted
   yet).
+  Result: scenario 12 failed on `+ env ` assertion (expected red).
 
-- [ ] **Step 3: Implement the wiring**
+- [x] **Step 3: Implement the wiring**
   In `invoke-lg!` (`lgx/runner.lg`):
   - Move `(os/setenv "LG_READ_CLJ" "1")` (with its explanatory comment) to
     the top of the fn, before the `let`.
@@ -133,9 +138,11 @@ is covered by extending the existing verbose e2e scenarios (12 for `run`,
     `+ <bin> <args>` print, emit the env line:
     `(when-let [line (env-trace-line os/getenv)] (write! *err* line))`.
 
-- [ ] **Step 4: Run verification**
+- [x] **Step 4: Run verification**
   Run: `bash tests/run.sh`
   Expected: all unit + e2e tests pass (scenarios 12 and 30 green).
+  Result: all 151 e2e assertions passed (+5 new); env line renders as
+  `+ env LG_READ_CLJ=1 LGX_RUN=1` on run, `+ env LG_READ_CLJ=1` on build.
 
 ### Task 3: Update docs for the new verbose output
 
@@ -143,16 +150,55 @@ is covered by extending the existing verbose e2e scenarios (12 for `run`,
 - Modify: `README.md`
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
   In `README.md` (the `--verbose` paragraph near line 97), add that
   `--verbose` also prints a `+ env …` line listing the env vars lgx sets:
   `LG_READ_CLJ=1` for every `lg` invocation, plus `LGX_RUN=1` on `run`
   paths.
 
-- [ ] **Step 2: Update the usage string**
+- [x] **Step 2: Update the usage string**
   In `lgx.lg` (the `--verbose` line in the usage text, line 29), note that
   it prints the env vars lgx sets alongside the `lg` invocation.
 
-- [ ] **Step 3: Verify formatting and run full suite**
+- [x] **Step 3: Verify formatting and run full suite**
   Run: `make fmt-check && bash tests/run.sh`
   Expected: formatting clean; all tests pass.
+  Result: formatting clean; all 151 e2e assertions + unit tests pass.
+
+---
+
+## Implementation Summary
+
+All three tasks landed as designed.
+
+- `lgx/runner.lg`: added `lgx-set-env-names` (`["LG_READ_CLJ" "LGX_RUN"]`)
+  and the pure `env-trace-line` helper (takes a lookup fn, keeps non-blank
+  vars in order, returns the `+ env …\n` line or `nil`). Reordered
+  `invoke-lg!` so `LG_READ_CLJ` is set at the top, and emit the env line
+  before the existing command trace under `--verbose`.
+- `test/lgx/runner_test.lg` (new): 4 unit tests for `env-trace-line` using
+  map lookups — order, missing var, blank var, all-blank → nil.
+- `tests/e2e.sh`: scenario 12 (`run`) asserts the env line shows both
+  `LG_READ_CLJ=1` and `LGX_RUN=1`; scenario 30 (`build`) asserts
+  `LG_READ_CLJ=1` and that `LGX_RUN` is absent.
+- Docs: README `--verbose` paragraph and the `lgx.lg` usage string.
+
+Verified output:
+```
++ env LG_READ_CLJ=1 LGX_RUN=1     # run / :run task paths
++ env LG_READ_CLJ=1               # build / test paths (no LGX_RUN)
+```
+
+**Verification:** `make fmt-check` clean; `bash tests/run.sh` →
+192 unit tests / 269 assertions / 0 failures, 151 e2e assertions passed.
+Second-opinion review via `review-with-codex` (scope: uncommitted)
+returned no actionable issues.
+
+**Notes / issues encountered:**
+- A test file that fails to *compile* (e.g. referencing an undefined fn)
+  prints the error but the harness still exits 0 — so the "red" step
+  showed up only in stderr, not as a non-zero exit. Pre-existing harness
+  behavior, unrelated to this change, but worth knowing when writing
+  failing-first tests.
+- Changes are left uncommitted (the plan doc itself was committed earlier
+  by liteplan). Commit when ready.

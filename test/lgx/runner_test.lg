@@ -1,0 +1,21 @@
+;; Unit tests for lgx.runner.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.runner-test
+  (:require [lgx.runner :as runner]
+            [test :refer [deftest is]]))
+
+(deftest env-trace-line-lists-set-vars-in-order
+  (is (= "+ env LG_READ_CLJ=1 LGX_RUN=1\n"
+         (runner/env-trace-line {"LG_READ_CLJ" "1" "LGX_RUN" "1"}))))
+
+(deftest env-trace-line-omits-missing-vars
+  (is (= "+ env LG_READ_CLJ=1\n"
+         (runner/env-trace-line {"LG_READ_CLJ" "1"}))))
+
+(deftest env-trace-line-omits-blank-vars
+  (is (= "+ env LG_READ_CLJ=1\n"
+         (runner/env-trace-line {"LG_READ_CLJ" "1" "LGX_RUN" ""}))))
+
+(deftest env-trace-line-nil-when-none-set
+  (is (nil? (runner/env-trace-line {"LG_READ_CLJ" "" "LGX_RUN" ""}))))

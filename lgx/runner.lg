@@ -9,6 +9,24 @@
   (when (seq paths)
     ["-source-paths" (str/join os/path-separator paths)]))
 
+;; Env vars lgx writes into the environment, in display order:
+;; LG_READ_CLJ for the lg child (see invoke-lg!), LGX_RUN lgx's own
+;; run-marker (set by cmd-run / :run task steps before invoke-lg!).
+(def ^:private lgx-set-env-names ["LG_READ_CLJ" "LGX_RUN"])
+
+(defn env-trace-line
+  "Build the `+ env NAME=VALUE ...` trace line for the env vars lgx sets.
+   `lookup` maps a var name to its value (pass os/getenv, or a map in
+   tests). Keeps only the non-blank vars, in lgx-set-env-names order.
+   Returns the line (with trailing newline) or nil when none are set."
+  [lookup]
+  (let [pairs (->> lgx-set-env-names
+                   (keep (fn [n]
+                           (let [v (lookup n)]
+                             (when-not (str/blank? v) (str n "=" v))))))]
+    (when (seq pairs)
+      (str "+ env " (str/join " " pairs) "\n"))))
+
 ;; --------------------------------------------------------------------------
 ;; TODO: this calls os/sh which buffers stdout/stderr until the child exits.
 ;; That's wrong for `lgx run`: script output won't stream and stdin is dead
@@ -21,15 +39,18 @@
    command (binary + args) to *err* before exec. Returns lg's exit code
    after replaying captured stdout/stderr."
   [lib-paths forward-args verbose?]
+  ;; lg's resolver doesn't search .clj by default and its reader leaves
+  ;; #?(:clj ...) branches unmatched unless this is set. See
+  ;; docs/issues/letgo-clj-support.md. Set before the verbose trace so the
+  ;; env line reflects it.
+  (os/setenv "LG_READ_CLJ" "1")
   (let [bin (lg-binary)
         args (vec (concat (or (source-paths-flag lib-paths) [])
                           forward-args))]
     (when verbose?
+      (when-let [env-line (env-trace-line os/getenv)]
+        (write! *err* env-line))
       (write! *err* (str "+ " bin " " (str/join " " args) "\n")))
-    ;; lg's resolver doesn't search .clj by default and its reader leaves
-    ;; #?(:clj ...) branches unmatched unless this is set. See
-    ;; docs/issues/letgo-clj-support.md.
-    (os/setenv "LG_READ_CLJ" "1")
     (let [r (apply os/sh bin args)]
       ;; Replay captured output. Imperfect substitute for inherited stdio.
       (when (seq (:out r)) (write! *out* (:out r)))

@@ -26,7 +26,7 @@
        "  lgx help                     Show this help\n"
        "\n"
        "Global flags:\n"
-       "  --verbose                    Print the lg invocation before running (run/build/test/user tasks)\n"))
+       "  --verbose                    Print the env vars lgx sets and the lg invocation before running (run/build/test/user tasks)\n"))
 
 (defn- coord-label [c]
   (cond

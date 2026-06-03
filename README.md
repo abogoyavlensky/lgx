@@ -95,7 +95,9 @@ lgx run
 | `lgx version` | Print version. |
 
 Global flag: `--verbose` prints the resolved `lg` invocation before
-running (applies to `run`, `build`, `test`, and user tasks).
+running (applies to `run`, `build`, `test`, and user tasks). It also
+prints a `+ env …` line listing the env vars lgx sets: `LG_READ_CLJ=1`
+for every `lg` invocation, plus `LGX_RUN=1` on `run` paths.
 
 `lgx run`, `build`, `test`, and tasks find the nearest `lgx.edn` by
 walking up from the current directory.

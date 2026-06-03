@@ -282,6 +282,9 @@ set -e
 assert_contains "$out_verbose" "+ " "verbose: trace line has + prefix"
 assert_contains "$out_verbose" "-source-paths" "verbose: trace includes -source-paths"
 assert_contains "$out_verbose" "(println :ok)" "verbose: trace includes forwarded args"
+assert_contains "$out_verbose" "+ env " "verbose: env line has + env prefix"
+assert_contains "$out_verbose" "LG_READ_CLJ=1" "verbose: env line includes LG_READ_CLJ=1"
+assert_contains "$out_verbose" "LGX_RUN=1" "verbose: env line includes LGX_RUN=1 on run path"
 
 # Without --verbose, no line should start with the trace prefix "+ ".
 home_verbose2="$(mktemp -d)"
@@ -587,6 +590,8 @@ set -e
 assert_contains "$err" "+ " "verbose build: trace line has + prefix"
 assert_contains "$err" "-b" "verbose build: trace includes -b flag"
 assert_contains "$err" "bin/myapp" "verbose build: trace includes :out path"
+assert_contains "$err" "+ env LG_READ_CLJ=1" "verbose build: env line includes LG_READ_CLJ=1"
+assert_not_contains "$err" "LGX_RUN" "verbose build: env line omits LGX_RUN (not a run path)"
 rm -rf "$proj_b6" "$home_b6"
 
 # ---------------------------------------------------------------------------
