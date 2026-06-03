@@ -1631,5 +1631,62 @@ else
     skip "lgx test requires lg with -source-paths support"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 71: task :extra-paths adds a source dir for the task's :run step"
+if supports_source_paths; then
+    proj_ep="$(mktemp -d)"
+    home_ep="$(mktemp -d)"
+    mkdir -p "$proj_ep/dev"
+    cat > "$proj_ep/dev/devtool.lg" <<'EOF'
+(ns devtool)
+(defn banner [] "DEV-OK")
+EOF
+    cat > "$proj_ep/task-main.lg" <<'EOF'
+(ns task.main
+  (:require [devtool]))
+(println (devtool/banner))
+EOF
+    cat > "$proj_ep/lgx.edn" <<'EOF'
+{:tasks
+ {:devrun {:extra-paths ["dev"]
+           :do [{:run "task-main.lg"}]}}}
+EOF
+    out="$(cd "$proj_ep" && LGX_HOME="$home_ep" "$LGX" devrun 2>&1)"
+    assert_contains "$out" "DEV-OK" \
+        "task extra-paths: :run step resolves ns from extra-paths dir"
+    rm -rf "$proj_ep" "$home_ep"
+else
+    skip "task :extra-paths requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 72: task :extra-deps fetches a dep for the task's :run step"
+if supports_source_paths; then
+    home_ed="$(mktemp -d)"
+    bare_ed="$home_ed/_fixtures/test-repo.git"
+    mkdir -p "$(dirname "$bare_ed")"
+    sha_ed="$(make_bare_repo "$bare_ed")"
+    proj_ed="$(mktemp -d)"
+    cat > "$proj_ed/fib-main.lg" <<'EOF'
+(ns fib.main
+  (:require [test.fib :as fib]))
+(println (fib/fib 10))
+EOF
+    cat > "$proj_ed/lgx.edn" <<EOF
+{:tasks
+ {:fibrun {:extra-deps {test/lib {:git/url "file://$bare_ed"
+                                  :git/sha "$sha_ed"}}
+           :do [{:run "fib-main.lg"}]}}}
+EOF
+    out="$(cd "$proj_ed" && LGX_HOME="$home_ed" "$LGX" fibrun 2>&1)"
+    assert_contains "$out" "installing 1 dep(s)..." \
+        "task extra-deps: cold fetch shows install block"
+    assert_contains "$out" "55" \
+        "task extra-deps: :run step resolves ns from extra-deps git lib"
+    rm -rf "$proj_ed" "$home_ed"
+else
+    skip "task :extra-deps requires lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

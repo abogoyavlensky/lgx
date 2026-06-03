@@ -109,18 +109,26 @@
             abs))
         paths))
 
-(defn- project-basis
-  "Resolve deps and project paths for the active project. Returns a map
-   with the project root, the install results, and the joined source path
-   vector used for `-source-paths`."
-  [project]
-  (let [coords (config/coords project)
-        results (ensure-all! project coords)
-        own-paths (resolve-project-paths project (config/paths project))
+(defn- basis
+  "Resolve `coords` and `raw-paths` into a source-path basis for the active
+   project. Returns a map with the project root, the install results, and the
+   joined source path vector used for `-source-paths`. `coords` is the coord
+   pair list to resolve (project deps, or project+task extras merged);
+   `raw-paths` is the project-relative path list (project :paths, or project
+   :paths ++ a task's :extra-paths)."
+  [project coords raw-paths]
+  (let [results (ensure-all! project coords)
+        own-paths (resolve-project-paths project raw-paths)
         paths (vec (concat own-paths (mapv :path results)))]
     {:project project
      :results results
      :paths paths}))
+
+(defn- project-basis
+  "The no-extras basis used by run/build/test: the project's own :deps and
+   :paths."
+  [project]
+  (basis project (config/coords project) (config/paths project)))
 
 (defn- resolve-main-script! [project main-script]
   (let [abs (path/join project main-script)]
@@ -274,7 +282,16 @@
 
 (defn- cmd-task [task verbose?]
   (let [project (config/find-project!)
-        {:keys [results paths]} (project-basis project)]
+        ;; A task may augment the project basis with its own :extra-deps and
+        ;; :extra-paths. extra-deps override same-named project deps (silently;
+        ;; see config/merge-coords); extra-paths sit after the project paths.
+        ;; Both affect only the task's :run steps (the source path); :sh steps
+        ;; ignore the basis.
+        coords (config/merge-coords (config/coords project)
+                                    (vec (or (:extra-deps task) {})))
+        raw-paths (vec (concat (config/paths project)
+                               (or (:extra-paths task) [])))
+        {:keys [results paths]} (basis project coords raw-paths)]
     (print-installs! results)
     (tasks/run-task! task paths verbose?)))
 
