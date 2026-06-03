@@ -136,10 +136,25 @@
     (let [action (first action-ks)]
       (validate-action-value! task-name idx action (get step action)))))
 
+(def ^:private allowed-task-keys #{:doc :do :extra-paths :extra-deps})
+
+(defn- validate-extra-deps! [task-name extra]
+  (when-not (map? extra)
+    (bad! (str "invalid task " task-name ".\n\n:extra-deps must be a map.")
+          {:task task-name}))
+  (doseq [[lib c] extra]
+    (validate-coord! lib c)))
+
 (defn- validate-task! [task-name task]
   (when-not (map? task)
     (bad! (str "invalid task " task-name ".\n\nTask value must be a map.")
           {:task task-name}))
+  (let [unknown-ks (filter #(not (contains? allowed-task-keys %)) (keys task))]
+    (when (seq unknown-ks)
+      (bad! (str "invalid task " task-name
+                 ".\n\nUnknown task keys: " (str/join ", " (map str unknown-ks))
+                 ".\nAllowed keys: :doc, :do, :extra-paths, :extra-deps.")
+            {:task task-name})))
   (when (contains? task :doc)
     (when-not (string? (:doc task))
       (bad! (str "invalid task " task-name ".\n\n:doc must be a string.")
@@ -165,7 +180,11 @@
            xs steps]
       (when (seq xs)
         (validate-step! task-name i (first xs))
-        (recur (inc i) (rest xs))))))
+        (recur (inc i) (rest xs)))))
+  (when (contains? task :extra-paths)
+    (validate-paths! (:extra-paths task)))
+  (when (contains? task :extra-deps)
+    (validate-extra-deps! task-name (:extra-deps task))))
 
 (defn- validate-tasks! [tasks]
   (when-not (map? tasks)

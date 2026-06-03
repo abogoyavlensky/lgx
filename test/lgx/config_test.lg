@@ -368,6 +368,55 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; :tasks :extra-paths / :extra-deps validation
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-task-with-extra-paths
+  (let [cfg {:tasks {:dev {:extra-paths ["dev"]
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-task-with-extra-deps
+  (let [cfg {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"
+                                                  :git/sha "s"}}
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-task-with-extra-paths-and-deps
+  (let [cfg {:tasks {:dev {:doc "Dev"
+                           :extra-paths ["dev"]
+                           :extra-deps {'foo/bar {:git/url "u"
+                                                  :git/sha "s"}}
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-task-extra-paths-not-a-vector
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-paths "dev"
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-extra-paths-with-dotdot
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-paths ["../x"]
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-extra-deps-not-a-map
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-deps [:not :a :map]
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-extra-deps-bad-coord
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"}}
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-with-unknown-key
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-dep {}
+                                          :do [{:sh "echo hi"}]}}})))))
+
+
+;; ---------------------------------------------------------------------------
 ;; coords-at (transitive: a fetched dep's own deps)
 ;; ---------------------------------------------------------------------------
 
