@@ -1,0 +1,30 @@
+(ns main
+  (:require [weavejester.dependency :as dep]))
+
+;; weavejester/dependency running under let-go. Build a small dependency
+;; graph and query it.
+
+(defn demo [label value]
+  (println (str label ":")) (prn value))
+
+;; A tiny build graph. Each (depend X Y) reads "X depends on Y":
+;;
+;;   :app -> :ui -> :core
+;;     \-> :db --/
+;;
+(def g (-> (dep/graph)
+           (dep/depend :ui  :core)
+           (dep/depend :db  :core)
+           (dep/depend :app :ui)
+           (dep/depend :app :db)))
+
+(demo "nodes"                   (dep/nodes g))
+(demo "immediate-dependencies" (dep/immediate-dependencies g :app))
+(demo "immediate-dependents"   (dep/immediate-dependents g :core))
+(demo "transitive-dependencies" (dep/transitive-dependencies g :app))
+(demo "transitive-dependents"   (dep/transitive-dependents g :core))
+(demo "depends? :app :core"    (dep/depends? g :app :core))
+(demo "dependent? :core :app"  (dep/dependent? g :core :app))
+
+;; Headline feature: a topological build order (deps before dependents).
+(demo "topo-sort"              (dep/topo-sort g))
