@@ -417,6 +417,33 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; merge-coords (task extras over project deps; extra wins)
+;; ---------------------------------------------------------------------------
+
+(deftest merge-coords-no-extras-returns-project-unchanged
+  (let [project [['foo/a {:git/url "ua" :git/sha "sa"}]
+                 ['foo/b {:git/url "ub" :git/sha "sb"}]]]
+    (is (= project (config/merge-coords project [])))))
+
+(deftest merge-coords-new-lib-is-appended-after-project
+  (let [project [['foo/a {:git/url "ua" :git/sha "sa"}]]
+        extra   [['foo/b {:git/url "ub" :git/sha "sb"}]]
+        merged  (config/merge-coords project extra)]
+    (is (= ['foo/a 'foo/b] (mapv first merged)))
+    (is (= {:git/url "ub" :git/sha "sb"} (second (second merged))))))
+
+(deftest merge-coords-colliding-lib-overrides-in-place
+  (let [project [['foo/a {:git/url "ua" :git/sha "v1"}]
+                 ['foo/b {:git/url "ub" :git/sha "sb"}]]
+        extra   [['foo/a {:git/url "ua" :git/sha "v2"}]]
+        merged  (config/merge-coords project extra)]
+    ;; same length, same order, foo/a's coord replaced by the extra
+    (is (= 2 (count merged)))
+    (is (= ['foo/a 'foo/b] (mapv first merged)))
+    (is (= {:git/url "ua" :git/sha "v2"} (second (first merged))))))
+
+
+;; ---------------------------------------------------------------------------
 ;; coords-at (transitive: a fetched dep's own deps)
 ;; ---------------------------------------------------------------------------
 

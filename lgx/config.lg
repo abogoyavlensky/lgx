@@ -261,6 +261,26 @@
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (vec (:deps cfg))))
 
+(defn merge-coords
+  "Merge a task's `extra-pairs` over `project-pairs` (both vectors of
+   [lib coord]). An extra whose lib name matches a project coord replaces
+   that coord in place (extra wins; position preserved). Extras with new lib
+   names are appended after the project coords, in extra order. Returns a
+   vector of [lib coord] pairs.
+
+   The override is resolved here, before ensure-all!, so the merged list has
+   each lib name at most once at the top level. That makes the
+   extra-over-project override silent: ensure-all! only warns when a lib name
+   reappears with a differing coord, which a deduped list never triggers."
+  [project-pairs extra-pairs]
+  (let [extra-map (into {} extra-pairs)
+        project-map (into {} project-pairs)
+        overridden (mapv (fn [[lib c]] [lib (get extra-map lib c)])
+                         project-pairs)
+        appended (vec (filter (fn [[lib _]] (not (contains? project-map lib)))
+                              extra-pairs))]
+    (vec (concat overridden appended))))
+
 (defn paths
   "Return the project's :paths vector from lgx.edn, or [] if absent."
   [project]
