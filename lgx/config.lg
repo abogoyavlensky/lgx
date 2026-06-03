@@ -136,10 +136,25 @@
     (let [action (first action-ks)]
       (validate-action-value! task-name idx action (get step action)))))
 
+(def ^:private allowed-task-keys #{:doc :do :extra-paths :extra-deps})
+
+(defn- validate-extra-deps! [task-name extra]
+  (when-not (map? extra)
+    (bad! (str "invalid task " task-name ".\n\n:extra-deps must be a map.")
+          {:task task-name}))
+  (doseq [[lib c] extra]
+    (validate-coord! lib c)))
+
 (defn- validate-task! [task-name task]
   (when-not (map? task)
     (bad! (str "invalid task " task-name ".\n\nTask value must be a map.")
           {:task task-name}))
+  (let [unknown-ks (filter #(not (contains? allowed-task-keys %)) (keys task))]
+    (when (seq unknown-ks)
+      (bad! (str "invalid task " task-name
+                 ".\n\nUnknown task keys: " (str/join ", " (map str unknown-ks))
+                 ".\nAllowed keys: :doc, :do, :extra-paths, :extra-deps.")
+            {:task task-name})))
   (when (contains? task :doc)
     (when-not (string? (:doc task))
       (bad! (str "invalid task " task-name ".\n\n:doc must be a string.")
@@ -165,7 +180,11 @@
            xs steps]
       (when (seq xs)
         (validate-step! task-name i (first xs))
-        (recur (inc i) (rest xs))))))
+        (recur (inc i) (rest xs)))))
+  (when (contains? task :extra-paths)
+    (validate-paths! (:extra-paths task)))
+  (when (contains? task :extra-deps)
+    (validate-extra-deps! task-name (:extra-deps task))))
 
 (defn- validate-tasks! [tasks]
   (when-not (map? tasks)
@@ -241,6 +260,26 @@
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (vec (:deps cfg))))
+
+(defn merge-coords
+  "Merge a task's `extra-pairs` over `project-pairs` (both vectors of
+   [lib coord]). An extra whose lib name matches a project coord replaces
+   that coord in place (extra wins; position preserved). Extras with new lib
+   names are appended after the project coords, in extra order. Returns a
+   vector of [lib coord] pairs.
+
+   The override is resolved here, before ensure-all!, so the merged list has
+   each lib name at most once at the top level. That makes the
+   extra-over-project override silent: ensure-all! only warns when a lib name
+   reappears with a differing coord, which a deduped list never triggers."
+  [project-pairs extra-pairs]
+  (let [extra-map (into {} extra-pairs)
+        project-map (into {} project-pairs)
+        overridden (mapv (fn [[lib c]] [lib (get extra-map lib c)])
+                         project-pairs)
+        appended (vec (filter (fn [[lib _]] (not (contains? project-map lib)))
+                              extra-pairs))]
+    (vec (concat overridden appended))))
 
 (defn paths
   "Return the project's :paths vector from lgx.edn, or [] if absent."

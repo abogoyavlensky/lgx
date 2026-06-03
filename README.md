@@ -272,6 +272,38 @@ cannot shadow built-in commands (`install`, `run`, `build`, `test`,
 Step values may be a string (split on whitespace) or a vector of
 strings. Output is buffered and replayed after each step completes.
 
+A task may contain only `:doc`, `:do`, `:extra-paths`, and `:extra-deps`;
+any other key is rejected (so a typo like `:extra-dep` fails loudly).
+
+#### Per-task `:extra-paths` and `:extra-deps`
+
+A task may declare extra source paths and extra dependencies that apply
+to *that task's* `:run` steps only:
+
+```edn
+{:tasks
+ {:repl {:doc         "REPL with dev-only tooling"
+         :extra-paths ["dev"]
+         :extra-deps  {some/nrepl {:git/url "https://github.com/x/nrepl"
+                                   :git/tag "v1"}}
+         :do          [{:run "dev/repl.lg"}]}}}
+```
+
+- `:extra-paths` — extra project-root-relative source dirs, same rules as
+  top-level `:paths`. Appended after the project's `:paths`.
+- `:extra-deps` — extra coords, same grammar as top-level `:deps` (git,
+  `:local/root`, `:deps/root`). Fetched on first run like any dep.
+
+Both augment the `-source-paths` for the task's `:run` steps. `:sh` steps
+are plain shell and are unaffected. When an `:extra-deps` coord names a
+lib already in the project's top-level `:deps`, the extra coord wins for
+that task only (a silent override) — other commands still use the
+project coord.
+
+These per-task extras are the building block for the planned `:contexts`
+feature (named, reusable `:extra-paths`/`:extra-deps` bundles); see the
+roadmap.
+
 ## Environment variables
 
 | Variable | Default | Purpose |
@@ -332,7 +364,7 @@ In no particular order:
 - [x] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
   libs and resolve the union, with first-wins on conflicts.
 - [ ] `lgx repl` - run repl.
-- [ ] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
+- [x] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
 - [ ] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
 - [ ] `--with`/`:with` - ability to extend tasks with contexts.
 - [ ] `lgx deps` - print dependency tree.

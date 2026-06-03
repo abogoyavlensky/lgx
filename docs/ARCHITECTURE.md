@@ -235,6 +235,17 @@ vector. Each step is one of:
   as `lgx run`, with the project's resolved `-source-paths`. String
   forms are whitespace-split into argv.
 
+A task may also declare `:extra-paths` and `:extra-deps`. Before
+resolution, lgx merges these into the project basis: `:extra-deps` are
+merged over the project's `:deps` via `config/merge-coords` (a task
+extra-dep overrides a same-named project coord *in place* and silently —
+the merged list is deduped before `ensure-all!`, so its first-wins
+warning never fires for the override), and `:extra-paths` are appended
+after the project's `:paths`. The augmented `-source-paths` applies only
+to the task's `:run` steps; `:sh` steps ignore the basis. The
+no-extras path (`run`/`build`/`test`) and the with-extras path (tasks)
+share one `basis` helper.
+
 Steps run sequentially. The first non-zero exit code stops the chain
 and becomes the task's exit code; lgx exits 0 only when every step
 returns 0.

@@ -368,6 +368,82 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; :tasks :extra-paths / :extra-deps validation
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-task-with-extra-paths
+  (let [cfg {:tasks {:dev {:extra-paths ["dev"]
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-task-with-extra-deps
+  (let [cfg {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"
+                                                  :git/sha "s"}}
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-task-with-extra-paths-and-deps
+  (let [cfg {:tasks {:dev {:doc "Dev"
+                           :extra-paths ["dev"]
+                           :extra-deps {'foo/bar {:git/url "u"
+                                                  :git/sha "s"}}
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-task-extra-paths-not-a-vector
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-paths "dev"
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-extra-paths-with-dotdot
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-paths ["../x"]
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-extra-deps-not-a-map
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-deps [:not :a :map]
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-extra-deps-bad-coord
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"}}
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-with-unknown-key
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-dep {}
+                                          :do [{:sh "echo hi"}]}}})))))
+
+
+;; ---------------------------------------------------------------------------
+;; merge-coords (task extras over project deps; extra wins)
+;; ---------------------------------------------------------------------------
+
+(deftest merge-coords-no-extras-returns-project-unchanged
+  (let [project [['foo/a {:git/url "ua" :git/sha "sa"}]
+                 ['foo/b {:git/url "ub" :git/sha "sb"}]]]
+    (is (= project (config/merge-coords project [])))))
+
+(deftest merge-coords-new-lib-is-appended-after-project
+  (let [project [['foo/a {:git/url "ua" :git/sha "sa"}]]
+        extra   [['foo/b {:git/url "ub" :git/sha "sb"}]]
+        merged  (config/merge-coords project extra)]
+    (is (= ['foo/a 'foo/b] (mapv first merged)))
+    (is (= {:git/url "ub" :git/sha "sb"} (second (second merged))))))
+
+(deftest merge-coords-colliding-lib-overrides-in-place
+  (let [project [['foo/a {:git/url "ua" :git/sha "v1"}]
+                 ['foo/b {:git/url "ub" :git/sha "sb"}]]
+        extra   [['foo/a {:git/url "ua" :git/sha "v2"}]]
+        merged  (config/merge-coords project extra)]
+    ;; same length, same order, foo/a's coord replaced by the extra
+    (is (= 2 (count merged)))
+    (is (= ['foo/a 'foo/b] (mapv first merged)))
+    (is (= {:git/url "ua" :git/sha "v2"} (second (first merged))))))
+
+
+;; ---------------------------------------------------------------------------
 ;; coords-at (transitive: a fetched dep's own deps)
 ;; ---------------------------------------------------------------------------
 
