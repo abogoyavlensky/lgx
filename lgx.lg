@@ -1,5 +1,6 @@
 (ns lgx.main
   (:require [lgx.cache :as cache]
+            [lgx.cli :as cli]
             [lgx.config :as config]
             [lgx.new :as new]
             [lgx.path :as path]
@@ -26,6 +27,7 @@
        "  lgx help                     Show this help\n"
        "\n"
        "Global flags:\n"
+       "  --with <a,b,...>             Apply named :contexts (extra deps/paths) to the command (run/build/test/install/tasks)\n"
        "  --verbose                    Print the env vars lgx sets and the lg invocation before running (run/build/test/user tasks)\n"))
 
 (defn- coord-label [c]
@@ -88,9 +90,34 @@
         (println " " lib "->" path))
       (println "done"))))
 
-(defn- cmd-install []
+(defn- with->overlay!
+  "Resolve the effective context-name list against the project's :contexts.
+   On an unknown name, print a clear error and exit 1; other errors propagate."
+  [project names]
+  (try
+    (config/context-overlay (config/contexts project) names)
+    (catch e
+           (let [data (ex-data e)
+                 nm (:lgx/unknown-context data)]
+             (if nm
+               (do
+                 (write! *err*
+                         (str "lgx: unknown context " nm " "
+                              (let [defined (:defined data)]
+                                (if (seq defined)
+                                  (str "(defined: "
+                                       (str/join ", " (sort (map str defined)))
+                                       ")")
+                                  "(no contexts defined in lgx.edn)"))
+                              "\n"))
+                 (os/exit 1))
+               (throw e))))))
+
+(defn- cmd-install [with]
   (let [project (config/find-project!)
-        coords (config/coords project)]
+        overlay (with->overlay! project (vec with))
+        coords (config/merge-coords (config/coords project)
+                                    (:deps-pairs overlay))]
     (if (empty? coords)
       (println "no deps in lgx.edn")
       (let [results (ensure-all! project coords)]
@@ -124,11 +151,37 @@
      :results results
      :paths paths}))
 
-(defn- project-basis
-  "The no-extras basis used by run/build/test: the project's own :deps and
-   :paths."
-  [project]
-  (basis project (config/coords project) (config/paths project)))
+(defn- dedup-keep-first
+  "Return xs with duplicates removed, keeping each value's first position."
+  [xs]
+  (loop [seen #{}
+         acc []
+         ys (seq xs)]
+    (if (nil? ys)
+      acc
+      (let [x (first ys)]
+        (if (contains? seen x)
+          (recur seen acc (next ys))
+          (recur (conj seen x) (conj acc x) (next ys)))))))
+
+(defn- overlay-basis
+  "Build the source-path basis with context overlays applied. `cli-with` is the
+   --with name list (possibly empty); `task` is the task map, or nil for
+   run/build/test. Layering, low->high precedence: project deps/paths <
+   task :with contexts < CLI --with contexts < task inline :extra-* (highest).
+   With no contexts and no task this reduces to the project's own deps/paths."
+  [project cli-with task]
+  (let [names (vec (concat (or (:with task) []) cli-with))
+        overlay (with->overlay! project names)
+        inline-deps (vec (or (:extra-deps task) {}))
+        coords (reduce config/merge-coords
+                       (config/coords project)
+                       [(:deps-pairs overlay) inline-deps])
+        raw-paths (dedup-keep-first
+                    (concat (config/paths project)
+                            (:paths overlay)
+                            (or (:extra-paths task) [])))]
+    (basis project coords raw-paths)))
 
 (defn- resolve-main-script! [project main-script]
   (let [abs (path/join project main-script)]
@@ -161,9 +214,9 @@
 (defn- has-script? [args]
   (some script-arg? args))
 
-(defn- cmd-run [forward-args verbose?]
+(defn- cmd-run [forward-args verbose? with]
   (let [project (config/find-project!)
-        {:keys [results paths]} (project-basis project)
+        {:keys [results paths]} (overlay-basis project with nil)
         main-script (config/main project)
         dd (position forward-args "--")
         args (cond
@@ -198,9 +251,9 @@
     (when parent (mkdir parent))
     abs))
 
-(defn- cmd-build [forward-args verbose?]
+(defn- cmd-build [forward-args verbose? with]
   (let [project (config/find-project!)
-        {:keys [results paths]} (project-basis project)
+        {:keys [results paths]} (overlay-basis project with nil)
         main-script (config/main project)
         bin (:bin (config/targets project))]
     (when (nil? main-script)
@@ -240,12 +293,12 @@
                        (os/exit 1))))]
     [(test-runner/test-entry test-dir abs)]))
 
-(defn- cmd-test [forward-args verbose?]
+(defn- cmd-test [forward-args verbose? with]
   (when (> (count forward-args) 1)
     (write! *err* "lgx: test takes at most one argument\n")
     (os/exit 1))
   (let [project (config/find-project!)
-        {:keys [results paths]} (project-basis project)
+        {:keys [results paths]} (overlay-basis project with nil)
         test-dir (path/join project "test")
         stat (os/stat test-dir)]
     (when (or (nil? stat) (not (:dir? stat)))
@@ -280,18 +333,14 @@
               (os/exit 1))
           (os/exit exit))))))
 
-(defn- cmd-task [task verbose?]
+(defn- cmd-task [task verbose? with]
   (let [project (config/find-project!)
-        ;; A task may augment the project basis with its own :extra-deps and
-        ;; :extra-paths. extra-deps override same-named project deps (silently;
-        ;; see config/merge-coords); extra-paths sit after the project paths.
-        ;; Both affect only the task's :run steps (the source path); :sh steps
-        ;; ignore the basis.
-        coords (config/merge-coords (config/coords project)
-                                    (vec (or (:extra-deps task) {})))
-        raw-paths (vec (concat (config/paths project)
-                               (or (:extra-paths task) [])))
-        {:keys [results paths]} (basis project coords raw-paths)]
+        ;; A task's basis layers, low->high precedence: project deps/paths <
+        ;; the task's :with contexts < the CLI --with contexts < the task's
+        ;; inline :extra-deps/:extra-paths. extra-deps override same-named deps
+        ;; (silently; see config/merge-coords). All of this affects only the
+        ;; task's :run steps (the source path); :sh steps ignore the basis.
+        {:keys [results paths]} (overlay-basis project with task)]
     (print-installs! results)
     (tasks/run-task! task paths verbose?)))
 
@@ -325,18 +374,6 @@
 (defn- usage-for [project]
   (str base-usage (or (tasks-block project) "")))
 
-;; In dev (`lg lgx.lg <cmd> ...`), os/args is ["lg" "lgx.lg" cmd args...].
-;; In a bundle (`./lgx <cmd> ...`), it's ["lgx" cmd args...].
-;; Heuristic: if the second arg ends with .lg, treat it as the script path.
-(defn- user-args []
-  (let [argv (vec os/args)]
-    (cond
-      (and (>= (count argv) 2)
-           (str/ends-with? (nth argv 1) ".lg"))
-      (drop 2 argv)
-      :else
-      (rest argv))))
-
 (defn- print-usage! []
   (let [project (config/find-project)]
     (print (if project (usage-for project) base-usage))))
@@ -348,12 +385,15 @@
       (when (contains? t k)
         (get t k)))))
 
-(defn- dispatch [cmd rest-args verbose?]
+;; `with` is the CLI --with context-name list (empty when the flag is absent).
+;; It is threaded to every command, but only the basis commands
+;; (run/build/test/install/tasks) act on it; new/version/help ignore it.
+(defn- dispatch [cmd rest-args verbose? with]
   (case cmd
-    "install" (cmd-install)
-    "run" (cmd-run (vec rest-args) verbose?)
-    "build" (cmd-build (vec rest-args) verbose?)
-    "test" (cmd-test (vec rest-args) verbose?)
+    "install" (cmd-install with)
+    "run" (cmd-run (vec rest-args) verbose? with)
+    "build" (cmd-build (vec rest-args) verbose? with)
+    "test" (cmd-test (vec rest-args) verbose? with)
     "new" (new/cmd-new! (vec rest-args) verbose?)
     "version" (cmd-version)
     "-v" (cmd-version)
@@ -363,18 +403,21 @@
     "--help" (print-usage!)
     nil (do (print-usage!) (os/exit 1))
     (if-let [task (lookup-task cmd)]
-      (cmd-task task verbose?)
+      (cmd-task task verbose? with)
       (do (write! *err*
                   (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
           (os/exit 1)))))
 
 (defn- main []
-  (let [raw (user-args)
-        verbose? (= (first raw) "--verbose")
-        argv (if verbose? (rest raw) raw)
-        cmd (first argv)
-        rest-args (rest argv)]
-    (dispatch cmd rest-args verbose?)))
+  (let [{:keys [verbose? with args]}
+        (try
+          (cli/parse-leading-flags (cli/user-args os/args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        cmd (first args)
+        rest-args (rest args)]
+    (dispatch cmd rest-args verbose? with)))
 
 ;; Top-level forms run during AOT compilation too. Guard so `lg -b` doesn't
 ;; execute the CLI while bundling.

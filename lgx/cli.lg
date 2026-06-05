@@ -1,0 +1,67 @@
+(ns lgx.cli
+  (:require [string :as str]))
+
+;; --------------------------------------------------------------------------
+;; CLI argv parsing
+;;
+;; Isolated from lgx.main so it can be unit-tested: lgx.main's load runs
+;; (main), so a test cannot require it. These helpers are pure.
+;; --------------------------------------------------------------------------
+
+(defn user-args
+  "Strip the program prefix from `argv`, returning the user's command + args.
+   In dev (`lg lgx.lg <cmd> ...`) the second arg is the script path ending in
+   .lg, so drop two; as a bundle (`./lgx <cmd> ...`) drop only the program."
+  [argv]
+  (let [argv (vec argv)]
+    (cond
+      (and (>= (count argv) 2)
+           (str/ends-with? (nth argv 1) ".lg"))
+      (drop 2 argv)
+      :else
+      (rest argv))))
+
+(def ^:private with-error
+  "lgx: --with requires a comma-separated list of context names")
+
+(defn- parse-with-value [value]
+  (when (nil? value)
+    (throw (ex-info with-error {})))
+  ;; Trim each comma-segment before filtering so a spaced list like
+  ;; `--with "dev, test"` yields :test, not :" test".
+  (let [names (vec (filter (fn [s] (not (str/blank? s)))
+                           (map str/trim (str/split value ","))))]
+    (when (empty? names)
+      (throw (ex-info with-error {})))
+    (mapv keyword names)))
+
+(defn parse-leading-flags
+  "Parse leading global flags from `args` (the `user-args` output). Consumes
+   leading `--verbose` and `--with a,b` tokens, in any order and repeatable, up
+   to the first non-flag token (the command). Returns
+   {:verbose? bool :with [kw ...] :args [str ...]} where :args is the command
+   and everything after it (flags past the command are left untouched).
+   Comma-splits `--with` values and drops blanks; throws ex-info when `--with`
+   has no value or yields no names."
+  [args]
+  (loop [verbose? false
+         with []
+         xs (seq args)]
+    (if (nil? xs)
+      {:verbose? verbose?
+       :with with
+       :args []}
+      (let [tok (first xs)]
+        (cond
+          (= tok "--verbose")
+          (recur true with (next xs))
+
+          (= tok "--with")
+          (recur verbose?
+                 (vec (concat with (parse-with-value (first (next xs)))))
+                 (next (next xs)))
+
+          :else
+          {:verbose? verbose?
+           :with with
+           :args (vec xs)})))))

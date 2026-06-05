@@ -94,10 +94,18 @@ lgx run
 | `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
 
-Global flag: `--verbose` prints the resolved `lg` invocation before
-running (applies to `run`, `build`, `test`, and user tasks). It also
-prints a `+ env …` line listing the env vars lgx sets: `LG_READ_CLJ=1`
-for every `lg` invocation, plus `LGX_RUN=1` on `run` paths.
+Global flags:
+
+- `--with <a,b,...>` applies one or more named [contexts](#contexts-contexts)
+  (reusable `:extra-deps`/`:extra-paths` overlays) to the command. Applies to
+  `run`, `build`, `test`, `install`, and user tasks; on a task it unions with
+  the task's own `:with`.
+- `--verbose` prints the resolved `lg` invocation before running (applies to
+  `run`, `build`, `test`, and user tasks). It also prints a `+ env …` line
+  listing the env vars lgx sets: `LG_READ_CLJ=1` for every `lg` invocation,
+  plus `LGX_RUN=1` on `run` paths.
+
+Both global flags go before the subcommand: `lgx --with dev,test run`.
 
 `lgx run`, `build`, `test`, and tasks find the nearest `lgx.edn` by
 walking up from the current directory.
@@ -172,7 +180,7 @@ become hyphens; `/` becomes `.`.
 {}
 ```
 
-Top-level keys: `:paths`, `:deps`, `:main`, `:targets`, `:tasks`.
+Top-level keys: `:paths`, `:deps`, `:main`, `:targets`, `:tasks`, `:contexts`.
 
 ### Source paths and entrypoint
 
@@ -272,8 +280,8 @@ cannot shadow built-in commands (`install`, `run`, `build`, `test`,
 Step values may be a string (split on whitespace) or a vector of
 strings. Output is buffered and replayed after each step completes.
 
-A task may contain only `:doc`, `:do`, `:extra-paths`, and `:extra-deps`;
-any other key is rejected (so a typo like `:extra-dep` fails loudly).
+A task may contain only `:doc`, `:do`, `:extra-paths`, `:extra-deps`, and
+`:with`; any other key is rejected (so a typo like `:extra-dep` fails loudly).
 
 #### Per-task `:extra-paths` and `:extra-deps`
 
@@ -300,9 +308,58 @@ lib already in the project's top-level `:deps`, the extra coord wins for
 that task only (a silent override) — other commands still use the
 project coord.
 
-These per-task extras are the building block for the planned `:contexts`
-feature (named, reusable `:extra-paths`/`:extra-deps` bundles); see the
-roadmap.
+These per-task extras are the task-private, anonymous form of a
+[context](#contexts-contexts): use them for one-off extras, and named
+`:contexts` + `:with` when an overlay is shared across tasks or commands.
+
+### Contexts (`:contexts`)
+
+A **context** is a named, reusable overlay of `:extra-paths` and `:extra-deps`
+— the same shape as per-task extras, lifted to the project top level so it can
+be applied to any command or shared across tasks.
+
+```edn
+{:deps  {a {:git/url "…a" :git/tag "v1"}}
+ :paths ["src"]
+
+ :contexts
+ {:dev  {:extra-paths ["dev"]
+         :extra-deps  {nrepl {:git/url "…nrepl" :git/tag "v1"}}}
+  :test {:extra-paths ["test-support"]}}
+
+ :tasks
+ {:repl {:doc  "REPL with dev tooling"
+         :with [:dev]
+         :do   [{:run "dev/repl.lg"}]}}}
+```
+
+A context map may contain only `:extra-paths` and `:extra-deps`, validated by
+the same rules as the top-level `:paths`/`:deps`. Apply contexts two ways:
+
+- **`lgx --with dev,test <command>`** — a global, comma-separated flag that
+  applies the named contexts to `run`, `build`, `test`, `install`, or a task.
+  `install` pre-fetches the contexts' deps.
+- **`:with [:dev]`** on a task — that task always runs with the named contexts.
+  A global `--with` on the same invocation is **unioned** on top.
+
+Referencing a context that isn't defined fails loudly: a task's `:with` is
+checked when `lgx.edn` loads; an unknown `--with` name errors at runtime,
+listing the defined contexts.
+
+**Layering.** When the same lib name appears in more than one place, the more
+specific layer wins (last-wins). Lowest → highest precedence:
+
+```
+project :deps / :paths
+  → task :with contexts (in order)
+  → CLI --with contexts (in order)
+  → task inline :extra-deps / :extra-paths  (highest)
+```
+
+Paths concatenate in the same order with project paths first (so project
+namespaces still shadow lib namespaces) and are de-duplicated. Like per-task
+extras, contexts augment only the `-source-paths` for `:run` steps and the
+basis commands; `:sh` steps are unaffected.
 
 ## Environment variables
 
@@ -365,8 +422,8 @@ In no particular order:
   libs and resolve the union, with first-wins on conflicts.
 - [ ] `lgx repl` - run repl.
 - [x] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
-- [ ] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
-- [ ] `--with`/`:with` - ability to extend tasks with contexts.
+- [x] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
+- [x] `--with`/`:with` - ability to extend tasks with contexts.
 - [ ] `lgx deps` - print dependency tree.
 - [ ] `lgx init` - create a default `lgx.edn` in the current directory.
 - [ ] `lgx fmt` / `lgx lint`.

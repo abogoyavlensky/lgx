@@ -1688,5 +1688,157 @@ else
     skip "task :extra-deps requires lg with -source-paths support"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 73: --with applies a context's :extra-paths to run"
+if supports_source_paths; then
+    home_c1="$(mktemp -d)"
+    proj_c1="$(mktemp -d)"
+    mkdir -p "$proj_c1/dev"
+    cat > "$proj_c1/dev/devtool.lg" <<'EOF'
+(ns devtool)
+(defn banner [] "DEV-OK")
+EOF
+    cat > "$proj_c1/m.lg" <<'EOF'
+(ns m
+  (:require [devtool]))
+(println (devtool/banner))
+EOF
+    cat > "$proj_c1/lgx.edn" <<'EOF'
+{:main "m.lg"
+ :contexts {:dev {:extra-paths ["dev"]}}}
+EOF
+    out="$(cd "$proj_c1" && LGX_HOME="$home_c1" "$LGX" --with dev run 2>&1)"
+    assert_contains "$out" "DEV-OK" \
+        "--with extra-paths: run resolves ns from context dir"
+    rm -rf "$proj_c1" "$home_c1"
+else
+    skip "--with :extra-paths requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 74: --with cold-fetches a context's :extra-deps git lib"
+if supports_source_paths; then
+    home_c2="$(mktemp -d)"
+    bare_c2="$home_c2/_fixtures/test-repo.git"
+    mkdir -p "$(dirname "$bare_c2")"
+    sha_c2="$(make_bare_repo "$bare_c2")"
+    proj_c2="$(mktemp -d)"
+    cat > "$proj_c2/fib.lg" <<'EOF'
+(ns fib
+  (:require [test.fib :as f]))
+(println (f/fib 10))
+EOF
+    cat > "$proj_c2/lgx.edn" <<EOF
+{:main "fib.lg"
+ :contexts {:lib {:extra-deps {test/lib {:git/url "file://$bare_c2"
+                                         :git/sha "$sha_c2"}}}}}
+EOF
+    out="$(cd "$proj_c2" && LGX_HOME="$home_c2" "$LGX" --with lib run 2>&1)"
+    assert_contains "$out" "installing 1 dep(s)..." \
+        "--with extra-deps: cold fetch shows install block"
+    assert_contains "$out" "55" \
+        "--with extra-deps: run resolves ns from context git lib"
+    rm -rf "$proj_c2" "$home_c2"
+else
+    skip "--with :extra-deps requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 75: task :with pulls in a context's :extra-paths"
+if supports_source_paths; then
+    home_c3="$(mktemp -d)"
+    proj_c3="$(mktemp -d)"
+    mkdir -p "$proj_c3/dev"
+    cat > "$proj_c3/dev/devtool.lg" <<'EOF'
+(ns devtool)
+(defn banner [] "DEV-OK")
+EOF
+    cat > "$proj_c3/m.lg" <<'EOF'
+(ns m
+  (:require [devtool]))
+(println (devtool/banner))
+EOF
+    cat > "$proj_c3/lgx.edn" <<'EOF'
+{:contexts {:dev {:extra-paths ["dev"]}}
+ :tasks {:t {:with [:dev] :do [{:run "m.lg"}]}}}
+EOF
+    out="$(cd "$proj_c3" && LGX_HOME="$home_c3" "$LGX" t 2>&1)"
+    assert_contains "$out" "DEV-OK" \
+        "task :with: :run step resolves ns from context dir"
+    rm -rf "$proj_c3" "$home_c3"
+else
+    skip "task :with requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 76: CLI --with unions with a task's :with"
+if supports_source_paths; then
+    home_c4="$(mktemp -d)"
+    proj_c4="$(mktemp -d)"
+    mkdir -p "$proj_c4/dir-a" "$proj_c4/dir-b"
+    cat > "$proj_c4/dir-a/atool.lg" <<'EOF'
+(ns atool)
+(defn a [] "A-OK")
+EOF
+    cat > "$proj_c4/dir-b/btool.lg" <<'EOF'
+(ns btool)
+(defn b [] "B-OK")
+EOF
+    cat > "$proj_c4/m.lg" <<'EOF'
+(ns m
+  (:require [atool]
+            [btool]))
+(println (atool/a) (btool/b))
+EOF
+    cat > "$proj_c4/lgx.edn" <<'EOF'
+{:contexts {:a {:extra-paths ["dir-a"]}
+            :b {:extra-paths ["dir-b"]}}
+ :tasks {:t {:with [:a] :do [{:run "m.lg"}]}}}
+EOF
+    out="$(cd "$proj_c4" && LGX_HOME="$home_c4" "$LGX" --with b t 2>&1)"
+    assert_contains "$out" "A-OK" \
+        "union: task :with [:a] context applies"
+    assert_contains "$out" "B-OK" \
+        "union: CLI --with b context applies on top of task :with"
+    rm -rf "$proj_c4" "$home_c4"
+else
+    skip "union :with requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 77: unknown context names fail loudly"
+home_c5="$(mktemp -d)"
+proj_c5="$(mktemp -d)"
+cat > "$proj_c5/m.lg" <<'EOF'
+(ns m)
+(println :ok)
+EOF
+cat > "$proj_c5/lgx.edn" <<'EOF'
+{:main "m.lg"
+ :contexts {:dev {:extra-paths ["dev"]}}}
+EOF
+set +e
+out="$(cd "$proj_c5" && LGX_HOME="$home_c5" "$LGX" --with typo run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "unknown --with: expected non-zero exit"
+assert_contains "$out" "lgx: unknown context :typo" \
+    "unknown --with: runtime error names the context"
+rm -rf "$proj_c5"
+
+# Task :with referencing an unknown context fails at config validation,
+# before any lg call (no -source-paths support needed).
+proj_c6="$(mktemp -d)"
+cat > "$proj_c6/lgx.edn" <<'EOF'
+{:contexts {:dev {}}
+ :tasks {:t {:with [:nope] :do [{:sh "echo hi"}]}}}
+EOF
+set +e
+out="$(cd "$proj_c6" && LGX_HOME="$home_c5" "$LGX" t 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "task :with unknown context: expected non-zero exit"
+assert_contains "$out" "references unknown context :nope" \
+    "task :with unknown context: config validation error"
+rm -rf "$proj_c6" "$home_c5"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
