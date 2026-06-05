@@ -1,5 +1,6 @@
 (ns lgx.main
   (:require [lgx.cache :as cache]
+            [lgx.cli :as cli]
             [lgx.config :as config]
             [lgx.new :as new]
             [lgx.path :as path]
@@ -325,18 +326,6 @@
 (defn- usage-for [project]
   (str base-usage (or (tasks-block project) "")))
 
-;; In dev (`lg lgx.lg <cmd> ...`), os/args is ["lg" "lgx.lg" cmd args...].
-;; In a bundle (`./lgx <cmd> ...`), it's ["lgx" cmd args...].
-;; Heuristic: if the second arg ends with .lg, treat it as the script path.
-(defn- user-args []
-  (let [argv (vec os/args)]
-    (cond
-      (and (>= (count argv) 2)
-           (str/ends-with? (nth argv 1) ".lg"))
-      (drop 2 argv)
-      :else
-      (rest argv))))
-
 (defn- print-usage! []
   (let [project (config/find-project)]
     (print (if project (usage-for project) base-usage))))
@@ -348,7 +337,10 @@
       (when (contains? t k)
         (get t k)))))
 
-(defn- dispatch [cmd rest-args verbose?]
+;; `with` is the CLI --with context-name list (empty when the flag is absent).
+;; It is threaded to every command, but only the basis commands
+;; (run/build/test/install/tasks) act on it; new/version/help ignore it.
+(defn- dispatch [cmd rest-args verbose? with]
   (case cmd
     "install" (cmd-install)
     "run" (cmd-run (vec rest-args) verbose?)
@@ -369,12 +361,15 @@
           (os/exit 1)))))
 
 (defn- main []
-  (let [raw (user-args)
-        verbose? (= (first raw) "--verbose")
-        argv (if verbose? (rest raw) raw)
-        cmd (first argv)
-        rest-args (rest argv)]
-    (dispatch cmd rest-args verbose?)))
+  (let [{:keys [verbose? with args]}
+        (try
+          (cli/parse-leading-flags (cli/user-args os/args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+                 (os/exit 1)))
+        cmd (first args)
+        rest-args (rest args)]
+    (dispatch cmd rest-args verbose? with)))
 
 ;; Top-level forms run during AOT compilation too. Guard so `lg -b` doesn't
 ;; execute the CLI while bundling.

@@ -1,0 +1,74 @@
+;; Unit tests for lgx.cli — pure argv / leading-flag parsing.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.cli-test
+  (:require [lgx.cli :as cli]
+            [test :refer [deftest is]]))
+
+(defn- threw? [f]
+  (try (f) :no-throw (catch e :threw)))
+
+;; ---------------------------------------------------------------------------
+;; parse-leading-flags
+;; ---------------------------------------------------------------------------
+
+(deftest parse-bare-command
+  (let [r (cli/parse-leading-flags ["run"])]
+    (is (= false (:verbose? r)))
+    (is (= [] (:with r)))
+    (is (= ["run"] (vec (:args r))))))
+
+(deftest parse-verbose-flag
+  (let [r (cli/parse-leading-flags ["--verbose" "run"])]
+    (is (= true (:verbose? r)))
+    (is (= [] (:with r)))
+    (is (= ["run"] (vec (:args r))))))
+
+(deftest parse-with-comma-list
+  (let [r (cli/parse-leading-flags ["--with" "dev,test" "run"])]
+    (is (= [:dev :test] (vec (:with r))))
+    (is (= ["run"] (vec (:args r))))))
+
+(deftest parse-repeated-with
+  (let [r (cli/parse-leading-flags ["--with" "dev" "--with" "test" "run"])]
+    (is (= [:dev :test] (vec (:with r))))
+    (is (= ["run"] (vec (:args r))))))
+
+(deftest parse-verbose-then-with
+  (let [r (cli/parse-leading-flags ["--verbose" "--with" "dev" "run"])]
+    (is (= true (:verbose? r)))
+    (is (= [:dev] (vec (:with r))))
+    (is (= ["run"] (vec (:args r))))))
+
+(deftest parse-with-then-verbose
+  (let [r (cli/parse-leading-flags ["--with" "dev" "--verbose" "run"])]
+    (is (= true (:verbose? r)))
+    (is (= [:dev] (vec (:with r))))
+    (is (= ["run"] (vec (:args r))))))
+
+(deftest parse-with-trims-blanks
+  (let [r (cli/parse-leading-flags ["--with" "dev,,test," "run"])]
+    (is (= [:dev :test] (vec (:with r))))))
+
+(deftest parse-stops-at-first-command
+  ;; A --with after the command is not consumed; it stays in :args.
+  (let [r (cli/parse-leading-flags ["run" "--with" "x"])]
+    (is (= [] (:with r)))
+    (is (= ["run" "--with" "x"] (vec (:args r))))))
+
+(deftest parse-with-missing-value-throws
+  (is (= :threw (threw? #(cli/parse-leading-flags ["--with"]))))
+  (is (= :threw (threw? #(cli/parse-leading-flags ["--with" ""]))))
+  (is (= :threw (threw? #(cli/parse-leading-flags ["--with" ","])))))
+
+;; ---------------------------------------------------------------------------
+;; user-args (dev-vs-bundle program-prefix strip)
+;; ---------------------------------------------------------------------------
+
+(deftest user-args-dev-prefix
+  ;; lg lgx.lg <cmd> ... — second arg ends in .lg, drop the first two.
+  (is (= ["run" "x"] (vec (cli/user-args ["lg" "lgx.lg" "run" "x"])))))
+
+(deftest user-args-bundle-prefix
+  ;; ./lgx <cmd> ... — drop only the program name.
+  (is (= ["run" "x"] (vec (cli/user-args ["lgx" "run" "x"])))))
