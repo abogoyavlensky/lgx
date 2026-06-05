@@ -136,7 +136,7 @@
     (let [action (first action-ks)]
       (validate-action-value! task-name idx action (get step action)))))
 
-(def ^:private allowed-task-keys #{:doc :do :extra-paths :extra-deps})
+(def ^:private allowed-task-keys #{:doc :do :extra-paths :extra-deps :with})
 
 (defn- validate-extra-deps! [label extra]
   (when-not (map? extra)
@@ -145,7 +145,25 @@
   (doseq [[lib c] extra]
     (validate-coord! lib c)))
 
-(defn- validate-task! [task-name task]
+(defn- validate-with! [task-name with defined]
+  (when-not (vector? with)
+    (bad! (str "invalid task " task-name ".\n\n:with must be a vector of context keywords.")
+          {:task task-name}))
+  (doseq [c with]
+    (when-not (keyword? c)
+      (bad! (str "invalid task " task-name ".\n\n:with entries must be keywords.")
+            {:task task-name}))
+    (when-not (contains? defined c)
+      (bad! (str "task " task-name " references unknown context " c
+                 ".\nDefined contexts: "
+                 (if (seq defined)
+                   (str/join ", " (sort (map str defined)))
+                   "(none)")
+                 ".")
+            {:task task-name
+             :context c}))))
+
+(defn- validate-task! [task-name task defined]
   (when-not (map? task)
     (bad! (str "invalid task " task-name ".\n\nTask value must be a map.")
           {:task task-name}))
@@ -153,7 +171,7 @@
     (when (seq unknown-ks)
       (bad! (str "invalid task " task-name
                  ".\n\nUnknown task keys: " (str/join ", " (map str unknown-ks))
-                 ".\nAllowed keys: :doc, :do, :extra-paths, :extra-deps.")
+                 ".\nAllowed keys: :doc, :do, :extra-paths, :extra-deps, :with.")
             {:task task-name})))
   (when (contains? task :doc)
     (when-not (string? (:doc task))
@@ -184,9 +202,11 @@
   (when (contains? task :extra-paths)
     (validate-paths! (:extra-paths task)))
   (when (contains? task :extra-deps)
-    (validate-extra-deps! (str "task " task-name) (:extra-deps task))))
+    (validate-extra-deps! (str "task " task-name) (:extra-deps task)))
+  (when (contains? task :with)
+    (validate-with! task-name (:with task) defined)))
 
-(defn- validate-tasks! [tasks]
+(defn- validate-tasks! [tasks defined]
   (when-not (map? tasks)
     (bad! ":tasks must be a map" {}))
   (doseq [[task-name task] tasks]
@@ -198,7 +218,7 @@
         (bad! (str "task " task-name " conflicts with built-in command \""
                    n "\".\nTask overriding is not supported yet.")
               {:task task-name})))
-    (validate-task! task-name task)))
+    (validate-task! task-name task defined)))
 
 ;; A context is a named overlay carrying only :extra-deps / :extra-paths — the
 ;; same shape as a task's inline extras, lifted to the project top level so it
@@ -278,7 +298,8 @@
   (when (contains? cfg :contexts)
     (validate-contexts! (:contexts cfg)))
   (when (contains? cfg :tasks)
-    (validate-tasks! (:tasks cfg)))
+    (validate-tasks! (:tasks cfg)
+                     (set (keys (or (:contexts cfg) {})))))
   (when (contains? cfg :main)
     (validate-main! (:main cfg)))
   (when (contains? cfg :targets)

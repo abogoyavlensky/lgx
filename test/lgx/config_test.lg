@@ -417,6 +417,40 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; :tasks :with validation (references defined contexts)
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-task-with-defined-context
+  (let [cfg {:contexts {:dev {:extra-paths ["dev"]}}
+             :tasks {:repl {:with [:dev]
+                            :do [{:sh "echo hi"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-task-with-unknown-context
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {:dev {:extra-paths ["dev"]}}
+                            :tasks {:repl {:with [:typo]
+                                           :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-with-not-a-vector
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {:dev {:extra-paths ["dev"]}}
+                            :tasks {:repl {:with "dev"
+                                           :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-with-non-keyword-element
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {:dev {:extra-paths ["dev"]}}
+                            :tasks {:repl {:with ["dev"]
+                                           :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-with-when-no-contexts-defined
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:repl {:with [:dev]
+                                           :do [{:sh "echo hi"}]}}})))))
+
+
+;; ---------------------------------------------------------------------------
 ;; :contexts validation
 ;; ---------------------------------------------------------------------------
 
