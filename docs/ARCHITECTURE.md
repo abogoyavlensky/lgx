@@ -26,14 +26,20 @@ embedded git library ended up shelling out for edge cases anyway.
 ## Components
 
 ```
-lgx.lg              ns lgx.main — entry, argv parsing, subcommand dispatch
-lgx/config.lg       find lgx.edn (walks up), parse and validate :deps/:paths/:tasks
+lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring
+lgx/cli.lg          pure argv parsing: program-prefix strip + leading --verbose/--with
+lgx/config.lg       find lgx.edn (walks up), parse/validate :deps/:paths/:tasks/:contexts
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
 lgx/new.lg          scaffold a new project from the default template
 ```
+
+Leading global flags (`--verbose`, `--with a,b`) are parsed by `lgx/cli.lg`
+before the subcommand and removed from the argv `lgx.main` dispatches on.
+`--with` names contexts (see [Contexts](#contexts)) and applies to
+`run`/`build`/`test`/`install`/tasks.
 
 `lgx.main` holds the entry point; the other namespaces are stateless helper
 namespaces it requires.
@@ -235,16 +241,15 @@ vector. Each step is one of:
   as `lgx run`, with the project's resolved `-source-paths`. String
   forms are whitespace-split into argv.
 
-A task may also declare `:extra-paths` and `:extra-deps`. Before
-resolution, lgx merges these into the project basis: `:extra-deps` are
-merged over the project's `:deps` via `config/merge-coords` (a task
-extra-dep overrides a same-named project coord *in place* and silently —
-the merged list is deduped before `ensure-all!`, so its first-wins
-warning never fires for the override), and `:extra-paths` are appended
-after the project's `:paths`. The augmented `-source-paths` applies only
-to the task's `:run` steps; `:sh` steps ignore the basis. The
-no-extras path (`run`/`build`/`test`) and the with-extras path (tasks)
-share one `basis` helper.
+A task may augment the project basis with context overlays (its `:with`
+list and the CLI `--with`) and its own inline `:extra-paths`/`:extra-deps`.
+All of run/build/test/install/tasks resolve their basis through one
+`overlay-basis` helper (built on the shared `basis`); see
+[Contexts](#contexts) for the full layering. A task extra-dep overrides a
+same-named project coord *in place* and silently (`config/merge-coords`
+dedupes before `ensure-all!`, so its first-wins warning never fires for the
+override). The augmented `-source-paths` applies only to the task's `:run`
+steps; `:sh` steps ignore the basis.
 
 Steps run sequentially. The first non-zero exit code stops the chain
 and becomes the task's exit code; lgx exits 0 only when every step
@@ -254,6 +259,28 @@ Task names that collide with built-in commands
 (`run`, `install`, `new`, `build`, `test`, `add`, `update`, `tasks`,
 `help`, `version`) are rejected at validation time — overriding
 built-ins is reserved for later via an `:lgx/<name>` form.
+
+### Contexts
+
+A `:contexts` entry is a named overlay carrying only `:extra-deps`/
+`:extra-paths` — the per-task extras, lifted to the top level for reuse. They
+are applied by the CLI `--with a,b` flag (any command) and a task's `:with`
+vector. `config/context-overlay` resolves an ordered name list to a single
+`{:deps-pairs :paths}` overlay, folding overlap among the named contexts
+last-wins via `config/merge-coords` (and throwing on an unknown name; a task's
+`:with` is additionally validated against the defined contexts when `lgx.edn`
+loads). A reference to an undefined context fails loudly — at config-load for
+`:with`, at runtime for `--with`.
+
+`overlay-basis` in `lgx.lg` composes the final basis from these layers,
+lowest → highest precedence: project `:deps`/`:paths` → task `:with` contexts
+(in order) → CLI `--with` contexts (in order) → the task's inline
+`:extra-deps`/`:extra-paths` (highest). Deps fold last-wins through
+`merge-coords`; paths concatenate in the same order (project first, so project
+namespaces still shadow libs) and are de-duplicated keep-first. For
+`run`/`build`/`test`/`install` there is no task, so only the project and the
+CLI `--with` layers apply. `install` resolves the same overlay so it
+pre-fetches a context's deps.
 
 ### `lgx new <project-name>`
 

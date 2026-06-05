@@ -27,6 +27,7 @@
        "  lgx help                     Show this help\n"
        "\n"
        "Global flags:\n"
+       "  --with <a,b,...>             Apply named :contexts (extra deps/paths) to the command (run/build/test/install/tasks)\n"
        "  --verbose                    Print the env vars lgx sets and the lg invocation before running (run/build/test/user tasks)\n"))
 
 (defn- coord-label [c]
