@@ -417,6 +417,49 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; :contexts validation
+;; ---------------------------------------------------------------------------
+
+(deftest validate-config-accepts-context-with-paths-and-deps
+  (let [cfg {:contexts {:dev {:extra-paths ["dev"]
+                              :extra-deps {'foo/bar {:git/url "u"
+                                                     :git/sha "s"}}}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-context-with-only-paths
+  (let [cfg {:contexts {:dev {:extra-paths ["dev"]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-context-with-only-deps
+  (let [cfg {:contexts {:dev {:extra-deps {'foo/bar {:git/url "u"
+                                                     :git/sha "s"}}}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-accepts-empty-context
+  (let [cfg {:contexts {:dev {}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-contexts-not-a-map
+  (is (= :threw (threw? #(config/validate-config! {:contexts [:not :a :map]})))))
+
+(deftest validate-config-rejects-non-keyword-context-name
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {"dev" {:extra-paths ["dev"]}}})))))
+
+(deftest validate-config-rejects-context-with-unknown-key
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {:dev {:extra-path ["x"]}}})))))
+
+(deftest validate-config-rejects-context-with-bad-coord
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {:dev {:extra-deps {'foo/bar {:git/url "u"}}}}})))))
+
+(deftest validate-config-rejects-context-with-dotdot-path
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {:dev {:extra-paths ["../x"]}}})))))
+
+
+;; ---------------------------------------------------------------------------
 ;; merge-coords (task extras over project deps; extra wins)
 ;; ---------------------------------------------------------------------------
 

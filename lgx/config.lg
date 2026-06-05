@@ -138,10 +138,10 @@
 
 (def ^:private allowed-task-keys #{:doc :do :extra-paths :extra-deps})
 
-(defn- validate-extra-deps! [task-name extra]
+(defn- validate-extra-deps! [label extra]
   (when-not (map? extra)
-    (bad! (str "invalid task " task-name ".\n\n:extra-deps must be a map.")
-          {:task task-name}))
+    (bad! (str "invalid " label ".\n\n:extra-deps must be a map.")
+          {:label label}))
   (doseq [[lib c] extra]
     (validate-coord! lib c)))
 
@@ -184,7 +184,7 @@
   (when (contains? task :extra-paths)
     (validate-paths! (:extra-paths task)))
   (when (contains? task :extra-deps)
-    (validate-extra-deps! task-name (:extra-deps task))))
+    (validate-extra-deps! (str "task " task-name) (:extra-deps task))))
 
 (defn- validate-tasks! [tasks]
   (when-not (map? tasks)
@@ -199,6 +199,35 @@
                    n "\".\nTask overriding is not supported yet.")
               {:task task-name})))
     (validate-task! task-name task)))
+
+;; A context is a named overlay carrying only :extra-deps / :extra-paths — the
+;; same shape as a task's inline extras, lifted to the project top level so it
+;; can be reused across commands (via --with) and tasks (via :with).
+(def ^:private allowed-context-keys #{:extra-deps :extra-paths})
+
+(defn- validate-context! [ctx-name ctx]
+  (when-not (map? ctx)
+    (bad! (str "invalid context " ctx-name ".\n\nContext value must be a map.")
+          {:context ctx-name}))
+  (let [unknown-ks (filter #(not (contains? allowed-context-keys %)) (keys ctx))]
+    (when (seq unknown-ks)
+      (bad! (str "invalid context " ctx-name
+                 ".\n\nUnknown context keys: " (str/join ", " (map str unknown-ks))
+                 ".\nAllowed keys: :extra-deps, :extra-paths.")
+            {:context ctx-name})))
+  (when (contains? ctx :extra-paths)
+    (validate-paths! (:extra-paths ctx)))
+  (when (contains? ctx :extra-deps)
+    (validate-extra-deps! (str "context " ctx-name) (:extra-deps ctx))))
+
+(defn- validate-contexts! [contexts]
+  (when-not (map? contexts)
+    (bad! ":contexts must be a map" {}))
+  (doseq [[ctx-name ctx] contexts]
+    (when-not (keyword? ctx-name)
+      (bad! (str "context name " ctx-name " must be a keyword")
+            {:context ctx-name}))
+    (validate-context! ctx-name ctx)))
 
 (defn- validate-main! [value]
   (validate-rel-path! ":main" value {:value value}))
@@ -231,7 +260,7 @@
   (when-let [bin (:bin targets)]
     (validate-bin-target! bin)))
 
-(def ^:private allowed-top-level #{:deps :paths :tasks :main :targets})
+(def ^:private allowed-top-level #{:deps :paths :tasks :main :targets :contexts})
 
 (defn validate-config! [cfg]
   (when-not (map? cfg)
@@ -246,6 +275,8 @@
       (validate-coord! lib c)))
   (when (contains? cfg :paths)
     (validate-paths! (:paths cfg)))
+  (when (contains? cfg :contexts)
+    (validate-contexts! (:contexts cfg)))
   (when (contains? cfg :tasks)
     (validate-tasks! (:tasks cfg)))
   (when (contains? cfg :main)
@@ -321,6 +352,13 @@
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (or (:tasks cfg) {})))
+
+(defn contexts
+  "Return the project's :contexts map from lgx.edn, or {} if absent."
+  [project]
+  (let [config-path (path/join project config-name)
+        cfg (validate-config! (edn/read-string (slurp config-path)))]
+    (or (:contexts cfg) {})))
 
 (defn main
   "Return the project's :main entrypoint string from lgx.edn, or nil if absent."
