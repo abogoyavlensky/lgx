@@ -280,8 +280,8 @@ cannot shadow built-in commands (`install`, `run`, `build`, `test`,
 Step values may be a string (split on whitespace) or a vector of
 strings. Output is buffered and replayed after each step completes.
 
-A task may contain only `:doc`, `:do`, `:extra-paths`, and `:extra-deps`;
-any other key is rejected (so a typo like `:extra-dep` fails loudly).
+A task may contain only `:doc`, `:do`, `:extra-paths`, `:extra-deps`, and
+`:with`; any other key is rejected (so a typo like `:extra-dep` fails loudly).
 
 #### Per-task `:extra-paths` and `:extra-deps`
 
