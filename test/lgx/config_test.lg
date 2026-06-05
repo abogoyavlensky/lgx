@@ -487,6 +487,45 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; context-overlay (named contexts -> combined deps-pairs + paths; last-wins)
+;; ---------------------------------------------------------------------------
+
+(deftest context-overlay-empty-names-returns-empty
+  (is (= {:deps-pairs [] :paths []}
+         (config/context-overlay {:dev {:extra-paths ["dev"]}} []))))
+
+(deftest context-overlay-single-context
+  (let [contexts {:dev {:extra-paths ["dev"]
+                        :extra-deps {'foo/a {:git/url "ua" :git/sha "sa"}}}}
+        overlay (config/context-overlay contexts [:dev])]
+    (is (= ['foo/a] (mapv first (:deps-pairs overlay))))
+    (is (= {:git/url "ua" :git/sha "sa"} (second (first (:deps-pairs overlay)))))
+    (is (= ["dev"] (:paths overlay)))))
+
+(deftest context-overlay-two-contexts-union
+  (let [contexts {:dev {:extra-paths ["dev"]
+                        :extra-deps {'foo/a {:git/url "ua" :git/sha "sa"}}}
+                  :test {:extra-paths ["test-support"]
+                         :extra-deps {'foo/b {:git/url "ub" :git/sha "sb"}}}}
+        overlay (config/context-overlay contexts [:dev :test])]
+    (is (= ['foo/a 'foo/b] (mapv first (:deps-pairs overlay))))
+    (is (= ["dev" "test-support"] (:paths overlay)))))
+
+(deftest context-overlay-overlap-last-wins-in-place
+  (let [contexts {:dev {:extra-deps {'foo/c {:git/url "uc" :git/sha "v1"}}}
+                  :test {:extra-deps {'foo/c {:git/url "uc" :git/sha "v2"}}}}
+        overlay (config/context-overlay contexts [:dev :test])]
+    ;; foo/c appears once, at its first position, with the later coord
+    (is (= ['foo/c] (mapv first (:deps-pairs overlay))))
+    (is (= {:git/url "uc" :git/sha "v2"}
+           (second (first (:deps-pairs overlay)))))))
+
+(deftest context-overlay-unknown-name-throws
+  (is (= :threw (threw? #(config/context-overlay {:dev {:extra-paths ["dev"]}}
+                                                 [:nope])))))
+
+
+;; ---------------------------------------------------------------------------
 ;; coords-at (transitive: a fetched dep's own deps)
 ;; ---------------------------------------------------------------------------
 

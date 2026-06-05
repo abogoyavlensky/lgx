@@ -312,6 +312,32 @@
                               extra-pairs))]
     (vec (concat overridden appended))))
 
+(defn context-overlay
+  "Resolve an ordered list of context `names` against `contexts-map` into a
+   single overlay {:deps-pairs [[lib coord] ...] :paths [path ...]}.
+
+   Deps from a later-named context win over an earlier one on a lib-name
+   collision (last-wins, first position preserved) — produced by folding
+   merge-coords from an empty base, which also dedupes the names so a later
+   merge into the project never appends a duplicate. :extra-paths concatenate
+   in name order (no dedup here; the caller dedupes the full path list).
+
+   Throws ex-info {:lgx/unknown-context name :defined [...]} if a name is not a
+   defined context. Pure: callers pass `config/contexts` output."
+  [contexts-map names]
+  (let [overlays (mapv (fn [nm]
+                         (if (contains? contexts-map nm)
+                           (get contexts-map nm)
+                           (throw (ex-info (str "unknown context " nm)
+                                           {:lgx/unknown-context nm
+                                            :defined (vec (keys contexts-map))}))))
+                       names)
+        dep-lists (mapv (fn [o] (vec (:extra-deps o))) overlays)
+        deps-pairs (reduce merge-coords [] dep-lists)
+        paths (vec (mapcat (fn [o] (or (:extra-paths o) [])) overlays))]
+    {:deps-pairs deps-pairs
+     :paths paths}))
+
 (defn paths
   "Return the project's :paths vector from lgx.edn, or [] if absent."
   [project]
