@@ -50,6 +50,11 @@
   (let [r (cli/parse-leading-flags ["--with" "dev,,test," "run"])]
     (is (= [:dev :test] (vec (:with r))))))
 
+(deftest parse-with-trims-whitespace
+  ;; A quoted list with spaces (`--with "dev, test"`) keywords cleanly.
+  (let [r (cli/parse-leading-flags ["--with" "dev, test" "run"])]
+    (is (= [:dev :test] (vec (:with r))))))
+
 (deftest parse-stops-at-first-command
   ;; A --with after the command is not consumed; it stays in :args.
   (let [r (cli/parse-leading-flags ["run" "--with" "x"])]

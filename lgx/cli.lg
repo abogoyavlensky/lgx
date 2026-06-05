@@ -27,8 +27,10 @@
 (defn- parse-with-value [value]
   (when (nil? value)
     (throw (ex-info with-error {})))
+  ;; Trim each comma-segment before filtering so a spaced list like
+  ;; `--with "dev, test"` yields :test, not :" test".
   (let [names (vec (filter (fn [s] (not (str/blank? s)))
-                           (str/split value ",")))]
+                           (map str/trim (str/split value ","))))]
     (when (empty? names)
       (throw (ex-info with-error {})))
     (mapv keyword names)))
@@ -46,7 +48,9 @@
          with []
          xs (seq args)]
     (if (nil? xs)
-      {:verbose? verbose? :with with :args []}
+      {:verbose? verbose?
+       :with with
+       :args []}
       (let [tok (first xs)]
         (cond
           (= tok "--verbose")
@@ -58,4 +62,6 @@
                  (next (next xs)))
 
           :else
-          {:verbose? verbose? :with with :args (vec xs)})))))
+          {:verbose? verbose?
+           :with with
+           :args (vec xs)})))))

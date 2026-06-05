@@ -366,7 +366,7 @@
           (cli/parse-leading-flags (cli/user-args os/args))
           (catch e
                  (write! *err* (str (ex-message e) "\n"))
-                 (os/exit 1)))
+            (os/exit 1)))
         cmd (first args)
         rest-args (rest args)]
     (dispatch cmd rest-args verbose? with)))
