@@ -68,11 +68,11 @@
       (validate-rel-path! (str lib " :deps/root") root {:lib lib}))
     coord))
 
-(defn- validate-paths! [paths]
+(defn- validate-paths! [label paths]
   (when-not (vector? paths)
-    (bad! ":paths must be a vector" {}))
+    (bad! (str label " must be a vector") {}))
   (doseq [p paths]
-    (validate-rel-path! ":paths entry" p {:value p})))
+    (validate-rel-path! (str label " entry") p {:value p})))
 
 ;; Built-in CLI commands that may not be shadowed by a project task. Includes
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
@@ -136,7 +136,8 @@
     (let [action (first action-ks)]
       (validate-action-value! task-name idx action (get step action)))))
 
-(def ^:private allowed-task-keys #{:doc :do :extra-paths :extra-deps :with})
+(def ^:private allowed-task-keys
+  #{:doc :do :extra-paths :extra-resource-paths :extra-deps :with})
 
 (defn- validate-extra-deps! [label extra]
   (when-not (map? extra)
@@ -171,7 +172,8 @@
     (when (seq unknown-ks)
       (bad! (str "invalid task " task-name
                  ".\n\nUnknown task keys: " (str/join ", " (map str unknown-ks))
-                 ".\nAllowed keys: :doc, :do, :extra-paths, :extra-deps, :with.")
+                 ".\nAllowed keys: :doc, :do, :extra-paths, :extra-resource-paths,"
+                 " :extra-deps, :with.")
             {:task task-name})))
   (when (contains? task :doc)
     (when-not (string? (:doc task))
@@ -200,7 +202,9 @@
         (validate-step! task-name i (first xs))
         (recur (inc i) (rest xs)))))
   (when (contains? task :extra-paths)
-    (validate-paths! (:extra-paths task)))
+    (validate-paths! ":extra-paths" (:extra-paths task)))
+  (when (contains? task :extra-resource-paths)
+    (validate-paths! ":extra-resource-paths" (:extra-resource-paths task)))
   (when (contains? task :extra-deps)
     (validate-extra-deps! (str "task " task-name) (:extra-deps task)))
   (when (contains? task :with)
@@ -223,7 +227,8 @@
 ;; A context is a named overlay carrying only :extra-deps / :extra-paths — the
 ;; same shape as a task's inline extras, lifted to the project top level so it
 ;; can be reused across commands (via --with) and tasks (via :with).
-(def ^:private allowed-context-keys #{:extra-deps :extra-paths})
+(def ^:private allowed-context-keys
+  #{:extra-deps :extra-paths :extra-resource-paths})
 
 (defn- validate-context! [ctx-name ctx]
   (when-not (map? ctx)
@@ -233,10 +238,12 @@
     (when (seq unknown-ks)
       (bad! (str "invalid context " ctx-name
                  ".\n\nUnknown context keys: " (str/join ", " (map str unknown-ks))
-                 ".\nAllowed keys: :extra-deps, :extra-paths.")
+                 ".\nAllowed keys: :extra-deps, :extra-paths, :extra-resource-paths.")
             {:context ctx-name})))
   (when (contains? ctx :extra-paths)
-    (validate-paths! (:extra-paths ctx)))
+    (validate-paths! ":extra-paths" (:extra-paths ctx)))
+  (when (contains? ctx :extra-resource-paths)
+    (validate-paths! ":extra-resource-paths" (:extra-resource-paths ctx)))
   (when (contains? ctx :extra-deps)
     (validate-extra-deps! (str "context " ctx-name) (:extra-deps ctx))))
 
@@ -280,7 +287,8 @@
   (when-let [bin (:bin targets)]
     (validate-bin-target! bin)))
 
-(def ^:private allowed-top-level #{:deps :paths :tasks :main :targets :contexts})
+(def ^:private allowed-top-level
+  #{:deps :paths :resource-paths :tasks :main :targets :contexts})
 
 (defn validate-config! [cfg]
   (when-not (map? cfg)
@@ -294,7 +302,9 @@
     (doseq [[lib c] deps]
       (validate-coord! lib c)))
   (when (contains? cfg :paths)
-    (validate-paths! (:paths cfg)))
+    (validate-paths! ":paths" (:paths cfg)))
+  (when (contains? cfg :resource-paths)
+    (validate-paths! ":resource-paths" (:resource-paths cfg)))
   (when (contains? cfg :contexts)
     (validate-contexts! (:contexts cfg)))
   (when (contains? cfg :tasks)
@@ -335,13 +345,15 @@
 
 (defn context-overlay
   "Resolve an ordered list of context `names` against `contexts-map` into a
-   single overlay {:deps-pairs [[lib coord] ...] :paths [path ...]}.
+   single overlay {:deps-pairs [[lib coord] ...] :paths [path ...]
+   :resource-paths [path ...]}.
 
    Deps from a later-named context win over an earlier one on a lib-name
    collision (last-wins, first position preserved) — produced by folding
    merge-coords from an empty base, which also dedupes the names so a later
-   merge into the project never appends a duplicate. :extra-paths concatenate
-   in name order (no dedup here; the caller dedupes the full path list).
+   merge into the project never appends a duplicate. :extra-paths and
+   :extra-resource-paths concatenate in name order (no dedup here; the caller
+   dedupes the full path list).
 
    Throws ex-info {:lgx/unknown-context name :defined [...]} if a name is not a
    defined context. Pure: callers pass `config/contexts` output."
@@ -355,9 +367,12 @@
                        names)
         dep-lists (mapv (fn [o] (vec (:extra-deps o))) overlays)
         deps-pairs (reduce merge-coords [] dep-lists)
-        paths (vec (mapcat (fn [o] (or (:extra-paths o) [])) overlays))]
+        paths (vec (mapcat (fn [o] (or (:extra-paths o) [])) overlays))
+        resource-paths (vec (mapcat (fn [o] (or (:extra-resource-paths o) []))
+                                    overlays))]
     {:deps-pairs deps-pairs
-     :paths paths}))
+     :paths paths
+     :resource-paths resource-paths}))
 
 (defn paths
   "Return the project's :paths vector from lgx.edn, or [] if absent."
@@ -365,6 +380,13 @@
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
     (or (:paths cfg) [])))
+
+(defn resource-paths
+  "Return the project's :resource-paths vector from lgx.edn, or [] if absent."
+  [project]
+  (let [config-path (path/join project config-name)
+        cfg (validate-config! (edn/read-string (slurp config-path)))]
+    (or (:resource-paths cfg) [])))
 
 (defn coords-at
   "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file

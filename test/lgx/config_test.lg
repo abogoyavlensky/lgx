@@ -70,6 +70,25 @@
 (deftest validate-config-rejects-paths-not-a-vector
   (is (= :threw (threw? #(config/validate-config! {:paths "src"})))))
 
+(deftest validate-config-accepts-resource-paths
+  (is (= {:resource-paths ["resources" "assets"]
+          :deps {}}
+         (config/validate-config! {:resource-paths ["resources" "assets"]
+                                   :deps {}}))))
+
+(deftest validate-config-accepts-empty-resource-paths
+  (is (= {:resource-paths []}
+         (config/validate-config! {:resource-paths []}))))
+
+(deftest validate-config-rejects-resource-paths-not-a-vector
+  (is (= :threw (threw? #(config/validate-config! {:resource-paths "resources"})))))
+
+(deftest validate-config-rejects-resource-paths-with-dotdot
+  (is (= :threw (threw? #(config/validate-config! {:resource-paths ["../x"]})))))
+
+(deftest validate-config-rejects-resource-paths-absolute
+  (is (= :threw (threw? #(config/validate-config! {:resource-paths ["/abs"]})))))
+
 (deftest validate-config-rejects-coord-missing-url
   (is (= :threw (threw? #(config/validate-config!
                            {:deps {'foo/bar {:git/sha "abc"}}})))))
@@ -174,6 +193,16 @@
 
 (deftest paths-reads-fixture
   (is (= ["src" "test"] (config/paths "tests/fixtures/sample-project"))))
+
+;; ---------------------------------------------------------------------------
+;; resource-paths
+;; ---------------------------------------------------------------------------
+
+(deftest resource-paths-returns-empty-when-absent
+  (is (= [] (or (:resource-paths (config/validate-config! {:deps {}})) []))))
+
+(deftest resource-paths-reads-fixture
+  (is (= ["resources"] (config/resource-paths "tests/fixtures/sample-project"))))
 
 ;; ---------------------------------------------------------------------------
 ;; :main validation
@@ -415,6 +444,21 @@
                            {:tasks {:dev {:extra-dep {}
                                           :do [{:sh "echo hi"}]}}})))))
 
+(deftest validate-config-accepts-task-with-extra-resource-paths
+  (let [cfg {:tasks {:dev {:extra-resource-paths ["assets"]
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-task-extra-resource-paths-not-a-vector
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-resource-paths "assets"
+                                          :do [{:sh "echo hi"}]}}})))))
+
+(deftest validate-config-rejects-task-extra-resource-paths-with-dotdot
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:dev {:extra-resource-paths ["../x"]
+                                          :do [{:sh "echo hi"}]}}})))))
+
 
 ;; ---------------------------------------------------------------------------
 ;; :tasks :with validation (references defined contexts)
@@ -473,6 +517,14 @@
   (let [cfg {:contexts {:dev {}}}]
     (is (= cfg (config/validate-config! cfg)))))
 
+(deftest validate-config-accepts-context-with-extra-resource-paths
+  (let [cfg {:contexts {:dev {:extra-resource-paths ["assets"]}}}]
+    (is (= cfg (config/validate-config! cfg)))))
+
+(deftest validate-config-rejects-context-extra-resource-paths-with-dotdot
+  (is (= :threw (threw? #(config/validate-config!
+                           {:contexts {:dev {:extra-resource-paths ["../x"]}}})))))
+
 (deftest validate-config-rejects-contexts-not-a-map
   (is (= :threw (threw? #(config/validate-config! {:contexts [:not :a :map]})))))
 
@@ -525,7 +577,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest context-overlay-empty-names-returns-empty
-  (is (= {:deps-pairs [] :paths []}
+  (is (= {:deps-pairs [] :paths [] :resource-paths []}
          (config/context-overlay {:dev {:extra-paths ["dev"]}} []))))
 
 (deftest context-overlay-single-context
@@ -557,6 +609,22 @@
 (deftest context-overlay-unknown-name-throws
   (is (= :threw (threw? #(config/context-overlay {:dev {:extra-paths ["dev"]}}
                                                  [:nope])))))
+
+(deftest context-overlay-empty-names-has-empty-resource-paths
+  (is (= [] (:resource-paths
+              (config/context-overlay {:dev {:extra-resource-paths ["assets"]}}
+                                      [])))))
+
+(deftest context-overlay-single-context-resource-paths
+  (let [contexts {:dev {:extra-resource-paths ["assets"]}}
+        overlay (config/context-overlay contexts [:dev])]
+    (is (= ["assets"] (:resource-paths overlay)))))
+
+(deftest context-overlay-two-contexts-concat-resource-paths
+  (let [contexts {:dev {:extra-resource-paths ["assets"]}
+                  :test {:extra-resource-paths ["fixtures"]}}
+        overlay (config/context-overlay contexts [:dev :test])]
+    (is (= ["assets" "fixtures"] (:resource-paths overlay)))))
 
 
 ;; ---------------------------------------------------------------------------
