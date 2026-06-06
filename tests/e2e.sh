@@ -26,6 +26,11 @@ supports_source_paths() {
     "$lg_bin" -source-paths "" -e '(println :ok)' >/dev/null 2>&1
 }
 
+supports_resource_paths() {
+    local lg_bin="${LGX_LG:-lg}"
+    "$lg_bin" -resource-paths "" -e '(println :ok)' >/dev/null 2>&1
+}
+
 assert_contains() {
     local haystack="$1"; local needle="$2"; local label="$3"
     if [[ "$haystack" != *"$needle"* ]]; then
@@ -1839,6 +1844,142 @@ set -e
 assert_contains "$out" "references unknown context :nope" \
     "task :with unknown context: config validation error"
 rm -rf "$proj_c6" "$home_c5"
+
+# ---------------------------------------------------------------------------
+# Scenarios 78-82 cover :resource-paths / :extra-resource-paths -> lg's
+# -resource-paths flag. The signal (some? (io/resource "x")) is true only when
+# the root is on the resource path, which avoids depending on a resource-read
+# API. Gated on supports_resource_paths (released lg lacks the flag).
+echo "==> Scenario 78: top-level :resource-paths makes io/resource resolve on run"
+if supports_resource_paths; then
+    proj_rp="$(mktemp -d)"
+    home_rp="$(mktemp -d)"
+    mkdir -p "$proj_rp/resources"
+    echo "hello-resource" > "$proj_rp/resources/greeting.txt"
+    cat > "$proj_rp/m.lg" <<'EOF'
+(ns m)
+(println "found=" (some? (io/resource "greeting.txt")))
+EOF
+    cat > "$proj_rp/lgx.edn" <<'EOF'
+{:main "m.lg"
+ :resource-paths ["resources"]}
+EOF
+    out="$(cd "$proj_rp" && LGX_HOME="$home_rp" "$LGX" run 2>&1)"
+    assert_contains "$out" "found= true" \
+        "resource-paths: io/resource resolves under the declared root"
+    # Same project without :resource-paths -> resource is not found.
+    echo '{:main "m.lg"}' > "$proj_rp/lgx.edn"
+    out="$(cd "$proj_rp" && LGX_HOME="$home_rp" "$LGX" run 2>&1)"
+    assert_contains "$out" "found= false" \
+        "resource-paths: io/resource absent without a declared root"
+    rm -rf "$proj_rp" "$home_rp"
+else
+    skip "resource-paths requires lg with -resource-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 79: --with applies a context's :extra-resource-paths to run"
+if supports_resource_paths; then
+    proj_rc="$(mktemp -d)"
+    home_rc="$(mktemp -d)"
+    mkdir -p "$proj_rc/assets"
+    echo "asset" > "$proj_rc/assets/greeting.txt"
+    cat > "$proj_rc/m.lg" <<'EOF'
+(ns m)
+(println "found=" (some? (io/resource "greeting.txt")))
+EOF
+    cat > "$proj_rc/lgx.edn" <<'EOF'
+{:main "m.lg"
+ :contexts {:res {:extra-resource-paths ["assets"]}}}
+EOF
+    out="$(cd "$proj_rc" && LGX_HOME="$home_rc" "$LGX" --with res run 2>&1)"
+    assert_contains "$out" "found= true" \
+        "--with extra-resource-paths: context adds the resource root"
+    out="$(cd "$proj_rc" && LGX_HOME="$home_rc" "$LGX" run 2>&1)"
+    assert_contains "$out" "found= false" \
+        "--with extra-resource-paths: root absent without --with"
+    rm -rf "$proj_rc" "$home_rc"
+else
+    skip "context :extra-resource-paths requires lg with -resource-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 80: task :extra-resource-paths adds a resource root for :run"
+if supports_resource_paths; then
+    proj_rt="$(mktemp -d)"
+    home_rt="$(mktemp -d)"
+    mkdir -p "$proj_rt/assets"
+    echo "asset" > "$proj_rt/assets/greeting.txt"
+    cat > "$proj_rt/task-main.lg" <<'EOF'
+(ns task.main)
+(println "found=" (some? (io/resource "greeting.txt")))
+EOF
+    cat > "$proj_rt/lgx.edn" <<'EOF'
+{:tasks
+ {:resrun {:extra-resource-paths ["assets"]
+           :do [{:run "task-main.lg"}]}}}
+EOF
+    out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" resrun 2>&1)"
+    assert_contains "$out" "found= true" \
+        "task extra-resource-paths: :run step resolves the resource"
+    rm -rf "$proj_rt" "$home_rt"
+else
+    skip "task :extra-resource-paths requires lg with -resource-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 81: lgx build embeds resources into the standalone binary"
+if supports_resource_paths; then
+    proj_rb="$(mktemp -d)"
+    home_rb="$(mktemp -d)"
+    mkdir -p "$proj_rb/resources"
+    echo "embedded" > "$proj_rb/resources/greeting.txt"
+    cat > "$proj_rb/app.lg" <<'EOF'
+(ns app)
+(when-not *compiling-aot*
+  (println "found=" (some? (io/resource "greeting.txt"))))
+EOF
+    cat > "$proj_rb/lgx.edn" <<'EOF'
+{:main "app.lg"
+ :resource-paths ["resources"]
+ :targets {:bin {:out "bin/app"}}}
+EOF
+    out="$(cd "$proj_rb" && LGX_HOME="$home_rb" "$LGX" build 2>&1)"
+    [[ -x "$proj_rb/bin/app" ]] || fail "build embed: expected bin/app executable"
+    # Run the binary from a clean dir with no resources/ nearby: a true result
+    # proves the resource was embedded, not read off the filesystem.
+    clean="$(mktemp -d)"
+    cp "$proj_rb/bin/app" "$clean/app"
+    out_run="$(cd "$clean" && ./app 2>&1)"
+    assert_contains "$out_run" "found= true" \
+        "build embed: bundled binary resolves io/resource from a clean dir"
+    rm -rf "$proj_rb" "$home_rb" "$clean"
+else
+    skip "build embed requires lg with -resource-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 82: --verbose run trace includes -resource-paths when set"
+if supports_resource_paths; then
+    proj_rv="$(mktemp -d)"
+    home_rv="$(mktemp -d)"
+    mkdir -p "$proj_rv/resources"
+    echo "x" > "$proj_rv/resources/greeting.txt"
+    cat > "$proj_rv/m.lg" <<'EOF'
+(ns m)
+(println :ok)
+EOF
+    cat > "$proj_rv/lgx.edn" <<'EOF'
+{:main "m.lg"
+ :resource-paths ["resources"]}
+EOF
+    err="$(cd "$proj_rv" && LGX_HOME="$home_rv" "$LGX" --verbose run 2>&1 >/dev/null)"
+    assert_contains "$err" "-resource-paths" \
+        "verbose run: trace includes -resource-paths when :resource-paths is set"
+    rm -rf "$proj_rv" "$home_rv"
+else
+    skip "verbose -resource-paths trace requires lg with -resource-paths support"
+fi
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."
