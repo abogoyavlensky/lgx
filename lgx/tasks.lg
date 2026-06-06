@@ -32,32 +32,35 @@
       (when (seq (:err r)) (write! *err* (:err r)))
       (:exit r))))
 
-(defn- run-run-step! [value lib-paths verbose?]
+(defn- run-run-step! [value lib-paths resource-paths verbose?]
   ;; A `:run` step is "invoked like `lgx run`", so it carries the same
   ;; LGX_RUN=1 contract (set in cmd-run). Set it around the child only and
   ;; restore, so a later `:sh` step that runs a bundled binary isn't misled
   ;; into dev-mode arg parsing.
   (let [prev (os/getenv "LGX_RUN")]
     (os/setenv "LGX_RUN" "1")
-    (let [exit (runner/invoke-lg! lib-paths (as-arg-vec value) verbose?)]
+    (let [exit (runner/invoke-lg! lib-paths resource-paths
+                                  (as-arg-vec value) verbose?)]
       (os/setenv "LGX_RUN" (or prev ""))
       exit)))
 
-(defn- run-step! [step lib-paths verbose?]
+(defn- run-step! [step lib-paths resource-paths verbose?]
   (cond
     (contains? step :sh) (run-sh-step! (:sh step) verbose?)
-    (contains? step :run) (run-run-step! (:run step) lib-paths verbose?)
+    (contains? step :run) (run-run-step! (:run step) lib-paths resource-paths
+                                         verbose?)
     :else (throw (ex-info "step has no action key" {:step step}))))
 
 (defn run-task!
   "Run the steps in `task` sequentially. Stops at the first non-zero exit
    and exits with that code. Exits 0 after all steps succeed. `lib-paths`
-   is the resolved source-path list used for any `:run` steps."
-  [task lib-paths verbose?]
+   is the resolved source-path list and `resource-paths` the resolved
+   resource roots, both used for any `:run` steps."
+  [task lib-paths resource-paths verbose?]
   (loop [steps (:do task)]
     (if (empty? steps)
       (os/exit 0)
-      (let [exit (run-step! (first steps) lib-paths verbose?)]
+      (let [exit (run-step! (first steps) lib-paths resource-paths verbose?)]
         (if (zero? exit)
           (recur (rest steps))
           (os/exit exit))))))

@@ -9,6 +9,10 @@
   (when (seq paths)
     ["-source-paths" (str/join os/path-separator paths)]))
 
+(defn- resource-paths-flag [paths]
+  (when (seq paths)
+    ["-resource-paths" (str/join os/path-separator paths)]))
+
 ;; Env vars lgx writes into the environment, in display order:
 ;; LG_READ_CLJ for the lg child (see invoke-lg!), LGX_RUN lgx's own
 ;; run-marker (set by cmd-run / :run task steps before invoke-lg!).
@@ -41,14 +45,15 @@
 ;; let-go ships one (see upstream issue link in the README).
 ;; --------------------------------------------------------------------------
 (defn run-lg!
-  "Run `lg` with -source-paths set to the resolved lib paths plus the
-   user's forwarded args. When `verbose?` is truthy, print the env vars
-   lgx sets and the resolved command to *err* before exec. Returns the
-   full {:out :err :exit} result WITHOUT replaying output, so callers can
+  "Run `lg` with -source-paths set to the resolved lib paths and
+   -resource-paths set to the resolved resource roots, plus the user's
+   forwarded args. When `verbose?` is truthy, print the env vars lgx sets
+   and the resolved command to *err* before exec. Returns the full
+   {:out :err :exit} result WITHOUT replaying output, so callers can
    inspect or transform lg's captured streams (e.g. cmd-test stripping its
    harness marker and detecting swallowed load errors). Most callers want
    invoke-lg!, which replays the output for them."
-  [lib-paths forward-args verbose?]
+  [lib-paths resource-paths forward-args verbose?]
   ;; lg's resolver doesn't search .clj by default and its reader leaves
   ;; #?(:clj ...) branches unmatched unless this is set. See
   ;; docs/issues/letgo-clj-support.md. Set before the verbose trace so the
@@ -56,6 +61,7 @@
   (os/setenv "LG_READ_CLJ" "1")
   (let [bin (lg-binary)
         args (vec (concat (or (source-paths-flag lib-paths) [])
+                          (or (resource-paths-flag resource-paths) [])
                           forward-args))]
     (when verbose?
       (when-let [env-line (env-trace-line os/getenv)]
@@ -66,12 +72,12 @@
 (defn invoke-lg!
   "Run lg via run-lg!, replay its captured output, and return its exit
    code."
-  [lib-paths forward-args verbose?]
-  (let [r (run-lg! lib-paths forward-args verbose?)]
+  [lib-paths resource-paths forward-args verbose?]
+  (let [r (run-lg! lib-paths resource-paths forward-args verbose?)]
     (replay-output! r)
     (:exit r)))
 
 (defn exec-lg!
   "Like invoke-lg! but exits with lg's exit code."
-  [lib-paths forward-args verbose?]
-  (os/exit (invoke-lg! lib-paths forward-args verbose?)))
+  [lib-paths resource-paths forward-args verbose?]
+  (os/exit (invoke-lg! lib-paths resource-paths forward-args verbose?)))

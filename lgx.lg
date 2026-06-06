@@ -128,28 +128,34 @@
 (defn- cmd-version []
   (println (str "lgx " version)))
 
-(defn- resolve-project-paths [project paths]
+(defn- resolve-project-paths [label project paths]
   (mapv (fn [p]
           (let [abs (path/join project p)]
             (when-not (file-exists? abs)
-              (write! *err* (str "warning: :paths entry not found: " p "\n")))
+              (write! *err* (str "warning: " label " entry not found: " p "\n")))
             abs))
         paths))
 
 (defn- basis
-  "Resolve `coords` and `raw-paths` into a source-path basis for the active
-   project. Returns a map with the project root, the install results, and the
-   joined source path vector used for `-source-paths`. `coords` is the coord
-   pair list to resolve (project deps, or project+task extras merged);
-   `raw-paths` is the project-relative path list (project :paths, or project
-   :paths ++ a task's :extra-paths)."
-  [project coords raw-paths]
+  "Resolve `coords`, `raw-paths`, and `raw-resource-paths` into a basis for the
+   active project. Returns a map with the project root, the install results, the
+   joined source path vector used for `-source-paths`, and the resolved resource
+   roots used for `-resource-paths`. `coords` is the coord pair list to resolve
+   (project deps, or project+task extras merged); `raw-paths` is the
+   project-relative source path list (project :paths, or project :paths ++ a
+   task's :extra-paths); `raw-resource-paths` is the project-relative resource
+   root list. Source paths include resolved dep dirs; resource paths are
+   project-only (deps never contribute resource roots)."
+  [project coords raw-paths raw-resource-paths]
   (let [results (ensure-all! project coords)
-        own-paths (resolve-project-paths project raw-paths)
-        paths (vec (concat own-paths (mapv :path results)))]
+        own-paths (resolve-project-paths ":paths" project raw-paths)
+        paths (vec (concat own-paths (mapv :path results)))
+        resource-paths (resolve-project-paths ":resource-paths" project
+                                              raw-resource-paths)]
     {:project project
      :results results
-     :paths paths}))
+     :paths paths
+     :resource-paths resource-paths}))
 
 (defn- dedup-keep-first
   "Return xs with duplicates removed, keeping each value's first position."
@@ -165,11 +171,13 @@
           (recur (conj seen x) (conj acc x) (next ys)))))))
 
 (defn- overlay-basis
-  "Build the source-path basis with context overlays applied. `cli-with` is the
-   --with name list (possibly empty); `task` is the task map, or nil for
-   run/build/test. Layering, low->high precedence: project deps/paths <
-   task :with contexts < CLI --with contexts < task inline :extra-* (highest).
-   With no contexts and no task this reduces to the project's own deps/paths."
+  "Build the basis (source paths, resource paths, deps) with context overlays
+   applied. `cli-with` is the --with name list (possibly empty); `task` is the
+   task map, or nil for run/build/test. Layering, low->high precedence: project
+   deps/paths/resource-paths < task :with contexts < CLI --with contexts < task
+   inline :extra-* (highest). Resource paths layer the same way but, unlike
+   source paths, never pick up dep dirs. With no contexts and no task this
+   reduces to the project's own deps/paths/resource-paths."
   [project cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
         overlay (with->overlay! project names)
@@ -180,8 +188,12 @@
         raw-paths (dedup-keep-first
                     (concat (config/paths project)
                             (:paths overlay)
-                            (or (:extra-paths task) [])))]
-    (basis project coords raw-paths)))
+                            (or (:extra-paths task) [])))
+        raw-resource-paths (dedup-keep-first
+                             (concat (config/resource-paths project)
+                                     (:resource-paths overlay)
+                                     (or (:extra-resource-paths task) [])))]
+    (basis project coords raw-paths raw-resource-paths)))
 
 (defn- resolve-main-script! [project main-script]
   (let [abs (path/join project main-script)]
@@ -216,7 +228,7 @@
 
 (defn- cmd-run [forward-args verbose? with]
   (let [project (config/find-project!)
-        {:keys [results paths]} (overlay-basis project with nil)
+        {:keys [results paths resource-paths]} (overlay-basis project with nil)
         main-script (config/main project)
         dd (position forward-args "--")
         args (cond
@@ -243,7 +255,7 @@
     ;; relying on the injected `--` marker, which can collide with a user
     ;; command that legitimately contains `--`. Inherited by the child via env.
     (os/setenv "LGX_RUN" "1")
-    (runner/exec-lg! paths args verbose?)))
+    (runner/exec-lg! paths resource-paths args verbose?)))
 
 (defn- ensure-out-dir! [project rel-out]
   (let [abs (path/join project rel-out)
@@ -253,7 +265,7 @@
 
 (defn- cmd-build [forward-args verbose? with]
   (let [project (config/find-project!)
-        {:keys [results paths]} (overlay-basis project with nil)
+        {:keys [results paths resource-paths]} (overlay-basis project with nil)
         main-script (config/main project)
         bin (:bin (config/targets project))]
     (when (nil? main-script)
@@ -268,7 +280,7 @@
           abs-main (path/join project main-script)
           args (vec (concat forward-args ["-b" abs-out abs-main]))]
       (print-installs! results)
-      (let [exit (runner/invoke-lg! paths args verbose?)]
+      (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
         (when (zero? exit)
           (println "built" abs-out))
         (os/exit exit)))))
@@ -298,7 +310,7 @@
     (write! *err* "lgx: test takes at most one argument\n")
     (os/exit 1))
   (let [project (config/find-project!)
-        {:keys [results paths]} (overlay-basis project with nil)
+        {:keys [results paths resource-paths]} (overlay-basis project with nil)
         test-dir (path/join project "test")
         stat (os/stat test-dir)]
     (when (or (nil? stat) (not (:dir? stat)))
@@ -322,7 +334,7 @@
       ;; "error: failed to load ..." to stderr but exits 0, so the harness
       ;; reports 0 failures. Replay lg's output (minus the harness marker)
       ;; and, if a pre-harness load error slipped through a zero exit, fail.
-      (let [r (runner/run-lg! source-paths [harness] verbose?)
+      (let [r (runner/run-lg! source-paths resource-paths [harness] verbose?)
             exit (:exit r)]
         (when (seq (:out r)) (write! *out* (:out r)))
         (let [shown-err (test-runner/strip-ready-marker (:err r))]
@@ -337,12 +349,13 @@
   (let [project (config/find-project!)
         ;; A task's basis layers, low->high precedence: project deps/paths <
         ;; the task's :with contexts < the CLI --with contexts < the task's
-        ;; inline :extra-deps/:extra-paths. extra-deps override same-named deps
-        ;; (silently; see config/merge-coords). All of this affects only the
-        ;; task's :run steps (the source path); :sh steps ignore the basis.
-        {:keys [results paths]} (overlay-basis project with task)]
+        ;; inline :extra-deps/:extra-paths/:extra-resource-paths. extra-deps
+        ;; override same-named deps (silently; see config/merge-coords). All of
+        ;; this affects only the task's :run steps (source + resource paths);
+        ;; :sh steps ignore the basis.
+        {:keys [results paths resource-paths]} (overlay-basis project with task)]
     (print-installs! results)
-    (tasks/run-task! task paths verbose?)))
+    (tasks/run-task! task paths resource-paths verbose?)))
 
 (defn- pad-right [s n]
   (let [c (count s)]
