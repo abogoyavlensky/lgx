@@ -1,0 +1,52 @@
+(ns lgx.style
+  (:require [string :as str]))
+
+;; --------------------------------------------------------------------------
+;; Styled status output
+;;
+;; lgx prints a short status header before each command. Built-in commands use
+;; green; custom project tasks use purple. Headers and task step lines are
+;; decoration: callers write the returned strings to *err* (stdout is reserved
+;; for the program's real output). These fns are pure so they stay testable.
+;;
+;; let-go has no TTY detection, so color cannot be auto-disabled when piped.
+;; The only gate is LGX_NO_COLOR (named with the project's LGX_ prefix): color
+;; is disabled when the var is present and non-empty. os/getenv returns "" for
+;; an unset var, so a blank value means color is enabled.
+;; --------------------------------------------------------------------------
+
+(defn- color-enabled? []
+  (str/blank? (os/getenv "LGX_NO_COLOR")))
+
+;; 256-color base palette, matching the test harness (green = 2, red = 1), so
+;; colors respect the user's terminal theme.
+(defn- colorize [code s]
+  (if (color-enabled?)
+    (str "\u001b[38;5;" code "m" s "\u001b[0m")
+    s))
+
+(defn green
+  "Wrap s in green (built-in command color), unless LGX_NO_COLOR disables it."
+  [s]
+  (colorize 2 s))
+
+(defn purple
+  "Wrap s in purple (custom task color), unless LGX_NO_COLOR disables it."
+  [s]
+  (colorize 5 s))
+
+(defn header
+  "Green `=> <text>` status header for a built-in command."
+  [text]
+  (green (str "=> " text)))
+
+(defn task-header
+  "Purple `=> Running task <name>...` header for a custom project task."
+  [name]
+  (purple (str "=> Running task " name "...")))
+
+(defn step-line
+  "Indented `   $ <cmd>` line echoing a task step's command before it runs.
+   The `$` is purple to tie the step to its task; the command is plain."
+  [cmd]
+  (str "   " (purple "$") " " cmd))

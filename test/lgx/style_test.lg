@@ -1,0 +1,66 @@
+;; Unit tests for lgx.style.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.style-test
+  (:require [lgx.style :as style]
+            [test :refer [deftest is]]))
+
+(def esc "\u001b")
+
+;; Each color-dependent test sets LGX_NO_COLOR explicitly and restores it to ""
+;; afterward, so test ordering cannot leak the env between cases. os/getenv
+;; returns "" for an unset var, so "" is the "color enabled" state.
+
+;; ---------------------------------------------------------------------------
+;; green / purple (color enabled)
+;; ---------------------------------------------------------------------------
+
+(deftest green-wraps-with-code-2
+  (os/setenv "LGX_NO_COLOR" "")
+  (is (= (str esc "[38;5;2mhello" esc "[0m") (style/green "hello"))))
+
+(deftest purple-wraps-with-code-5
+  (os/setenv "LGX_NO_COLOR" "")
+  (is (= (str esc "[38;5;5mhello" esc "[0m") (style/purple "hello"))))
+
+;; ---------------------------------------------------------------------------
+;; LGX_NO_COLOR disables color
+;; ---------------------------------------------------------------------------
+
+(deftest green-plain-when-no-color
+  (os/setenv "LGX_NO_COLOR" "1")
+  (is (= "hello" (style/green "hello")))
+  (os/setenv "LGX_NO_COLOR" ""))
+
+(deftest purple-plain-when-no-color
+  (os/setenv "LGX_NO_COLOR" "1")
+  (is (= "hello" (style/purple "hello")))
+  (os/setenv "LGX_NO_COLOR" ""))
+
+;; ---------------------------------------------------------------------------
+;; header builders (assert plain shapes under LGX_NO_COLOR)
+;; ---------------------------------------------------------------------------
+
+(deftest header-prefixes-arrow
+  (os/setenv "LGX_NO_COLOR" "1")
+  (is (= "=> Building bin/app..." (style/header "Building bin/app...")))
+  (os/setenv "LGX_NO_COLOR" ""))
+
+(deftest task-header-format
+  (os/setenv "LGX_NO_COLOR" "1")
+  (is (= "=> Running task ci..." (style/task-header "ci")))
+  (os/setenv "LGX_NO_COLOR" ""))
+
+(deftest step-line-indents-and-prefixes-dollar
+  (os/setenv "LGX_NO_COLOR" "1")
+  (is (= "   $ echo hi" (style/step-line "echo hi")))
+  (os/setenv "LGX_NO_COLOR" ""))
+
+(deftest header-is-green-when-color-enabled
+  (os/setenv "LGX_NO_COLOR" "")
+  (is (= (str esc "[38;5;2m=> hi" esc "[0m") (style/header "hi"))))
+
+(deftest task-header-is-purple-when-color-enabled
+  (os/setenv "LGX_NO_COLOR" "")
+  (is (= (str esc "[38;5;5m=> Running task t..." esc "[0m")
+         (style/task-header "t"))))
