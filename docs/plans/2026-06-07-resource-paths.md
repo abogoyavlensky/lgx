@@ -1,5 +1,8 @@
 # Resource Paths Implementation Plan
 
+> **Status: COMPLETE** (2026-06-07). All four tasks implemented, reviewed, and
+> committed. See the Implementation summary at the end.
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an `lgx.edn` declare resource roots (for `io/resource`) that lgx
@@ -25,11 +28,13 @@ lgx already threads `-source-paths` from config through a basis to `lg`. This
 change adds a second, parallel path-kind — `-resource-paths` — sourced from the
 project's own config only.
 
-**This feature requires the unreleased `lg`.** Build and test with it pinned:
+**This feature requires the unreleased `lg`.** Use the freshly-built binary —
+`let-go/.tmp/lg`, not the stale `let-go/lg` (which regressed `.`-source-path
+append and breaks lgx self-tests). Build and test with it pinned:
 
 ```sh
-export LG=/Users/andrew/Projects/let-go/lg      # bundling lgx (lg -b)
-export LGX_LG=/Users/andrew/Projects/let-go/lg  # the lg lgx shells out to at runtime
+export LG=/Users/andrew/Projects/let-go/.tmp/lg      # bundling lgx (lg -b)
+export LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg  # the lg lgx shells out to at runtime
 ```
 
 ## Design
@@ -146,7 +151,7 @@ LG=$LG LGX_LG=$LGX_LG make test
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing unit tests**
+- [x] **Step 1: Write failing unit tests**
   In `config_test.lg`, add tests:
   - `validate-config!` accepts `{:resource-paths ["resources"]}` (returns it
     unchanged), and accepts `{:resource-paths []}`.
@@ -166,12 +171,12 @@ LG=$LG LGX_LG=$LGX_LG make test
     `:resource-paths` there; otherwise assert via a temp file or skip the
     fixture-backed accessor test and cover the accessor through `validate`.)
 
-- [ ] **Step 2: Run tests, verify they fail**
+- [x] **Step 2: Run tests, verify they fail**
   Run: `LGX_LG=$LGX_LG $LGX_LG lgx.lg test test/lgx/config_test.lg`
   Expected: FAIL — unknown top-level key `:resource-paths`, and
   `context-overlay` missing `:resource-paths`.
 
-- [ ] **Step 3: Implement schema + accessors**
+- [x] **Step 3: Implement schema + accessors**
   In `lgx/config.lg`:
   - Give `validate-paths!` a `label` parameter; use it in its two `bad!`
     messages and pass it down to `validate-rel-path!` (replace the hardcoded
@@ -191,11 +196,11 @@ LG=$LG LGX_LG=$LGX_LG make test
     concatenation of each named context's `:extra-resource-paths`, in name
     order (mirror how `:paths` is built via `mapcat`).
 
-- [ ] **Step 4: Run tests, verify they pass**
+- [x] **Step 4: Run tests, verify they pass**
   Run: `LGX_LG=$LGX_LG $LGX_LG lgx.lg test test/lgx/config_test.lg`
   Expected: PASS — all config tests green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Add :resource-paths / :extra-resource-paths to lgx.edn schema"`
 
 ---
@@ -209,7 +214,7 @@ functions must supply, so a green tree requires both edits in one task.
 - Modify: `lgx/runner.lg`
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Add the runner flag plumbing**
+- [x] **Step 1: Add the runner flag plumbing**
   In `lgx/runner.lg`:
   - Add a private `resource-paths-flag` mirroring `source-paths-flag`: returns
     `["-resource-paths" (str/join os/path-separator paths)]` when `(seq paths)`,
@@ -220,7 +225,7 @@ functions must supply, so a green tree requires both edits in one task.
     source-paths flag and `forward-args`. Thread the arg through
     `invoke-lg!`/`exec-lg!` to `run-lg!`.
 
-- [ ] **Step 2: Thread resource paths through the basis**
+- [x] **Step 2: Thread resource paths through the basis**
   In `lgx.lg`:
   - `basis`: add a `raw-resource-paths` parameter. Resolve it to absolute
     project-relative dirs (reuse `resolve-project-paths`; give that helper a
@@ -237,13 +242,13 @@ functions must supply, so a green tree requires both edits in one task.
     `source-paths`, not to resource paths).
   - Leave `cmd-install` unchanged.
 
-- [ ] **Step 3: Build and run the existing suite (no regressions)**
+- [x] **Step 3: Build and run the existing suite (no regressions)**
   Run: `LG=$LG LGX_LG=$LGX_LG make test`
   Expected: PASS — bundle builds, all unit tests and existing e2e scenarios
   pass. Resource paths are absent from every existing fixture, so the new flag
   is omitted (empty → nil) and behavior is unchanged.
 
-- [ ] **Step 4: Manual smoke (resource resolves)**
+- [x] **Step 4: Manual smoke (resource resolves)**
   Create a temp project with `resources/greeting.txt`, an `m.lg` that prints
   `(some? (io/resource "greeting.txt"))`, and
   `lgx.edn` = `{:main "m.lg" :resource-paths ["resources"]}`. Run
@@ -251,7 +256,7 @@ functions must supply, so a green tree requires both edits in one task.
   Expected: trace line includes `-resource-paths`, and the script prints
   `true`. Re-run without `:resource-paths` → prints `false`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Pass :resource-paths through to lg's -resource-paths flag"`
 
 ---
@@ -261,12 +266,12 @@ functions must supply, so a green tree requires both edits in one task.
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add the gate helper**
+- [x] **Step 1: Add the gate helper**
   Add a `supports_resource_paths` helper next to `supports_source_paths`:
   `"$lg_bin" -resource-paths "" -e '(println :ok)'` succeeds. (Released `lg`
   on `PATH` lacks the flag; the helper skips those scenarios.)
 
-- [ ] **Step 2: Add scenarios (78–82)**
+- [x] **Step 2: Add scenarios (78–82)**
   Each gated on `supports_resource_paths`, using
   `(some? (io/resource "greeting.txt"))` as the signal:
   - **78 — top-level `:resource-paths` on `run`:** project with
@@ -285,12 +290,12 @@ functions must supply, so a green tree requires both edits in one task.
     contains `-resource-paths` when `:resource-paths` is set.
   Bump the final summary line is automatic (`$PASS_COUNT`).
 
-- [ ] **Step 3: Run e2e, verify PASS**
+- [x] **Step 3: Run e2e, verify PASS**
   Run: `LG=$LG LGX_LG=$LGX_LG make test`
   Expected: PASS — new scenarios pass; nothing else regresses. (Without
   `LGX_LG` pinned, scenarios 78–82 SKIP rather than fail.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "Add e2e coverage for resource paths"`
 
 ---
@@ -301,7 +306,7 @@ functions must supply, so a green tree requires both edits in one task.
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
   - Top-level keys line ("Top-level keys: `:paths`, …") → add
     `:resource-paths`.
   - Add a short "Resource paths" subsection near "Source paths and entrypoint":
@@ -313,7 +318,7 @@ functions must supply, so a green tree requires both edits in one task.
   - Contexts section: note `:extra-resource-paths` as an allowed context key
     alongside `:extra-paths`/`:extra-deps`, and that it layers like paths.
 
-- [ ] **Step 2: Update ARCHITECTURE.md**
+- [x] **Step 2: Update ARCHITECTURE.md**
   - `config.lg` / `runner.lg` one-liners (≈ lines 31, 34): mention resource
     paths / `-resource-paths`.
   - Schema sketch (≈ line 54): add `:resource-paths`.
@@ -325,11 +330,11 @@ functions must supply, so a green tree requires both edits in one task.
     resource roots the same way as source paths, **minus the dep contribution**.
   - Check the `Verify against:` footer still names the right source files.
 
-- [ ] **Step 3: Verify docs build/read consistently**
+- [x] **Step 3: Verify docs build/read consistently**
   Re-read both edited sections; confirm key names and behavior match the
   implemented code (no stale `:paths`-only claims where resources now apply).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "Document :resource-paths and :extra-resource-paths"`
 
 ---
@@ -345,3 +350,35 @@ functions must supply, so a green tree requires both edits in one task.
   not abort.
 - README and ARCHITECTURE.md describe the feature and stay consistent with the
   source.
+
+---
+
+## Implementation summary (2026-06-07)
+
+All four tasks landed, each codex-reviewed before commit:
+
+- **Task 1 — schema** (`f4460a2`): top-level `:resource-paths` and
+  `:extra-resource-paths` (context + task) accepted; `validate-paths!` gained a
+  `label` arg so path errors name the real key; `config/resource-paths`
+  accessor added; `context-overlay` now returns `:resource-paths`. 7 new unit
+  tests + 1 updated assertion (`context-overlay` shape change).
+- **Task 2 — threading** (`2b43f61`): `runner/resource-paths-flag` +
+  `resource-paths` param on `run-lg!`/`invoke-lg!`/`exec-lg!`; `basis` and
+  `overlay-basis` resolve and layer resource roots (project-only — no dep
+  dirs); all four `cmd-*` and `tasks/run-task!` forward them.
+- **Task 3 — e2e** (`5d82f86`): `supports_resource_paths` gate + scenarios
+  78–82 (top-level run, `--with` context, task inline, build-embed from a
+  clean dir, verbose trace).
+- **Task 4 — docs**: README (`:resource-paths` subsection, task/context keys,
+  layering) and ARCHITECTURE.md (data flow, overlay-basis, let-go deps).
+
+**Verification:** `LG`/`LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg`,
+`make test` green — 259 unit, 177 e2e. `make fmt-check` clean for the gated
+`.lg` paths. Manual smoke confirmed `run` resolves `io/resource` (and not
+without the key) and a bundled binary resolves it from a clean dir.
+
+**Environment note:** the older `let-go/lg` build has a `-source-paths`
+regression (no longer appends `.`) that breaks lgx self-tests; use the newer
+`let-go/.tmp/lg`, which has `-resource-paths` and correct resolution. The
+released `lg` lacks `-resource-paths`, so scenarios 78–82 SKIP there rather
+than fail.
