@@ -1329,8 +1329,10 @@ if supports_source_paths; then
 {}
 EOF
     set +e
+    # Capture child stdout only — lgx's run header goes to stderr and would
+    # otherwise become the first line.
     out="$(cd "$proj_env" && LGX_HOME="$home_env" \
-            "$LGX" run -e '(println (os/getenv "LG_READ_CLJ"))' 2>&1)"; rc=$?
+            "$LGX" run -e '(println (os/getenv "LG_READ_CLJ"))' 2>/dev/null)"; rc=$?
     set -e
     [[ $rc -eq 0 ]] || fail "test LG_READ_CLJ: expected exit 0, got $rc (output: $out)"
     pass "test LG_READ_CLJ: exits 0"
@@ -1980,6 +1982,45 @@ EOF
 else
     skip "verbose -resource-paths trace requires lg with -resource-paths support"
 fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 83: install prints a green header on stderr, clean stdout"
+proj_h="$(mktemp -d)"; home_h="$(mktemp -d)"
+printf '{}\n' > "$proj_h/lgx.edn"
+err="$(cd "$proj_h" && LGX_HOME="$home_h" LGX_NO_COLOR=1 "$LGX" install 2>&1 >/dev/null)"
+out="$(cd "$proj_h" && LGX_HOME="$home_h" LGX_NO_COLOR=1 "$LGX" install 2>/dev/null)"
+assert_contains "$err" "=> Installing dependencies..." "install header: on stderr"
+assert_eq "$out" "no deps in lgx.edn" "install header: stdout unchanged"
+assert_not_contains "$out" "=>" "install header: stdout has no header"
+# Color on (no LGX_NO_COLOR): the header is green.
+err_c="$(cd "$proj_h" && LGX_HOME="$home_h" "$LGX" install 2>&1 >/dev/null)"
+assert_contains "$err_c" $'\e[38;5;2m=>' "install header: green when color enabled"
+rm -rf "$proj_h" "$home_h"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 84: run prints a green header naming the script on stderr"
+proj_r="$(mktemp -d)"; home_r="$(mktemp -d)"
+printf '{}\n' > "$proj_r/lgx.edn"
+printf '(println :ran)\n' > "$proj_r/m.lg"
+err="$(cd "$proj_r" && LGX_HOME="$home_r" LGX_NO_COLOR=1 "$LGX" run m.lg 2>&1 >/dev/null)"
+out="$(cd "$proj_r" && LGX_HOME="$home_r" LGX_NO_COLOR=1 "$LGX" run m.lg 2>/dev/null)"
+assert_contains "$err" "=> Running m.lg..." "run header: names the script on stderr"
+assert_eq "$out" ":ran" "run header: stdout is only the script output"
+assert_not_contains "$out" "=>" "run header: stdout has no header"
+rm -rf "$proj_r" "$home_r"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 85: build prints a green header on stderr"
+proj_b="$(mktemp -d)"; home_b="$(mktemp -d)"
+cat > "$proj_b/lgx.edn" <<'EOF'
+{:main "m.lg" :targets {:bin {:out "bin/app"}}}
+EOF
+printf '(println :built)\n' > "$proj_b/m.lg"
+err="$(cd "$proj_b" && LGX_HOME="$home_b" LGX_NO_COLOR=1 "$LGX" build 2>&1 >/dev/null)"
+out="$(cd "$proj_b" && LGX_HOME="$home_b" LGX_NO_COLOR=1 "$LGX" build 2>/dev/null)"
+assert_contains "$err" "=> Building bin/app..." "build header: on stderr"
+assert_not_contains "$out" "=>" "build header: stdout has no header"
+rm -rf "$proj_b" "$home_b"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

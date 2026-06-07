@@ -5,6 +5,7 @@
             [lgx.new :as new]
             [lgx.path :as path]
             [lgx.runner :as runner]
+            [lgx.style :as style]
             [lgx.tasks :as tasks]
             [lgx.test-runner :as test-runner]
             [string :as str]))
@@ -118,6 +119,7 @@
         overlay (with->overlay! project (vec with))
         coords (config/merge-coords (config/coords project)
                                     (:deps-pairs overlay))]
+    (write! *err* (str (style/header "Installing dependencies...") "\n"))
     (if (empty? coords)
       (println "no deps in lgx.edn")
       (let [results (ensure-all! project coords)]
@@ -249,6 +251,12 @@
                    (do (require-main-for-double-dash! main-script)
                        (let [script (resolve-main-script! project main-script)]
                          (vec (concat pre [script "--"] post)))))))]
+    (let [script (first (filter script-arg? args))]
+      (write! *err*
+              (str (style/header (if script
+                                   (str "Running " script "...")
+                                   "Running..."))
+                   "\n")))
     (print-installs! results)
     ;; Advertise to the spawned program that it is running under `lgx run`
     ;; (vs. as a bundled binary). Tools use this to strip runner args without
@@ -279,6 +287,7 @@
     (let [abs-out (ensure-out-dir! project (:out bin))
           abs-main (path/join project main-script)
           args (vec (concat forward-args ["-b" abs-out abs-main]))]
+      (write! *err* (str (style/header (str "Building " (:out bin) "...")) "\n"))
       (print-installs! results)
       (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
         (when (zero? exit)
