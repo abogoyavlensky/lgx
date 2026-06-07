@@ -2033,7 +2033,7 @@ EOF
 err="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>&1 >/dev/null)"
 out="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>/dev/null)"
 assert_contains "$err" "=> Running task hello..." "task output: purple header on stderr"
-assert_contains "$err" '   $ echo hi from task' "task output: \$ step line on stderr"
+assert_contains "$err" '$ echo hi from task' "task output: \$ step line on stderr"
 assert_eq "$out" "hi from task" "task output: stdout is only the step output"
 rm -rf "$proj_ts" "$home_ts"
 
@@ -2047,7 +2047,7 @@ if supports_source_paths; then
 EOF
     err="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>&1 >/dev/null)"
     out="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>/dev/null)"
-    assert_contains "$err" '   $ lgx run r.lg' "task :run: echoes lgx run on stderr"
+    assert_contains "$err" '$ lgx run r.lg' "task :run: echoes lgx run on stderr"
     assert_eq "$out" ":from-run-step" "task :run: stdout is only the run output"
     rm -rf "$proj_tr2" "$home_tr2"
 else

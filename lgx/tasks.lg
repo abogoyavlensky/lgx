@@ -26,7 +26,7 @@
 
 (defn- run-sh-step! [value verbose?]
   (let [cmd (as-string value)]
-    (write! *err* (str (style/step-line cmd) "\n"))
+    (write! *err* (str "\n" (style/step-line cmd) "\n"))
     (when verbose?
       (write! *err* (str "+ sh -c " cmd "\n")))
     (let [r (os/sh "sh" "-c" cmd)]
@@ -39,7 +39,7 @@
   ;; LGX_RUN=1 contract (set in cmd-run). Set it around the child only and
   ;; restore, so a later `:sh` step that runs a bundled binary isn't misled
   ;; into dev-mode arg parsing.
-  (write! *err* (str (style/step-line (str "lgx run " (as-string value))) "\n"))
+  (write! *err* (str "\n" (style/step-line (str "lgx run " (as-string value))) "\n"))
   (let [prev (os/getenv "LGX_RUN")]
     (os/setenv "LGX_RUN" "1")
     (let [exit (runner/invoke-lg! lib-paths resource-paths

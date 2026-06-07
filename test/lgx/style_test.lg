@@ -51,9 +51,9 @@
   (is (= "=> Running task ci..." (style/task-header "ci")))
   (os/setenv "LGX_NO_COLOR" ""))
 
-(deftest step-line-indents-and-prefixes-dollar
+(deftest step-line-prefixes-dollar
   (os/setenv "LGX_NO_COLOR" "1")
-  (is (= "   $ echo hi" (style/step-line "echo hi")))
+  (is (= "$ echo hi" (style/step-line "echo hi")))
   (os/setenv "LGX_NO_COLOR" ""))
 
 (deftest header-is-green-when-color-enabled
