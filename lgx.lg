@@ -251,12 +251,10 @@
                    (do (require-main-for-double-dash! main-script)
                        (let [script (resolve-main-script! project main-script)]
                          (vec (concat pre [script "--"] post)))))))]
-    (let [script (first (filter script-arg? args))]
-      (write! *err*
-              (str (style/header (if script
-                                   (str "Running " script "...")
-                                   "Running..."))
-                   "\n")))
+    ;; No status header for `run`: it is the dev-time stand-in for the built
+    ;; binary, which prints none. Keeping run header-free makes dev output
+    ;; mirror the shipped artifact. (A cold-cache run still prints the install
+    ;; block below when deps are actually fetched.)
     (print-installs! results)
     ;; Advertise to the spawned program that it is running under `lgx run`
     ;; (vs. as a bundled binary). Tools use this to strip runner args without

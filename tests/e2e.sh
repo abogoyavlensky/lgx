@@ -2001,15 +2001,14 @@ assert_contains "$err_c" $'\e[38;5;35m=>' "install header: green when color enab
 rm -rf "$proj_h" "$home_h"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 84: run prints a green header naming the script on stderr"
+echo "==> Scenario 84: run prints NO header (mirrors the built binary)"
 proj_r="$(mktemp -d)"; home_r="$(mktemp -d)"
 printf '{}\n' > "$proj_r/lgx.edn"
 printf '(println :ran)\n' > "$proj_r/m.lg"
-err="$(cd "$proj_r" && LGX_HOME="$home_r" LGX_NO_COLOR=1 "$LGX" run m.lg 2>&1 >/dev/null)"
-out="$(cd "$proj_r" && LGX_HOME="$home_r" LGX_NO_COLOR=1 "$LGX" run m.lg 2>/dev/null)"
-assert_contains "$err" "=> Running m.lg..." "run header: names the script on stderr"
-assert_eq "$out" ":ran" "run header: stdout is only the script output"
-assert_not_contains "$out" "=>" "run header: stdout has no header"
+err="$(cd "$proj_r" && LGX_HOME="$home_r" "$LGX" run m.lg 2>&1 >/dev/null)"
+out="$(cd "$proj_r" && LGX_HOME="$home_r" "$LGX" run m.lg 2>/dev/null)"
+assert_not_contains "$err" "=>" "run: no status header on stderr"
+assert_eq "$out" ":ran" "run: stdout is only the script output"
 rm -rf "$proj_r" "$home_r"
 
 # ---------------------------------------------------------------------------

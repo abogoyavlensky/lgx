@@ -49,12 +49,20 @@ namespaces it requires.
 
 Before running a command, lgx prints a one-line status header to **stderr**, so
 stdout stays clean for the program's real output (`lgx run | jq` sees only the
-script's stdout). Built-in commands (`install`/`run`/`build`/`test`/`new`) use a
-green `=> ...` header; a custom task uses a purple `=> Running task <name>...`
-header followed by an indented `$ <cmd>` line per step (a `:run` step is shown
-as `lgx run <args>`). `version` and `help` print no header — they emit data the
-user asked for. The existing stdout lines (the install block, `built <out>`,
-`Created <name> at <abs>`, and the test report) are unchanged and stay on stdout.
+script's stdout). `install`/`build`/`test`/`new` use a green `=> ...` header; a
+custom task uses a purple `=> Running task <name>...` header followed by an
+indented `$ <cmd>` line per step (a `:run` step is shown as `lgx run <args>`).
+
+`run` intentionally prints **no** header: it is the dev-time stand-in for the
+built binary, which prints none, so keeping it header-free makes dev output
+mirror the shipped artifact. (A cold-cache `run` still prints the install block
+when deps are actually fetched.) `version` and `help` likewise print no header —
+they emit data the user asked for. The existing stdout lines (the install block,
+`built <out>`, `Created <name> at <abs>`, and the test report) are unchanged and
+stay on stdout.
+
+Headers are color only (no bold): they fire on every command, so a lighter
+weight reads calmer for everyday use.
 
 `lgx/style.lg` builds these strings. Color is gated by `LGX_NO_COLOR` (disabled
 when present and non-empty); let-go has no TTY detection, so this env var is the
