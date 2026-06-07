@@ -19,7 +19,7 @@
   (str/blank? (os/getenv "LGX_NO_COLOR")))
 
 ;; Fixed 256-color cube shades chosen for contrast on both light and dark
-;; terminals (green = 35 emerald, purple = 91 deep purple — same lightness and
+;; terminals (green = 35 emerald, purple = 98 deep purple — same lightness and
 ;; saturation as the green, hue-rotated), emitted bold
 ;; for extra pop. Cube colors (not the 0-15 theme palette) so the shade stays
 ;; stable regardless of the user's color scheme. The trailing reset clears both
@@ -37,7 +37,7 @@
 (defn purple
   "Wrap s in purple (custom task color), unless LGX_NO_COLOR disables it."
   [s]
-  (colorize 91 s))
+  (colorize 98 s))
 
 (defn header
   "Green `=> <text>` status header for a built-in command."
