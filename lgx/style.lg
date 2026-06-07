@@ -18,22 +18,25 @@
 (defn- color-enabled? []
   (str/blank? (os/getenv "LGX_NO_COLOR")))
 
-;; 256-color base palette, matching the test harness (green = 2, red = 1), so
-;; colors respect the user's terminal theme.
+;; Fixed 256-color cube shades chosen for contrast on both light and dark
+;; terminals (green = 41 spring-green, purple = 135 vivid violet), emitted bold
+;; for extra pop. Cube colors (not the 0-15 theme palette) so the shade stays
+;; stable regardless of the user's color scheme. The trailing reset clears both
+;; the bold and the color.
 (defn- colorize [code s]
   (if (color-enabled?)
-    (str "\u001b[38;5;" code "m" s "\u001b[0m")
+    (str "\u001b[1m\u001b[38;5;" code "m" s "\u001b[0m")
     s))
 
 (defn green
   "Wrap s in green (built-in command color), unless LGX_NO_COLOR disables it."
   [s]
-  (colorize 2 s))
+  (colorize 41 s))
 
 (defn purple
   "Wrap s in purple (custom task color), unless LGX_NO_COLOR disables it."
   [s]
-  (colorize 5 s))
+  (colorize 135 s))
 
 (defn header
   "Green `=> <text>` status header for a built-in command."
