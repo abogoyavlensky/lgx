@@ -180,7 +180,8 @@ become hyphens; `/` becomes `.`.
 {}
 ```
 
-Top-level keys: `:paths`, `:deps`, `:main`, `:targets`, `:tasks`, `:contexts`.
+Top-level keys: `:paths`, `:resource-paths`, `:deps`, `:main`, `:targets`,
+`:tasks`, `:contexts`.
 
 ### Source paths and entrypoint
 
@@ -194,6 +195,22 @@ Top-level keys: `:paths`, `:deps`, `:main`, `:targets`, `:tasks`, `:contexts`.
   shadow lib namespaces. Missing entries print a warning.
 - `:main` names the default entrypoint script. `lgx run` substitutes it
   when no script is given; `lgx build` bundles it.
+
+### Resource paths (`:resource-paths`)
+
+```edn
+{:resource-paths ["resources"]}
+```
+
+- `:resource-paths` lists project-relative directories that hold resources
+  (templates, data files, static assets) reachable from `(io/resource "…")`.
+  lgx passes them to `lg` as `-resource-paths`.
+- `lgx run` and `lgx test` make the resources resolvable at runtime; `lgx
+  build` **embeds** every resource under these roots into the bundled binary,
+  so `io/resource` keeps working with no files alongside the executable.
+- Missing entries print a warning, same as `:paths`. Unlike source paths,
+  resource roots come only from your project (its top level plus any applied
+  contexts/tasks) — dependencies never contribute resource roots.
 
 ### Dependencies (`:deps`)
 
@@ -280,13 +297,14 @@ cannot shadow built-in commands (`install`, `run`, `build`, `test`,
 Step values may be a string (split on whitespace) or a vector of
 strings. Output is buffered and replayed after each step completes.
 
-A task may contain only `:doc`, `:do`, `:extra-paths`, `:extra-deps`, and
-`:with`; any other key is rejected (so a typo like `:extra-dep` fails loudly).
+A task may contain only `:doc`, `:do`, `:extra-paths`, `:extra-resource-paths`,
+`:extra-deps`, and `:with`; any other key is rejected (so a typo like
+`:extra-dep` fails loudly).
 
-#### Per-task `:extra-paths` and `:extra-deps`
+#### Per-task `:extra-paths`, `:extra-resource-paths`, and `:extra-deps`
 
-A task may declare extra source paths and extra dependencies that apply
-to *that task's* `:run` steps only:
+A task may declare extra source paths, resource roots, and dependencies
+that apply to *that task's* `:run` steps only:
 
 ```edn
 {:tasks
@@ -299,13 +317,16 @@ to *that task's* `:run` steps only:
 
 - `:extra-paths` — extra project-root-relative source dirs, same rules as
   top-level `:paths`. Appended after the project's `:paths`.
+- `:extra-resource-paths` — extra project-root-relative resource roots, same
+  rules as top-level `:resource-paths`. Appended after the project's
+  `:resource-paths`.
 - `:extra-deps` — extra coords, same grammar as top-level `:deps` (git,
   `:local/root`, `:deps/root`). Fetched on first run like any dep.
 
-Both augment the `-source-paths` for the task's `:run` steps. `:sh` steps
-are plain shell and are unaffected. When an `:extra-deps` coord names a
-lib already in the project's top-level `:deps`, the extra coord wins for
-that task only (a silent override) — other commands still use the
+These augment the `-source-paths` and `-resource-paths` for the task's `:run`
+steps. `:sh` steps are plain shell and are unaffected. When an `:extra-deps`
+coord names a lib already in the project's top-level `:deps`, the extra coord
+wins for that task only (a silent override) — other commands still use the
 project coord.
 
 These per-task extras are the task-private, anonymous form of a
@@ -314,9 +335,10 @@ These per-task extras are the task-private, anonymous form of a
 
 ### Contexts (`:contexts`)
 
-A **context** is a named, reusable overlay of `:extra-paths` and `:extra-deps`
-— the same shape as per-task extras, lifted to the project top level so it can
-be applied to any command or shared across tasks.
+A **context** is a named, reusable overlay of `:extra-paths`,
+`:extra-resource-paths`, and `:extra-deps` — the same shape as per-task extras,
+lifted to the project top level so it can be applied to any command or shared
+across tasks.
 
 ```edn
 {:deps  {a {:git/url "…a" :git/tag "v1"}}
@@ -333,8 +355,9 @@ be applied to any command or shared across tasks.
          :do   [{:run "dev/repl.lg"}]}}}
 ```
 
-A context map may contain only `:extra-paths` and `:extra-deps`, validated by
-the same rules as the top-level `:paths`/`:deps`. Apply contexts two ways:
+A context map may contain only `:extra-paths`, `:extra-resource-paths`, and
+`:extra-deps`, validated by the same rules as the top-level
+`:paths`/`:resource-paths`/`:deps`. Apply contexts two ways:
 
 - **`lgx --with dev,test <command>`** — a global, comma-separated flag that
   applies the named contexts to `run`, `build`, `test`, `install`, or a task.
@@ -350,16 +373,18 @@ listing the defined contexts.
 specific layer wins (last-wins). Lowest → highest precedence:
 
 ```
-project :deps / :paths
+project :deps / :paths / :resource-paths
   → task :with contexts (in order)
   → CLI --with contexts (in order)
-  → task inline :extra-deps / :extra-paths  (highest)
+  → task inline :extra-deps / :extra-paths / :extra-resource-paths  (highest)
 ```
 
-Paths concatenate in the same order with project paths first (so project
-namespaces still shadow lib namespaces) and are de-duplicated. Like per-task
-extras, contexts augment only the `-source-paths` for `:run` steps and the
-basis commands; `:sh` steps are unaffected.
+Source and resource paths concatenate in the same order with the project's own
+first (so project namespaces still shadow lib namespaces) and are
+de-duplicated. Resource paths layer identically but, unlike source paths, never
+pick up dependency dirs. Like per-task extras, contexts augment only the
+`-source-paths`/`-resource-paths` for `:run` steps and the basis commands;
+`:sh` steps are unaffected.
 
 ## Environment variables
 

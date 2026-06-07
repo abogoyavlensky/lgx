@@ -28,10 +28,10 @@ embedded git library ended up shelling out for edge cases anyway.
 ```
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring
 lgx/cli.lg          pure argv parsing: program-prefix strip + leading --verbose/--with
-lgx/config.lg       find lgx.edn (walks up), parse/validate :deps/:paths/:tasks/:contexts
+lgx/config.lg       find lgx.edn (walks up), parse/validate :deps/:paths/:resource-paths/:tasks/:contexts
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
-lgx/runner.lg       locate lg, invoke with -source-paths
+lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
 lgx/new.lg          scaffold a new project from the default template
 ```
@@ -51,7 +51,7 @@ namespaces it requires.
 1. Find the project root by walking up from the current directory until
    a directory contains `lgx.edn`.
 2. Read `lgx.edn`, validate the schema
-   (`{:paths [<rel-path> ...] :main <rel-path> :targets {:bin {:out <rel-path>}} :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
+   (`{:paths [<rel-path> ...] :resource-paths [<rel-path> ...] :main <rel-path> :targets {:bin {:out <rel-path>}} :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
    or `{<lib> {:local/root … :deps/root <opt>}}`),
    and return the coord vector.
 3. Resolve coords breadth-first. For each unseen lib name, call
@@ -88,6 +88,12 @@ project-root-relative paths to absolute paths and prepends them to the
 cached lib paths before the join. Missing entries log a warning to
 stderr, but lgx still passes the resolved path through to `lg`.
 
+If `lgx.edn` sets top-level `:resource-paths`, lgx resolves those
+project-root-relative dirs to absolute paths and passes them to `lg` as
+`-resource-paths` (resource roots for `io/resource`). Unlike source paths
+these are project-only — dep dirs are never added. Missing entries warn but
+are still passed through.
+
 If `lgx.edn` sets top-level `:main`, lgx may substitute it as the
 script argument. Four rules apply to `cmd-run`; first match wins:
 
@@ -120,9 +126,11 @@ lgx exits non-zero with `lgx: :main script not found: <path>` before
 exec.
 
 5. Compute the `-source-paths` argument by joining the cached paths
-   with the OS path-list separator.
-6. Exec `lg -source-paths <paths> [args...]`. Forwarded args reach `lg`
-   verbatim.
+   with the OS path-list separator, and the `-resource-paths` argument by
+   joining the resolved resource roots. Either flag is omitted when its list
+   is empty.
+6. Exec `lg -source-paths <paths> -resource-paths <roots> [args...]`.
+   Forwarded args reach `lg` verbatim.
 
 The exec call currently uses `os/sh`, which buffers stdout/stderr until
 the child exits. Streaming output and stdin (so `lgx run -r` can drive
@@ -141,12 +149,14 @@ Steps 1–4 match `install`. Then:
    exit 1.
 7. Resolve `:targets/:bin/:out` to an absolute path under the project
    root and `mkdir` its parent (recursive, idempotent).
-8. Exec `lg [forwarded-args...] -source-paths <X> -b <abs-out> <abs-main>`.
-   Forwarded args come first so they extend `lg`'s flag list before
-   `-b` (real example: `-bundle-base /path/to/lg` for cross-OS builds).
-   Both `-b` target and main script are absolute paths so `lgx build`
-   produces the same artifact regardless of which subdirectory of the
-   project the user invoked it from.
+8. Exec `lg -source-paths <X> -resource-paths <R> [forwarded-args...] -b
+   <abs-out> <abs-main>`. The source/resource flags come first, then the
+   forwarded args extend `lg`'s flag list before `-b` (real example:
+   `-bundle-base /path/to/lg` for cross-OS builds). With `-b`, `lg` embeds the
+   resources under `<R>` into the binary, so a bundled app resolves
+   `io/resource` with no files alongside it. Both `-b` target and main script
+   are absolute paths so `lgx build` produces the same artifact regardless of
+   which subdirectory of the project the user invoked it from.
 
 `lgx build` shares `resolve-main-script!` and the project-basis
 resolution with `lgx run`; the only structural difference is the
@@ -198,8 +208,11 @@ Steps 1–4 match `install`. Then:
    harness for the same lgx version.
 9. Compute `-source-paths` as project paths + dep paths + the
    absolute `test/` path (so test namespaces can `require` each other
-   and the harness can `require` them).
-10. Run `lg -source-paths <X> <harness-path>` and capture its output.
+   and the harness can `require` them). Compute `-resource-paths` as the
+   project's resolved resource roots (project-only; the `test/` dir is *not*
+   added as a resource root).
+10. Run `lg -source-paths <X> -resource-paths <R> <harness-path>` and capture
+   its output.
    Normally the harness owns the `os/exit` and that exit code is passed
    through. But let-go's `require` swallows a test file's load failure —
    it prints `error: failed to load <path>: <ErrorType> ...` to stderr
@@ -238,18 +251,19 @@ vector. Each step is one of:
   `sh -c <cmd>`. Captured stdout/stderr is replayed after the child
   exits.
 - `{:run <string-or-vector>}` — invoked through the same internal path
-  as `lgx run`, with the project's resolved `-source-paths`. String
-  forms are whitespace-split into argv.
+  as `lgx run`, with the project's resolved `-source-paths` and
+  `-resource-paths`. String forms are whitespace-split into argv.
 
 A task may augment the project basis with context overlays (its `:with`
-list and the CLI `--with`) and its own inline `:extra-paths`/`:extra-deps`.
+list and the CLI `--with`) and its own inline
+`:extra-paths`/`:extra-resource-paths`/`:extra-deps`.
 All of run/build/test/install/tasks resolve their basis through one
 `overlay-basis` helper (built on the shared `basis`); see
 [Contexts](#contexts) for the full layering. A task extra-dep overrides a
 same-named project coord *in place* and silently (`config/merge-coords`
 dedupes before `ensure-all!`, so its first-wins warning never fires for the
-override). The augmented `-source-paths` applies only to the task's `:run`
-steps; `:sh` steps ignore the basis.
+override). The augmented `-source-paths`/`-resource-paths` applies only to the
+task's `:run` steps; `:sh` steps ignore the basis.
 
 Steps run sequentially. The first non-zero exit code stops the chain
 and becomes the task's exit code; lgx exits 0 only when every step
@@ -263,24 +277,25 @@ built-ins is reserved for later via an `:lgx/<name>` form.
 ### Contexts
 
 A `:contexts` entry is a named overlay carrying only `:extra-deps`/
-`:extra-paths` — the per-task extras, lifted to the top level for reuse. They
-are applied by the CLI `--with a,b` flag (any command) and a task's `:with`
-vector. `config/context-overlay` resolves an ordered name list to a single
-`{:deps-pairs :paths}` overlay, folding overlap among the named contexts
-last-wins via `config/merge-coords` (and throwing on an unknown name; a task's
-`:with` is additionally validated against the defined contexts when `lgx.edn`
-loads). A reference to an undefined context fails loudly — at config-load for
-`:with`, at runtime for `--with`.
+`:extra-paths`/`:extra-resource-paths` — the per-task extras, lifted to the top
+level for reuse. They are applied by the CLI `--with a,b` flag (any command)
+and a task's `:with` vector. `config/context-overlay` resolves an ordered name
+list to a single `{:deps-pairs :paths :resource-paths}` overlay, folding
+overlap among the named contexts last-wins via `config/merge-coords` (and
+throwing on an unknown name; a task's `:with` is additionally validated against
+the defined contexts when `lgx.edn` loads). A reference to an undefined context
+fails loudly — at config-load for `:with`, at runtime for `--with`.
 
 `overlay-basis` in `lgx.lg` composes the final basis from these layers,
-lowest → highest precedence: project `:deps`/`:paths` → task `:with` contexts
-(in order) → CLI `--with` contexts (in order) → the task's inline
-`:extra-deps`/`:extra-paths` (highest). Deps fold last-wins through
-`merge-coords`; paths concatenate in the same order (project first, so project
-namespaces still shadow libs) and are de-duplicated keep-first. For
-`run`/`build`/`test`/`install` there is no task, so only the project and the
-CLI `--with` layers apply. `install` resolves the same overlay so it
-pre-fetches a context's deps.
+lowest → highest precedence: project `:deps`/`:paths`/`:resource-paths` → task
+`:with` contexts (in order) → CLI `--with` contexts (in order) → the task's
+inline `:extra-deps`/`:extra-paths`/`:extra-resource-paths` (highest). Deps fold
+last-wins through `merge-coords`; source and resource paths concatenate in the
+same order (project first, so project namespaces still shadow libs) and are
+de-duplicated keep-first. Resource paths layer identically but never pick up dep
+dirs (project-only). For `run`/`build`/`test`/`install` there is no task, so
+only the project and the CLI `--with` layers apply. `install` resolves the same
+overlay so it pre-fetches a context's deps.
 
 ### `lgx new <project-name>`
 
@@ -383,9 +398,11 @@ exists and `<local>/` when it does not. lgx reads a local lib's own
   `https://github.com/abogoyavlensky/lgx-template-base` at a sha pinned
   in lgx source. Override with `LGX_TEMPLATE_BASE_URL` and
   `LGX_TEMPLATE_BASE_SHA`; both blank or unset → defaults.
-- Two let-go-side changes lgx depends on, both tracked in
-  [`issues/`](issues/):
+- let-go-side changes lgx depends on, tracked in [`issues/`](issues/):
   - `-source-paths` flag and `LG_SOURCE_PATHS` env var (PR open).
+  - `-resource-paths` flag (resource roots for `io/resource`, embedded by
+    `-b`), used by `:resource-paths`/`:extra-resource-paths`. Available in
+    recent `lg` builds, not yet in a tagged release.
   - `os/run` with inherited stdio so `lgx run -r` REPL works (draft).
 
 ## What lgx is not
