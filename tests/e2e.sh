@@ -379,7 +379,7 @@ cat > "$proj_t/lgx.edn" <<'EOF'
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
 po="$(cd "$proj_t" && LGX_HOME="$home_t" LGX_NO_COLOR=1 "$LGX" help)"
-assert_contains "$po" "Usage: lgx [global options] <command> [args...]" "help: usage synopsis"
+assert_contains "$po" "Usage: lgx [options] <command> [args...]" "help: usage synopsis"
 assert_contains "$po" "Built-in commands:" "help: shows built-in commands title"
 assert_contains "$po" "Project tasks:" "help: shows project tasks block"
 assert_contains "$po" "lgx fmt" "help: task row uses lgx prefix"

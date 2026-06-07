@@ -403,7 +403,7 @@
 (defn- usage-for [project]
   (str "lgx - project manager for let-go\n"
        "\n"
-       "Usage: lgx [global options] <command> [args...]\n"
+       "Usage: lgx [options] <command> [args...]\n"
        "\n"
        "Built-in commands:" (style/green-marker) "\n"
        command-rows
