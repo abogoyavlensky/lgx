@@ -1064,6 +1064,7 @@ out="$(cd "$work_s50" \
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new hyphen: expected exit 0, got $rc"; }
 assert_contains "$out" "Created my-app at" "new hyphen: success line"
+assert_contains "$out" "=> Creating project my-app..." "new hyphen: green header on stderr"
 [[ -f "$work_s50/my-app/main.lg" ]] || fail "new hyphen: main.lg missing"
 [[ -f "$work_s50/my-app/src/my_app/greeter.lg" ]] \
     || fail "new hyphen: underscore path missing"

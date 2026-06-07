@@ -2,6 +2,7 @@
   (:require [lgx.cache :as cache]
             [lgx.home :as home]
             [lgx.path :as path]
+            [lgx.style :as style]
             [string :as str]))
 
 ;; ---------------------------------------------------------------------------
@@ -201,6 +202,8 @@
     (let [target (path/join (os/cwd) name)]
       (try (validate-target! target)
            (catch e (handle-target-error! e)))
+      (write! *err*
+              (str (style/header (str "Creating project " name "...")) "\n"))
       (let [coord (resolve-template-coord)
             cache-path (try (ensure-template! coord)
                             (catch e
