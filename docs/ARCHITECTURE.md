@@ -37,7 +37,7 @@ lgx/new.lg          scaffold a new project from the default template
 lgx/style.lg        colored status headers (green built-ins, purple tasks), LGX_NO_COLOR gate
 ```
 
-Leading global flags (`--verbose`, `--with a,b`) are parsed by `lgx/cli.lg`
+Leading global options (`--verbose`, `--with a,b`) are parsed by `lgx/cli.lg`
 before the subcommand and removed from the argv `lgx.main` dispatches on.
 `--with` names contexts (see [Contexts](#contexts)) and applies to
 `run`/`build`/`test`/`install`/tasks.
@@ -68,6 +68,13 @@ weight reads calmer for everyday use.
 when present and non-empty); let-go has no TTY detection, so this env var is the
 only switch. The generated test harness keeps its own inline color helpers
 because it runs under the user's `lg` and cannot require `lgx.style`.
+
+`lgx help` reuses the same palette. After a `Usage: lgx [options] <command>
+[args...]` synopsis it lists built-in commands under a green `Built-in commands:`
+title and project tasks under a purple `Project tasks:` title, both as
+`lgx <name>` rows aligned to one shared description column, with `Global options:`
+last. The titles are colored at call time (not in a top-level `def`) so the color
+decision is not baked in during `lg -b`.
 
 ## Data flow
 
