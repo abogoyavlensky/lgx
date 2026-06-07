@@ -378,10 +378,20 @@ cat > "$proj_t/lgx.edn" <<'EOF'
   :check {:doc "Run checks"     :do [{:sh "echo check"}]}}}
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
+assert_contains "$out" "Usage: lgx [options] <command> [args...]" "help: usage synopsis"
+assert_contains "$out" "Built-in commands:" "help: shows built-in commands title"
 assert_contains "$out" "Project tasks:" "help: shows project tasks block"
-assert_contains "$out" "fmt" "help: lists fmt task"
+assert_contains "$out" "lgx fmt" "help: task row uses lgx prefix"
 assert_contains "$out" "Format sources" "help: shows :doc string"
 assert_contains "$out" "Run checks" "help: shows check :doc"
+# Options section comes after Project tasks (tasks continue the commands).
+pt_line="$(printf '%s\n' "$out" | grep -n '^Project tasks:' | head -1 | cut -d: -f1)"
+op_line="$(printf '%s\n' "$out" | grep -n '^Options:' | head -1 | cut -d: -f1)"
+{ [[ -n "$pt_line" && -n "$op_line" && "$op_line" -gt "$pt_line" ]]; } \
+    || fail "help: Options should follow Project tasks (pt=$pt_line op=$op_line)"
+pass "help: Options appears after Project tasks"
+# Help is plain text — color is a runtime-only signal, never used in help.
+assert_not_contains "$out" $'\e[' "help: output is plain (no color)"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 19: task name conflicting with built-in command is rejected"

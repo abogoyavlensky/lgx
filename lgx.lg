@@ -12,11 +12,15 @@
 
 (def version "0.1.0-alpha12")
 
-(def base-usage
-  (str "lgx - project manager for let-go\n"
-       "\n"
-       "Usage:\n"
-       "  lgx install                  Fetch dependencies declared in lgx.edn\n"
+;; Description column the static rows below are hand-aligned to; task rows align
+;; to it too (see task-line). If you re-pad the rows, update this constant.
+(def ^:private doc-col 31)
+
+;; Color-free, hand-aligned command and option rows. Only the section titles are
+;; colored, and they are built at call time (in usage-for) so LGX_NO_COLOR is
+;; honored at runtime rather than baked into the bundle during `lg -b`.
+(def ^:private command-rows
+  (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
@@ -25,10 +29,10 @@
        "                               (one file if given, else walk test/)\n"
        "  lgx new <project-name>       Scaffold a new let-go app from the default template\n"
        "  lgx version                  Print version\n"
-       "  lgx help                     Show this help\n"
-       "\n"
-       "Global flags:\n"
-       "  --with <a,b,...>             Apply named :contexts (extra deps/paths) to the command (run/build/test/install/tasks)\n"
+       "  lgx help                     Show this help\n"))
+
+(def ^:private option-rows
+  (str "  --with <a,b,...>             Apply named :contexts (extra deps/paths) to the command (run/build/test/install/tasks)\n"
        "  --verbose                    Print the env vars lgx sets and the lg invocation before running (run/build/test/user tasks)\n"))
 
 (defn- coord-label [c]
@@ -370,35 +374,46 @@
   (let [c (count s)]
     (if (>= c n) s (str s (apply str (repeat (- n c) " "))))))
 
-(defn- task-line [width task-name task]
-  (let [n (name task-name)
+;; Tasks render as `lgx <name>` aligned to the same description column as the
+;; built-in command rows, so they read as first-class commands.
+(defn- task-line [task-name task]
+  (let [left (str "  lgx " (name task-name))
         doc (:doc task)]
-    (if (str/blank? doc)
-      (str "  " n)
-      (str "  " (pad-right n width) "  " doc))))
+    (cond
+      (str/blank? doc) left
+      (>= (count left) doc-col) (str left "  " doc)
+      :else (str (pad-right left doc-col) doc))))
 
 (defn- tasks-block [project]
   (let [t (try (config/tasks project) (catch _ {}))
-        sorted-names (sort (map name (keys t)))
-        width (if (seq sorted-names)
-                (apply max (map count sorted-names))
-                0)]
+        sorted-names (sort (map name (keys t)))]
     (when (seq t)
       (str "\n"
            "Project tasks:\n"
            (str/join "\n" (map (fn [n]
-                                 (task-line width
-                                            (keyword n)
+                                 (task-line (keyword n)
                                             (get t (keyword n))))
                                sorted-names))
            "\n"))))
 
+;; Assembled at call time so the colored titles honor LGX_NO_COLOR at runtime.
+;; Order: synopsis -> Built-in commands -> Project tasks (if any) -> Global
+;; options. `project` may be nil (no project found); the tasks block is then
+;; omitted.
 (defn- usage-for [project]
-  (str base-usage (or (tasks-block project) "")))
+  (str "lgx - project manager for let-go\n"
+       "\n"
+       "Usage: lgx [options] <command> [args...]\n"
+       "\n"
+       "Built-in commands:\n"
+       command-rows
+       (or (tasks-block project) "")
+       "\n"
+       "Options:\n"
+       option-rows))
 
 (defn- print-usage! []
-  (let [project (config/find-project)]
-    (print (if project (usage-for project) base-usage))))
+  (print (usage-for (config/find-project))))
 
 (defn- lookup-task [cmd]
   (when-let [project (config/find-project)]

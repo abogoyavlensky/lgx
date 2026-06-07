@@ -94,7 +94,7 @@ lgx run
 | `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
 
-Global flags:
+Options:
 
 - `--with <a,b,...>` applies one or more named [contexts](#contexts-contexts)
   (reusable `:extra-deps`/`:extra-paths` overlays) to the command. Applies to
@@ -105,7 +105,7 @@ Global flags:
   listing the env vars lgx sets: `LG_READ_CLJ=1` for every `lg` invocation,
   plus `LGX_RUN=1` on `run` paths.
 
-Both global flags go before the subcommand: `lgx --with dev,test run`.
+Both options go before the subcommand: `lgx --with dev,test run`.
 
 `lgx run`, `build`, `test`, and tasks find the nearest `lgx.edn` by
 walking up from the current directory.
