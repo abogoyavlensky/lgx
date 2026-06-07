@@ -334,10 +334,12 @@
                         (os/exit 0))
                       (mapv #(test-runner/test-entry test-dir %) files)))
           header (if single? (first (first entries)) "test/")
-          harness (test-runner/write-harness! entries version header)
+          harness (test-runner/write-harness! entries version)
           source-paths (vec (concat paths [test-dir]))]
       (when verbose?
         (write! *err* (str "+ test runner: " harness "\n")))
+      (write! *err*
+              (str (style/header (str "Running tests in " header "...")) "\n"))
       (print-installs! results)
       ;; let-go's require swallows a test file's compile error: lg prints
       ;; "error: failed to load ..." to stderr but exits 0, so the harness

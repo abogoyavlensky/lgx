@@ -755,6 +755,8 @@ EOF
     set -e
     [[ $rc -eq 0 ]] || fail "test happy: expected exit 0, got $rc (output: $out)"
     pass "test happy: exits 0"
+    assert_contains "$out" "=> Running tests in test/" \
+        "test happy: green lgx header (stderr) replaces the harness banner"
     assert_contains "$out" "test/foo_test.lg" "test happy: file header printed"
     assert_contains "$out" "pass-1" "test happy: pass-1 row printed"
     assert_contains "$out" "pass-2" "test happy: pass-2 row printed"
