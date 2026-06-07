@@ -108,7 +108,7 @@ the synopsis line.
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Split the static usage into color-free blocks**
+- [x] **Step 1: Split the static usage into color-free blocks**
   Replace the single `base-usage` def with two color-free static defs holding the
   existing rows verbatim (no section titles):
   - `command-rows` — the `  lgx install ...` through `  lgx help ...` lines
@@ -116,11 +116,11 @@ the synopsis line.
   - `option-rows` — the `  --with ...` and `  --verbose ...` lines.
   Keep them aligned to column 31 exactly as today.
 
-- [ ] **Step 2: Add the shared description column constant**
+- [x] **Step 2: Add the shared description column constant**
   Add `(def ^:private doc-col 31)` with a comment noting the static rows above are
   hand-aligned to it and the task rows align to it too.
 
-- [ ] **Step 3: Rewrite the task row + block**
+- [x] **Step 3: Rewrite the task row + block**
   Change `task-line` to build left = `(str "  lgx " name)`; with a non-blank
   `:doc`, pad left to `doc-col` (reuse `pad-right`) then append the doc, but if
   `(count left)` ≥ `doc-col` append `"  "` + doc instead; with a blank `:doc`,
@@ -128,7 +128,7 @@ the synopsis line.
   the block with `(style/purple "Project tasks:")`, and keep returning nil when
   there are no tasks. (`lgx.style` is already required in `lgx.lg`.)
 
-- [ ] **Step 4: Assemble `usage-for` in the new order**
+- [x] **Step 4: Assemble `usage-for` in the new order**
   Write `usage-for [project]` returning, in order: `lgx - project manager for
   let-go` → blank → `Usage: lgx [options] <command> [args...]` → blank →
   `(style/green "Built-in commands:")` + `command-rows` → the tasks block (if any)
@@ -136,7 +136,7 @@ the synopsis line.
   `(usage-for (config/find-project))` (drop the `base-usage` fallback; `usage-for`
   handles a nil project by omitting the tasks section).
 
-- [ ] **Step 5: Build and render to verify by eye**
+- [x] **Step 5: Build and render to verify by eye**
   Run: `LG=/Users/andrew/Projects/let-go/lg make build`
   Then render with a throwaway project that declares a few tasks (with and without
   `LGX_NO_COLOR=1`) and confirm: synopsis line present; `Built-in commands:`
@@ -144,11 +144,11 @@ the synopsis line.
   `lgx <task>` with docs at column 31; Global options last.
   Expected: layout matches the Target mockup above.
 
-- [ ] **Step 6: Run the unit suite (no regressions)**
+- [x] **Step 6: Run the unit suite (no regressions)**
   Run: `LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg bin/lgx test`
   Expected: `267 tests, ... 0 failures`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git commit -m "Reshape lgx help: tasks as aligned commands, colored titles"`
 
 ### Task 2: Update e2e coverage
@@ -156,7 +156,7 @@ the synopsis line.
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Extend the help scenario assertions**
+- [x] **Step 1: Extend the help scenario assertions**
   In scenario 18 (help lists project tasks), add assertions that:
   - the help contains `Built-in commands:`;
   - a task renders with the `lgx ` prefix (e.g. `lgx fmt`);
@@ -172,11 +172,11 @@ the synopsis line.
   Leave scenario 2 and the no-project scenarios unchanged — `Usage:` still appears
   via the synopsis.
 
-- [ ] **Step 2: Run the full suite**
+- [x] **Step 2: Run the full suite**
   Run: `LG=/Users/andrew/Projects/let-go/lg LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg bash tests/run.sh`
   Expected: unit `0 failures` and `All N e2e assertions passed.`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Cover reshaped help output in e2e"`
 
 ### Task 3: Docs touch-up
@@ -185,14 +185,14 @@ the synopsis line.
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Rename the term and note the layout**
+- [x] **Step 1: Rename the term and note the layout**
   Rename "Global flags" → "Global options" wherever it appears in `README.md`
   (e.g. the `LGX_NO_COLOR` row) and `docs/ARCHITECTURE.md`, so the docs match the
   renamed help section. If `docs/ARCHITECTURE.md` describes help/usage, add a
   short sentence that `lgx help` lists built-in commands and project tasks in one
   aligned `lgx <name>` column (green / purple titles), with global options last.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "Document the reshaped help layout and Global options rename"`
 
 ---
@@ -206,3 +206,31 @@ the synopsis line.
 - No-project `lgx help` shows commands + flags (no tasks section) and still
   contains `Usage:`.
 - `bash tests/run.sh` green (unit + e2e).
+
+---
+
+## Implementation summary
+
+**Status:** Complete. All three tasks implemented, tested, and committed on
+branch `rework-cmd-output-title`.
+
+**What shipped (as designed):**
+- `lgx.lg`: replaced the static `base-usage` with `doc-col` (31) + color-free
+  `command-rows`/`option-rows` defs; `task-line` now renders `lgx <name>` padded
+  to `doc-col`; `tasks-block` titles with `style/purple`; new `usage-for`
+  assembles synopsis → green `Built-in commands:` → purple `Project tasks:` (if
+  any) → neutral `Global options:`; `print-usage!` calls it with
+  `(config/find-project)` (nil → no tasks section).
+- e2e scenario 18 extended: usage synopsis, `Built-in commands:` title, `lgx fmt`
+  task-row prefix, `Global options:` ordered after `Project tasks:`, green/purple
+  titles with color on and absent under `LGX_NO_COLOR`.
+- Docs: README + ARCHITECTURE renamed "Global flags" → "Global options"; an
+  ARCHITECTURE note describes the help layout and call-time title coloring.
+
+**Results:** `bash tests/run.sh` green — 267 unit tests, 198 e2e assertions.
+Verified by eye: colored, `LGX_NO_COLOR=1` plain, and no-project renders.
+
+**Issues / deviations:** none. The pre-existing help assertions (scenario 2,
+no-project scenarios, the `fmt`/`Project tasks:` checks) kept passing unchanged,
+since `Usage:` still appears via the synopsis and task names remain substrings of
+the `lgx <name>` rows.
