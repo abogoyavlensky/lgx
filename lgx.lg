@@ -356,7 +356,7 @@
               (os/exit 1))
           (os/exit exit))))))
 
-(defn- cmd-task [task verbose? with]
+(defn- cmd-task [task-name task verbose? with]
   (let [project (config/find-project!)
         ;; A task's basis layers, low->high precedence: project deps/paths <
         ;; the task's :with contexts < the CLI --with contexts < the task's
@@ -366,7 +366,7 @@
         ;; :sh steps ignore the basis.
         {:keys [results paths resource-paths]} (overlay-basis project with task)]
     (print-installs! results)
-    (tasks/run-task! task paths resource-paths verbose?)))
+    (tasks/run-task! task-name task paths resource-paths verbose?)))
 
 (defn- pad-right [s n]
   (let [c (count s)]
@@ -427,7 +427,7 @@
     "--help" (print-usage!)
     nil (do (print-usage!) (os/exit 1))
     (if-let [task (lookup-task cmd)]
-      (cmd-task task verbose? with)
+      (cmd-task cmd task verbose? with)
       (do (write! *err*
                   (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
           (os/exit 1)))))

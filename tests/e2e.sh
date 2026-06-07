@@ -2025,5 +2025,35 @@ assert_contains "$err" "=> Building bin/app..." "build header: on stderr"
 assert_not_contains "$out" "=>" "build header: stdout has no header"
 rm -rf "$proj_b" "$home_b"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 86: task prints a purple header and \$ step lines on stderr"
+proj_ts="$(mktemp -d)"; home_ts="$(mktemp -d)"
+cat > "$proj_ts/lgx.edn" <<'EOF'
+{:tasks {:hello {:do [{:sh "echo hi from task"}]}}}
+EOF
+err="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>&1 >/dev/null)"
+out="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>/dev/null)"
+assert_contains "$err" "=> Running task hello..." "task output: purple header on stderr"
+assert_contains "$err" '   $ echo hi from task' "task output: \$ step line on stderr"
+assert_eq "$out" "hi from task" "task output: stdout is only the step output"
+rm -rf "$proj_ts" "$home_ts"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 87: task :run step echoes 'lgx run' on stderr"
+if supports_source_paths; then
+    proj_tr2="$(mktemp -d)"; home_tr2="$(mktemp -d)"
+    printf '(println :from-run-step)\n' > "$proj_tr2/r.lg"
+    cat > "$proj_tr2/lgx.edn" <<'EOF'
+{:tasks {:go {:do [{:run "r.lg"}]}}}
+EOF
+    err="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>&1 >/dev/null)"
+    out="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>/dev/null)"
+    assert_contains "$err" '   $ lgx run r.lg' "task :run: echoes lgx run on stderr"
+    assert_eq "$out" ":from-run-step" "task :run: stdout is only the run output"
+    rm -rf "$proj_tr2" "$home_tr2"
+else
+    skip "task :run step requires lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
