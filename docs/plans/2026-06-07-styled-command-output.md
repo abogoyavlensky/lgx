@@ -185,7 +185,7 @@ header/step line to plain text. No new failure modes.
 - Create: `lgx/style.lg`
 - Test: `test/lgx/style_test.lg`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   In `test/lgx/style_test.lg`, require `lgx.style` and `string`. Test:
   `green`/`purple` wrap input as `\u001b[38;5;2m<s>\u001b[0m` /
   `\u001b[38;5;5m<s>\u001b[0m` when `LGX_NO_COLOR` is unset; both return the bare
@@ -196,21 +196,21 @@ header/step line to plain text. No new failure modes.
   returns a string containing `   ` (3-space indent), a `$`, and the command
   text for input `"echo hi"`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `bash tests/run.sh`
   Expected: FAIL — `lgx.style` namespace not found / vars unresolved.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
   Create `lgx/style.lg` per the Design "Components" snippet: `color-enabled?`
   reads `LGX_NO_COLOR` via `os/getenv` (disabled when present and non-empty;
   `str/blank?` of the value means enabled), `colorize`, `green` (code 2),
   `purple` (code 5), `header`, `task-header`, `step-line`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   Run: `bash tests/run.sh`
   Expected: PASS, including the new `lgx.style` tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add lgx.style color and header helpers"`
 
 ---
@@ -221,7 +221,7 @@ header/step line to plain text. No new failure modes.
 - Modify: `lgx.lg`
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Wire the headers**
+- [x] **Step 1: Wire the headers**
   In `lgx.lg`, add `[lgx.style :as style]` to the `ns` require. Then:
   - `cmd-install`: after `(config/find-project!)`, write
     `(style/header "Installing dependencies...")` + newline to `*err*`.
@@ -233,7 +233,7 @@ header/step line to plain text. No new failure modes.
     write `=> Building <out>...` (using `(:out bin)`) to `*err*` before
     `print-installs!`/`invoke-lg!`.
 
-- [ ] **Step 2: Add e2e assertions**
+- [x] **Step 2: Add e2e assertions**
   In `tests/e2e.sh` add scenarios (use the next free scenario numbers):
   - A `run` scenario with `LGX_NO_COLOR=1`, capturing stderr separately
     (`2>err.txt`), asserting stderr contains `=> Running ` and stdout has no
@@ -245,11 +245,11 @@ header/step line to plain text. No new failure modes.
   - One scenario *without* `LGX_NO_COLOR` asserting stderr contains the colored
     header prefix `$'\e[38;5;2m=>'`.
 
-- [ ] **Step 3: Build and run e2e**
+- [x] **Step 3: Build and run e2e**
   Run: `make build && bash tests/e2e.sh`
   Expected: all scenarios PASS (existing + new).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Print green status header for install/run/build"`
 
 ---
@@ -262,7 +262,7 @@ header/step line to plain text. No new failure modes.
 - Modify: `test/lgx/test_runner_test.lg`
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Update the harness unit tests first**
+- [x] **Step 1: Update the harness unit tests first**
   In `test/lgx/test_runner_test.lg`:
   - Change the `harness-source` calls in `harness-source-empty-ns-list-parses`,
     `harness-source-includes-each-ns`, `harness-source-emits-ready-marker`, and
@@ -273,12 +273,12 @@ header/step line to plain text. No new failure modes.
     harness). Add one test `harness-source-omits-running-tests-banner` asserting
     `(not (str/includes? src "Running tests in"))`.
 
-- [ ] **Step 2: Run unit tests to verify they fail**
+- [x] **Step 2: Run unit tests to verify they fail**
   Run: `bash tests/run.sh`
   Expected: FAIL — `harness-source` still takes two args / still emits the
   banner.
 
-- [ ] **Step 3: Update the harness and cmd-test**
+- [x] **Step 3: Update the harness and cmd-test**
   - `lgx/test_runner.lg`: drop the `header` param from `harness-source` and
     `write-harness!`; remove the `__TEST_HEADER__` substitution; remove the
     `(println (str "Running tests in " __TEST_HEADER__ "..."))` line and the
@@ -288,18 +288,18 @@ header/step line to plain text. No new failure modes.
     "..."))` + newline to `*err*` before `print-installs!`; change the
     `write-harness!` call to `(test-runner/write-harness! entries version)`.
 
-- [ ] **Step 4: Run unit tests to verify they pass**
+- [x] **Step 4: Run unit tests to verify they pass**
   Run: `bash tests/run.sh`
   Expected: PASS.
 
-- [ ] **Step 5: Add/adjust e2e and run**
+- [x] **Step 5: Add/adjust e2e and run**
   In `tests/e2e.sh`, extend the `test` happy-path scenario (39) to capture
   stderr and assert it contains `=> Running tests in test/` (color is ON there,
   but the needle is a contiguous substring inside the green wrap, so it matches).
   Run: `make build && bash tests/e2e.sh`
   Expected: all PASS, including 39/40.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Move the test banner to a green lgx header on stderr"`
 
 ---
@@ -310,24 +310,24 @@ header/step line to plain text. No new failure modes.
 - Modify: `lgx/new.lg`
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Wire the header**
+- [x] **Step 1: Wire the header**
   In `lgx/new.lg`, add `[lgx.style :as style]` to the require. In `cmd-new!`,
   after `validate-target!` succeeds and before `resolve-template-coord`/
   `ensure-template!`, write `(style/header (str "Creating project " name
   "..."))` + newline to `*err*`.
 
-- [ ] **Step 2: Add e2e assertion**
+- [x] **Step 2: Add e2e assertion**
   `new` is already e2e-tested hermetically via the template fixture repo
   (scenarios 50/51, which capture `2>&1`). Extend scenario 50 to assert the
   combined output contains `=> Creating project my-app...`. Color is ON there,
   but the needle is a contiguous substring inside the green wrap, so it matches.
   The existing `Created my-app at` assertion (stdout) is unchanged.
 
-- [ ] **Step 3: Build and run e2e**
+- [x] **Step 3: Build and run e2e**
   Run: `make build && bash tests/e2e.sh`
   Expected: all PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Print green status header for new"`
 
 ---
@@ -339,7 +339,7 @@ header/step line to plain text. No new failure modes.
 - Modify: `lgx.lg`
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Thread the task name and print decoration**
+- [x] **Step 1: Thread the task name and print decoration**
   - `lgx.lg`: in `dispatch`, the task branch already has `cmd` (the task name).
     Pass it: `(cmd-task cmd task verbose? with)`. Update `cmd-task` to accept
     `task-name` and pass it to `tasks/run-task!`.
@@ -352,18 +352,18 @@ header/step line to plain text. No new failure modes.
     (`run-run-step!` will need the raw `value` to format; pass it through or
     compute the string in `run-step!` and hand it down.)
 
-- [ ] **Step 2: Add e2e assertions**
+- [x] **Step 2: Add e2e assertions**
   In `tests/e2e.sh`, add a task scenario with `LGX_NO_COLOR=1` capturing stderr,
   asserting stderr contains `=> Running task <name>...` and `   $ <cmd>`, and
   asserting the task's stdout is unchanged (the existing `assert_eq` on stdout
   still holds — decoration is on stderr). Add a `:run`-step task scenario
   asserting stderr contains `   $ lgx run `.
 
-- [ ] **Step 3: Build and run e2e**
+- [x] **Step 3: Build and run e2e**
   Run: `make build && bash tests/e2e.sh`
   Expected: all PASS, including unchanged scenarios 13–15.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Print purple task header and per-step command lines"`
 
 ---
@@ -374,7 +374,7 @@ header/step line to plain text. No new failure modes.
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Update ARCHITECTURE.md**
+- [x] **Step 1: Update ARCHITECTURE.md**
   Add a short "Output styling" subsection (or fold into the relevant data-flow
   sections): green headers for built-ins and purple `=> Running task <name>...`
   for tasks, all on stderr; stdout reserved for program/data output; color gated
@@ -383,12 +383,12 @@ header/step line to plain text. No new failure modes.
   Components list to include `lgx/style.lg`. Update the `lgx test` data-flow note
   that previously described the harness banner.
 
-- [ ] **Step 2: Update README.md**
+- [x] **Step 2: Update README.md**
   Add `LGX_NO_COLOR` to the environment-variables section with a one-line
   description (set to disable colored output). Mention the styled headers if the
   README documents command output. Use the /writing-clearly skill.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Document styled command output and LGX_NO_COLOR"`
 
 ---
@@ -403,3 +403,41 @@ header/step line to plain text. No new failure modes.
 - stdout for every command is free of headers (`lgx run | jq` works).
 - `LGX_NO_COLOR=1` disables all color.
 - Docs updated in the same PR (AGENTS.md same-PR doc rule).
+
+---
+
+## Implementation summary
+
+**Status:** Complete. All six tasks implemented, tested, and committed on
+branch `rework-cmd-output-title`.
+
+**What shipped (as designed):**
+- `lgx/style.lg` — pure color + header builders, color gated by `LGX_NO_COLOR`
+  (green = 256-color `2`, purple = `5`). Unit-tested in `test/lgx/style_test.lg`.
+- Green `=> ...` headers on **stderr** for `install`/`run`/`build`/`test`/`new`;
+  `version`/`help` unchanged.
+- Purple `=> Running task <name>...` header + indented `$ <cmd>` step lines on
+  stderr for custom tasks; `:run` steps shown as `lgx run <args>`.
+- `test` banner relocated from the harness (stdout) to lgx's green header
+  (stderr); `harness-source`/`write-harness!` lost the `header` param.
+- Docs: ARCHITECTURE.md (new "Output styling" section, `lgx/style.lg` in
+  Components, banner note) and README.md (`LGX_NO_COLOR` row).
+
+**Results:** 267 unit tests, 193 e2e assertions — all green
+(`make build && bash tests/run.sh`). Codex second-opinion review: no issues.
+
+**Issues encountered / deviations:**
+- **ANSI bytes in source:** the editor/JSON path mangled raw ESC; resolved by
+  using `\u001b` escape sequences (let-go's reader decodes them, as the test
+  harness already relies on).
+- **e2e scenario 60** (`run -e` for `LG_READ_CLJ`) captured `2>&1` and asserted
+  on the *first line* — the new run header pushed it down. Fixed by capturing
+  child stdout only (`2>/dev/null`). This was the only existing scenario the
+  decoration affected; all other `assert_eq` scenarios are stdout-only and were
+  untouched, as the plan predicted.
+- **TDD catch:** `write-harness-uses-versioned-stable-path` also called the
+  3-arg `write-harness!`; updated to 2 args.
+- **lg binary:** must run with `LGX_LG=let-go/.tmp/lg` (keeps implicit cwd on the
+  source path). The freshly-rebuilt `let-go/lg` (branch `source-paths-defaults`)
+  drops implicit cwd and breaks `bin/lgx test`. Decide by self-test, not by
+  filename. Bundle with either (the bundle is cwd-independent).
