@@ -755,6 +755,8 @@ EOF
     set -e
     [[ $rc -eq 0 ]] || fail "test happy: expected exit 0, got $rc (output: $out)"
     pass "test happy: exits 0"
+    assert_contains "$out" "=> Running tests in test/" \
+        "test happy: green lgx header (stderr) replaces the harness banner"
     assert_contains "$out" "test/foo_test.lg" "test happy: file header printed"
     assert_contains "$out" "pass-1" "test happy: pass-1 row printed"
     assert_contains "$out" "pass-2" "test happy: pass-2 row printed"
@@ -762,7 +764,7 @@ EOF
         "test happy: testing context printed"
     assert_not_contains "$out" "PASS (= 1 1)" \
         "test happy: passing assertion form suppressed"
-    assert_contains "$out" $'\e[38;5;2m2 tests, 2 assertions, 0 failures\e[0m' \
+    assert_contains "$out" $'\e[38;5;35m2 tests, 2 assertions, 0 failures\e[0m' \
         "test happy: summary line printed in green"
     # ✓ = U+2713; check both deftests show the mark.
     pass_marks="$(printf '%s\n' "$out" | grep -c $'\xe2\x9c\x93' || true)"
@@ -1062,6 +1064,7 @@ out="$(cd "$work_s50" \
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new hyphen: expected exit 0, got $rc"; }
 assert_contains "$out" "Created my-app at" "new hyphen: success line"
+assert_contains "$out" "=> Creating project my-app..." "new hyphen: green header on stderr"
 [[ -f "$work_s50/my-app/main.lg" ]] || fail "new hyphen: main.lg missing"
 [[ -f "$work_s50/my-app/src/my_app/greeter.lg" ]] \
     || fail "new hyphen: underscore path missing"
@@ -1329,8 +1332,10 @@ if supports_source_paths; then
 {}
 EOF
     set +e
+    # Capture child stdout only — lgx's run header goes to stderr and would
+    # otherwise become the first line.
     out="$(cd "$proj_env" && LGX_HOME="$home_env" \
-            "$LGX" run -e '(println (os/getenv "LG_READ_CLJ"))' 2>&1)"; rc=$?
+            "$LGX" run -e '(println (os/getenv "LG_READ_CLJ"))' 2>/dev/null)"; rc=$?
     set -e
     [[ $rc -eq 0 ]] || fail "test LG_READ_CLJ: expected exit 0, got $rc (output: $out)"
     pass "test LG_READ_CLJ: exits 0"
@@ -1979,6 +1984,74 @@ EOF
     rm -rf "$proj_rv" "$home_rv"
 else
     skip "verbose -resource-paths trace requires lg with -resource-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 83: install prints a green header on stderr, clean stdout"
+proj_h="$(mktemp -d)"; home_h="$(mktemp -d)"
+printf '{}\n' > "$proj_h/lgx.edn"
+err="$(cd "$proj_h" && LGX_HOME="$home_h" LGX_NO_COLOR=1 "$LGX" install 2>&1 >/dev/null)"
+out="$(cd "$proj_h" && LGX_HOME="$home_h" LGX_NO_COLOR=1 "$LGX" install 2>/dev/null)"
+assert_contains "$err" "=> Installing dependencies..." "install header: on stderr"
+assert_eq "$out" "no deps in lgx.edn" "install header: stdout unchanged"
+assert_not_contains "$out" "=>" "install header: stdout has no header"
+# Color on (no LGX_NO_COLOR): the header is green.
+err_c="$(cd "$proj_h" && LGX_HOME="$home_h" "$LGX" install 2>&1 >/dev/null)"
+assert_contains "$err_c" $'\e[38;5;35m=>' "install header: green when color enabled"
+rm -rf "$proj_h" "$home_h"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 84: run prints NO header (mirrors the built binary)"
+proj_r="$(mktemp -d)"; home_r="$(mktemp -d)"
+printf '{}\n' > "$proj_r/lgx.edn"
+printf '(println :ran)\n' > "$proj_r/m.lg"
+err="$(cd "$proj_r" && LGX_HOME="$home_r" "$LGX" run m.lg 2>&1 >/dev/null)"
+out="$(cd "$proj_r" && LGX_HOME="$home_r" "$LGX" run m.lg 2>/dev/null)"
+assert_not_contains "$err" "=>" "run: no status header on stderr"
+assert_eq "$out" ":ran" "run: stdout is only the script output"
+rm -rf "$proj_r" "$home_r"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 85: build prints a green header on stderr"
+proj_b="$(mktemp -d)"; home_b="$(mktemp -d)"
+cat > "$proj_b/lgx.edn" <<'EOF'
+{:main "m.lg" :targets {:bin {:out "bin/app"}}}
+EOF
+printf '(println :built)\n' > "$proj_b/m.lg"
+err="$(cd "$proj_b" && LGX_HOME="$home_b" LGX_NO_COLOR=1 "$LGX" build 2>&1 >/dev/null)"
+out="$(cd "$proj_b" && LGX_HOME="$home_b" LGX_NO_COLOR=1 "$LGX" build 2>/dev/null)"
+assert_contains "$err" "=> Building bin/app..." "build header: on stderr"
+assert_not_contains "$out" "=>" "build header: stdout has no header"
+rm -rf "$proj_b" "$home_b"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 86: task prints a purple header and \$ step lines on stderr"
+proj_ts="$(mktemp -d)"; home_ts="$(mktemp -d)"
+cat > "$proj_ts/lgx.edn" <<'EOF'
+{:tasks {:hello {:do [{:sh "echo hi from task"}]}}}
+EOF
+err="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>&1 >/dev/null)"
+out="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>/dev/null)"
+assert_contains "$err" "=> Running task hello..." "task output: purple header on stderr"
+assert_contains "$err" '$ echo hi from task' "task output: \$ step line on stderr"
+assert_eq "$out" "hi from task" "task output: stdout is only the step output"
+rm -rf "$proj_ts" "$home_ts"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 87: task :run step echoes 'lgx run' on stderr"
+if supports_source_paths; then
+    proj_tr2="$(mktemp -d)"; home_tr2="$(mktemp -d)"
+    printf '(println :from-run-step)\n' > "$proj_tr2/r.lg"
+    cat > "$proj_tr2/lgx.edn" <<'EOF'
+{:tasks {:go {:do [{:run "r.lg"}]}}}
+EOF
+    err="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>&1 >/dev/null)"
+    out="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>/dev/null)"
+    assert_contains "$err" '$ lgx run r.lg' "task :run: echoes lgx run on stderr"
+    assert_eq "$out" ":from-run-step" "task :run: stdout is only the run output"
+    rm -rf "$proj_tr2" "$home_tr2"
+else
+    skip "task :run step requires lg with -source-paths support"
 fi
 
 echo

@@ -95,7 +95,7 @@
        (catch _ false)))
 
 (deftest harness-source-empty-ns-list-parses
-  (let [src (tr/harness-source [] "test/")]
+  (let [src (tr/harness-source [])]
     (is (string? src))
     (is (parses? src))
     (is (str/includes? src "(ns lgx.test-harness"))
@@ -107,8 +107,7 @@
   (let [src (tr/harness-source [[(path/join "test" "lgx" "config_test.lg")
                                  'lgx.config-test]
                                 [(path/join "test" "lgx" "path_test.lg")
-                                 'lgx.path-test]]
-                               "test/")]
+                                 'lgx.path-test]])]
     (is (parses? src))
     (is (str/includes? src "[lgx.config-test]"))
     (is (str/includes? src "[lgx.path-test]"))
@@ -116,12 +115,12 @@
     (is (str/includes? src "'lgx.config-test"))))
 
 (deftest harness-source-emits-ready-marker
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]] "test/")]
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
     (is (parses? src))
     (is (str/includes? src (str "(write! *err* \"" tr/harness-ready-marker)))))
 
 (deftest harness-source-summary-and-exit
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]] "test/")]
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
     (is (str/includes? src "*registered-tests*"))
     (is (str/includes? src "with-out-str"))
     (is (str/includes? src "Testing: "))
@@ -134,19 +133,12 @@
                        "(println ((if (zero? failures) green red) summary))"))
     (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
 
-(deftest harness-source-uses-provided-header
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]]
-                               "test/foo_test.lg")]
-    (is (str/includes? src "Running tests in \" \"test/foo_test.lg\" \"..."))
-    (is (not (str/includes? src "Running tests in test/...")))
-    (is (parses? src))))
-
-(deftest harness-source-escapes-special-header-chars
-  ;; A Windows-style path or quote-containing header must not break the
-  ;; generated source.
-  (let [src (tr/harness-source [["x" 'x]] "test\\lgx\\foo \"bar\".lg")]
+(deftest harness-source-omits-running-tests-banner
+  ;; The "Running tests in ..." banner now comes from lgx (green, on stderr),
+  ;; not the harness — see lgx.style/header and cmd-test.
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
     (is (parses? src))
-    (is (str/includes? src "test\\\\lgx\\\\foo \\\"bar\\\".lg"))))
+    (is (not (str/includes? src "Running tests in")))))
 
 ;; ---------------------------------------------------------------------------
 ;; validate-single-test-file!
@@ -340,9 +332,9 @@
         version "0.1.0-test"
         expected (path/join home "tmp" (str "lgx-test-" version ".lg"))
         _ (os/setenv "LGX_HOME" home)
-        p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version "test/")
+        p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version)
         src1 (slurp p1)
-        p2 (tr/write-harness! [] version "test/")
+        p2 (tr/write-harness! [] version)
         src2 (slurp p2)]
     (is (= p1 p2))
     (is (= expected p1))

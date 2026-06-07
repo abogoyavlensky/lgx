@@ -34,6 +34,7 @@ lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
 lgx/new.lg          scaffold a new project from the default template
+lgx/style.lg        colored status headers (green built-ins, purple tasks), LGX_NO_COLOR gate
 ```
 
 Leading global flags (`--verbose`, `--with a,b`) are parsed by `lgx/cli.lg`
@@ -43,6 +44,30 @@ before the subcommand and removed from the argv `lgx.main` dispatches on.
 
 `lgx.main` holds the entry point; the other namespaces are stateless helper
 namespaces it requires.
+
+## Output styling
+
+Before running a command, lgx prints a one-line status header to **stderr**, so
+stdout stays clean for the program's real output (`lgx run | jq` sees only the
+script's stdout). `install`/`build`/`test`/`new` use a green `=> ...` header; a
+custom task uses a purple `=> Running task <name>...` header followed by an
+indented `$ <cmd>` line per step (a `:run` step is shown as `lgx run <args>`).
+
+`run` intentionally prints **no** header: it is the dev-time stand-in for the
+built binary, which prints none, so keeping it header-free makes dev output
+mirror the shipped artifact. (A cold-cache `run` still prints the install block
+when deps are actually fetched.) `version` and `help` likewise print no header —
+they emit data the user asked for. The existing stdout lines (the install block,
+`built <out>`, `Created <name> at <abs>`, and the test report) are unchanged and
+stay on stdout.
+
+Headers are color only (no bold): they fire on every command, so a lighter
+weight reads calmer for everyday use.
+
+`lgx/style.lg` builds these strings. Color is gated by `LGX_NO_COLOR` (disabled
+when present and non-empty); let-go has no TTY detection, so this env var is the
+only switch. The generated test harness keeps its own inline color helpers
+because it runs under the user's `lg` and cannot require `lgx.style`.
 
 ## Data flow
 
@@ -196,10 +221,12 @@ Steps 1–4 match `install`. Then:
    passing `PASS <form>` assertion chatter is suppressed while counters
    still update. The harness prints the test file, a `✓`/`✗` line per
    `deftest`, any `testing` context strings, and failure/error details
-   only for failing tests. The opening banner is
-   `Running tests in <header>...` — walk-mode passes `test/`, single
-   -file mode passes the entry's display path (e.g. `test/foo_test.lg`).
-   It ends with a `N tests, M assertions, K failures` summary and
+   only for failing tests. The opening `Running tests in <header>...`
+   banner is printed by lgx itself (green, on stderr — see
+   [Output styling](#output-styling)), not the harness; walk-mode passes
+   `test/`, single-file mode the entry's display path (e.g.
+   `test/foo_test.lg`). The harness ends with a `N tests, M assertions,
+   K failures` summary and
    `(os/exit (if (zero? failures) 0 1))`. As its first body form (right
    after the `:require` loads every test ns) it writes a `harness-ready`
    marker to stderr; this splits lg's captured stderr into pre-harness

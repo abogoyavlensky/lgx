@@ -145,7 +145,7 @@
     "(defn- color [code s]\n"
     "  (str \"\\u001b[38;5;\" code \"m\" s \"\\u001b[0m\"))\n"
     "\n"
-    "(defn- green [s] (color 2 s))\n"
+    "(defn- green [s] (color 35 s))\n"
     "(defn- red   [s] (color 1 s))\n"
     "\n"
     "(defn- compose-fixtures [f g] (fn [t] (f (fn [] (g t)))))\n"
@@ -175,9 +175,6 @@
     "(defn- print-detail-line [line]\n"
     "  (when (and (not (testing-line? line)) (not (pass-line? line)))\n"
     "    (println (str \"    \" (color-fail-token line)))))\n"
-    "\n"
-    "(println (str \"Running tests in \" __TEST_HEADER__ \"...\"))\n"
-    "(println)\n"
     "\n"
     "(defn- var-name [tv]\n"
     "  ;; let-go vars print as #'<ns>/<name>; pull the last segment.\n"
@@ -235,17 +232,16 @@
   "Return a .lg source string for a test harness that loads each test
    entry and runs every registered test sequentially, printing file
    names, per-test ✓/✗ marks, testing contexts, and failing details.
-   `header` is substituted into the `Running tests in <header>...`
-   banner."
-  [entries header]
+   The `Running tests in ...` banner is printed by lgx (green, on stderr),
+   not the harness."
+  [entries]
   (let [extra (if (empty? entries)
                 ""
                 (str "\n"
                      (str/join "\n" (map require-line entries))))
         entry-src (str/join "\n" (map entry-line entries))
         body (-> harness-body
-                 (str/replace "__TEST_ENTRIES__" entry-src)
-                 (str/replace "__TEST_HEADER__" (pr-str header)))]
+                 (str/replace "__TEST_ENTRIES__" entry-src))]
     (str harness-header extra "))" body)))
 
 (defn- temp-path [version]
@@ -258,9 +254,9 @@
   "Materialize the harness source for entries under LGX_HOME/tmp,
    overwriting the previous harness for the same lgx version.
    Returns the absolute path of the written file."
-  [entries version header]
+  [entries version]
   (let [p (temp-path version)]
-    (spit p (harness-source entries header))
+    (spit p (harness-source entries))
     p))
 
 ;; ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@
             [lgx.new :as new]
             [lgx.path :as path]
             [lgx.runner :as runner]
+            [lgx.style :as style]
             [lgx.tasks :as tasks]
             [lgx.test-runner :as test-runner]
             [string :as str]))
@@ -118,6 +119,7 @@
         overlay (with->overlay! project (vec with))
         coords (config/merge-coords (config/coords project)
                                     (:deps-pairs overlay))]
+    (write! *err* (str (style/header "Installing dependencies...") "\n"))
     (if (empty? coords)
       (println "no deps in lgx.edn")
       (let [results (ensure-all! project coords)]
@@ -249,6 +251,10 @@
                    (do (require-main-for-double-dash! main-script)
                        (let [script (resolve-main-script! project main-script)]
                          (vec (concat pre [script "--"] post)))))))]
+    ;; No status header for `run`: it is the dev-time stand-in for the built
+    ;; binary, which prints none. Keeping run header-free makes dev output
+    ;; mirror the shipped artifact. (A cold-cache run still prints the install
+    ;; block below when deps are actually fetched.)
     (print-installs! results)
     ;; Advertise to the spawned program that it is running under `lgx run`
     ;; (vs. as a bundled binary). Tools use this to strip runner args without
@@ -279,6 +285,7 @@
     (let [abs-out (ensure-out-dir! project (:out bin))
           abs-main (path/join project main-script)
           args (vec (concat forward-args ["-b" abs-out abs-main]))]
+      (write! *err* (str (style/header (str "Building " (:out bin) "...")) "\n"))
       (print-installs! results)
       (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
         (when (zero? exit)
@@ -325,10 +332,12 @@
                         (os/exit 0))
                       (mapv #(test-runner/test-entry test-dir %) files)))
           header (if single? (first (first entries)) "test/")
-          harness (test-runner/write-harness! entries version header)
+          harness (test-runner/write-harness! entries version)
           source-paths (vec (concat paths [test-dir]))]
       (when verbose?
         (write! *err* (str "+ test runner: " harness "\n")))
+      (write! *err*
+              (str (style/header (str "Running tests in " header "...")) "\n"))
       (print-installs! results)
       ;; let-go's require swallows a test file's compile error: lg prints
       ;; "error: failed to load ..." to stderr but exits 0, so the harness
@@ -345,7 +354,7 @@
               (os/exit 1))
           (os/exit exit))))))
 
-(defn- cmd-task [task verbose? with]
+(defn- cmd-task [task-name task verbose? with]
   (let [project (config/find-project!)
         ;; A task's basis layers, low->high precedence: project deps/paths <
         ;; the task's :with contexts < the CLI --with contexts < the task's
@@ -355,7 +364,7 @@
         ;; :sh steps ignore the basis.
         {:keys [results paths resource-paths]} (overlay-basis project with task)]
     (print-installs! results)
-    (tasks/run-task! task paths resource-paths verbose?)))
+    (tasks/run-task! task-name task paths resource-paths verbose?)))
 
 (defn- pad-right [s n]
   (let [c (count s)]
@@ -416,7 +425,7 @@
     "--help" (print-usage!)
     nil (do (print-usage!) (os/exit 1))
     (if-let [task (lookup-task cmd)]
-      (cmd-task task verbose? with)
+      (cmd-task cmd task verbose? with)
       (do (write! *err*
                   (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
           (os/exit 1)))))
