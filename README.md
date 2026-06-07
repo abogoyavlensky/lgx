@@ -393,6 +393,7 @@ pick up dependency dirs. Like per-task extras, contexts augment only the
 | `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. |
 | `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev-vs-bundled mode (see [`lgx run` details](#lgx-run-details)). |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, template cache, and test harness tmp dir. |
+| `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before built-in commands and a purple `=> Running task <name>...` header before custom tasks, on stderr. |
 | `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo for `lgx new`. |
 | `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the template revision for `lgx new`. |
 
