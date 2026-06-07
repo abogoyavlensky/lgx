@@ -15,13 +15,13 @@
 ;; green / purple (color enabled)
 ;; ---------------------------------------------------------------------------
 
-(deftest green-wraps-bold-code-35
+(deftest green-wraps-code-35
   (os/setenv "LGX_NO_COLOR" "")
-  (is (= (str esc "[1m" esc "[38;5;35mhello" esc "[0m") (style/green "hello"))))
+  (is (= (str esc "[38;5;35mhello" esc "[0m") (style/green "hello"))))
 
-(deftest purple-wraps-bold-code-98
+(deftest purple-wraps-code-98
   (os/setenv "LGX_NO_COLOR" "")
-  (is (= (str esc "[1m" esc "[38;5;98mhello" esc "[0m") (style/purple "hello"))))
+  (is (= (str esc "[38;5;98mhello" esc "[0m") (style/purple "hello"))))
 
 ;; ---------------------------------------------------------------------------
 ;; LGX_NO_COLOR disables color
@@ -58,9 +58,9 @@
 
 (deftest header-is-green-when-color-enabled
   (os/setenv "LGX_NO_COLOR" "")
-  (is (= (str esc "[1m" esc "[38;5;35m=> hi" esc "[0m") (style/header "hi"))))
+  (is (= (str esc "[38;5;35m=> hi" esc "[0m") (style/header "hi"))))
 
 (deftest task-header-is-purple-when-color-enabled
   (os/setenv "LGX_NO_COLOR" "")
-  (is (= (str esc "[1m" esc "[38;5;98m=> Running task t..." esc "[0m")
+  (is (= (str esc "[38;5;98m=> Running task t..." esc "[0m")
          (style/task-header "t"))))
