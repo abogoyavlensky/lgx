@@ -378,10 +378,23 @@ cat > "$proj_t/lgx.edn" <<'EOF'
   :check {:doc "Run checks"     :do [{:sh "echo check"}]}}}
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
-assert_contains "$out" "Project tasks:" "help: shows project tasks block"
-assert_contains "$out" "fmt" "help: lists fmt task"
-assert_contains "$out" "Format sources" "help: shows :doc string"
-assert_contains "$out" "Run checks" "help: shows check :doc"
+po="$(cd "$proj_t" && LGX_HOME="$home_t" LGX_NO_COLOR=1 "$LGX" help)"
+assert_contains "$po" "Usage: lgx [options] <command> [args...]" "help: usage synopsis"
+assert_contains "$po" "Built-in commands:" "help: shows built-in commands title"
+assert_contains "$po" "Project tasks:" "help: shows project tasks block"
+assert_contains "$po" "lgx fmt" "help: task row uses lgx prefix"
+assert_contains "$po" "Format sources" "help: shows :doc string"
+assert_contains "$po" "Run checks" "help: shows check :doc"
+# Global options section comes after Project tasks (tasks continue the commands).
+pt_line="$(printf '%s\n' "$po" | grep -n '^Project tasks:' | head -1 | cut -d: -f1)"
+go_line="$(printf '%s\n' "$po" | grep -n '^Global options:' | head -1 | cut -d: -f1)"
+{ [[ -n "$pt_line" && -n "$go_line" && "$go_line" -gt "$pt_line" ]]; } \
+    || fail "help: Global options should follow Project tasks (pt=$pt_line go=$go_line)"
+pass "help: Global options appears after Project tasks"
+# Section titles are colored when color is on, plain under LGX_NO_COLOR.
+assert_contains "$out" $'\e[38;5;35mBuilt-in commands:' "help: Built-in commands title is green"
+assert_contains "$out" $'\e[38;5;98mProject tasks:' "help: Project tasks title is purple"
+assert_not_contains "$po" $'\e[38;5;' "help: LGX_NO_COLOR disables title color"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 19: task name conflicting with built-in command is rejected"
