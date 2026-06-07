@@ -94,7 +94,7 @@ lgx run
 | `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
 
-Global options:
+Options:
 
 - `--with <a,b,...>` applies one or more named [contexts](#contexts-contexts)
   (reusable `:extra-deps`/`:extra-paths` overlays) to the command. Applies to
