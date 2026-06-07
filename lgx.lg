@@ -389,7 +389,7 @@
         sorted-names (sort (map name (keys t)))]
     (when (seq t)
       (str "\n"
-           "Project tasks:" (style/purple-marker) "\n"
+           "Project tasks:\n"
            (str/join "\n" (map (fn [n]
                                  (task-line (keyword n)
                                             (get t (keyword n))))
@@ -405,7 +405,7 @@
        "\n"
        "Usage: lgx [options] <command> [args...]\n"
        "\n"
-       "Built-in commands:" (style/green-marker) "\n"
+       "Built-in commands:\n"
        command-rows
        (or (tasks-block project) "")
        "\n"

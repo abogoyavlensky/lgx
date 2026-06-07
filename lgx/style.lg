@@ -57,21 +57,3 @@
    leading blank line to separate each step from the previous step's output."
   [cmd]
   (str (purple "$") " " cmd))
-
-;; Like colorize but bold — used only for the help section markers (a small
-;; centered dot). The status headers are deliberately non-bold; the marker wants
-;; a touch more weight so it reads as a deliberate accent.
-(defn- bold-colorize [code s]
-  (if (color-enabled?)
-    (str "\u001b[1m\u001b[38;5;" code "m" s "\u001b[0m")
-    s))
-
-;; Help section markers: a bold colored dot tying a help section to the color of
-;; its runtime header (green = built-in commands, purple = tasks). Returns " ●"
-;; (leading space + dot) when color is on, else "" — the dot only carries color,
-;; so it is dropped entirely under LGX_NO_COLOR.
-(defn green-marker []
-  (if (color-enabled?) (str " " (bold-colorize green-code "●")) ""))
-
-(defn purple-marker []
-  (if (color-enabled?) (str " " (bold-colorize purple-code "●")) ""))

@@ -105,7 +105,7 @@ Options:
   listing the env vars lgx sets: `LG_READ_CLJ=1` for every `lg` invocation,
   plus `LGX_RUN=1` on `run` paths.
 
-Both global options go before the subcommand: `lgx --with dev,test run`.
+Both options go before the subcommand: `lgx --with dev,test run`.
 
 `lgx run`, `build`, `test`, and tasks find the nearest `lgx.edn` by
 walking up from the current directory.

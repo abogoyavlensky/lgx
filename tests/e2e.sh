@@ -378,24 +378,20 @@ cat > "$proj_t/lgx.edn" <<'EOF'
   :check {:doc "Run checks"     :do [{:sh "echo check"}]}}}
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
-po="$(cd "$proj_t" && LGX_HOME="$home_t" LGX_NO_COLOR=1 "$LGX" help)"
-assert_contains "$po" "Usage: lgx [options] <command> [args...]" "help: usage synopsis"
-assert_contains "$po" "Built-in commands:" "help: shows built-in commands title"
-assert_contains "$po" "Project tasks:" "help: shows project tasks block"
-assert_contains "$po" "lgx fmt" "help: task row uses lgx prefix"
-assert_contains "$po" "Format sources" "help: shows :doc string"
-assert_contains "$po" "Run checks" "help: shows check :doc"
+assert_contains "$out" "Usage: lgx [options] <command> [args...]" "help: usage synopsis"
+assert_contains "$out" "Built-in commands:" "help: shows built-in commands title"
+assert_contains "$out" "Project tasks:" "help: shows project tasks block"
+assert_contains "$out" "lgx fmt" "help: task row uses lgx prefix"
+assert_contains "$out" "Format sources" "help: shows :doc string"
+assert_contains "$out" "Run checks" "help: shows check :doc"
 # Options section comes after Project tasks (tasks continue the commands).
-pt_line="$(printf '%s\n' "$po" | grep -n '^Project tasks:' | head -1 | cut -d: -f1)"
-op_line="$(printf '%s\n' "$po" | grep -n '^Options:' | head -1 | cut -d: -f1)"
+pt_line="$(printf '%s\n' "$out" | grep -n '^Project tasks:' | head -1 | cut -d: -f1)"
+op_line="$(printf '%s\n' "$out" | grep -n '^Options:' | head -1 | cut -d: -f1)"
 { [[ -n "$pt_line" && -n "$op_line" && "$op_line" -gt "$pt_line" ]]; } \
     || fail "help: Options should follow Project tasks (pt=$pt_line op=$op_line)"
 pass "help: Options appears after Project tasks"
-# A bold colored dot marks the two sections whose runtime output is colored
-# (green/purple); titles stay plain, and the dot is dropped under LGX_NO_COLOR.
-assert_contains "$out" $'\e[1m\e[38;5;35m●' "help: green dot after Built-in commands"
-assert_contains "$out" $'\e[1m\e[38;5;98m●' "help: purple dot after Project tasks"
-assert_not_contains "$po" $'\e[38;5;' "help: LGX_NO_COLOR disables color"
+# Help is plain text — color is a runtime-only signal, never used in help.
+assert_not_contains "$out" $'\e[' "help: output is plain (no color)"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 19: task name conflicting with built-in command is rejected"
