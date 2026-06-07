@@ -15,9 +15,9 @@
 ;; green / purple (color enabled)
 ;; ---------------------------------------------------------------------------
 
-(deftest green-wraps-bold-code-41
+(deftest green-wraps-bold-code-35
   (os/setenv "LGX_NO_COLOR" "")
-  (is (= (str esc "[1m" esc "[38;5;41mhello" esc "[0m") (style/green "hello"))))
+  (is (= (str esc "[1m" esc "[38;5;35mhello" esc "[0m") (style/green "hello"))))
 
 (deftest purple-wraps-bold-code-135
   (os/setenv "LGX_NO_COLOR" "")
@@ -58,7 +58,7 @@
 
 (deftest header-is-green-when-color-enabled
   (os/setenv "LGX_NO_COLOR" "")
-  (is (= (str esc "[1m" esc "[38;5;41m=> hi" esc "[0m") (style/header "hi"))))
+  (is (= (str esc "[1m" esc "[38;5;35m=> hi" esc "[0m") (style/header "hi"))))
 
 (deftest task-header-is-purple-when-color-enabled
   (os/setenv "LGX_NO_COLOR" "")

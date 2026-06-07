@@ -145,7 +145,7 @@
     "(defn- color [code s]\n"
     "  (str \"\\u001b[38;5;\" code \"m\" s \"\\u001b[0m\"))\n"
     "\n"
-    "(defn- green [s] (color 2 s))\n"
+    "(defn- green [s] (color 35 s))\n"
     "(defn- red   [s] (color 1 s))\n"
     "\n"
     "(defn- compose-fixtures [f g] (fn [t] (f (fn [] (g t)))))\n"

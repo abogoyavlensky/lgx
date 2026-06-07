@@ -764,7 +764,7 @@ EOF
         "test happy: testing context printed"
     assert_not_contains "$out" "PASS (= 1 1)" \
         "test happy: passing assertion form suppressed"
-    assert_contains "$out" $'\e[38;5;2m2 tests, 2 assertions, 0 failures\e[0m' \
+    assert_contains "$out" $'\e[38;5;35m2 tests, 2 assertions, 0 failures\e[0m' \
         "test happy: summary line printed in green"
     # ✓ = U+2713; check both deftests show the mark.
     pass_marks="$(printf '%s\n' "$out" | grep -c $'\xe2\x9c\x93' || true)"
@@ -1997,7 +1997,7 @@ assert_eq "$out" "no deps in lgx.edn" "install header: stdout unchanged"
 assert_not_contains "$out" "=>" "install header: stdout has no header"
 # Color on (no LGX_NO_COLOR): the header is green.
 err_c="$(cd "$proj_h" && LGX_HOME="$home_h" "$LGX" install 2>&1 >/dev/null)"
-assert_contains "$err_c" $'\e[38;5;41m=>' "install header: green when color enabled"
+assert_contains "$err_c" $'\e[38;5;35m=>' "install header: green when color enabled"
 rm -rf "$proj_h" "$home_h"
 
 # ---------------------------------------------------------------------------
