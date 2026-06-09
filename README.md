@@ -431,7 +431,7 @@ clone.
 ## Clojure libs compatible with let-go
 
 - [ruuter](https://git.nmm.ee/asko/ruuter)
-- [medley](https://github.com/weavejester/medley) (partial compatibility)
+- [medley](https://github.com/weavejester/medley)
 
 ## Roadmap (draft)
 
@@ -450,14 +450,13 @@ In no particular order:
 - [x] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
 - [x] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
 - [x] `--with`/`:with` - ability to extend tasks with contexts.
-- [ ] `lgx deps` - print dependency tree.
-- [ ] `lgx init` - create a default `lgx.edn` in the current directory.
-- [ ] `lgx fmt` / `lgx lint`.
-- [ ] `lgx outdated` - check for outdated deps.
-- [ ] `lgx clean` - clean build artifacts from `:targets`.
-- [ ] Non-source resources (let-go-side). `lg`'s resolver finds `.lg`
+- [x] Non-source resources (let-go-side). `lg`'s resolver finds `.lg`
   and `.cljc` only; libs that ship templates, JSON, or other assets
   have no resolution story. Likely needs an upstream change.
+- [ ] `lgx deps` - print dependency tree.
+- [ ] `lgx update`/`lgx update --check` - check and update outdated deps.
+- [ ] `lgx clean` - clean build artifacts from `:targets`.
+- [ ] `lgx fmt` / `lgx lint`.
 
 ## Development
 
