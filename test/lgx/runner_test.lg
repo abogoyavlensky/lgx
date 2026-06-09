@@ -9,6 +9,12 @@
   (is (= "+ env LG_READ_CLJ=1 LGX_RUN=1\n"
          (runner/env-trace-line {"LG_READ_CLJ" "1" "LGX_RUN" "1"}))))
 
+(deftest env-trace-line-includes-suppress-warning
+  (is (= "+ env LG_READ_CLJ=1 LG_SUPPRESS_SOURCE_PATHS_WARNING=1 LGX_RUN=1\n"
+         (runner/env-trace-line {"LG_READ_CLJ" "1"
+                                 "LG_SUPPRESS_SOURCE_PATHS_WARNING" "1"
+                                 "LGX_RUN" "1"}))))
+
 (deftest env-trace-line-omits-missing-vars
   (is (= "+ env LG_READ_CLJ=1\n"
          (runner/env-trace-line {"LG_READ_CLJ" "1"}))))

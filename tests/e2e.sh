@@ -2064,5 +2064,33 @@ else
     skip "task :run step requires lg with -source-paths support"
 fi
 
+echo "==> Scenario 88: lgx run exports LG_SUPPRESS_SOURCE_PATHS_WARNING=1 and silences lg's source-paths notice"
+if supports_source_paths; then
+    proj_spw="$(mktemp -d)"; home_spw="$(mktemp -d)"
+    # :paths must be non-empty so lgx actually emits -source-paths (an absolute
+    # dir, never literal "."); otherwise lg has no reason to print the
+    # transition notice and the warning assertion below would be vacuous.
+    cat > "$proj_spw/lgx.edn" <<'EOF'
+{:paths ["."]}
+EOF
+    set +e
+    # Child stdout only — lgx's run header goes to stderr.
+    out="$(cd "$proj_spw" && LGX_HOME="$home_spw" \
+            "$LGX" run -e '(println (os/getenv "LG_SUPPRESS_SOURCE_PATHS_WARNING"))' 2>/dev/null)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test LG_SUPPRESS_SOURCE_PATHS_WARNING: expected exit 0, got $rc (output: $out)"
+    pass "test LG_SUPPRESS_SOURCE_PATHS_WARNING: exits 0"
+    first_line="$(printf '%s\n' "$out" | head -n 1)"
+    assert_eq "$first_line" "1" "test LG_SUPPRESS_SOURCE_PATHS_WARNING: child sees value 1"
+    # lgx always passes an explicit -source-paths that omits ".", which would
+    # trip lg's transition notice; the exported var must keep it off stderr.
+    err="$(cd "$proj_spw" && LGX_HOME="$home_spw" LGX_NO_COLOR=1 \
+            "$LGX" run -e '(println 1)' 2>&1 >/dev/null)"
+    assert_not_contains "$err" "WARNING" "test LG_SUPPRESS_SOURCE_PATHS_WARNING: no source-paths warning on stderr"
+    rm -rf "$proj_spw" "$home_spw"
+else
+    skip "lgx run -e requires lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
