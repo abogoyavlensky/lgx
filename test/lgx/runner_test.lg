@@ -25,3 +25,20 @@
 
 (deftest env-trace-line-nil-when-none-set
   (is (nil? (runner/env-trace-line {"LG_READ_CLJ" "" "LGX_RUN" ""}))))
+
+;; ---------------------------------------------------------------------------
+;; lg-args
+;; ---------------------------------------------------------------------------
+
+(deftest lg-args-builds-full-argv
+  (is (= ["-source-paths" (str "a" os/path-separator "b")
+          "-resource-paths" "res"
+          "main.lg" "--"]
+         (runner/lg-args ["a" "b"] ["res"] ["main.lg" "--"]))))
+
+(deftest lg-args-omits-empty-path-flags
+  (is (= ["main.lg"]
+         (runner/lg-args [] [] ["main.lg"]))))
+
+(deftest lg-args-empty-everything
+  (is (= [] (runner/lg-args [] [] []))))
