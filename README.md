@@ -286,7 +286,7 @@ non-zero exit code stops the chain.
 ```edn
 {:tasks
  {:lint {:doc "Run clj-kondo against the project"
-         :do  [{:sh "clj-kondo --lint src test"}]}
+         :do  {:sh "clj-kondo --lint src test"}}
 
   :ci {:doc "Format check, lint, and tests"
        :do  [{:sh "cljfmt check"}
@@ -302,8 +302,10 @@ tasks defined in the current project. Task names are keywords; they
 cannot shadow built-in commands (`install`, `run`, `nrepl`, `build`,
 `test`, `new`, `help`, `version`, plus reserved `add`, `update`, `tasks`).
 
-Step values may be a string (split on whitespace) or a vector of
-strings. Output is buffered and replayed after each step completes.
+When a task has a single step, `:do` may be written as a step map
+instead of a vector. Multi-step tasks use a vector. Step values may be
+a string (split on whitespace) or a vector of strings. Output is
+buffered and replayed after each step completes.
 
 A task may contain only `:doc`, `:do`, `:extra-paths`, `:extra-resource-paths`,
 `:extra-deps`, and `:with`; any other key is rejected (so a typo like

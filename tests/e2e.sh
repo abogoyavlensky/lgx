@@ -2161,5 +2161,18 @@ assert_contains "$err" "--port requires an integer" \
     "nrepl bad port: clear error on stderr"
 rm -rf "$proj_nr3" "$home_nr3"
 
+echo "==> Scenario 93: task with single-step map form :do runs through the bundled CLI"
+proj_map="$(mktemp -d)"; home_map="$(mktemp -d)"
+cat > "$proj_map/lgx.edn" <<'EOF'
+{:tasks {:hello {:do {:sh "echo hi from map do"}}}}
+EOF
+set +e
+out="$(cd "$proj_map" && LGX_HOME="$home_map" "$LGX" hello 2>/dev/null)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "map-form :do: expected exit 0, got $rc (output: $out)"
+pass "map-form :do: exits 0"
+assert_eq "$out" "hi from map do" "map-form :do: task executes and prints correct output"
+rm -rf "$proj_map" "$home_map"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

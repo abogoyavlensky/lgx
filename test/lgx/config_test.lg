@@ -386,6 +386,24 @@
   (is (= :threw (threw? #(config/validate-config!
                            {:tasks {:fmt {:do [{:sh []}]}}})))))
 
+(deftest validate-config-accepts-task-with-single-sh-step-map
+  (let [cfg {:tasks {:fmt {:do {:sh "echo hi"}}}}
+        result (config/validate-config! cfg)]
+    (is (= [{:sh "echo hi"}] (get-in result [:tasks :fmt :do])))))
+
+(deftest validate-config-accepts-task-with-single-run-step-map
+  (let [cfg {:tasks {:check {:do {:run "scripts/test.lg"}}}}
+        result (config/validate-config! cfg)]
+    (is (= [{:run "scripts/test.lg"}] (get-in result [:tasks :check :do])))))
+
+(deftest validate-config-rejects-single-step-map-with-no-action-key
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do {}}}})))))
+
+(deftest validate-config-rejects-single-step-map-with-multiple-action-keys
+  (is (= :threw (threw? #(config/validate-config!
+                           {:tasks {:fmt {:do {:sh "echo a" :run "scripts/foo.lg"}}}})))))
+
 (deftest validate-config-rejects-tasks-conflicting-with-builtins
   (doseq [n config/reserved-task-names]
     (is (= :threw (threw? #(config/validate-config!

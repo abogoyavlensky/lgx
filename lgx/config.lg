@@ -165,6 +165,37 @@
             {:task task-name
              :context c}))))
 
+(defn- normalize-task-steps! [task-name steps]
+  "Normalize :do value to a vector. Accepts a single step map or a vector of
+   step maps. Returns a vector of validated step maps."
+  (cond
+    (map? steps)
+    (do
+      (validate-step! task-name 0 steps)
+      [steps])
+
+    (vector? steps)
+    (do
+      (when (empty? steps)
+        (bad! (str "invalid task " task-name ".\n\n:do must contain at least one step.")
+              {:task task-name}))
+      (loop [i 0
+             xs steps]
+        (when (seq xs)
+          (validate-step! task-name i (first xs))
+          (recur (inc i) (rest xs))))
+      steps)
+
+    :else
+    (bad! (str "invalid task " task-name
+               ".\n\nExpected :do to be a step map or vector of steps, got "
+               (cond
+                 (string? steps) "string"
+                 (nil? steps) "nil"
+                 :else (str (type steps)))
+               ".")
+          {:task task-name})))
+
 (defn- validate-task! [task-name task defined]
   (when-not (map? task)
     (bad! (str "invalid task " task-name ".\n\nTask value must be a map.")
@@ -183,47 +214,32 @@
   (when-not (contains? task :do)
     (bad! (str "invalid task " task-name ".\n\nMissing required :do vector.")
           {:task task-name}))
-  (let [steps (:do task)]
-    (when-not (vector? steps)
-      (bad! (str "invalid task " task-name
-                 ".\n\nExpected :do to be a vector of steps, got "
-                 (cond
-                   (string? steps) "string"
-                   (map? steps) "map"
-                   (nil? steps) "nil"
-                   :else "non-vector")
-                 ".")
-            {:task task-name}))
-    (when (empty? steps)
-      (bad! (str "invalid task " task-name ".\n\n:do must contain at least one step.")
-            {:task task-name}))
-    (loop [i 0
-           xs steps]
-      (when (seq xs)
-        (validate-step! task-name i (first xs))
-        (recur (inc i) (rest xs)))))
-  (when (contains? task :extra-paths)
-    (validate-paths! ":extra-paths" (:extra-paths task)))
-  (when (contains? task :extra-resource-paths)
-    (validate-paths! ":extra-resource-paths" (:extra-resource-paths task)))
-  (when (contains? task :extra-deps)
-    (validate-extra-deps! (str "task " task-name) (:extra-deps task)))
-  (when (contains? task :with)
-    (validate-with! task-name (:with task) defined)))
+  (let [normalized-steps (normalize-task-steps! task-name (:do task))]
+    (when (contains? task :extra-paths)
+      (validate-paths! ":extra-paths" (:extra-paths task)))
+    (when (contains? task :extra-resource-paths)
+      (validate-paths! ":extra-resource-paths" (:extra-resource-paths task)))
+    (when (contains? task :extra-deps)
+      (validate-extra-deps! (str "task " task-name) (:extra-deps task)))
+    (when (contains? task :with)
+      (validate-with! task-name (:with task) defined))
+    (assoc task :do normalized-steps)))
 
 (defn- validate-tasks! [tasks defined]
   (when-not (map? tasks)
     (bad! ":tasks must be a map" {}))
-  (doseq [[task-name task] tasks]
-    (when-not (keyword? task-name)
-      (bad! (str "task name " task-name " must be a keyword")
-            {:task task-name}))
-    (let [n (name task-name)]
-      (when (contains? reserved-task-names n)
-        (bad! (str "task " task-name " conflicts with built-in command \""
-                   n "\".\nTask overriding is not supported yet.")
-              {:task task-name})))
-    (validate-task! task-name task defined)))
+  (into {}
+        (map (fn [[task-name task]]
+               (when-not (keyword? task-name)
+                 (bad! (str "task name " task-name " must be a keyword")
+                       {:task task-name}))
+               (let [n (name task-name)]
+                 (when (contains? reserved-task-names n)
+                   (bad! (str "task " task-name " conflicts with built-in command \""
+                              n "\".\nTask overriding is not supported yet.")
+                         {:task task-name})))
+               [task-name (validate-task! task-name task defined)])
+             tasks)))
 
 ;; A context is a named overlay carrying only :extra-deps / :extra-paths — the
 ;; same shape as a task's inline extras, lifted to the project top level so it
@@ -308,14 +324,16 @@
     (validate-paths! ":resource-paths" (:resource-paths cfg)))
   (when (contains? cfg :contexts)
     (validate-contexts! (:contexts cfg)))
-  (when (contains? cfg :tasks)
-    (validate-tasks! (:tasks cfg)
-                     (set (keys (or (:contexts cfg) {})))))
-  (when (contains? cfg :main)
-    (validate-main! (:main cfg)))
-  (when (contains? cfg :targets)
-    (validate-targets! (:targets cfg)))
-  cfg)
+  (let [normalized-tasks (when (contains? cfg :tasks)
+                           (validate-tasks! (:tasks cfg)
+                                            (set (keys (or (:contexts cfg) {})))))]
+    (when (contains? cfg :main)
+      (validate-main! (:main cfg)))
+    (when (contains? cfg :targets)
+      (validate-targets! (:targets cfg)))
+    (if normalized-tasks
+      (assoc cfg :tasks normalized-tasks)
+      cfg)))
 
 (defn coords
   "Return a vector of [lib coord] pairs from the project's lgx.edn."

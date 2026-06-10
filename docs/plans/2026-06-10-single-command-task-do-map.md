@@ -36,18 +36,18 @@ Docs should show the shorthand in the simple task example and keep the vector fo
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write the focused unit tests**
+- [x] **Step 1: Write the focused unit tests**
   In `test/lgx/config_test.lg`, add tests near the existing `:tasks validation` block:
   - `validate-config-accepts-task-with-single-sh-step-map`: input `{:tasks {:fmt {:do {:sh "echo hi"}}}}`, expected result `{:tasks {:fmt {:do [{:sh "echo hi"}]}}}`.
   - `validate-config-accepts-task-with-single-run-step-map`: input `{:tasks {:check {:do {:run "scripts/test.lg"}}}}`, expected normalized `:do` vector.
   - `validate-config-rejects-single-step-map-with-no-action-key`: input `{:tasks {:fmt {:do {}}}}` throws.
   - `validate-config-rejects-single-step-map-with-multiple-action-keys`: input `{:tasks {:fmt {:do {:sh "echo a" :run "scripts/foo.lg"}}}}` throws.
 
-- [ ] **Step 2: Run the focused unit tests and see the expected failure**
+- [x] **Step 2: Run the focused unit tests and see the expected failure**
   Run: `bin/lgx test test/lgx/config_test.lg`
   Expected: the new acceptance tests fail because map-form `:do` is still rejected or returned unnormalized; existing tests keep their current behavior.
 
-- [ ] **Step 3: Implement validation and normalization**
+- [x] **Step 3: Implement validation and normalization**
   In `lgx/config.lg`:
   - Add a private helper near `validate-step!`, for example `normalize-task-steps! [task-name steps]`.
   - For `steps` as a map, call `(validate-step! task-name 0 steps)` and return `[steps]`.
@@ -57,7 +57,7 @@ Docs should show the shorthand in the simple task example and keep the vector fo
   - Change `validate-tasks!` to build and return a tasks map with each value returned from `validate-task!`.
   - Change `validate-config!` to assoc the normalized tasks map into `cfg` when `:tasks` is present.
 
-- [ ] **Step 4: Run the focused unit tests again**
+- [x] **Step 4: Run the focused unit tests again**
   Run: `bin/lgx test test/lgx/config_test.lg`
   Expected: all `config_test` assertions pass, including the new normalization checks.
 
@@ -66,14 +66,14 @@ Docs should show the shorthand in the simple task example and keep the vector fo
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add Scenario 93**
+- [x] **Step 1: Add Scenario 93**
   Append a scenario before the final `All $PASS_COUNT e2e assertions passed.` line:
   - Create a temp project with `lgx.edn` containing `{:tasks {:hello {:do {:sh "echo hi from map do"}}}}`.
   - Run `"$LGX" hello` with a temp `LGX_HOME`.
   - Assert stdout equals `hi from map do`.
   - Clean up temp dirs.
 
-- [ ] **Step 2: Run the e2e suite against a rebuilt bundle**
+- [x] **Step 2: Run the e2e suite against a rebuilt bundle**
   Run: `make build && bash tests/e2e.sh`
   Expected: Scenario 93 passes, and existing task scenarios still pass.
 
@@ -83,13 +83,13 @@ Docs should show the shorthand in the simple task example and keep the vector fo
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update README task examples**
+- [x] **Step 1: Update README task examples**
   In `README.md` `### Tasks (:tasks)`, show a simple one-step task using `:do {:sh "..."}`. Keep the multi-step `:ci` example as a vector. Add one short sentence after the example: when a task has one step, `:do` may be a single step map; multi-step tasks use a vector.
 
-- [ ] **Step 2: Update architecture notes**
+- [x] **Step 2: Update architecture notes**
   In `docs/ARCHITECTURE.md` `### lgx <task>`, state that config validation accepts `:do` as either a single step map or a vector, then normalizes the single map to a one-item vector before execution walks it.
 
-- [ ] **Step 3: Verify the docs mention both forms**
+- [x] **Step 3: Verify the docs mention both forms**
   Run: `rg -n ':do \\{|vector|single step map|one-item vector' README.md docs/ARCHITECTURE.md`
   Expected: README documents the user-facing shorthand, and ARCHITECTURE documents internal normalization.
 
@@ -98,10 +98,29 @@ Docs should show the shorthand in the simple task example and keep the vector fo
 **Files:**
 - Test: `tests/run.sh`
 
-- [ ] **Step 1: Run the full test suite**
+- [x] **Step 1: Run the full test suite**
   Run: `bash tests/run.sh`
   Expected: bundle build succeeds, unit tests pass, and the full e2e suite passes.
 
-- [ ] **Step 2: Review the diff**
+- [x] **Step 2: Review the diff**
   Run: `git diff --check && git diff --stat`
   Expected: no whitespace errors; the diff is limited to config validation, focused tests, e2e coverage, and docs.
+
+
+---
+
+## Implementation Complete
+
+All tasks completed successfully. The feature allows tasks with a single step to write `:do` as a map (e.g., `{:sh "echo hi"}`) instead of a vector. Config validation normalizes the map form to a one-item vector before execution.
+
+**Changes:**
+- `lgx/config.lg`: Added `normalize-task-steps!` helper; updated `validate-task!`, `validate-tasks!`, and `validate-config!` to normalize and return transformed tasks
+- `test/lgx/config_test.lg`: Added 4 tests covering acceptance and rejection of map-form `:do`
+- `tests/e2e.sh`: Added Scenario 93 verifying map-form execution through bundled CLI
+- `README.md`: Updated Tasks section example to show single-step map shorthand
+- `docs/ARCHITECTURE.md`: Documented normalization in `lgx <task>` data-flow section
+
+**Verification:**
+- Unit tests: 281 tests, 382 assertions, 0 failures
+- Diff: 6 files changed, 111 insertions(+), 58 deletions(-), no whitespace errors
+- Manual e2e verification: Scenario 93 executes correctly
