@@ -178,18 +178,18 @@ Dev-mode commands run from the project root (`lg lgx.lg <cmd>`, see
 - Modify: `lgx/runner.lg`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `test/lgx/runner_test.lg`, add deftests for a public pure
   `runner/lg-args`: (a) lib-paths + resource-paths + forward args →
   `["-source-paths" "<joined>" "-resource-paths" "<joined>" & forward]`,
   joined with `os/path-separator`; (b) empty lib-paths and empty
   resource-paths → just the forward args; (c) empty everything → `[]`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run from the project root: `lg lgx.lg test test/lgx/runner_test.lg`
   Expected: FAIL (`lg-args` unresolved).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `lgx/runner.lg`: add pure `lg-args` composing `source-paths-flag`,
   `resource-paths-flag`, and forward args. Extract the env-setting +
   verbose-trace + argv assembly from `run-lg!` into a private helper
@@ -200,11 +200,11 @@ Dev-mode commands run from the project root (`lg lgx.lg <cmd>`, see
   the child inherits stdin/stdout/stderr and the function never returns.
   Delete the resolved TODO block (current lines 46–50).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/runner_test.lg`
   Expected: PASS, 0 failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add inherited-stdio runner via os/exec*"`
 
 ### Task 2: Switch `lgx run` to inherited stdio
@@ -213,27 +213,27 @@ Dev-mode commands run from the project root (`lg lgx.lg <cmd>`, see
 - Modify: `lgx.lg`
 - Test: `tests/e2e.sh`
 
-- [ ] **Step 1: Add the failing e2e scenario**
+- [x] **Step 1: Add the failing e2e scenario**
   In `tests/e2e.sh`, following the existing scenario pattern: in a fixture
   project without `:main`, run `echo '(println (+ 1 2))' | bin/lgx run`;
   assert exit 0 and output contains `3`.
 
-- [ ] **Step 2: Run the scenario to verify it fails**
+- [x] **Step 2: Run the scenario to verify it fails**
   Run: `make test` (or rebuild then `bash tests/e2e.sh`)
   Expected: the new scenario FAILs (REPL gets no stdin under `os/sh`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `cmd-run`, replace `runner/exec-lg!` with
   `runner/exec-lg-interactive!`. If `runner/exec-lg!` now has no callers
   (check `lgx/tasks.lg`), delete it and its mention in the
   `lgx-dev-workflow.md` footer.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
   Run: `make test`
   Expected: PASS, including the new scenario. Fix any existing `lgx run`
   assertions that depended on replayed (post-exit) output ordering.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Make lgx run interactive (REPL + streaming output)"`
 
 ### Task 3: `parse-nrepl-args` in `lgx.cli`
@@ -242,25 +242,25 @@ Dev-mode commands run from the project root (`lg lgx.lg <cmd>`, see
 - Modify: `lgx/cli.lg`
 - Test: `test/lgx/cli_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   deftests: no args → `{:port nil}`; `["--port" "7888"]` → `{:port 7888}`;
   throws on `["--port"]`, `["--port" "abc"]`, `["--port" "0"]`,
   `["--port" "70000"]`, and `["extra"]` (use the existing `threw?` helper).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lg lgx.lg test test/lgx/cli_test.lg`
   Expected: FAIL (`parse-nrepl-args` unresolved).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   `parse-nrepl-args` per the design: `{:port <int-or-nil>}`, ex-info
   messages `lgx: --port requires an integer port between 1 and 65535` and
   `lgx: nrepl does not take arguments other than --port <n>`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/cli_test.lg`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add nrepl arg parsing to lgx.cli"`
 
 ### Task 4: `lgx nrepl` command
@@ -269,7 +269,7 @@ Dev-mode commands run from the project root (`lg lgx.lg <cmd>`, see
 - Modify: `lgx.lg`
 - Test: `tests/e2e.sh`
 
-- [ ] **Step 1: Add the failing e2e scenarios**
+- [x] **Step 1: Add the failing e2e scenarios**
   Scenarios 2–4 from the testing strategy: fixed `--port` (assert the
   `nREPL server started on port <port>` line and `.nrepl-port` content,
   then remove the file), bare `lgx nrepl` (assert the
@@ -280,22 +280,22 @@ Dev-mode commands run from the project root (`lg lgx.lg <cmd>`, see
   collision makes lg degrade to `failed to run nREPL server` with exit 0,
   which is what the started-on-port assertion guards against.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
   Run: `make test`
   Expected: new scenarios FAIL (`nrepl` is not a lgx command).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   `cmd-nrepl` per the design (parse → basis with `--with` → installs →
   random-or-given port → `exec-lg-interactive!` with
   `["-n" "-p" (str port)]`; no `LGX_RUN`). Add the `"nrepl"` dispatch case
   and the `command-rows` help row aligned to `doc-col`.
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
   Run: `make test`
   Expected: PASS. Also check `help lists run`-style assertions still pass
   with the new row.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add lgx nrepl command"`
 
 ### Task 5: Docs sync + version bump
@@ -307,21 +307,46 @@ Dev-mode commands run from the project root (`lg lgx.lg <cmd>`, see
 - Spot-check: `docs/knowledge-base/let-go-gotchas.md`,
   `docs/knowledge-base/lgx-dev-workflow.md`
 
-- [ ] **Step 1: Update docs**
+- [x] **Step 1: Update docs**
   Apply the docs section of the design: README command list + REPL note +
   roadmap checkbox; ARCHITECTURE `lgx run` buffering caveat rewrite +
   `lgx nrepl` section; inherit-stdio issue marked resolved (shipped as
   `os/exec*` in let-go 1.10.0); quick-ref Process line gains `os/exec*`;
   spot-check the two knowledge-base footers for newly stale claims.
 
-- [ ] **Step 2: Bump version**
+- [x] **Step 2: Bump version**
   In `lgx.lg`, bump `version` to `0.1.0-alpha14` (repo convention: bump
   after a feature lands).
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
   Run: `make test`
   Expected: PASS (the test harness embeds `version`; e2e asserts on
   `lgx version` output if covered).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Sync docs for interactive run and lgx nrepl; bump version"`
+
+---
+
+## Completion summary (2026-06-10)
+
+All five tasks implemented on branch `nrepl-cmd`; full suite green
+(271 unit tests, 208 e2e assertions). Commits: `7d44a61` runner,
+`77b6d7c` interactive run, `5cd86b8` arg parsing, `0dd48e7` nrepl
+command, `95ab014` docs + bump to 0.1.0-alpha14.
+
+Deviations from the plan, all found by the per-task codex review:
+
+- The `lgx run` portions of the docs (ARCHITECTURE run section,
+  inherit-stdio issue resolution) were pulled forward from Task 5 into
+  the Task 2 commit to honor AGENTS.md's same-commit rule.
+- `"nrepl"` was added to `config/reserved-task-names` (plus a regression
+  test and README mention) — the plan missed that a project task named
+  `:nrepl` would validate but be unreachable behind the new dispatch case.
+- README's `--with`/`--verbose` scope lists and the nearest-`lgx.edn`
+  paragraph now include `nrepl`.
+
+One environment note: `make test` once failed with `text file busy`
+because a live `lgx nrepl` session (started outside this work) held
+`bin/lgx` open; unlinking the binary before rebuilding resolved it
+without touching that session.
