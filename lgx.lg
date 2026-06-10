@@ -10,7 +10,7 @@
             [lgx.test-runner :as test-runner]
             [string :as str]))
 
-(def version "0.1.0-alpha12")
+(def version "0.1.0-alpha13")
 
 ;; Description column the static rows below are hand-aligned to; task rows align
 ;; to it too (see task-line). If you re-pad the rows, update this constant.
