@@ -20,7 +20,7 @@ used in some projects today; see [Projects using lgx](#projects-using-lgx).
 
 ## Requirements
 
-- [`lg`](https://github.com/nooga/let-go) on `PATH` (or pointed to by
+- [`lg`](https://github.com/nooga/let-go) => `1.10.0` on `PATH` (or pointed to by
   `LGX_LG`). lgx shells out to it.
   Install with `brew install nooga/let-go/let-go`.
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
