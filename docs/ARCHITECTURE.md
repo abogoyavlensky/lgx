@@ -309,7 +309,9 @@ the user can inspect the generated file.
 After built-in dispatch, lgx looks up `<task>` (as a keyword) in the
 project's `:tasks` map. If present, lgx resolves the project basis the
 same way `lgx run` does (steps 1–4 above) and walks the task's `:do`
-vector. Each step is one of:
+vector. Config validation accepts `:do` as either a single step map or a
+vector of steps, then normalizes the single-map form to a one-item vector
+before execution walks it. Each step is one of:
 
 - `{:sh <string-or-vector>}` — joined with spaces and run via
   `sh -c <cmd>`. Captured stdout/stderr is replayed after the child
