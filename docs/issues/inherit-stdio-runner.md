@@ -2,7 +2,10 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** draft
+**Status:** resolved — let-go 1.10.0 ships `os/exec*` (inherited
+stdin/stdout/stderr, exit code as Int), exactly the proposed shape under
+a different name. lgx uses it via `runner/exec-lg-interactive!` for
+`lgx run`.
 
 ## Summary
 

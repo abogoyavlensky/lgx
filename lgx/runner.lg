@@ -96,11 +96,6 @@
     (replay-output! r)
     (:exit r)))
 
-(defn exec-lg!
-  "Like invoke-lg! but exits with lg's exit code."
-  [lib-paths resource-paths forward-args verbose?]
-  (os/exit (invoke-lg! lib-paths resource-paths forward-args verbose?)))
-
 (defn exec-lg-interactive!
   "Run lg with the parent's stdin/stdout/stderr inherited (via os/exec*),
    so output streams live and the child stays interactive (REPL, prompts).

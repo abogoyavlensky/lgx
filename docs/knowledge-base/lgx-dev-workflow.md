@@ -92,7 +92,7 @@ and drive the built
 > **Verify against (in this repo):**
 > [`Makefile`](../../Makefile),
 > [`lgx.lg`](../../lgx.lg) (subcommand dispatch),
-> [`lgx/runner.lg`](../../lgx/runner.lg) (`lg-binary`, `exec-lg!`),
+> [`lgx/runner.lg`](../../lgx/runner.lg) (`lg-binary`, `exec-lg-interactive!`),
 > [`lgx/cache.lg`](../../lgx/cache.lg) (`ensure-lib!`,
 > `clone-and-checkout!`, `coord-dir`),
 > [`tests/run.sh`](../../tests/run.sh),

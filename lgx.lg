@@ -265,7 +265,7 @@
     ;; relying on the injected `--` marker, which can collide with a user
     ;; command that legitimately contains `--`. Inherited by the child via env.
     (os/setenv "LGX_RUN" "1")
-    (runner/exec-lg! paths resource-paths args verbose?)))
+    (runner/exec-lg-interactive! paths resource-paths args verbose?)))
 
 (defn- ensure-out-dir! [project rel-out]
   (let [abs (path/join project rel-out)

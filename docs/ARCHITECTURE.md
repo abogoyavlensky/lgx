@@ -163,10 +163,16 @@ exec.
 6. Exec `lg -source-paths <paths> -resource-paths <roots> [args...]`.
    Forwarded args reach `lg` verbatim.
 
-The exec call currently uses `os/sh`, which buffers stdout/stderr until
-the child exits. Streaming output and stdin (so `lgx run -r` can drive
-`lg`'s REPL) require an inherited-stdio runner — tracked in
-[`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md).
+The exec call uses `runner/exec-lg-interactive!`, built on let-go's
+`os/exec*` (lg >= 1.10.0): the child inherits lgx's stdin/stdout/stderr,
+so output streams live and interactive children work — bare `lgx run`
+without `:main` lands in `lg`'s REPL, and `lgx run -r <script>` can
+drive it. `lgx test`, `lgx build`, and task `:run` steps still use the
+captured `os/sh` path (`runner/run-lg!`/`invoke-lg!`): `test` must
+inspect lg's output to strip its harness marker, and the others keep
+buffered-and-replayed output. (History: the inherited-stdio runner was
+tracked in [`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md),
+resolved upstream by `os/exec*`.)
 
 ### `lgx build [args...]`
 

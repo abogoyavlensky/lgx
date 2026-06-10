@@ -2092,5 +2092,23 @@ else
     skip "lgx run -e requires lg with -source-paths support"
 fi
 
+echo "==> Scenario 89: bare lgx run without :main drops into an interactive REPL"
+# No :main, no :paths/:deps — lgx forwards an empty argv and lg starts its
+# REPL. The child inherits lgx's stdin (the pipe here), so the expression is
+# evaluated and the REPL exits on EOF. Under the old captured runner (os/sh)
+# the REPL had no stdin and this hung/banner-only.
+proj_repl="$(mktemp -d)"; home_repl="$(mktemp -d)"
+cat > "$proj_repl/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+out="$(cd "$proj_repl" && echo '(println (+ 1 2))' \
+        | LGX_HOME="$home_repl" "$LGX" run 2>/dev/null)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "run repl: expected exit 0, got $rc (output: $out)"
+pass "run repl: exits 0 on stdin EOF"
+assert_contains "$out" "3" "run repl: evaluates piped expression"
+rm -rf "$proj_repl" "$home_repl"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
