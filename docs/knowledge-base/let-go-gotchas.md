@@ -54,12 +54,14 @@ returns `""` when `X` is unset, not `"default"`. Check explicitly:
 ## `os/sh` buffers all output
 
 `os/sh` waits for the child to exit, then returns captured stdout/stderr
-as strings. There's no way from let-go to inherit the parent's stdio.
-Long-running scripts can't stream output; interactive subprocesses (REPL,
-`read-line`, password prompts) can't read input. `os/exec` returns a
-`*exec.Cmd` but exposes only `with-stdin` — no `Run`/`Wait`/`Stdout`
-field access. Tracked in
-[`docs/issues/inherit-stdio-runner.md`](../issues/inherit-stdio-runner.md).
+as strings. Long-running scripts can't stream output; interactive
+subprocesses (REPL, `read-line`, password prompts) can't read input. When
+the child should drive the terminal, use `os/exec*` instead (lg >=
+1.10.0): it inherits the parent's stdin/stdout/stderr and returns the
+exit code — lgx uses it for `lgx run` / `lgx nrepl` via
+`runner/exec-lg-interactive!`. `os/exec` returns a `*exec.Cmd` but
+exposes only `with-stdin` — no `Run`/`Wait`/`Stdout` field access.
+(History: [`docs/issues/inherit-stdio-runner.md`](../issues/inherit-stdio-runner.md).)
 
 ## `binding` only works on dynamic Vars
 
