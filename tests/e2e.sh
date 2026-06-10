@@ -2110,5 +2110,56 @@ pass "run repl: exits 0 on stdin EOF"
 assert_contains "$out" "3" "run repl: evaluates piped expression"
 rm -rf "$proj_repl" "$home_repl"
 
+echo "==> Scenario 90: lgx nrepl --port starts nREPL on the given port"
+# Port 56423: high and uncommon to dodge collisions. If something else holds
+# it, lg degrades to "failed to run nREPL server on port" with exit 0 — the
+# started-on-port assertion below is what catches that.
+proj_nr="$(mktemp -d)"; home_nr="$(mktemp -d)"
+cat > "$proj_nr/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+out="$(cd "$proj_nr" && echo '' \
+        | LGX_HOME="$home_nr" "$LGX" nrepl --port 56423 2>/dev/null)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "nrepl: expected exit 0, got $rc (output: $out)"
+pass "nrepl: exits 0 on stdin EOF"
+assert_contains "$out" "nREPL server started on port 56423" \
+    "nrepl: server starts on --port"
+port_file="$(cat "$proj_nr/.nrepl-port" 2>/dev/null || true)"
+assert_eq "$port_file" "56423" "nrepl: .nrepl-port records the port"
+rm -f "$proj_nr/.nrepl-port"
+rm -rf "$proj_nr" "$home_nr"
+
+echo "==> Scenario 91: lgx nrepl without --port picks a random port"
+proj_nr2="$(mktemp -d)"; home_nr2="$(mktemp -d)"
+cat > "$proj_nr2/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+out="$(cd "$proj_nr2" && echo '' \
+        | LGX_HOME="$home_nr2" "$LGX" nrepl 2>/dev/null)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "nrepl random: expected exit 0, got $rc (output: $out)"
+pass "nrepl random: exits 0 on stdin EOF"
+assert_contains "$out" "nREPL server started on port" \
+    "nrepl random: server starts on a picked port"
+rm -f "$proj_nr2/.nrepl-port"
+rm -rf "$proj_nr2" "$home_nr2"
+
+echo "==> Scenario 92: lgx nrepl --port rejects a non-integer"
+proj_nr3="$(mktemp -d)"; home_nr3="$(mktemp -d)"
+cat > "$proj_nr3/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+err="$(cd "$proj_nr3" && LGX_HOME="$home_nr3" "$LGX" nrepl --port abc 2>&1 >/dev/null)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "nrepl bad port: expected exit 1, got $rc (stderr: $err)"
+pass "nrepl bad port: exits 1"
+assert_contains "$err" "--port requires an integer" \
+    "nrepl bad port: clear error on stderr"
+rm -rf "$proj_nr3" "$home_nr3"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

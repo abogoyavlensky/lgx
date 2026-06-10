@@ -293,8 +293,8 @@ non-zero exit code stops the chain.
 
 Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
 tasks defined in the current project. Task names are keywords; they
-cannot shadow built-in commands (`install`, `run`, `build`, `test`,
-`new`, `help`, `version`, plus reserved `add`, `update`, `tasks`).
+cannot shadow built-in commands (`install`, `run`, `nrepl`, `build`,
+`test`, `new`, `help`, `version`, plus reserved `add`, `update`, `tasks`).
 
 Step values may be a string (split on whitespace) or a vector of
 strings. Output is buffered and replayed after each step completes.

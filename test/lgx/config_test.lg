@@ -392,6 +392,9 @@
                              {:tasks {(keyword n) {:do [{:sh "echo hi"}]}}})))))
   ;; Explicit spot-check: "test" must be reserved so projects can't shadow it.
   (is (contains? config/reserved-task-names "test"))
+  ;; Same for "nrepl": the dispatch case would always win, leaving the task
+  ;; defined but unreachable.
+  (is (contains? config/reserved-task-names "nrepl"))
   (is (= :threw (threw? #(config/validate-config!
                            {:tasks {:test {:do [{:sh "echo hi"}]}}})))))
 
