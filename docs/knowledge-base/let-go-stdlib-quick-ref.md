@@ -19,9 +19,10 @@ full surface. Use this as a starting point.
 
 ## `os`
 
-- Process: `os/sh` (buffered — see gotchas), `os/exec` (returns
-  `*exec.Cmd`; `Run`/`Wait` are not exposed), `os/exit`, `os/args`
-  (value, not fn).
+- Process: `os/sh` (buffered — see gotchas), `os/exec*` (child inherits
+  the parent's stdin/stdout/stderr, returns exit code — use for streaming
+  or interactive children; lg >= 1.10.0), `os/exec` (returns `*exec.Cmd`;
+  `Run`/`Wait` are not exposed), `os/exit`, `os/args` (value, not fn).
 - Filesystem: `os/cwd`, `os/ls`, `os/stat`, `os/temp-dir`.
 - Env: `os/getenv`, `os/setenv`.
 - Platform: `os/os-name`, `os/arch`, `os/file-separator`,
@@ -52,7 +53,6 @@ in core, not `io`.
 
 - No `filepath/join` equivalent. lgx provides its own at
   `lgx/path.lg`.
-- No way from let-go to wire a subprocess's stdio to the parent's.
 - `os/exec` returns a Go `*exec.Cmd` but exposes only `with-stdin`. You
   can't reach `Stdout`/`Stderr` fields or call `Run`/`Wait` from let-go.
 - `syscall/exec` (process replacement) exists on Linux only.

@@ -27,7 +27,7 @@ embedded git library ended up shelling out for edge cases anyway.
 
 ```
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring
-lgx/cli.lg          pure argv parsing: program-prefix strip + leading --verbose/--with
+lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port
 lgx/config.lg       find lgx.edn (walks up), parse/validate :deps/:paths/:resource-paths/:tasks/:contexts
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
@@ -40,7 +40,7 @@ lgx/style.lg        colored status headers (green built-ins, purple tasks), LGX_
 Leading global options (`--verbose`, `--with a,b`) are parsed by `lgx/cli.lg`
 before the subcommand and removed from the argv `lgx.main` dispatches on.
 `--with` names contexts (see [Contexts](#contexts)) and applies to
-`run`/`build`/`test`/`install`/tasks.
+`run`/`nrepl`/`build`/`test`/`install`/tasks.
 
 `lgx.main` holds the entry point; the other namespaces are stateless helper
 namespaces it requires.
@@ -56,7 +56,8 @@ indented `$ <cmd>` line per step (a `:run` step is shown as `lgx run <args>`).
 `run` intentionally prints **no** header: it is the dev-time stand-in for the
 built binary, which prints none, so keeping it header-free makes dev output
 mirror the shipped artifact. (A cold-cache `run` still prints the install block
-when deps are actually fetched.) `version` and `help` likewise print no header —
+when deps are actually fetched.) `nrepl` prints no lgx header either — lg's own
+motd and nREPL banner take its place. `version` and `help` likewise print no header —
 they emit data the user asked for. The existing stdout lines (the install block,
 `built <out>`, `Created <name> at <abs>`, and the test report) are unchanged and
 stay on stdout.
@@ -163,10 +164,40 @@ exec.
 6. Exec `lg -source-paths <paths> -resource-paths <roots> [args...]`.
    Forwarded args reach `lg` verbatim.
 
-The exec call currently uses `os/sh`, which buffers stdout/stderr until
-the child exits. Streaming output and stdin (so `lgx run -r` can drive
-`lg`'s REPL) require an inherited-stdio runner — tracked in
-[`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md).
+The exec call uses `runner/exec-lg-interactive!`, built on let-go's
+`os/exec*` (lg >= 1.10.0): the child inherits lgx's stdin/stdout/stderr,
+so output streams live and interactive children work — bare `lgx run`
+without `:main` lands in `lg`'s REPL, and `lgx run -r <script>` can
+drive it. `lgx test`, `lgx build`, and task `:run` steps still use the
+captured `os/sh` path (`runner/run-lg!`/`invoke-lg!`): `test` must
+inspect lg's output to strip its harness marker, and the others keep
+buffered-and-replayed output. (History: the inherited-stdio runner was
+tracked in [`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md),
+resolved upstream by `os/exec*`.)
+
+### `lgx nrepl [--port N]`
+
+Steps 1–4 match `install` (deps auto-installed, `--with` contexts
+apply), and `:paths`/`:resource-paths` resolve exactly as in `lgx run`.
+Then:
+
+5. Parse the command's own args with `cli/parse-nrepl-args`: `--port N`
+   must be an integer in 1–65535; anything else exits 1 with a clear
+   error. No flag → lgx picks a random port in the IANA ephemeral range
+   (49152–65535). lg writes the literal `-p` value to `.nrepl-port`, so
+   the random pick must happen in lgx — port 0 (OS-assigned) would
+   record `0`.
+6. Exec `lg <lg-flags> -n -p <port>` via `runner/exec-lg-interactive!`.
+   With no script argument, lg starts the nREPL server (printing
+   `nREPL server started on port N ...` and writing `.nrepl-port` in the
+   cwd) and opens its terminal REPL in the same process.
+
+On a port collision lg prints `failed to run nREPL server on port N`
+and still opens the terminal REPL; rerunning picks a fresh random port.
+Unlike `cmd-run`, `cmd-nrepl` does not set `LGX_RUN` — that var
+advertises script-arg handling to a spawned program, which doesn't
+apply to a REPL session. `nrepl` is a reserved task name
+(`config/reserved-task-names`), so a project task can't shadow it.
 
 ### `lgx build [args...]`
 

@@ -13,6 +13,14 @@
   (when (seq paths)
     ["-resource-paths" (str/join os/path-separator paths)]))
 
+(defn lg-args
+  "Assemble lg's argv: -source-paths / -resource-paths flags (omitted when
+   the corresponding path list is empty) followed by the forwarded args."
+  [lib-paths resource-paths forward-args]
+  (vec (concat (or (source-paths-flag lib-paths) [])
+               (or (resource-paths-flag resource-paths) [])
+               forward-args)))
+
 ;; Env vars lgx writes into the environment, in display order:
 ;; LG_READ_CLJ for the lg child (see run-lg!),
 ;; LG_SUPPRESS_SOURCE_PATHS_WARNING silences lg's source-paths transition
@@ -42,21 +50,10 @@
   (when (seq (:out r)) (write! *out* (:out r)))
   (when (seq (:err r)) (write! *err* (:err r))))
 
-;; --------------------------------------------------------------------------
-;; TODO: this calls os/sh which buffers stdout/stderr until the child exits.
-;; That's wrong for `lgx run`: script output won't stream and stdin is dead
-;; (so `-r` REPL will not work). Replace with an inherited-stdio runner once
-;; let-go ships one (see upstream issue link in the README).
-;; --------------------------------------------------------------------------
-(defn run-lg!
-  "Run `lg` with -source-paths set to the resolved lib paths and
-   -resource-paths set to the resolved resource roots, plus the user's
-   forwarded args. When `verbose?` is truthy, print the env vars lgx sets
-   and the resolved command to *err* before exec. Returns the full
-   {:out :err :exit} result WITHOUT replaying output, so callers can
-   inspect or transform lg's captured streams (e.g. cmd-test stripping its
-   harness marker and detecting swallowed load errors). Most callers want
-   invoke-lg!, which replays the output for them."
+(defn- lg-invocation!
+  "Prepare an lg invocation: set the env vars lgx exports to the child,
+   assemble the argv via lg-args, and (when `verbose?`) write the env trace
+   and `+ <bin> <args>` lines to *err*. Returns [bin args]."
   [lib-paths resource-paths forward-args verbose?]
   ;; lg's resolver doesn't search .clj by default and its reader leaves
   ;; #?(:clj ...) branches unmatched unless this is set. See
@@ -68,13 +65,27 @@
   ;; the tooling that warning anticipates, so silence it.
   (os/setenv "LG_SUPPRESS_SOURCE_PATHS_WARNING" "1")
   (let [bin (lg-binary)
-        args (vec (concat (or (source-paths-flag lib-paths) [])
-                          (or (resource-paths-flag resource-paths) [])
-                          forward-args))]
+        args (lg-args lib-paths resource-paths forward-args)]
     (when verbose?
       (when-let [env-line (env-trace-line os/getenv)]
         (write! *err* env-line))
       (write! *err* (str "+ " bin " " (str/join " " args) "\n")))
+    [bin args]))
+
+(defn run-lg!
+  "Run `lg` with -source-paths set to the resolved lib paths and
+   -resource-paths set to the resolved resource roots, plus the user's
+   forwarded args. When `verbose?` is truthy, print the env vars lgx sets
+   and the resolved command to *err* before exec. Returns the full
+   {:out :err :exit} result WITHOUT replaying output, so callers can
+   inspect or transform lg's captured streams (e.g. cmd-test stripping its
+   harness marker and detecting swallowed load errors). Most callers want
+   invoke-lg!, which replays the output for them. Output is captured (via
+   os/sh) and stdin is not connected; for streaming output or an
+   interactive child use exec-lg-interactive!."
+  [lib-paths resource-paths forward-args verbose?]
+  (let [[bin args] (lg-invocation! lib-paths resource-paths forward-args
+                                   verbose?)]
     (apply os/sh bin args)))
 
 (defn invoke-lg!
@@ -85,7 +96,11 @@
     (replay-output! r)
     (:exit r)))
 
-(defn exec-lg!
-  "Like invoke-lg! but exits with lg's exit code."
+(defn exec-lg-interactive!
+  "Run lg with the parent's stdin/stdout/stderr inherited (via os/exec*),
+   so output streams live and the child stays interactive (REPL, prompts).
+   Exits with lg's exit code; never returns."
   [lib-paths resource-paths forward-args verbose?]
-  (os/exit (invoke-lg! lib-paths resource-paths forward-args verbose?)))
+  (let [[bin args] (lg-invocation! lib-paths resource-paths forward-args
+                                   verbose?)]
+    (os/exit (apply os/exec* bin args))))

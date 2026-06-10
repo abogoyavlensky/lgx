@@ -10,7 +10,7 @@
             [lgx.test-runner :as test-runner]
             [string :as str]))
 
-(def version "0.1.0-alpha13")
+(def version "0.1.0-alpha14")
 
 ;; Description column the static rows below are hand-aligned to; task rows align
 ;; to it too (see task-line). If you re-pad the rows, update this constant.
@@ -23,6 +23,7 @@
   (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted)\n"
+       "  lgx nrepl [--port N]         Start a REPL with an nREPL server (random port unless --port given)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
@@ -265,7 +266,27 @@
     ;; relying on the injected `--` marker, which can collide with a user
     ;; command that legitimately contains `--`. Inherited by the child via env.
     (os/setenv "LGX_RUN" "1")
-    (runner/exec-lg! paths resource-paths args verbose?)))
+    (runner/exec-lg-interactive! paths resource-paths args verbose?)))
+
+(defn- cmd-nrepl [forward-args verbose? with]
+  (let [{:keys [port]}
+        (try
+          (cli/parse-nrepl-args (vec forward-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        project (config/find-project!)
+        {:keys [results paths resource-paths]} (overlay-basis project with nil)
+        ;; lg writes the literal -p value to .nrepl-port, so "random port"
+        ;; means lgx picks the number itself (IANA ephemeral range). On a
+        ;; collision lg prints "failed to run nREPL server on port N" and
+        ;; still opens the terminal REPL; rerunning picks a fresh port.
+        port (or port (+ 49152 (rand-int 16384)))]
+    (print-installs! results)
+    ;; Unlike cmd-run, no LGX_RUN: that var advertises script-arg handling
+    ;; to a spawned program, which doesn't apply to a REPL session.
+    (runner/exec-lg-interactive! paths resource-paths
+                                 ["-n" "-p" (str port)] verbose?)))
 
 (defn- ensure-out-dir! [project rel-out]
   (let [abs (path/join project rel-out)
@@ -429,6 +450,7 @@
   (case cmd
     "install" (cmd-install with)
     "run" (cmd-run (vec rest-args) verbose? with)
+    "nrepl" (cmd-nrepl (vec rest-args) verbose? with)
     "build" (cmd-build (vec rest-args) verbose? with)
     "test" (cmd-test (vec rest-args) verbose? with)
     "new" (new/cmd-new! (vec rest-args) verbose?)

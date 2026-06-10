@@ -35,6 +35,34 @@
       (throw (ex-info with-error {})))
     (mapv keyword names)))
 
+(def ^:private port-error
+  "lgx: --port requires an integer port between 1 and 65535")
+
+(def ^:private nrepl-args-error
+  "lgx: nrepl does not take arguments other than --port <n>")
+
+(defn parse-nrepl-args
+  "Parse the `nrepl` command's rest-args. Returns {:port <int>} for
+   `--port <n>` (n must be an integer in 1-65535) or {:port nil} when the
+   flag is absent (caller picks a random port). Throws ex-info on a
+   missing/invalid port value or any other token."
+  [args]
+  (let [args (vec args)]
+    (cond
+      (empty? args)
+      {:port nil}
+
+      (= ["--port"] [(first args)])
+      (let [port (parse-long (or (second args) ""))]
+        (when (or (nil? port) (< port 1) (> port 65535))
+          (throw (ex-info port-error {})))
+        (when (> (count args) 2)
+          (throw (ex-info nrepl-args-error {})))
+        {:port port})
+
+      :else
+      (throw (ex-info nrepl-args-error {})))))
+
 (defn parse-leading-flags
   "Parse leading global flags from `args` (the `user-args` output). Consumes
    leading `--verbose` and `--with a,b` tokens, in any order and repeatable, up

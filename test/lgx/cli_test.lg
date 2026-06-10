@@ -77,3 +77,27 @@
 (deftest user-args-bundle-prefix
   ;; ./lgx <cmd> ... — drop only the program name.
   (is (= ["run" "x"] (vec (cli/user-args ["lgx" "run" "x"])))))
+
+;; ---------------------------------------------------------------------------
+;; parse-nrepl-args
+;; ---------------------------------------------------------------------------
+
+(deftest nrepl-no-args-means-random-port
+  (is (= {:port nil} (cli/parse-nrepl-args []))))
+
+(deftest nrepl-port-flag-parses-integer
+  (is (= {:port 7888} (cli/parse-nrepl-args ["--port" "7888"]))))
+
+(deftest nrepl-port-missing-value-throws
+  (is (= :threw (threw? #(cli/parse-nrepl-args ["--port"])))))
+
+(deftest nrepl-port-non-integer-throws
+  (is (= :threw (threw? #(cli/parse-nrepl-args ["--port" "abc"])))))
+
+(deftest nrepl-port-out-of-range-throws
+  (is (= :threw (threw? #(cli/parse-nrepl-args ["--port" "0"]))))
+  (is (= :threw (threw? #(cli/parse-nrepl-args ["--port" "70000"])))))
+
+(deftest nrepl-unexpected-arg-throws
+  (is (= :threw (threw? #(cli/parse-nrepl-args ["extra"]))))
+  (is (= :threw (threw? #(cli/parse-nrepl-args ["--port" "7888" "extra"])))))
