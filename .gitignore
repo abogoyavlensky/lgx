@@ -6,3 +6,4 @@ lgx-bundle
 .clj-lsp
 .idea/
 .tmp/
+.nrepl-port
