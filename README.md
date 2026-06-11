@@ -77,7 +77,8 @@ cd hello
 lgx run
 ```
 
-`lgx new` scaffolds from the [default template](https://github.com/abogoyavlensky/lgx-template-base).
+`lgx new` scaffolds from the [base template](https://github.com/abogoyavlensky/lgx-template-base);
+`-t/--template` selects another (see [`lgx new` templates](#lgx-new-templates)).
 `lgx run` resolves `:main` from `lgx.edn`, fetches any deps under
 `$LGX_HOME/gitlibs/`, then execs `lg`.
 
@@ -85,7 +86,7 @@ lgx run
 
 | Command | What it does |
 | --- | --- |
-| `lgx new <name>` | Scaffold a new let-go project from the default template into `./<name>`. |
+| `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
 | `lgx install` | Fetch deps declared in `:deps` key of `lgx.edn`. Idempotent. |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. Without a script and `:main`, opens `lg`'s REPL. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a random port (or `N`). Writes `.nrepl-port`. |
@@ -112,6 +113,33 @@ Both options go before the subcommand: `lgx --with dev,test run`.
 
 `lgx run`, `nrepl`, `build`, `test`, and tasks find the nearest `lgx.edn`
 by walking up from the current directory.
+
+### `lgx new` templates
+
+`lgx new` takes `-t`/`--template` with a built-in template name or a git URL:
+
+```sh
+lgx new myapp                # base template (the default)
+lgx new myapp -t cli         # built-in template by name
+lgx new myapp -t https://github.com/user/my-template
+```
+
+Built-in templates are pinned to a known-good revision:
+
+| Name | Repo | Purpose |
+| --- | --- | --- |
+| `base` | [lgx-template-base](https://github.com/abogoyavlensky/lgx-template-base) | Minimal let-go app. |
+| `cli` | [lgx-template-cli](https://github.com/abogoyavlensky/lgx-template-cli) | Command-line app skeleton. |
+
+A URL template uses the repo's latest default-branch HEAD: each run resolves
+HEAD with `git ls-remote`, then caches the checkout by sha under
+`$LGX_HOME/templates/`, so repeat scaffolds of an unchanged template skip
+the clone.
+
+Any git repo works as a template. Put the literal token `projectname` in
+paths and file contents wherever the project name belongs; `lgx new`
+replaces it with the underscored name (`my_app`) in paths and the
+hyphenated name (`my-app`) in contents.
 
 ### `lgx run` details
 
@@ -416,8 +444,8 @@ pick up dependency dirs. Like per-task extras, contexts augment only the
 | `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev-vs-bundled mode (see [`lgx run` details](#lgx-run-details)). |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, template cache, and test harness tmp dir. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |
-| `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo for `lgx new`. |
-| `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the template revision for `lgx new`. |
+| `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo of the built-in `base` template. |
+| `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the revision of the built-in `base` template. |
 
 ## State layout
 

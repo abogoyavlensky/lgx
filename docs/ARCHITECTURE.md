@@ -34,7 +34,7 @@ lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
-lgx/new.lg          scaffold a new project from the default template
+lgx/new.lg          scaffold a new project from a built-in or URL template
 lgx/style.lg        colored status headers (green built-ins, purple tasks), LGX_NO_COLOR gate
 ```
 
@@ -400,41 +400,53 @@ and project + CLI `--with` only for `build`/`install` (no auto layer —
 same overlay so it pre-fetches a context's deps (auto names included only
 via an explicit `--with dev,test`).
 
-### `lgx new <project-name>`
+### `lgx new <name> [-t <tpl>]`
 
-Scaffolds a new project directory from a hardcoded default template.
-The command never touches an existing project's `lgx.edn`.
+Scaffolds a new project directory from a template: a built-in name from
+the registry in `lgx/new.lg` (`base`, `cli`; sha-pinned) or a custom git
+URL. The command never touches an existing project's `lgx.edn`.
 
-1. Validate `<project-name>` against `^[a-z][a-z0-9-]*$`. Bad input →
+1. Parse rest-args with `cli/parse-new-args` (pure): `-t`/`--template
+   <value>` at any position plus exactly one positional, the project
+   name. A missing/repeated template value or a positional count other
+   than one → the parse error on stderr (messages carry their own
+   `lgx: ` prefix), exit 1.
+2. Validate `<name>` against `^[a-z][a-z0-9-]*$`. Bad input →
    `lgx: invalid project name: <input>` plus the rule description on
    the next line, exit 1.
-2. Resolve the target dir as `<cwd>/<project-name>`. If it exists as
+3. Resolve the target dir as `<cwd>/<name>`. If it exists as
    a regular file or as a non-empty directory, exit 1 with
    `lgx: target exists and is not a directory: <path>` or
    `lgx: target directory already exists and is not empty: <path>`.
    An empty pre-existing directory is allowed; the render lays files
    into it.
-3. Resolve the template coord. Default is
-   `{:git/url "https://github.com/abogoyavlensky/lgx-template-base"
-   :git/sha "<pinned>"}`. Both fields may be overridden by the env
-   vars `LGX_TEMPLATE_BASE_URL` and `LGX_TEMPLATE_BASE_SHA`; blank or
-   unset envs fall back to the default. Sha-pin only — tag-pinned
-   templates are deferred to the future `-t/--template <git-url>`
-   flag.
-4. Ensure the template is cached under
+4. Resolve the template coord (`new/resolve-template-coord`, 1-arity):
+   - No `-t`, or `-t base` → the registry's `base` entry, with either
+     field overridable by the env vars `LGX_TEMPLATE_BASE_URL` and
+     `LGX_TEMPLATE_BASE_SHA`; blank or unset envs fall back to the
+     registry. The overrides are scoped to `base` — other templates
+     ignore them.
+   - A value containing `://` → custom template URL. Its default-branch
+     HEAD is resolved to a sha by `cache/resolve-head-sha!`
+     (`git ls-remote <url> HEAD`), so a URL template always tracks the
+     latest HEAD at the cost of one `ls-remote` round-trip per run.
+     Failure → `lgx: failed to resolve template <url>: <stderr>`, exit 1.
+   - Any other value → registry lookup. Unknown name →
+     `lgx: unknown template: <value> (built-in: base, cli)`, exit 1.
+5. Ensure the template is cached under
    `$LGX_HOME/templates/<host>/<owner>/<repo>/<sha>/`. If the leaf
    exists, reuse it. Otherwise clone via `cache/clone-sha!` (same
    atomic clone-into-tmp → checkout → drop-`.git/` → mv pattern used
    for `:deps`). Clone failures replay `git`'s stderr after a
    `lgx: failed to fetch template:` prefix, exit 1.
-5. Walk the cached template recursively. For each source file, compute
+6. Walk the cached template recursively. For each source file, compute
    a destination relative to the target by replacing every
    `projectname` path segment with the underscored form of the project
    name (`my-app` → `my_app`). Then `mkdir` the destination's parent,
    `slurp` the source, replace every `projectname` in the contents
    with the hyphenated form of the project name (verbatim user input,
    `-` preserved), and `spit` to the destination.
-6. Print `Created <name> at <abs>` followed by a two-line next-steps
+7. Print `Created <name> at <abs>` followed by a two-line next-steps
    block (`cd <name>` / `lgx run`).
 
 The unified `projectname` token splits along the natural axis: path
