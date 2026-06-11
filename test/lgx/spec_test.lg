@@ -1,0 +1,129 @@
+;; Unit tests for lgx.spec — the minimal schema-as-data validation engine.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.spec-test
+  (:require [lgx.spec :as spec]
+            [test :refer [deftest is]]))
+
+;; ---------------------------------------------------------------------------
+;; Leaf types
+;; ---------------------------------------------------------------------------
+
+(deftest leaf-string-accepts-string
+  (is (= [] (spec/validate :string "x"))))
+
+(deftest leaf-string-rejects-non-string
+  (is (= [{:path [] :msg "must be a string, got 42"}]
+         (spec/validate :string 42))))
+
+(deftest leaf-string-rejects-nil
+  (is (= [{:path [] :msg "must be a string, got nil"}]
+         (spec/validate :string nil))))
+
+(deftest leaf-keyword
+  (is (= [] (spec/validate :keyword :a)))
+  (is (= [{:path [] :msg "must be a keyword, got \"a\""}]
+         (spec/validate :keyword "a"))))
+
+(deftest leaf-symbol
+  (is (= [] (spec/validate :symbol 'foo/bar)))
+  (is (= [{:path [] :msg "must be a symbol, got :a"}]
+         (spec/validate :symbol :a))))
+
+(deftest leaf-map
+  (is (= [] (spec/validate :map {:a 1})))
+  (is (= [{:path [] :msg "must be a map, got [1]"}]
+         (spec/validate :map [1]))))
+
+(deftest leaf-vector
+  (is (= [] (spec/validate :vector [1])))
+  (is (= [{:path [] :msg "must be a vector, got {:a 1}"}]
+         (spec/validate :vector {:a 1}))))
+
+(deftest leaf-any-accepts-everything
+  (is (= [] (spec/validate :any 42)))
+  (is (= [] (spec/validate :any nil)))
+  (is (= [] (spec/validate :any {:a 1}))))
+
+;; ---------------------------------------------------------------------------
+;; [:map ...]
+;; ---------------------------------------------------------------------------
+
+(deftest map-accepts-valid-entries
+  (is (= [] (spec/validate [:map [:a :string]] {:a "x"}))))
+
+(deftest map-rejects-non-map-value
+  (is (= [{:path [] :msg "must be a map, got 42"}]
+         (spec/validate [:map [:a :string]] 42))))
+
+(deftest map-reports-missing-required-key
+  (is (= [{:path [] :msg "missing required key :a"}]
+         (spec/validate [:map [:a :string]] {}))))
+
+(deftest map-optional-key-may-be-absent
+  (is (= [] (spec/validate [:map [:a {:optional true} :string]] {}))))
+
+(deftest map-optional-key-still-validated-when-present
+  (is (= [{:path [:a] :msg "must be a string, got 1"}]
+         (spec/validate [:map [:a {:optional true} :string]] {:a 1}))))
+
+(deftest map-open-by-default
+  (is (= [] (spec/validate [:map [:a :string]] {:a "x" :b 1}))))
+
+(deftest map-closed-rejects-unknown-key
+  (is (= [{:path [] :msg "unknown key :b (allowed: :a)"}]
+         (spec/validate [:map {:closed true} [:a :string]] {:a "x" :b 1}))))
+
+(deftest map-closed-lists-allowed-keys-in-entry-order
+  (is (= [{:path [] :msg "unknown key :z (allowed: :b, :a)"}]
+         (spec/validate [:map {:closed true}
+                         [:b {:optional true} :string]
+                         [:a {:optional true} :string]]
+                        {:z 1}))))
+
+(deftest map-closed-reports-each-unknown-key-sorted
+  (is (= [{:path [] :msg "unknown key :y (allowed: :a)"}
+          {:path [] :msg "unknown key :z (allowed: :a)"}]
+         (spec/validate [:map {:closed true} [:a {:optional true} :string]]
+                        {:z 1 :y 2}))))
+
+(deftest map-nested-paths
+  (is (= [{:path [:a :b] :msg "must be a string, got 1"}]
+         (spec/validate [:map [:a [:map [:b :string]]]]
+                        {:a {:b 1}}))))
+
+(deftest map-aggregates-errors-across-entries
+  (is (= [{:path [:a] :msg "must be a string, got 1"}
+          {:path [] :msg "missing required key :b"}]
+         (spec/validate [:map [:a :string] [:b :string]]
+                        {:a 1}))))
+
+;; ---------------------------------------------------------------------------
+;; [:vector ...]
+;; ---------------------------------------------------------------------------
+
+(deftest vector-accepts-valid-items
+  (is (= [] (spec/validate [:vector :string] ["a" "b"]))))
+
+(deftest vector-accepts-empty-without-min
+  (is (= [] (spec/validate [:vector :string] []))))
+
+(deftest vector-rejects-non-vector
+  (is (= [{:path [] :msg "must be a vector, got \"x\""}]
+         (spec/validate [:vector :string] "x"))))
+
+(deftest vector-item-errors-carry-index
+  (is (= [{:path [1] :msg "must be a string, got 1"}]
+         (spec/validate [:vector :string] ["a" 1]))))
+
+(deftest vector-min-one-rejects-empty
+  (is (= [{:path [] :msg "must contain at least 1 element"}]
+         (spec/validate [:vector {:min 1} :string] []))))
+
+(deftest vector-min-one-accepts-non-empty
+  (is (= [] (spec/validate [:vector {:min 1} :string] ["a"]))))
+
+(deftest vector-nested-in-map
+  (is (= [{:path [:paths 1] :msg "must be a string, got 2"}]
+         (spec/validate [:map [:paths [:vector :string]]]
+                        {:paths ["a" 2]}))))

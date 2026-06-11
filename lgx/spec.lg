@@ -1,0 +1,125 @@
+(ns lgx.spec
+  (:require [string :as str]))
+
+;; Minimal schema-as-data validation engine, malli in spirit. Schemas are
+;; keywords (leaf type checks) or vectors (composite forms). Validation
+;; returns a vector of {:path [...] :msg "..."} errors — empty when valid —
+;; and never throws on invalid *values*; a malformed *schema* is a programmer
+;; error and does throw.
+;;
+;; Forms: :string :keyword :symbol :map :vector :any
+;;        [:map opts? [k opts? schema] ...]   opts {:closed true};
+;;                                            entry opts {:optional true}
+;;        [:map-of key-schema val-schema]
+;;        [:vector opts? item-schema]         opts {:min n}
+;;        [:or opts? s1 s2 ...]               opts {:msg "..."}
+;;        [:and s1 s2 ...]
+;;        [:enum v1 v2 ...]
+;;        [:fn f]
+
+(declare validate*)
+
+(defn- err [path msg]
+  {:path (vec path) :msg msg})
+
+(defn- leaf-label [kw value]
+  "Return a type label when value fails kw's type check, nil when it passes."
+  (case kw
+    :string (when-not (string? value) "a string")
+    :keyword (when-not (keyword? value) "a keyword")
+    :symbol (when-not (symbol? value) "a symbol")
+    :map (when-not (map? value) "a map")
+    :vector (when-not (vector? value) "a vector")
+    :any nil
+    (throw (ex-info (str "unknown schema type " (pr-str kw)) {:schema kw}))))
+
+(defn- type-error [path label value]
+  [(err path (str "must be " label ", got " (pr-str value)))])
+
+;; [:map ...] — opts map is optional in second position; it can never be
+;; confused with an entry because entries are vectors.
+(defn- form-opts [form]
+  (if (map? (second form)) (second form) {}))
+
+(defn- map-entries [form]
+  (vec (if (map? (second form)) (drop 2 form) (rest form))))
+
+(defn- entry-key [e] (first e))
+
+(defn- entry-optional? [e]
+  (and (map? (second e)) (:optional (second e))))
+
+(defn- entry-schema [e]
+  (if (map? (second e)) (nth e 2) (second e)))
+
+(defn- unknown-key-errors [entries path value]
+  (let [known (set (map entry-key entries))
+        allowed (str/join ", " (map (comp str entry-key) entries))]
+    (mapv (fn [k]
+            (err path (str "unknown key " k " (allowed: " allowed ")")))
+          (sort-by str (filter #(not (contains? known %)) (keys value))))))
+
+(defn- validate-map [form path value]
+  (if-not (map? value)
+    (type-error path "a map" value)
+    (let [entries (map-entries form)
+          entry-errors
+          (reduce (fn [acc e]
+                    (let [k (entry-key e)]
+                      (cond
+                        (contains? value k)
+                        (vec (concat acc (validate* (entry-schema e)
+                                                    (conj (vec path) k)
+                                                    (get value k))))
+
+                        (entry-optional? e)
+                        acc
+
+                        :else
+                        (conj acc (err path (str "missing required key " k))))))
+                  []
+                  entries)]
+      (if (:closed (form-opts form))
+        (vec (concat entry-errors (unknown-key-errors entries path value)))
+        entry-errors))))
+
+(defn- validate-vector [form path value]
+  (if-not (vector? value)
+    (type-error path "a vector" value)
+    (let [opts (form-opts form)
+          item-schema (if (map? (second form)) (nth form 2) (second form))
+          min-count (:min opts)]
+      (if (and min-count (< (count value) min-count))
+        [(err path (str "must contain at least " min-count " element"
+                        (if (> min-count 1) "s" "")))]
+        (loop [i 0
+               acc []]
+          (if (>= i (count value))
+            acc
+            (recur (inc i)
+                   (vec (concat acc (validate* item-schema
+                                               (conj (vec path) i)
+                                               (nth value i)))))))))))
+
+(defn- validate* [schema path value]
+  (cond
+    (keyword? schema)
+    (if-let [label (leaf-label schema value)]
+      (type-error path label value)
+      [])
+
+    (vector? schema)
+    (case (first schema)
+      :map (validate-map schema path value)
+      :vector (validate-vector schema path value)
+      (throw (ex-info (str "unknown schema form " (pr-str (first schema)))
+                      {:schema schema})))
+
+    :else
+    (throw (ex-info (str "invalid schema " (pr-str schema)) {:schema schema}))))
+
+(defn validate
+  "Validate value against schema. Returns a vector of {:path [...] :msg ...}
+   errors, empty when the value conforms. Never throws on invalid values."
+  [schema value]
+  (validate* schema [] value))
