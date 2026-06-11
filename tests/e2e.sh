@@ -2174,5 +2174,68 @@ pass "map-form :do: exits 0"
 assert_eq "$out" "hi from map do" "map-form :do: task executes and prints correct output"
 rm -rf "$proj_map" "$home_map"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 94: invalid lgx.edn reports all errors, no stack trace"
+proj_inv="$(mktemp -d)"; home_inv="$(mktemp -d)"
+cat > "$proj_inv/lgx.edn" <<'EOF'
+{:paths "src"
+ :targets {:bin {}}
+ :tasks {:lint {:do [{:shh "x"}]}}}
+EOF
+set +e
+out="$(cd "$proj_inv" && LGX_HOME="$home_inv" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "invalid config: expected non-zero exit"
+pass "invalid config: exits non-zero"
+assert_contains "$out" "lgx: invalid lgx.edn (3 errors)" \
+    "invalid config: report header counts all errors"
+assert_contains "$out" ':paths — must be a vector, got "src"' \
+    "invalid config: :paths error line"
+assert_contains "$out" ":targets :bin — missing required key :out" \
+    "invalid config: :targets error line"
+assert_contains "$out" ":tasks :lint :do [0] — unknown key :shh (allowed: :sh, :run)" \
+    "invalid config: step error line with path"
+assert_not_contains "$out" "stack trace" \
+    "invalid config: no stack trace leaks"
+
+echo "==> Scenario 95: lgx help stays usable with an invalid lgx.edn"
+set +e
+out="$(cd "$proj_inv" && LGX_HOME="$home_inv" "$LGX" help 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "help on invalid config: expected exit 0, got $rc"
+pass "help on invalid config: exits 0"
+assert_contains "$out" "Built-in commands:" \
+    "help on invalid config: built-in commands still listed"
+assert_contains "$out" "(omitted — lgx.edn is invalid; run \`lgx install\` to see errors)" \
+    "help on invalid config: tasks section shows warning"
+
+echo "==> Scenario 96: unknown command with invalid lgx.edn shows the report"
+set +e
+out="$(cd "$proj_inv" && LGX_HOME="$home_inv" "$LGX" frobnicate 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "unknown cmd on invalid config: expected non-zero exit"
+pass "unknown cmd on invalid config: exits non-zero"
+assert_contains "$out" "lgx: invalid lgx.edn (3 errors)" \
+    "unknown cmd on invalid config: validation report shown"
+assert_not_contains "$out" "is not a lgx command" \
+    "unknown cmd on invalid config: no misleading not-a-command error"
+rm -rf "$proj_inv" "$home_inv"
+
+echo "==> Scenario 97: unparseable lgx.edn reports a parse error"
+proj_par="$(mktemp -d)"; home_par="$(mktemp -d)"
+printf '{:paths [' > "$proj_par/lgx.edn"
+set +e
+out="$(cd "$proj_par" && LGX_HOME="$home_par" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "parse error: expected non-zero exit"
+pass "parse error: exits non-zero"
+assert_contains "$out" "lgx: invalid lgx.edn (1 error)" \
+    "parse error: singular report header"
+assert_contains "$out" "could not parse lgx.edn: " \
+    "parse error: names the parse failure"
+assert_not_contains "$out" "stack trace" \
+    "parse error: no stack trace leaks"
+rm -rf "$proj_par" "$home_par"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

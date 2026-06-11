@@ -356,7 +356,7 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add e2e cases**
+- [x] **Step 1: Add e2e cases**
   In a throwaway project dir: (a) lgx.edn with several errors → `lgx run`
   exits 1, stderr contains `lgx: invalid lgx.edn (` and each expected error
   line, and does **not** contain `stack trace`; (b) same dir → `lgx help`
@@ -365,11 +365,11 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
   dir → exits 1 with the report, not `is not a lgx command`; (d) unparseable
   EDN → single `could not parse` error.
 
-- [ ] **Step 2: Run the suite**
+- [x] **Step 2: Run the suite**
   Run: `make test`
   Expected: PASS, new cases included in the pass count.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Add e2e coverage for lgx.edn validation reporting"`
 
 ### Task 6: Docs sync
