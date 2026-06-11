@@ -136,8 +136,17 @@
     :else (str "must be a step map or non-empty vector of steps, got "
                (pr-str v))))
 
-(defn- reserved-name-errors [k]
-  (when (contains? reserved-task-names (name k))
+(defn- task-name-errors [k]
+  (cond
+    ;; (subs (str k) 1) rather than (name k): a namespaced keyword like
+    ;; :foo/bar must migrate to foo/bar, not bar.
+    (keyword? k)
+    (str "task names are symbols; write " (subs (str k) 1) " instead of " k)
+
+    (not (symbol? k))
+    (str "must be a symbol, got " (pr-str k))
+
+    (contains? reserved-task-names (name k))
     (str "conflicts with built-in command \"" (name k) "\"")))
 
 (def ^:private task-schema
@@ -191,7 +200,7 @@
     [:targets {:optional true} targets-schema]
     [:contexts {:optional true} [:map-of :keyword context-schema]]
     [:tasks {:optional true}
-     [:map-of [:and :keyword [:fn reserved-name-errors]] task-schema]]]
+     [:map-of [:fn task-name-errors] task-schema]]]
    [:fn with-refs-errors]])
 
 (defn- normalize-config

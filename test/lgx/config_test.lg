@@ -245,10 +245,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest load-accepts-tasks
-  (let [cfg {:tasks {:fmt {:doc "Format"
+  (let [cfg {:tasks {'fmt {:doc "Format"
                            :do [{:sh "echo hi"}]}
-                     :check {:do [{:run "scripts/test.lg"}]}
-                     :ci {:do [{:sh ["cljfmt" "check" "src"]}
+                     'check {:do [{:run "scripts/test.lg"}]}
+                     'ci {:do [{:sh ["cljfmt" "check" "src"]}
                                {:run ["scripts/test.lg" "unit"]}]}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
 
@@ -256,35 +256,47 @@
   (is (= {:errors [{:path [:tasks] :msg "must be a map, got [:not :a :map]"}]}
          (load-cfg {:tasks [:not :a :map]}))))
 
-(deftest load-rejects-non-keyword-task-name
-  (is (= {:errors [{:path [:tasks "fmt"] :msg "must be a keyword, got \"fmt\""}]}
+(deftest load-rejects-keyword-task-name
+  ;; The pre-symbol format; the error names the fix instead of just the type.
+  (is (= {:errors [{:path [:tasks :fmt]
+                    :msg "task names are symbols; write fmt instead of :fmt"}]}
+         (load-cfg {:tasks {:fmt {:do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-namespaced-keyword-task-name
+  ;; The hint must keep the namespace: :foo/bar migrates to foo/bar, not bar.
+  (is (= {:errors [{:path [:tasks :foo/bar]
+                    :msg "task names are symbols; write foo/bar instead of :foo/bar"}]}
+         (load-cfg {:tasks {:foo/bar {:do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-non-symbol-task-name
+  (is (= {:errors [{:path [:tasks "fmt"] :msg "must be a symbol, got \"fmt\""}]}
          (load-cfg {:tasks {"fmt" {:do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-non-map-task
-  (is (= {:errors [{:path [:tasks :fmt] :msg "must be a map, got \"not-a-map\""}]}
-         (load-cfg {:tasks {:fmt "not-a-map"}}))))
+  (is (= {:errors [{:path [:tasks 'fmt] :msg "must be a map, got \"not-a-map\""}]}
+         (load-cfg {:tasks {'fmt "not-a-map"}}))))
 
 (deftest load-rejects-task-missing-do
-  (is (= {:errors [{:path [:tasks :fmt] :msg "missing required key :do"}]}
-         (load-cfg {:tasks {:fmt {:doc "x"}}}))))
+  (is (= {:errors [{:path [:tasks 'fmt] :msg "missing required key :do"}]}
+         (load-cfg {:tasks {'fmt {:doc "x"}}}))))
 
 (deftest load-rejects-non-string-doc
-  (is (= {:errors [{:path [:tasks :fmt :doc] :msg "must be a string, got 5"}]}
-         (load-cfg {:tasks {:fmt {:doc 5 :do [{:sh "echo hi"}]}}}))))
+  (is (= {:errors [{:path [:tasks 'fmt :doc] :msg "must be a string, got 5"}]}
+         (load-cfg {:tasks {'fmt {:doc 5 :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-task-with-unknown-key
-  (is (= {:errors [{:path [:tasks :dev]
+  (is (= {:errors [{:path [:tasks 'dev]
                     :msg (str "unknown key :extra-dep (allowed: :doc, :do, "
                               ":extra-paths, :extra-resource-paths, "
                               ":extra-deps, :with)")}]}
-         (load-cfg {:tasks {:dev {:extra-dep {}
+         (load-cfg {:tasks {'dev {:extra-dep {}
                                   :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-reserved-task-names
   (doseq [n config/reserved-task-names]
-    (is (= {:errors [{:path [:tasks (keyword n)]
+    (is (= {:errors [{:path [:tasks (symbol n)]
                       :msg (str "conflicts with built-in command \"" n "\"")}]}
-           (load-cfg {:tasks {(keyword n) {:do [{:sh "echo hi"}]}}}))))
+           (load-cfg {:tasks {(symbol n) {:do [{:sh "echo hi"}]}}}))))
   ;; Explicit spot-checks: "test" and "nrepl" must stay reserved so projects
   ;; can't shadow them (dispatch would always win, leaving the task unreachable).
   (is (contains? config/reserved-task-names "test"))
@@ -295,77 +307,77 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest load-rejects-non-step-do
-  (is (= {:errors [{:path [:tasks :fmt :do]
+  (is (= {:errors [{:path [:tasks 'fmt :do]
                     :msg (str "must be a step map or non-empty vector of "
                               "steps, got \"echo hi\"")}]}
-         (load-cfg {:tasks {:fmt {:do "echo hi"}}}))))
+         (load-cfg {:tasks {'fmt {:do "echo hi"}}}))))
 
 (deftest load-rejects-empty-do
-  (is (= {:errors [{:path [:tasks :fmt :do]
+  (is (= {:errors [{:path [:tasks 'fmt :do]
                     :msg "must contain at least 1 element"}]}
-         (load-cfg {:tasks {:fmt {:do []}}}))))
+         (load-cfg {:tasks {'fmt {:do []}}}))))
 
 (deftest load-rejects-step-not-a-map
-  (is (= {:errors [{:path [:tasks :fmt :do 0]
+  (is (= {:errors [{:path [:tasks 'fmt :do 0]
                     :msg "must be a map, got \"echo hi\""}]}
-         (load-cfg {:tasks {:fmt {:do ["echo hi"]}}}))))
+         (load-cfg {:tasks {'fmt {:do ["echo hi"]}}}))))
 
 (deftest load-rejects-step-with-multiple-action-keys
-  (is (= {:errors [{:path [:tasks :fmt :do 0]
+  (is (= {:errors [{:path [:tasks 'fmt :do 0]
                     :msg "must contain exactly one of :sh, :run"}]}
-         (load-cfg {:tasks {:fmt {:do [{:sh "echo a"
+         (load-cfg {:tasks {'fmt {:do [{:sh "echo a"
                                         :run "scripts/foo.lg"}]}}}))))
 
 (deftest load-rejects-step-with-no-action-key
-  (is (= {:errors [{:path [:tasks :fmt :do 0]
+  (is (= {:errors [{:path [:tasks 'fmt :do 0]
                     :msg "must contain exactly one of :sh, :run"}]}
-         (load-cfg {:tasks {:fmt {:do [{}]}}}))))
+         (load-cfg {:tasks {'fmt {:do [{}]}}}))))
 
 (deftest load-rejects-step-with-unknown-key
-  (is (= {:errors [{:path [:tasks :fmt :do 0]
+  (is (= {:errors [{:path [:tasks 'fmt :do 0]
                     :msg "unknown key :env (allowed: :sh, :run)"}]}
-         (load-cfg {:tasks {:fmt {:do [{:sh "echo hi"
+         (load-cfg {:tasks {'fmt {:do [{:sh "echo hi"
                                         :env {"FOO" "1"}}]}}}))))
 
 (deftest load-rejects-bad-action-values
-  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh]
+  (is (= {:errors [{:path [:tasks 'fmt :do 0 :sh]
                     :msg "must be a string or vector of strings, got 5"}]}
-         (load-cfg {:tasks {:fmt {:do [{:sh 5}]}}})))
-  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh]
+         (load-cfg {:tasks {'fmt {:do [{:sh 5}]}}})))
+  (is (= {:errors [{:path [:tasks 'fmt :do 0 :sh]
                     :msg "must be a non-blank string"}]}
-         (load-cfg {:tasks {:fmt {:do [{:sh ""}]}}})))
-  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh]
+         (load-cfg {:tasks {'fmt {:do [{:sh ""}]}}})))
+  (is (= {:errors [{:path [:tasks 'fmt :do 0 :sh]
                     :msg "must be a non-empty vector of strings"}]}
-         (load-cfg {:tasks {:fmt {:do [{:sh []}]}}})))
-  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh 1]
+         (load-cfg {:tasks {'fmt {:do [{:sh []}]}}})))
+  (is (= {:errors [{:path [:tasks 'fmt :do 0 :sh 1]
                     :msg "must be a string, got 5"}]}
-         (load-cfg {:tasks {:fmt {:do [{:sh ["echo" 5]}]}}}))))
+         (load-cfg {:tasks {'fmt {:do [{:sh ["echo" 5]}]}}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: single-step-map :do normalization
 ;; ---------------------------------------------------------------------------
 
 (deftest load-normalizes-single-sh-step-map
-  (let [r (load-cfg {:tasks {:fmt {:do {:sh "echo hi"}}}})]
-    (is (= [{:sh "echo hi"}] (get-in r [:cfg :tasks :fmt :do])))))
+  (let [r (load-cfg {:tasks {'fmt {:do {:sh "echo hi"}}}})]
+    (is (= [{:sh "echo hi"}] (get-in r [:cfg :tasks 'fmt :do])))))
 
 (deftest load-normalizes-single-run-step-map
-  (let [r (load-cfg {:tasks {:check {:do {:run "scripts/test.lg"}}}})]
-    (is (= [{:run "scripts/test.lg"}] (get-in r [:cfg :tasks :check :do])))))
+  (let [r (load-cfg {:tasks {'check {:do {:run "scripts/test.lg"}}}})]
+    (is (= [{:run "scripts/test.lg"}] (get-in r [:cfg :tasks 'check :do])))))
 
 (deftest load-keeps-vector-do-as-is
-  (let [r (load-cfg {:tasks {:ci {:do [{:sh "echo a"} {:run "t.lg"}]}}})]
-    (is (= [{:sh "echo a"} {:run "t.lg"}] (get-in r [:cfg :tasks :ci :do])))))
+  (let [r (load-cfg {:tasks {'ci {:do [{:sh "echo a"} {:run "t.lg"}]}}})]
+    (is (= [{:sh "echo a"} {:run "t.lg"}] (get-in r [:cfg :tasks 'ci :do])))))
 
 (deftest load-rejects-single-step-map-with-no-action-key
-  (is (= {:errors [{:path [:tasks :fmt :do]
+  (is (= {:errors [{:path [:tasks 'fmt :do]
                     :msg "must contain exactly one of :sh, :run"}]}
-         (load-cfg {:tasks {:fmt {:do {}}}}))))
+         (load-cfg {:tasks {'fmt {:do {}}}}))))
 
 (deftest load-rejects-single-step-map-with-multiple-action-keys
-  (is (= {:errors [{:path [:tasks :fmt :do]
+  (is (= {:errors [{:path [:tasks 'fmt :do]
                     :msg "must contain exactly one of :sh, :run"}]}
-         (load-cfg {:tasks {:fmt {:do {:sh "echo a"
+         (load-cfg {:tasks {'fmt {:do {:sh "echo a"
                                        :run "scripts/foo.lg"}}}}))))
 
 ;; ---------------------------------------------------------------------------
@@ -373,7 +385,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest load-accepts-task-extras
-  (let [cfg {:tasks {:dev {:doc "Dev"
+  (let [cfg {:tasks {'dev {:doc "Dev"
                            :extra-paths ["dev"]
                            :extra-resource-paths ["assets"]
                            :extra-deps {'foo/bar {:git/url "u" :git/sha "s"}}
@@ -381,33 +393,33 @@
     (is (= {:cfg cfg} (load-cfg cfg)))))
 
 (deftest load-rejects-task-extra-paths-not-a-vector
-  (is (= {:errors [{:path [:tasks :dev :extra-paths]
+  (is (= {:errors [{:path [:tasks 'dev :extra-paths]
                     :msg "must be a vector, got \"dev\""}]}
-         (load-cfg {:tasks {:dev {:extra-paths "dev"
+         (load-cfg {:tasks {'dev {:extra-paths "dev"
                                   :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-task-extra-paths-with-dotdot
-  (is (= {:errors [{:path [:tasks :dev :extra-paths 0]
+  (is (= {:errors [{:path [:tasks 'dev :extra-paths 0]
                     :msg "must not contain .. segments"}]}
-         (load-cfg {:tasks {:dev {:extra-paths ["../x"]
+         (load-cfg {:tasks {'dev {:extra-paths ["../x"]
                                   :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-task-extra-resource-paths-not-a-vector
-  (is (= {:errors [{:path [:tasks :dev :extra-resource-paths]
+  (is (= {:errors [{:path [:tasks 'dev :extra-resource-paths]
                     :msg "must be a vector, got \"assets\""}]}
-         (load-cfg {:tasks {:dev {:extra-resource-paths "assets"
+         (load-cfg {:tasks {'dev {:extra-resource-paths "assets"
                                   :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-task-extra-deps-not-a-map
-  (is (= {:errors [{:path [:tasks :dev :extra-deps]
+  (is (= {:errors [{:path [:tasks 'dev :extra-deps]
                     :msg "must be a map, got [:not :a :map]"}]}
-         (load-cfg {:tasks {:dev {:extra-deps [:not :a :map]
+         (load-cfg {:tasks {'dev {:extra-deps [:not :a :map]
                                   :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-task-extra-deps-bad-coord
-  (is (= {:errors [{:path [:tasks :dev :extra-deps 'foo/bar]
+  (is (= {:errors [{:path [:tasks 'dev :extra-deps 'foo/bar]
                     :msg "must specify :git/sha or :git/tag"}]}
-         (load-cfg {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"}}
+         (load-cfg {:tasks {'dev {:extra-deps {'foo/bar {:git/url "u"}}
                                   :do [{:sh "echo hi"}]}}}))))
 
 ;; ---------------------------------------------------------------------------
@@ -416,35 +428,35 @@
 
 (deftest load-accepts-task-with-defined-context
   (let [cfg {:contexts {:dev {:extra-paths ["dev"]}}
-             :tasks {:repl {:with [:dev]
+             :tasks {'repl {:with [:dev]
                             :do [{:sh "echo hi"}]}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
 
 (deftest load-rejects-task-with-unknown-context
-  (is (= {:errors [{:path [:tasks :repl :with]
+  (is (= {:errors [{:path [:tasks 'repl :with]
                     :msg "references unknown context :typo (defined: :dev)"}]}
          (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
-                    :tasks {:repl {:with [:typo]
+                    :tasks {'repl {:with [:typo]
                                    :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-task-with-when-no-contexts-defined
-  (is (= {:errors [{:path [:tasks :repl :with]
+  (is (= {:errors [{:path [:tasks 'repl :with]
                     :msg "references unknown context :dev (no contexts defined)"}]}
-         (load-cfg {:tasks {:repl {:with [:dev]
+         (load-cfg {:tasks {'repl {:with [:dev]
                                    :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-with-not-a-vector
-  (is (= {:errors [{:path [:tasks :repl :with]
+  (is (= {:errors [{:path [:tasks 'repl :with]
                     :msg "must be a vector, got \"dev\""}]}
          (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
-                    :tasks {:repl {:with "dev"
+                    :tasks {'repl {:with "dev"
                                    :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-with-non-keyword-element
-  (is (= {:errors [{:path [:tasks :repl :with 0]
+  (is (= {:errors [{:path [:tasks 'repl :with 0]
                     :msg "must be a keyword, got \"dev\""}]}
          (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
-                    :tasks {:repl {:with ["dev"]
+                    :tasks {'repl {:with ["dev"]
                                    :do [{:sh "echo hi"}]}}}))))
 
 ;; ---------------------------------------------------------------------------
@@ -491,11 +503,11 @@
 (deftest load-collects-multiple-errors-in-schema-order
   (is (= {:errors [{:path [:paths] :msg "must be a vector, got \"src\""}
                    {:path [:targets :bin] :msg "missing required key :out"}
-                   {:path [:tasks :lint :do 0]
+                   {:path [:tasks 'lint :do 0]
                     :msg "unknown key :shh (allowed: :sh, :run)"}]}
          (load-cfg {:paths "src"
                     :targets {:bin {}}
-                    :tasks {:lint {:do [{:shh "x"}]}}}))))
+                    :tasks {'lint {:do [{:shh "x"}]}}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; accessors — pure functions over a loaded cfg map, no I/O
@@ -508,14 +520,14 @@
              :main "main.lg"
              :targets {:bin {:out "bin/app"}}
              :contexts {:dev {}}
-             :tasks {:fmt {:do [{:sh "echo hi"}]}}}]
+             :tasks {'fmt {:do [{:sh "echo hi"}]}}}]
     (is (= [['foo/a {:git/url "u" :git/sha "s"}]] (config/coords cfg)))
     (is (= ["src"] (config/paths cfg)))
     (is (= ["resources"] (config/resource-paths cfg)))
     (is (= "main.lg" (config/main cfg)))
     (is (= {:bin {:out "bin/app"}} (config/targets cfg)))
     (is (= {:dev {}} (config/contexts cfg)))
-    (is (= {:fmt {:do [{:sh "echo hi"}]}} (config/tasks cfg)))))
+    (is (= {'fmt {:do [{:sh "echo hi"}]}} (config/tasks cfg)))))
 
 (deftest accessors-default-on-empty-cfg
   (is (= [] (config/coords {})))

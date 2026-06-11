@@ -443,8 +443,8 @@
         (str "\n"
              "Project tasks:\n"
              (str/join "\n" (map (fn [n]
-                                   (task-line (keyword n)
-                                              (get t (keyword n))))
+                                   (task-line (symbol n)
+                                              (get t (symbol n))))
                                  sorted-names))
              "\n")))))
 
@@ -497,7 +497,7 @@
     (if-let [project (config/find-project)]
       (let [cfg (config/load-config! project)
             t (config/tasks cfg)
-            k (keyword cmd)]
+            k (symbol cmd)]
         (if (contains? t k)
           (cmd-task cmd (get t k) project cfg verbose? with)
           (unknown-command! cmd)))
