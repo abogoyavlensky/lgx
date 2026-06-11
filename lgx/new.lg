@@ -13,10 +13,13 @@
 
 (def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
 
-(def default-template
-  "Default template coord used when no env override is set."
-  {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
-   :git/sha "1d71ab376f1467ab05d98a8b22570336a1a28c5b"})
+(def templates
+  "Built-in template registry: name -> pinned git coord. \"base\" is the
+   default when `lgx new` gets no -t/--template flag."
+  {"base" {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
+           :git/sha "1d71ab376f1467ab05d98a8b22570336a1a28c5b"}
+   "cli"  {:git/url "https://github.com/abogoyavlensky/lgx-template-cli"
+           :git/sha "7948695c318e9bb7a2a9c8ecaf9c8a7959033178"}})
 
 ;; ---------------------------------------------------------------------------
 ;; Validation
@@ -96,12 +99,43 @@
   (let [v (os/getenv var)]
     (if (str/blank? v) default v)))
 
+(defn- base-coord []
+  (let [base (get templates "base")]
+    {:git/url (env-or "LGX_TEMPLATE_BASE_URL" (:git/url base))
+     :git/sha (env-or "LGX_TEMPLATE_BASE_SHA" (:git/sha base))}))
+
 (defn resolve-template-coord
-  "Read LGX_TEMPLATE_BASE_URL / LGX_TEMPLATE_BASE_SHA. Blank or unset envs
-   fall back to default-template."
-  []
-  {:git/url (env-or "LGX_TEMPLATE_BASE_URL" (:git/url default-template))
-   :git/sha (env-or "LGX_TEMPLATE_BASE_SHA" (:git/sha default-template))})
+  "Resolve the -t/--template value to a git coord. nil or \"base\" uses the
+   base registry entry with LGX_TEMPLATE_BASE_URL / LGX_TEMPLATE_BASE_SHA
+   env overrides (blank or unset envs fall back to the registry). A value
+   containing :// is a custom template URL whose default-branch HEAD is
+   resolved via git ls-remote. Anything else is a registry name; unknown
+   names throw ex-info, as do URL resolution failures (prefix-free messages,
+   printed by the caller via die!)."
+  [template]
+  (cond
+    (or (nil? template) (= template "base"))
+    (base-coord)
+
+    (str/includes? template "://")
+    (let [sha (try (cache/resolve-head-sha! template)
+                   (catch e
+                          (throw (ex-info (str "failed to resolve template "
+                                               template ": "
+                                               (or (:stderr (ex-data e))
+                                                   (ex-message e)))
+                                          {:url template}))))]
+      {:git/url template
+       :git/sha sha})
+
+    :else
+    (if-let [coord (get templates template)]
+      coord
+      (throw (ex-info (str "unknown template: " template
+                           " (built-in: "
+                           (str/join ", " (sort (keys templates)))
+                           ")")
+                      {:template template})))))
 
 (defn- templates-root []
   (path/join (home/root) "templates"))
