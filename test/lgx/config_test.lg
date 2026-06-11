@@ -1,178 +1,504 @@
-;; Unit tests for lgx.config — pure parsing/validation helpers.
+;; Unit tests for lgx.config — config loading, schema validation, accessors.
 ;; Run with: lgx test  (from project root)
 
 (ns lgx.config-test
   (:require [lgx.config :as config]
+            [string :as str]
             [test :refer [deftest is]]))
 
 (defn- threw? [f]
   (try (f) :no-throw (catch e :threw)))
 
+;; Write the given EDN string as a throwaway project's lgx.edn and load it.
+(defn- load-edn [edn-str]
+  (let [dir (str "/tmp/lgx-load-config-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn") edn-str)
+    (let [r (config/load-config dir)]
+      (os/sh "rm" "-rf" dir)
+      r)))
+
+;; Same, but from a config value (serialized through pr-str).
+(defn- load-cfg [cfg]
+  (load-edn (pr-str cfg)))
+
 ;; ---------------------------------------------------------------------------
-;; validate-config!
+;; load-config: valid configs
 ;; ---------------------------------------------------------------------------
 
-(deftest validate-config-accepts-valid-deps
-  (is (= {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
-                                :git/sha "abc"}}}
-         (config/validate-config!
-           {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
-                                  :git/sha "abc"}}}))))
+(deftest load-accepts-valid-deps
+  (let [cfg {:deps {'nooga/let-go {:git/url "https://github.com/nooga/let-go"
+                                   :git/sha "abc"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-accepts-tag-only-coord
-  (is (= {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                           :git/tag "v0.1.0"}}}
-         (config/validate-config!
-           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                             :git/tag "v0.1.0"}}}))))
+(deftest load-accepts-tag-only-coord
+  (let [cfg {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                              :git/tag "v0.1.0"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-accepts-local-root
+(deftest load-accepts-local-root
   (let [cfg {:deps {'my/lib {:local/root "../mylib"}}}]
-    (is (= cfg (config/validate-config! cfg)))))
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-accepts-local-root-with-deps-root
+(deftest load-accepts-local-root-with-deps-root
   (let [cfg {:deps {'my/lib {:local/root "../mylib"
                              :deps/root "src/main/clojure"}}}]
-    (is (= cfg (config/validate-config! cfg)))))
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-accepts-absolute-local-root
+(deftest load-accepts-absolute-local-root
   (let [cfg {:deps {'my/lib {:local/root "/abs/path"}}}]
-    (is (= cfg (config/validate-config! cfg)))))
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-accepts-local-root-with-dotdot
-  (let [cfg {:deps {'my/lib {:local/root "../sibling"}}}]
-    (is (= cfg (config/validate-config! cfg)))))
+(deftest load-accepts-empty-deps
+  (is (= {:cfg {:deps {}}} (load-cfg {:deps {}})))
+  (is (= {:cfg {}} (load-cfg {}))))
 
-(deftest validate-config-accepts-empty-deps
-  (is (= {:deps {}} (config/validate-config! {:deps {}})))
-  (is (= {} (config/validate-config! {}))))
+(deftest load-accepts-open-coord-keys
+  ;; Coord maps are open: unknown keys are tools.deps forward-compat, not errors.
+  (let [cfg {:deps {'foo/bar {:git/url "u"
+                              :git/sha "s"
+                              :git/branch "main"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-accepts-paths
-  (is (= {:paths ["src" "resources"]
-          :deps {}}
-         (config/validate-config! {:paths ["src" "resources"]
-                                   :deps {}}))))
+(deftest load-accepts-paths
+  (let [cfg {:paths ["src" "resources"] :deps {}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-accepts-empty-paths
-  (is (= {:paths []}
-         (config/validate-config! {:paths []}))))
+(deftest load-accepts-empty-paths
+  (is (= {:cfg {:paths []}} (load-cfg {:paths []}))))
 
-(deftest validate-config-rejects-non-map-top-level
-  (is (= :threw (threw? #(config/validate-config! [:not :a :map])))))
+(deftest load-accepts-resource-paths
+  (let [cfg {:resource-paths ["resources" "assets"] :deps {}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-rejects-unknown-top-level-key
-  (is (= :threw (threw? #(config/validate-config! {:deps {}
-                                                   :extra 1})))))
-
-(deftest validate-config-rejects-deps-not-a-map
-  (is (= :threw (threw? #(config/validate-config! {:deps [:not :a :map]})))))
-
-(deftest validate-config-rejects-paths-not-a-vector
-  (is (= :threw (threw? #(config/validate-config! {:paths "src"})))))
-
-(deftest validate-config-accepts-resource-paths
-  (is (= {:resource-paths ["resources" "assets"]
-          :deps {}}
-         (config/validate-config! {:resource-paths ["resources" "assets"]
-                                   :deps {}}))))
-
-(deftest validate-config-accepts-empty-resource-paths
-  (is (= {:resource-paths []}
-         (config/validate-config! {:resource-paths []}))))
-
-(deftest validate-config-rejects-resource-paths-not-a-vector
-  (is (= :threw (threw? #(config/validate-config! {:resource-paths "resources"})))))
-
-(deftest validate-config-rejects-resource-paths-with-dotdot
-  (is (= :threw (threw? #(config/validate-config! {:resource-paths ["../x"]})))))
-
-(deftest validate-config-rejects-resource-paths-absolute
-  (is (= :threw (threw? #(config/validate-config! {:resource-paths ["/abs"]})))))
-
-(deftest validate-config-rejects-coord-missing-url
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/sha "abc"}}})))))
-
-(deftest validate-config-rejects-coord-without-sha-or-tag
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"}}})))))
-
-(deftest validate-config-rejects-non-map-coord
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar "not-a-map"}})))))
-
-(deftest validate-config-rejects-blank-local-root
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'my/lib {:local/root ""}}}))))
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'my/lib {:local/root "   "}}})))))
-
-(deftest validate-config-rejects-non-string-local-root
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'my/lib {:local/root 5}}})))))
-
-(deftest validate-config-rejects-mixed-local-and-git
-  (doseq [coord [{:local/root "../mylib"
-                  :git/url "https://github.com/foo/bar"}
-                 {:local/root "../mylib"
-                  :git/sha "abc"}
-                 {:local/root "../mylib"
-                  :git/tag "v0.1.0"}]]
-    (is (= :threw (threw? #(config/validate-config!
-                             {:deps {'my/lib coord}}))))))
-
-(deftest validate-config-accepts-deps-root
+(deftest load-accepts-deps-root
   (let [cfg {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
                               :git/sha "abc"
                               :deps/root "src/main/clojure"}}}]
-    (is (= cfg (config/validate-config! cfg)))))
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
-(deftest validate-config-rejects-blank-deps-root
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                                             :git/sha "abc"
-                                             :deps/root ""}}}))))
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                                             :git/sha "abc"
-                                             :deps/root "   "}}})))))
+(deftest load-accepts-main
+  (is (= {:cfg {:main "main.lg"}} (load-cfg {:main "main.lg"})))
+  (is (= {:cfg {:main "scripts/dev.lg"}} (load-cfg {:main "scripts/dev.lg"}))))
 
-(deftest validate-config-rejects-non-string-deps-root
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                                             :git/sha "abc"
-                                             :deps/root 5}}})))))
-
-(deftest validate-config-rejects-absolute-deps-root
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                                             :git/sha "abc"
-                                             :deps/root "/src"}}})))))
-
-(deftest validate-config-rejects-parent-traversal
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                                             :git/sha "abc"
-                                             :deps/root ".."}}}))))
-  (is (= :threw (threw? #(config/validate-config!
-                           {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
-                                             :git/sha "abc"
-                                             :deps/root "src/../etc"}}})))))
-
-(deftest validate-config-rejects-blank-paths-entry
-  (is (= :threw (threw? #(config/validate-config! {:paths [""]})))))
-
-(deftest validate-config-rejects-non-string-paths-entry
-  (is (= :threw (threw? #(config/validate-config! {:paths [5]})))))
-
-(deftest validate-config-rejects-absolute-paths-entry
-  (is (= :threw (threw? #(config/validate-config! {:paths ["/abs"]})))))
-
-(deftest validate-config-rejects-parent-traversal-paths-entry
-  (is (= :threw (threw? #(config/validate-config! {:paths ["../etc"]})))))
+(deftest load-accepts-targets-bin
+  (let [cfg {:targets {:bin {:out "bin/app"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
 ;; ---------------------------------------------------------------------------
-;; coords
+;; load-config: top-level errors
+;; ---------------------------------------------------------------------------
+
+(deftest load-rejects-non-map-top-level
+  (is (= {:errors [{:path [] :msg "must be a map, got [:not :a :map]"}]}
+         (load-cfg [:not :a :map]))))
+
+(deftest load-rejects-unknown-top-level-key
+  (is (= {:errors [{:path []
+                    :msg (str "unknown key :extra (allowed: :deps, :paths, "
+                              ":resource-paths, :main, :targets, :contexts, "
+                              ":tasks)")}]}
+         (load-cfg {:deps {} :extra 1}))))
+
+(deftest load-rejects-deps-not-a-map
+  (is (= {:errors [{:path [:deps] :msg "must be a map, got [:not :a :map]"}]}
+         (load-cfg {:deps [:not :a :map]}))))
+
+(deftest load-rejects-paths-not-a-vector
+  (is (= {:errors [{:path [:paths] :msg "must be a vector, got \"src\""}]}
+         (load-cfg {:paths "src"}))))
+
+(deftest load-rejects-resource-paths-not-a-vector
+  (is (= {:errors [{:path [:resource-paths]
+                    :msg "must be a vector, got \"resources\""}]}
+         (load-cfg {:resource-paths "resources"}))))
+
+(deftest load-reports-parse-error
+  (let [r (load-edn "{:paths [")]
+    (is (= 1 (count (:errors r))))
+    (let [e (first (:errors r))]
+      (is (= [] (:path e)))
+      (is (str/starts-with? (:msg e) "could not parse lgx.edn: ")))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: relative-path rules (:paths entries, :main, :out)
+;; ---------------------------------------------------------------------------
+
+(deftest load-rejects-bad-paths-entries
+  (is (= {:errors [{:path [:paths 0] :msg "must be a string, got 5"}]}
+         (load-cfg {:paths [5]})))
+  (is (= {:errors [{:path [:paths 0] :msg "must be non-blank"}]}
+         (load-cfg {:paths [""]})))
+  (is (= {:errors [{:path [:paths 0] :msg "must be relative (no leading /)"}]}
+         (load-cfg {:paths ["/abs"]})))
+  (is (= {:errors [{:path [:paths 0] :msg "must not contain .. segments"}]}
+         (load-cfg {:paths ["../etc"]}))))
+
+(deftest load-rejects-resource-paths-with-dotdot
+  (is (= {:errors [{:path [:resource-paths 0]
+                    :msg "must not contain .. segments"}]}
+         (load-cfg {:resource-paths ["../x"]})))
+  (is (= {:errors [{:path [:resource-paths 0]
+                    :msg "must be relative (no leading /)"}]}
+         (load-cfg {:resource-paths ["/abs"]}))))
+
+(deftest load-rejects-bad-main
+  (is (= {:errors [{:path [:main] :msg "must be a string, got 5"}]}
+         (load-cfg {:main 5})))
+  (is (= {:errors [{:path [:main] :msg "must be non-blank"}]}
+         (load-cfg {:main "   "})))
+  (is (= {:errors [{:path [:main] :msg "must be relative (no leading /)"}]}
+         (load-cfg {:main "/abs/main.lg"})))
+  (is (= {:errors [{:path [:main] :msg "must not contain .. segments"}]}
+         (load-cfg {:main "src/../etc.lg"}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: coord errors
+;; ---------------------------------------------------------------------------
+
+(deftest load-rejects-coord-missing-url
+  (is (= {:errors [{:path [:deps 'foo/bar] :msg "missing :git/url"}]}
+         (load-cfg {:deps {'foo/bar {:git/sha "abc"}}}))))
+
+(deftest load-rejects-coord-without-sha-or-tag
+  (is (= {:errors [{:path [:deps 'foo/bar]
+                    :msg "must specify :git/sha or :git/tag"}]}
+         (load-cfg {:deps {'foo/bar {:git/url "https://github.com/foo/bar"}}}))))
+
+(deftest load-rejects-non-map-coord
+  (is (= {:errors [{:path [:deps 'foo/bar]
+                    :msg "must be a map, got \"not-a-map\""}]}
+         (load-cfg {:deps {'foo/bar "not-a-map"}}))))
+
+(deftest load-rejects-non-symbol-dep-name
+  (is (= {:errors [{:path [:deps :foo] :msg "must be a symbol, got :foo"}]}
+         (load-cfg {:deps {:foo {:git/url "u" :git/sha "s"}}}))))
+
+(deftest load-rejects-blank-local-root
+  (is (= {:errors [{:path [:deps 'my/lib :local/root] :msg "must be non-blank"}]}
+         (load-cfg {:deps {'my/lib {:local/root "   "}}}))))
+
+(deftest load-rejects-non-string-local-root
+  (is (= {:errors [{:path [:deps 'my/lib :local/root]
+                    :msg "must be a string, got 5"}]}
+         (load-cfg {:deps {'my/lib {:local/root 5}}}))))
+
+(deftest load-rejects-mixed-local-and-git
+  (doseq [coord [{:local/root "../mylib" :git/url "https://github.com/foo/bar"}
+                 {:local/root "../mylib" :git/sha "abc"}
+                 {:local/root "../mylib" :git/tag "v0.1.0"}]]
+    (is (= {:errors [{:path [:deps 'my/lib]
+                      :msg "cannot mix :local/root with :git/* keys"}]}
+           (load-cfg {:deps {'my/lib coord}})))))
+
+(deftest load-rejects-bad-deps-root
+  (let [base {:git/url "https://github.com/foo/bar" :git/sha "abc"}]
+    (is (= {:errors [{:path [:deps 'foo/bar :deps/root]
+                      :msg "must be non-blank"}]}
+           (load-cfg {:deps {'foo/bar (assoc base :deps/root "   ")}})))
+    (is (= {:errors [{:path [:deps 'foo/bar :deps/root]
+                      :msg "must be a string, got 5"}]}
+           (load-cfg {:deps {'foo/bar (assoc base :deps/root 5)}})))
+    (is (= {:errors [{:path [:deps 'foo/bar :deps/root]
+                      :msg "must be relative (no leading /)"}]}
+           (load-cfg {:deps {'foo/bar (assoc base :deps/root "/src")}})))
+    (is (= {:errors [{:path [:deps 'foo/bar :deps/root]
+                      :msg "must not contain .. segments"}]}
+           (load-cfg {:deps {'foo/bar (assoc base :deps/root "src/../etc")}})))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :targets errors
+;; ---------------------------------------------------------------------------
+
+(deftest load-rejects-targets-not-a-map
+  (is (= {:errors [{:path [:targets] :msg "must be a map, got [:bin]"}]}
+         (load-cfg {:targets [:bin]}))))
+
+(deftest load-rejects-unknown-target
+  (is (= {:errors [{:path [:targets] :msg "unknown key :wasm (allowed: :bin)"}]}
+         (load-cfg {:targets {:wasm {:out "out/app.wasm"}}}))))
+
+(deftest load-rejects-bin-not-a-map
+  (is (= {:errors [{:path [:targets :bin] :msg "must be a map, got \"bin/app\""}]}
+         (load-cfg {:targets {:bin "bin/app"}}))))
+
+(deftest load-rejects-bin-without-out
+  (is (= {:errors [{:path [:targets :bin] :msg "missing required key :out"}]}
+         (load-cfg {:targets {:bin {}}}))))
+
+(deftest load-rejects-unknown-bin-key
+  (is (= {:errors [{:path [:targets :bin] :msg "unknown key :foo (allowed: :out)"}]}
+         (load-cfg {:targets {:bin {:out "bin/app" :foo 1}}}))))
+
+(deftest load-rejects-bad-out
+  (is (= {:errors [{:path [:targets :bin :out] :msg "must be non-blank"}]}
+         (load-cfg {:targets {:bin {:out "   "}}})))
+  (is (= {:errors [{:path [:targets :bin :out]
+                    :msg "must be relative (no leading /)"}]}
+         (load-cfg {:targets {:bin {:out "/abs/app"}}})))
+  (is (= {:errors [{:path [:targets :bin :out]
+                    :msg "must not contain .. segments"}]}
+         (load-cfg {:targets {:bin {:out "bin/../app"}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :tasks
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-tasks
+  (let [cfg {:tasks {:fmt {:doc "Format"
+                           :do [{:sh "echo hi"}]}
+                     :check {:do [{:run "scripts/test.lg"}]}
+                     :ci {:do [{:sh ["cljfmt" "check" "src"]}
+                               {:run ["scripts/test.lg" "unit"]}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-tasks-not-a-map
+  (is (= {:errors [{:path [:tasks] :msg "must be a map, got [:not :a :map]"}]}
+         (load-cfg {:tasks [:not :a :map]}))))
+
+(deftest load-rejects-non-keyword-task-name
+  (is (= {:errors [{:path [:tasks "fmt"] :msg "must be a keyword, got \"fmt\""}]}
+         (load-cfg {:tasks {"fmt" {:do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-non-map-task
+  (is (= {:errors [{:path [:tasks :fmt] :msg "must be a map, got \"not-a-map\""}]}
+         (load-cfg {:tasks {:fmt "not-a-map"}}))))
+
+(deftest load-rejects-task-missing-do
+  (is (= {:errors [{:path [:tasks :fmt] :msg "missing required key :do"}]}
+         (load-cfg {:tasks {:fmt {:doc "x"}}}))))
+
+(deftest load-rejects-non-string-doc
+  (is (= {:errors [{:path [:tasks :fmt :doc] :msg "must be a string, got 5"}]}
+         (load-cfg {:tasks {:fmt {:doc 5 :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-task-with-unknown-key
+  (is (= {:errors [{:path [:tasks :dev]
+                    :msg (str "unknown key :extra-dep (allowed: :doc, :do, "
+                              ":extra-paths, :extra-resource-paths, "
+                              ":extra-deps, :with)")}]}
+         (load-cfg {:tasks {:dev {:extra-dep {}
+                                  :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-reserved-task-names
+  (doseq [n config/reserved-task-names]
+    (is (= {:errors [{:path [:tasks (keyword n)]
+                      :msg (str "conflicts with built-in command \"" n "\"")}]}
+           (load-cfg {:tasks {(keyword n) {:do [{:sh "echo hi"}]}}}))))
+  ;; Explicit spot-checks: "test" and "nrepl" must stay reserved so projects
+  ;; can't shadow them (dispatch would always win, leaving the task unreachable).
+  (is (contains? config/reserved-task-names "test"))
+  (is (contains? config/reserved-task-names "nrepl")))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :do and step errors
+;; ---------------------------------------------------------------------------
+
+(deftest load-rejects-non-step-do
+  (is (= {:errors [{:path [:tasks :fmt :do]
+                    :msg (str "must be a step map or non-empty vector of "
+                              "steps, got \"echo hi\"")}]}
+         (load-cfg {:tasks {:fmt {:do "echo hi"}}}))))
+
+(deftest load-rejects-empty-do
+  (is (= {:errors [{:path [:tasks :fmt :do]
+                    :msg "must contain at least 1 element"}]}
+         (load-cfg {:tasks {:fmt {:do []}}}))))
+
+(deftest load-rejects-step-not-a-map
+  (is (= {:errors [{:path [:tasks :fmt :do 0]
+                    :msg "must be a map, got \"echo hi\""}]}
+         (load-cfg {:tasks {:fmt {:do ["echo hi"]}}}))))
+
+(deftest load-rejects-step-with-multiple-action-keys
+  (is (= {:errors [{:path [:tasks :fmt :do 0]
+                    :msg "must contain exactly one of :sh, :run"}]}
+         (load-cfg {:tasks {:fmt {:do [{:sh "echo a"
+                                        :run "scripts/foo.lg"}]}}}))))
+
+(deftest load-rejects-step-with-no-action-key
+  (is (= {:errors [{:path [:tasks :fmt :do 0]
+                    :msg "must contain exactly one of :sh, :run"}]}
+         (load-cfg {:tasks {:fmt {:do [{}]}}}))))
+
+(deftest load-rejects-step-with-unknown-key
+  (is (= {:errors [{:path [:tasks :fmt :do 0]
+                    :msg "unknown key :env (allowed: :sh, :run)"}]}
+         (load-cfg {:tasks {:fmt {:do [{:sh "echo hi"
+                                        :env {"FOO" "1"}}]}}}))))
+
+(deftest load-rejects-bad-action-values
+  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh]
+                    :msg "must be a string or vector of strings, got 5"}]}
+         (load-cfg {:tasks {:fmt {:do [{:sh 5}]}}})))
+  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh]
+                    :msg "must be a non-blank string"}]}
+         (load-cfg {:tasks {:fmt {:do [{:sh ""}]}}})))
+  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh]
+                    :msg "must be a non-empty vector of strings"}]}
+         (load-cfg {:tasks {:fmt {:do [{:sh []}]}}})))
+  (is (= {:errors [{:path [:tasks :fmt :do 0 :sh 1]
+                    :msg "must be a string, got 5"}]}
+         (load-cfg {:tasks {:fmt {:do [{:sh ["echo" 5]}]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: single-step-map :do normalization
+;; ---------------------------------------------------------------------------
+
+(deftest load-normalizes-single-sh-step-map
+  (let [r (load-cfg {:tasks {:fmt {:do {:sh "echo hi"}}}})]
+    (is (= [{:sh "echo hi"}] (get-in r [:cfg :tasks :fmt :do])))))
+
+(deftest load-normalizes-single-run-step-map
+  (let [r (load-cfg {:tasks {:check {:do {:run "scripts/test.lg"}}}})]
+    (is (= [{:run "scripts/test.lg"}] (get-in r [:cfg :tasks :check :do])))))
+
+(deftest load-keeps-vector-do-as-is
+  (let [r (load-cfg {:tasks {:ci {:do [{:sh "echo a"} {:run "t.lg"}]}}})]
+    (is (= [{:sh "echo a"} {:run "t.lg"}] (get-in r [:cfg :tasks :ci :do])))))
+
+(deftest load-rejects-single-step-map-with-no-action-key
+  (is (= {:errors [{:path [:tasks :fmt :do]
+                    :msg "must contain exactly one of :sh, :run"}]}
+         (load-cfg {:tasks {:fmt {:do {}}}}))))
+
+(deftest load-rejects-single-step-map-with-multiple-action-keys
+  (is (= {:errors [{:path [:tasks :fmt :do]
+                    :msg "must contain exactly one of :sh, :run"}]}
+         (load-cfg {:tasks {:fmt {:do {:sh "echo a"
+                                       :run "scripts/foo.lg"}}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: task extras
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-task-extras
+  (let [cfg {:tasks {:dev {:doc "Dev"
+                           :extra-paths ["dev"]
+                           :extra-resource-paths ["assets"]
+                           :extra-deps {'foo/bar {:git/url "u" :git/sha "s"}}
+                           :do [{:run "dev/repl.lg"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-task-extra-paths-not-a-vector
+  (is (= {:errors [{:path [:tasks :dev :extra-paths]
+                    :msg "must be a vector, got \"dev\""}]}
+         (load-cfg {:tasks {:dev {:extra-paths "dev"
+                                  :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-task-extra-paths-with-dotdot
+  (is (= {:errors [{:path [:tasks :dev :extra-paths 0]
+                    :msg "must not contain .. segments"}]}
+         (load-cfg {:tasks {:dev {:extra-paths ["../x"]
+                                  :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-task-extra-resource-paths-not-a-vector
+  (is (= {:errors [{:path [:tasks :dev :extra-resource-paths]
+                    :msg "must be a vector, got \"assets\""}]}
+         (load-cfg {:tasks {:dev {:extra-resource-paths "assets"
+                                  :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-task-extra-deps-not-a-map
+  (is (= {:errors [{:path [:tasks :dev :extra-deps]
+                    :msg "must be a map, got [:not :a :map]"}]}
+         (load-cfg {:tasks {:dev {:extra-deps [:not :a :map]
+                                  :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-task-extra-deps-bad-coord
+  (is (= {:errors [{:path [:tasks :dev :extra-deps 'foo/bar]
+                    :msg "must specify :git/sha or :git/tag"}]}
+         (load-cfg {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"}}
+                                  :do [{:sh "echo hi"}]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :with references defined contexts
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-task-with-defined-context
+  (let [cfg {:contexts {:dev {:extra-paths ["dev"]}}
+             :tasks {:repl {:with [:dev]
+                            :do [{:sh "echo hi"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-task-with-unknown-context
+  (is (= {:errors [{:path [:tasks :repl :with]
+                    :msg "references unknown context :typo (defined: :dev)"}]}
+         (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
+                    :tasks {:repl {:with [:typo]
+                                   :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-task-with-when-no-contexts-defined
+  (is (= {:errors [{:path [:tasks :repl :with]
+                    :msg "references unknown context :dev (no contexts defined)"}]}
+         (load-cfg {:tasks {:repl {:with [:dev]
+                                   :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-with-not-a-vector
+  (is (= {:errors [{:path [:tasks :repl :with]
+                    :msg "must be a vector, got \"dev\""}]}
+         (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
+                    :tasks {:repl {:with "dev"
+                                   :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-with-non-keyword-element
+  (is (= {:errors [{:path [:tasks :repl :with 0]
+                    :msg "must be a keyword, got \"dev\""}]}
+         (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
+                    :tasks {:repl {:with ["dev"]
+                                   :do [{:sh "echo hi"}]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :contexts
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-contexts
+  (let [cfg {:contexts {:dev {:extra-paths ["dev"]
+                              :extra-resource-paths ["assets"]
+                              :extra-deps {'foo/bar {:git/url "u"
+                                                     :git/sha "s"}}}
+                        :empty {}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-contexts-not-a-map
+  (is (= {:errors [{:path [:contexts] :msg "must be a map, got [:not :a :map]"}]}
+         (load-cfg {:contexts [:not :a :map]}))))
+
+(deftest load-rejects-non-keyword-context-name
+  (is (= {:errors [{:path [:contexts "dev"]
+                    :msg "must be a keyword, got \"dev\""}]}
+         (load-cfg {:contexts {"dev" {:extra-paths ["dev"]}}}))))
+
+(deftest load-rejects-context-with-unknown-key
+  (is (= {:errors [{:path [:contexts :dev]
+                    :msg (str "unknown key :extra-path (allowed: :extra-deps, "
+                              ":extra-paths, :extra-resource-paths)")}]}
+         (load-cfg {:contexts {:dev {:extra-path ["x"]}}}))))
+
+(deftest load-rejects-context-with-bad-coord
+  (is (= {:errors [{:path [:contexts :dev :extra-deps 'foo/bar]
+                    :msg "must specify :git/sha or :git/tag"}]}
+         (load-cfg {:contexts {:dev {:extra-deps {'foo/bar {:git/url "u"}}}}}))))
+
+(deftest load-rejects-context-with-dotdot-path
+  (is (= {:errors [{:path [:contexts :dev :extra-paths 0]
+                    :msg "must not contain .. segments"}]}
+         (load-cfg {:contexts {:dev {:extra-paths ["../x"]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: error aggregation
+;; ---------------------------------------------------------------------------
+
+(deftest load-collects-multiple-errors-in-schema-order
+  (is (= {:errors [{:path [:paths] :msg "must be a vector, got \"src\""}
+                   {:path [:targets :bin] :msg "missing required key :out"}
+                   {:path [:tasks :lint :do 0]
+                    :msg "unknown key :shh (allowed: :sh, :run)"}]}
+         (load-cfg {:paths "src"
+                    :targets {:bin {}}
+                    :tasks {:lint {:do [{:shh "x"}]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; coords (project-root API, rewritten over cfg in Task 4)
 ;; ---------------------------------------------------------------------------
 
 (deftest coords-reads-and-parses-fixture
@@ -184,387 +510,18 @@
            (:git/sha (get m 'nooga/let-go))))
     (is (= "v0.1.0" (:git/tag (get m 'example/tagged))))))
 
-;; ---------------------------------------------------------------------------
-;; paths
-;; ---------------------------------------------------------------------------
-
-(deftest paths-returns-empty-when-absent
-  (is (= [] (or (:paths (config/validate-config! {:deps {}})) []))))
-
 (deftest paths-reads-fixture
   (is (= ["src" "test"] (config/paths "tests/fixtures/sample-project"))))
-
-;; ---------------------------------------------------------------------------
-;; resource-paths
-;; ---------------------------------------------------------------------------
-
-(deftest resource-paths-returns-empty-when-absent
-  (is (= [] (or (:resource-paths (config/validate-config! {:deps {}})) []))))
 
 (deftest resource-paths-reads-fixture
   (is (= ["resources"] (config/resource-paths "tests/fixtures/sample-project"))))
 
-;; ---------------------------------------------------------------------------
-;; :main validation
-;; ---------------------------------------------------------------------------
-
-(deftest validate-config-accepts-main
-  (let [cfg {:main "main.lg"}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-nested-main
-  (let [cfg {:main "scripts/dev.lg"}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-rejects-non-string-main
-  (is (= :threw (threw? #(config/validate-config! {:main 5})))))
-
-(deftest validate-config-rejects-blank-main
-  (is (= :threw (threw? #(config/validate-config! {:main ""}))))
-  (is (= :threw (threw? #(config/validate-config! {:main "   "})))))
-
-(deftest validate-config-rejects-absolute-main
-  (is (= :threw (threw? #(config/validate-config! {:main "/abs/main.lg"})))))
-
-(deftest validate-config-rejects-parent-traversal-main
-  (is (= :threw (threw? #(config/validate-config! {:main "../main.lg"}))))
-  (is (= :threw (threw? #(config/validate-config! {:main "src/../etc.lg"})))))
-
-;; ---------------------------------------------------------------------------
-;; main accessor
-;; ---------------------------------------------------------------------------
-
-(deftest main-returns-nil-when-absent
-  (is (nil? (:main (config/validate-config! {:deps {}})))))
-
 (deftest main-reads-fixture
   (is (= "main.lg" (config/main "tests/fixtures/sample-project"))))
-
-;; ---------------------------------------------------------------------------
-;; :targets validation
-;; ---------------------------------------------------------------------------
-
-(deftest validate-config-accepts-targets-bin
-  (let [cfg {:targets {:bin {:out "bin/app"}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-rejects-targets-not-a-map
-  (is (= :threw (threw? #(config/validate-config! {:targets [:bin]})))))
-
-(deftest validate-config-rejects-unknown-target
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:wasm {:out "out/app.wasm"}}})))))
-
-(deftest validate-config-rejects-bin-not-a-map
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin "bin/app"}})))))
-
-(deftest validate-config-rejects-bin-without-out
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin {}}})))))
-
-(deftest validate-config-rejects-unknown-bin-key
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin {:out "bin/app"
-                                            :foo 1}}})))))
-
-(deftest validate-config-rejects-blank-out
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin {:out ""}}}))))
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin {:out "   "}}})))))
-
-(deftest validate-config-rejects-absolute-out
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin {:out "/abs/app"}}})))))
-
-(deftest validate-config-rejects-parent-traversal-out
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin {:out "../app"}}}))))
-  (is (= :threw (threw? #(config/validate-config!
-                           {:targets {:bin {:out "bin/../app"}}})))))
-
-;; ---------------------------------------------------------------------------
-;; targets accessor
-;; ---------------------------------------------------------------------------
-
-(deftest targets-returns-empty-when-absent
-  (is (= {} (or (:targets (config/validate-config! {:deps {}})) {}))))
 
 (deftest targets-reads-fixture
   (is (= {:bin {:out "bin/sample"}}
          (config/targets "tests/fixtures/sample-project"))))
-
-;; ---------------------------------------------------------------------------
-;; :tasks validation
-;; ---------------------------------------------------------------------------
-
-(deftest validate-config-accepts-minimal-task
-  (let [cfg {:tasks {:fmt {:doc "Format"
-                           :do [{:sh "echo hi"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-task-without-doc
-  (let [cfg {:tasks {:fmt {:do [{:sh "echo hi"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-task-with-run-step
-  (let [cfg {:tasks {:check {:do [{:run "scripts/test.lg"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-task-with-vector-step-values
-  (let [cfg {:tasks {:ci {:do [{:sh ["cljfmt" "check" "src"]}
-                               {:run ["scripts/test.lg" "unit"]}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-multiple-tasks
-  (let [cfg {:tasks {:fmt {:do [{:sh "echo a"}]}
-                     :check {:do [{:run "scripts/test.lg"}]}
-                     :ci {:do [{:sh "echo a"}
-                               {:run "scripts/test.lg"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-rejects-tasks-not-a-map
-  (is (= :threw (threw? #(config/validate-config! {:tasks [:not :a :map]})))))
-
-(deftest validate-config-rejects-non-keyword-task-name
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {"fmt" {:do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-non-map-task
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt "not-a-map"}})))))
-
-(deftest validate-config-rejects-task-missing-do
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:doc "x"}}})))))
-
-(deftest validate-config-rejects-task-with-non-string-doc
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:doc 5
-                                          :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-with-non-vector-do
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do "echo hi"}}})))))
-
-(deftest validate-config-rejects-task-with-empty-do
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do []}}})))))
-
-(deftest validate-config-rejects-step-not-a-map
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do ["echo hi"]}}})))))
-
-(deftest validate-config-rejects-step-with-multiple-action-keys
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do [{:sh "echo a"
-                                                :run "scripts/foo.lg"}]}}})))))
-
-(deftest validate-config-rejects-step-with-no-action-key
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do [{}]}}})))))
-
-(deftest validate-config-rejects-step-with-unknown-key
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do [{:sh "echo hi"
-                                                :env {"FOO" "1"}}]}}})))))
-
-(deftest validate-config-rejects-step-with-non-string-non-vector-value
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do [{:sh 5}]}}})))))
-
-(deftest validate-config-rejects-step-with-blank-string-value
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do [{:sh ""}]}}})))))
-
-(deftest validate-config-rejects-step-with-non-string-vector-item
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do [{:sh ["echo" 5]}]}}})))))
-
-(deftest validate-config-rejects-step-with-empty-vector-value
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do [{:sh []}]}}})))))
-
-(deftest validate-config-accepts-task-with-single-sh-step-map
-  (let [cfg {:tasks {:fmt {:do {:sh "echo hi"}}}}
-        result (config/validate-config! cfg)]
-    (is (= [{:sh "echo hi"}] (get-in result [:tasks :fmt :do])))))
-
-(deftest validate-config-accepts-task-with-single-run-step-map
-  (let [cfg {:tasks {:check {:do {:run "scripts/test.lg"}}}}
-        result (config/validate-config! cfg)]
-    (is (= [{:run "scripts/test.lg"}] (get-in result [:tasks :check :do])))))
-
-(deftest validate-config-rejects-single-step-map-with-no-action-key
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do {}}}})))))
-
-(deftest validate-config-rejects-single-step-map-with-multiple-action-keys
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:fmt {:do {:sh "echo a" :run "scripts/foo.lg"}}}})))))
-
-(deftest validate-config-rejects-tasks-conflicting-with-builtins
-  (doseq [n config/reserved-task-names]
-    (is (= :threw (threw? #(config/validate-config!
-                             {:tasks {(keyword n) {:do [{:sh "echo hi"}]}}})))))
-  ;; Explicit spot-check: "test" must be reserved so projects can't shadow it.
-  (is (contains? config/reserved-task-names "test"))
-  ;; Same for "nrepl": the dispatch case would always win, leaving the task
-  ;; defined but unreachable.
-  (is (contains? config/reserved-task-names "nrepl"))
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:test {:do [{:sh "echo hi"}]}}})))))
-
-
-;; ---------------------------------------------------------------------------
-;; :tasks :extra-paths / :extra-deps validation
-;; ---------------------------------------------------------------------------
-
-(deftest validate-config-accepts-task-with-extra-paths
-  (let [cfg {:tasks {:dev {:extra-paths ["dev"]
-                           :do [{:run "dev/repl.lg"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-task-with-extra-deps
-  (let [cfg {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"
-                                                  :git/sha "s"}}
-                           :do [{:run "dev/repl.lg"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-task-with-extra-paths-and-deps
-  (let [cfg {:tasks {:dev {:doc "Dev"
-                           :extra-paths ["dev"]
-                           :extra-deps {'foo/bar {:git/url "u"
-                                                  :git/sha "s"}}
-                           :do [{:run "dev/repl.lg"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-rejects-task-extra-paths-not-a-vector
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:dev {:extra-paths "dev"
-                                          :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-extra-paths-with-dotdot
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:dev {:extra-paths ["../x"]
-                                          :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-extra-deps-not-a-map
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:dev {:extra-deps [:not :a :map]
-                                          :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-extra-deps-bad-coord
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:dev {:extra-deps {'foo/bar {:git/url "u"}}
-                                          :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-with-unknown-key
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:dev {:extra-dep {}
-                                          :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-accepts-task-with-extra-resource-paths
-  (let [cfg {:tasks {:dev {:extra-resource-paths ["assets"]
-                           :do [{:run "dev/repl.lg"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-rejects-task-extra-resource-paths-not-a-vector
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:dev {:extra-resource-paths "assets"
-                                          :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-extra-resource-paths-with-dotdot
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:dev {:extra-resource-paths ["../x"]
-                                          :do [{:sh "echo hi"}]}}})))))
-
-
-;; ---------------------------------------------------------------------------
-;; :tasks :with validation (references defined contexts)
-;; ---------------------------------------------------------------------------
-
-(deftest validate-config-accepts-task-with-defined-context
-  (let [cfg {:contexts {:dev {:extra-paths ["dev"]}}
-             :tasks {:repl {:with [:dev]
-                            :do [{:sh "echo hi"}]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-rejects-task-with-unknown-context
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {:dev {:extra-paths ["dev"]}}
-                            :tasks {:repl {:with [:typo]
-                                           :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-with-not-a-vector
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {:dev {:extra-paths ["dev"]}}
-                            :tasks {:repl {:with "dev"
-                                           :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-with-non-keyword-element
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {:dev {:extra-paths ["dev"]}}
-                            :tasks {:repl {:with ["dev"]
-                                           :do [{:sh "echo hi"}]}}})))))
-
-(deftest validate-config-rejects-task-with-when-no-contexts-defined
-  (is (= :threw (threw? #(config/validate-config!
-                           {:tasks {:repl {:with [:dev]
-                                           :do [{:sh "echo hi"}]}}})))))
-
-
-;; ---------------------------------------------------------------------------
-;; :contexts validation
-;; ---------------------------------------------------------------------------
-
-(deftest validate-config-accepts-context-with-paths-and-deps
-  (let [cfg {:contexts {:dev {:extra-paths ["dev"]
-                              :extra-deps {'foo/bar {:git/url "u"
-                                                     :git/sha "s"}}}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-context-with-only-paths
-  (let [cfg {:contexts {:dev {:extra-paths ["dev"]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-context-with-only-deps
-  (let [cfg {:contexts {:dev {:extra-deps {'foo/bar {:git/url "u"
-                                                     :git/sha "s"}}}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-empty-context
-  (let [cfg {:contexts {:dev {}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-accepts-context-with-extra-resource-paths
-  (let [cfg {:contexts {:dev {:extra-resource-paths ["assets"]}}}]
-    (is (= cfg (config/validate-config! cfg)))))
-
-(deftest validate-config-rejects-context-extra-resource-paths-with-dotdot
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {:dev {:extra-resource-paths ["../x"]}}})))))
-
-(deftest validate-config-rejects-contexts-not-a-map
-  (is (= :threw (threw? #(config/validate-config! {:contexts [:not :a :map]})))))
-
-(deftest validate-config-rejects-non-keyword-context-name
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {"dev" {:extra-paths ["dev"]}}})))))
-
-(deftest validate-config-rejects-context-with-unknown-key
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {:dev {:extra-path ["x"]}}})))))
-
-(deftest validate-config-rejects-context-with-bad-coord
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {:dev {:extra-deps {'foo/bar {:git/url "u"}}}}})))))
-
-(deftest validate-config-rejects-context-with-dotdot-path
-  (is (= :threw (threw? #(config/validate-config!
-                           {:contexts {:dev {:extra-paths ["../x"]}}})))))
-
 
 ;; ---------------------------------------------------------------------------
 ;; merge-coords (task extras over project deps; extra wins)
@@ -591,7 +548,6 @@
     (is (= 2 (count merged)))
     (is (= ['foo/a 'foo/b] (mapv first merged)))
     (is (= {:git/url "ua" :git/sha "v2"} (second (first merged))))))
-
 
 ;; ---------------------------------------------------------------------------
 ;; context-overlay (named contexts -> combined deps-pairs + paths; last-wins)
@@ -646,7 +602,6 @@
                   :test {:extra-resource-paths ["fixtures"]}}
         overlay (config/context-overlay contexts [:dev :test])]
     (is (= ["assets" "fixtures"] (:resource-paths overlay)))))
-
 
 ;; ---------------------------------------------------------------------------
 ;; coords-at (transitive: a fetched dep's own deps)

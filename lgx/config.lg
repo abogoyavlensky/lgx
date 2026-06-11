@@ -1,6 +1,7 @@
 (ns lgx.config
   (:require [edn]
             [lgx.path :as path]
+            [lgx.spec :as spec]
             [string :as str]))
 
 (def config-name "lgx.edn")
@@ -334,6 +335,216 @@
     (if normalized-tasks
       (assoc cfg :tasks normalized-tasks)
       cfg)))
+
+;; ---------------------------------------------------------------------------
+;; lgx.edn format as one schema value (see lgx.spec for the schema language)
+;; ---------------------------------------------------------------------------
+
+(defn- rel-path-errors
+  "Relative-path rule shared by :paths entries, :main, :targets :out, and
+   :deps/root. lgx.edn path values use forward-slash by convention, matching
+   tools.deps. Returns a vector of error message strings."
+  [v]
+  (cond
+    (not (string? v)) [(str "must be a string, got " (pr-str v))]
+    (str/blank? v) ["must be non-blank"]
+    (str/starts-with? v "/") ["must be relative (no leading /)"]
+    (some #(= ".." %) (str/split v "/")) ["must not contain .. segments"]
+    :else []))
+
+(def ^:private rel-path-schema [:fn rel-path-errors])
+
+(defn- non-blank-string-errors [v]
+  (cond
+    (not (string? v)) [(str "must be a string, got " (pr-str v))]
+    (str/blank? v) ["must be non-blank"]
+    :else []))
+
+(defn- at-key
+  "Anchor plain message strings at sub-path [k]."
+  [k msgs]
+  (mapv (fn [m] {:path [k] :msg m}) msgs))
+
+(defn- coord-errors
+  "Coord rule: :local/root or :git/url + (:git/sha | :git/tag), optional
+   :deps/root. Coord maps are open — unknown keys are tools.deps
+   forward-compat, not errors."
+  [c]
+  (let [has-local? (contains? c :local/root)
+        has-git? (some #(contains? c %) git-keys)
+        deps-root (if (contains? c :deps/root)
+                    (at-key :deps/root (rel-path-errors (:deps/root c)))
+                    [])]
+    (cond
+      (and has-local? has-git?)
+      "cannot mix :local/root with :git/* keys"
+
+      has-local?
+      (vec (concat (at-key :local/root
+                           (non-blank-string-errors (:local/root c)))
+                   deps-root))
+
+      :else
+      (vec (concat
+             (when-not (string? (:git/url c)) ["missing :git/url"])
+             (when-not (or (string? (:git/sha c)) (string? (:git/tag c)))
+               ["must specify :git/sha or :git/tag"])
+             deps-root)))))
+
+(def ^:private coord-schema [:and :map [:fn coord-errors]])
+
+(def ^:private deps-schema [:map-of :symbol coord-schema])
+
+(defn- action-value-errors
+  "A step's :sh/:run value: a non-blank string or a non-empty vector of
+   strings."
+  [v]
+  (cond
+    (string? v) (if (str/blank? v) ["must be a non-blank string"] [])
+
+    (vector? v)
+    (if (empty? v)
+      ["must be a non-empty vector of strings"]
+      (loop [i 0
+             acc []]
+        (if (>= i (count v))
+          acc
+          (recur (inc i)
+                 (if (string? (nth v i))
+                   acc
+                   (conj acc {:path [i]
+                              :msg (str "must be a string, got "
+                                        (pr-str (nth v i)))}))))))
+
+    :else
+    [(str "must be a string or vector of strings, got " (pr-str v))]))
+
+(defn- exactly-one-action-errors [step]
+  (when (not= 1 (count (filter #(contains? step %) [:sh :run])))
+    "must contain exactly one of :sh, :run"))
+
+(def ^:private step-schema
+  [:and
+   [:map {:closed true}
+    [:sh {:optional true} [:fn action-value-errors]]
+    [:run {:optional true} [:fn action-value-errors]]]
+   [:fn exactly-one-action-errors]])
+
+(defn- do-errors
+  "A task's :do — a single step map or a non-empty vector of steps. Recurses
+   into the engine; the returned relative paths get prefixed by the caller."
+  [v]
+  (cond
+    (map? v) (spec/validate step-schema v)
+    (vector? v) (spec/validate [:vector {:min 1} step-schema] v)
+    :else (str "must be a step map or non-empty vector of steps, got "
+               (pr-str v))))
+
+(defn- reserved-name-errors [k]
+  (when (contains? reserved-task-names (name k))
+    (str "conflicts with built-in command \"" (name k) "\"")))
+
+(def ^:private task-schema
+  [:map {:closed true}
+   [:doc {:optional true} :string]
+   [:do [:fn do-errors]]
+   [:extra-paths {:optional true} [:vector rel-path-schema]]
+   [:extra-resource-paths {:optional true} [:vector rel-path-schema]]
+   [:extra-deps {:optional true} deps-schema]
+   [:with {:optional true} [:vector :keyword]]])
+
+;; A context is a named overlay carrying only extras — the same shape as a
+;; task's inline extras, lifted to the project top level for reuse across
+;; commands (via --with) and tasks (via :with).
+(def ^:private context-schema
+  [:map {:closed true}
+   [:extra-deps {:optional true} deps-schema]
+   [:extra-paths {:optional true} [:vector rel-path-schema]]
+   [:extra-resource-paths {:optional true} [:vector rel-path-schema]]])
+
+(def ^:private targets-schema
+  [:map {:closed true}
+   [:bin {:optional true}
+    [:map {:closed true}
+     [:out rel-path-schema]]]])
+
+(defn- with-refs-errors
+  "Root-level cross-key rule: every task :with entry must name a defined
+   context. Runs only after the structural schema passed, so shapes hold."
+  [cfg]
+  (let [defined (set (keys (or (:contexts cfg) {})))
+        label (if (seq defined)
+                (str "(defined: " (str/join ", " (sort (map str defined))) ")")
+                "(no contexts defined)")]
+    (vec (mapcat (fn [[task-name task]]
+                   (mapv (fn [c]
+                           {:path [:tasks task-name :with]
+                            :msg (str "references unknown context " c " "
+                                      label)})
+                         (filter #(not (contains? defined %))
+                                 (or (:with task) []))))
+                 (or (:tasks cfg) {})))))
+
+(def ^:private lgx-schema
+  [:and
+   [:map {:closed true}
+    [:deps {:optional true} deps-schema]
+    [:paths {:optional true} [:vector rel-path-schema]]
+    [:resource-paths {:optional true} [:vector rel-path-schema]]
+    [:main {:optional true} rel-path-schema]
+    [:targets {:optional true} targets-schema]
+    [:contexts {:optional true} [:map-of :keyword context-schema]]
+    [:tasks {:optional true}
+     [:map-of [:and :keyword [:fn reserved-name-errors]] task-schema]]]
+   [:fn with-refs-errors]])
+
+(defn- normalize-config
+  "Post-validation normalization: a task's single-step-map :do becomes a
+   one-element vector. Validation never mutates; this never validates."
+  [cfg]
+  (if (contains? cfg :tasks)
+    (assoc cfg :tasks
+           (into {}
+                 (map (fn [[k t]]
+                        [k (if (map? (:do t)) (assoc t :do [(:do t)]) t)])
+                      (:tasks cfg))))
+    cfg))
+
+(defn- first-line [s]
+  (first (str/split s "\n")))
+
+(defn load-config
+  "Read, validate, and normalize the project's lgx.edn. Returns
+   {:cfg <map>} on success or {:errors [{:path [...] :msg ...} ...]}.
+   EDN reader failures are reported as a single error, not thrown."
+  [project]
+  (let [config-path (path/join project config-name)
+        parsed (try
+                 {:value (edn/read-string (slurp config-path))}
+                 (catch e
+                        {:error (first-line (ex-message e))}))]
+    (if (contains? parsed :error)
+      {:errors [{:path []
+                 :msg (str "could not parse lgx.edn: " (:error parsed))}]}
+      (let [errors (spec/validate lgx-schema (:value parsed))]
+        (if (seq errors)
+          {:errors errors}
+          {:cfg (normalize-config (:value parsed))})))))
+
+(defn- errors-report [label errors]
+  (str "lgx: invalid " label " (" (count errors) " error"
+       (if (= 1 (count errors)) "" "s") ")\n\n"
+       (str/join "\n" (map #(str "  " (spec/error->line %)) errors))
+       "\n"))
+
+(defn load-config!
+  "Like load-config, but on errors prints the report to stderr and exits 1."
+  [project]
+  (let [r (load-config project)]
+    (if (:errors r)
+      (do (write! *err* (errors-report "lgx.edn" (:errors r)))
+          (os/exit 1))
+      (:cfg r))))
 
 (defn coords
   "Return a vector of [lib coord] pairs from the project's lgx.edn."

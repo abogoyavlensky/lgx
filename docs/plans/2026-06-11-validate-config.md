@@ -283,7 +283,7 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
 - Modify: `lgx/config.lg`
 - Modify: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Rewrite `config_test.lg` against `config/load-config` using a temp project
   dir (write lgx.edn with `spit`, point `load-config` at the dir). Cover:
   valid minimal (`{}`) and full configs (deps git/tag/local, paths,
@@ -297,22 +297,22 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
   normalizes to a one-element vector in `:cfg`; unparseable EDN yields one
   `could not parse` error.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && ./bin/lgx test test/lgx/config_test.lg`
   Expected: FAIL (`load-config` missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `config.lg`: `:fn` helper fns (rel-path, coord, step, reserved task
   name, root `:with`→`:contexts` check), `lgx-schema`, `normalize-config`,
   `load-config`, `load-config!` (report rendering + exit 1). Keep the old
   accessor/validator fns in place for now so `lgx.lg` still compiles —
   removal happens in Task 4.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build && ./bin/lgx test test/lgx/config_test.lg`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Express lgx.edn schema as data; add load-config with error collection"`
 
 ### Task 4: Pure accessors, lenient `coords-at`, delete old validators
