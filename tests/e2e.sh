@@ -2251,5 +2251,17 @@ assert_contains "$out" "task names are symbols; write ci instead of :ci" \
     "keyword task name: error states the symbol fix"
 rm -rf "$proj_kw" "$home_kw"
 
+echo "==> Scenario 99: namespaced task name runs and lists in help"
+proj_ns="$(mktemp -d)"; home_ns="$(mktemp -d)"
+cat > "$proj_ns/lgx.edn" <<'EOF'
+{:tasks {foo/bar {:doc "Namespaced" :do [{:sh "echo hi from ns task"}]}}}
+EOF
+out="$(cd "$proj_ns" && LGX_HOME="$home_ns" "$LGX" foo/bar)"
+assert_eq "$out" "hi from ns task" "namespaced task: runs by full name"
+out="$(cd "$proj_ns" && LGX_HOME="$home_ns" "$LGX" help)"
+assert_contains "$out" "lgx foo/bar" "namespaced task: help row keeps the namespace"
+assert_contains "$out" "Namespaced" "namespaced task: help row keeps the doc"
+rm -rf "$proj_ns" "$home_ns"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

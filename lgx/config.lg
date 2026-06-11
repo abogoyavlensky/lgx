@@ -146,8 +146,10 @@
     (not (symbol? k))
     (str "must be a symbol, got " (pr-str k))
 
-    (contains? reserved-task-names (name k))
-    (str "conflicts with built-in command \"" (name k) "\"")))
+    ;; (str k) rather than (name k): only a bare name can shadow a built-in —
+    ;; a namespaced foo/run dispatches as "foo/run", never as "run".
+    (contains? reserved-task-names (str k))
+    (str "conflicts with built-in command \"" (str k) "\"")))
 
 (def ^:private task-schema
   [:map {:closed true}
