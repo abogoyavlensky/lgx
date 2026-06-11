@@ -136,8 +136,10 @@ HEAD with `git ls-remote`, then caches the checkout by sha under
 `$LGX_HOME/templates/`, so repeat scaffolds of an unchanged template skip
 the clone.
 
-Any git repo works as a template. Put the literal token `projectname` in
-paths and file contents wherever the project name belongs; `lgx new`
+Template URLs must be `https://host/owner/repo` (or `file:///path/to/repo`
+for local development); SSH forms like `git@host:owner/repo` are not
+supported. To make a repo a template, put the literal token `projectname`
+in paths and file contents wherever the project name belongs; `lgx new`
 replaces it with the underscored name (`my_app`) in paths and the
 hyphenated name (`my-app`) in contents.
 
