@@ -1,9 +1,10 @@
 [tools]
 lg = "1.10.0"
+lgx = "0.1.0-alpha13"
 cljfmt = "0.16.4"
 lefthook = "2.1.6"
 
 [tool_alias]
 lg = "github:nooga/let-go"
+lgx = "github:abogoyavlensky/lgx"
 cljfmt = "asdf:https://github.com/b-social/asdf-cljfmt"
-
