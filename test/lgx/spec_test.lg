@@ -127,3 +127,130 @@
   (is (= [{:path [:paths 1] :msg "must be a string, got 2"}]
          (spec/validate [:map [:paths [:vector :string]]]
                         {:paths ["a" 2]}))))
+
+;; ---------------------------------------------------------------------------
+;; [:map-of ...]
+;; ---------------------------------------------------------------------------
+
+(deftest map-of-accepts-valid-entries
+  (is (= [] (spec/validate [:map-of :symbol :map]
+                           {'foo/bar {:git/sha "abc"}}))))
+
+(deftest map-of-rejects-non-map-value
+  (is (= [{:path [] :msg "must be a map, got 42"}]
+         (spec/validate [:map-of :symbol :map] 42))))
+
+(deftest map-of-key-error-appends-key-to-path
+  (is (= [{:path ["k"] :msg "must be a symbol, got \"k\""}]
+         (spec/validate [:map-of :symbol :map] {"k" {}}))))
+
+(deftest map-of-value-error-appends-key-to-path
+  (is (= [{:path ['foo/bar] :msg "must be a map, got 42"}]
+         (spec/validate [:map-of :symbol :map] {'foo/bar 42}))))
+
+(deftest map-of-nested-path
+  (is (= [{:path [:deps 'foo/bar] :msg "must be a map, got 42"}]
+         (spec/validate [:map [:deps [:map-of :symbol :map]]]
+                        {:deps {'foo/bar 42}}))))
+
+;; ---------------------------------------------------------------------------
+;; [:or ...]
+;; ---------------------------------------------------------------------------
+
+(def ^:private string-or-strings
+  [:or {:msg "must be a string or vector of strings"}
+   :string
+   [:vector :string]])
+
+(deftest or-accepts-first-branch
+  (is (= [] (spec/validate string-or-strings "x"))))
+
+(deftest or-accepts-second-branch
+  (is (= [] (spec/validate string-or-strings ["a" "b"]))))
+
+(deftest or-reports-single-message-when-all-branches-fail
+  (is (= [{:path [] :msg "must be a string or vector of strings"}]
+         (spec/validate string-or-strings 42))))
+
+(deftest or-message-carries-nested-path
+  (is (= [{:path [:sh] :msg "must be a string or vector of strings"}]
+         (spec/validate [:map [:sh string-or-strings]] {:sh 42}))))
+
+;; ---------------------------------------------------------------------------
+;; [:and ...]
+;; ---------------------------------------------------------------------------
+
+(deftest and-passes-when-all-pass
+  (is (= [] (spec/validate [:and :map [:fn (fn [_] nil)]] {:a 1}))))
+
+(deftest and-stops-at-first-failing-schema
+  ;; the :fn would report if reached; a non-map must short-circuit before it
+  (is (= [{:path [] :msg "must be a map, got 42"}]
+         (spec/validate [:and :map [:fn (fn [_] "fn reached")]] 42))))
+
+(deftest and-reports-second-schema-when-first-passes
+  (is (= [{:path [] :msg "custom rule failed"}]
+         (spec/validate [:and :map [:fn (fn [_] "custom rule failed")]]
+                        {:a 1}))))
+
+;; ---------------------------------------------------------------------------
+;; [:enum ...]
+;; ---------------------------------------------------------------------------
+
+(deftest enum-accepts-member
+  (is (= [] (spec/validate [:enum :a :b] :a))))
+
+(deftest enum-rejects-non-member
+  (is (= [{:path [] :msg "must be one of: :a, :b, got :c"}]
+         (spec/validate [:enum :a :b] :c))))
+
+;; ---------------------------------------------------------------------------
+;; [:fn f]
+;; ---------------------------------------------------------------------------
+
+(deftest fn-nil-result-is-valid
+  (is (= [] (spec/validate [:fn (fn [_] nil)] 42))))
+
+(deftest fn-string-result-is-error-at-current-path
+  (is (= [{:path [:a] :msg "bad value"}]
+         (spec/validate [:map [:a [:fn (fn [_] "bad value")]]]
+                        {:a 1}))))
+
+(deftest fn-map-result-path-is-prefixed
+  (is (= [{:path [:a :inner] :msg "bad inner"}]
+         (spec/validate [:map [:a [:fn (fn [_] {:path [:inner]
+                                                :msg "bad inner"})]]]
+                        {:a 1}))))
+
+(deftest fn-vector-result-yields-multiple-errors
+  (is (= [{:path [] :msg "first"}
+          {:path [:sub] :msg "second"}]
+         (spec/validate [:fn (fn [_] ["first" {:path [:sub] :msg "second"}])]
+                        42))))
+
+(deftest fn-receives-the-value
+  (is (= [{:path [] :msg "got 7"}]
+         (spec/validate [:fn (fn [v] (str "got " v))] 7))))
+
+;; ---------------------------------------------------------------------------
+;; error->line
+;; ---------------------------------------------------------------------------
+
+(deftest error-line-empty-path-renders-message-only
+  (is (= "top-level form must be a map"
+         (spec/error->line {:path [] :msg "top-level form must be a map"}))))
+
+(deftest error-line-keyword-segments
+  (is (= ":paths — must be a vector, got \"src\""
+         (spec/error->line {:path [:paths]
+                            :msg "must be a vector, got \"src\""}))))
+
+(deftest error-line-index-segments
+  (is (= ":tasks :build :do [0] — unknown key :shh (allowed: :sh, :run)"
+         (spec/error->line {:path [:tasks :build :do 0]
+                            :msg "unknown key :shh (allowed: :sh, :run)"}))))
+
+(deftest error-line-symbol-segments
+  (is (= ":deps foo/bar — missing :git/url"
+         (spec/error->line {:path [:deps 'foo/bar]
+                            :msg "missing :git/url"}))))

@@ -101,6 +101,58 @@
                                                (conj (vec path) i)
                                                (nth value i)))))))))))
 
+(defn- validate-map-of [form path value]
+  (if-not (map? value)
+    (type-error path "a map" value)
+    (let [key-schema (second form)
+          val-schema (nth form 2)]
+      (reduce (fn [acc [k v]]
+                (let [entry-path (conj (vec path) k)]
+                  (vec (concat acc
+                               (validate* key-schema entry-path k)
+                               (validate* val-schema entry-path v)))))
+              []
+              value))))
+
+(defn- or-branches [form]
+  (vec (if (map? (second form)) (drop 2 form) (rest form))))
+
+(defn- validate-or [form path value]
+  (if (some #(empty? (validate* % path value)) (or-branches form))
+    []
+    [(err path (or (:msg (form-opts form))
+                   "matches none of the allowed forms"))]))
+
+(defn- validate-and [form path value]
+  (loop [ss (seq (rest form))]
+    (if (nil? ss)
+      []
+      (let [errors (validate* (first ss) path value)]
+        (if (seq errors)
+          errors
+          (recur (next ss)))))))
+
+(defn- validate-enum [form path value]
+  (let [allowed (vec (rest form))]
+    (if (some #(= % value) allowed)
+      []
+      [(err path (str "must be one of: "
+                      (str/join ", " (map pr-str allowed))
+                      ", got " (pr-str value)))])))
+
+;; [:fn f] — (f value) returns nil (valid), a message string, a {:path :msg}
+;; map whose path is relative to the current node, or a vector of those.
+(defn- fn-result->errors [path r]
+  (cond
+    (nil? r) []
+    (string? r) [(err path r)]
+    (map? r) [(err (vec (concat path (:path r))) (:msg r))]
+    (vector? r) (vec (mapcat #(fn-result->errors path %) r))
+    :else (throw (ex-info (str "invalid :fn result " (pr-str r)) {:result r}))))
+
+(defn- validate-fn [form path value]
+  (fn-result->errors path ((second form) value)))
+
 (defn- validate* [schema path value]
   (cond
     (keyword? schema)
@@ -111,7 +163,12 @@
     (vector? schema)
     (case (first schema)
       :map (validate-map schema path value)
+      :map-of (validate-map-of schema path value)
       :vector (validate-vector schema path value)
+      :or (validate-or schema path value)
+      :and (validate-and schema path value)
+      :enum (validate-enum schema path value)
+      :fn (validate-fn schema path value)
       (throw (ex-info (str "unknown schema form " (pr-str (first schema)))
                       {:schema schema})))
 
@@ -123,3 +180,16 @@
    errors, empty when the value conforms. Never throws on invalid values."
   [schema value]
   (validate* schema [] value))
+
+(defn- path-segment [x]
+  (if (integer? x) (str "[" x "]") (str x)))
+
+(defn error->line
+  "Render one error as a line: path segments joined with spaces (vector
+   indices as [n]), an em dash, then the message. An empty path renders just
+   the message."
+  [e]
+  (let [p (:path e)]
+    (if (empty? p)
+      (:msg e)
+      (str (str/join " " (map path-segment p)) " — " (:msg e)))))

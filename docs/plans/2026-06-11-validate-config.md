@@ -223,29 +223,29 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
 - Create: `lgx/spec.lg`
 - Create: `test/lgx/spec_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Cover: leaf types (`:string`, `:keyword`, `:symbol`, `:map`, `:vector`,
   `:any`) pass/fail with `must be a <type>, got <pr-str>` messages; `[:map]`
   required vs `{:optional true}` entries; `{:closed true}` unknown-key error
   listing allowed keys; nested maps produce nested paths; `[:vector]` item
   errors carry `[n]` index segments; `{:min 1}`; valid values return `[]`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && ./bin/lgx test test/lgx/spec_test.lg`
   Expected: FAIL (namespace `lgx.spec` missing / assertions fail).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   `lgx/spec.lg` with private `validate*` recursion over `(schema, path,
   value)` and public `validate`. Keyword leaf → type predicate table. Vector
   form → dispatch on first element. Options map is optional in second
   position for `:map` / `:vector` (detect: map there that isn't an entry
   vector).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build && ./bin/lgx test test/lgx/spec_test.lg`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add lgx.spec validation engine: leaves, :map, :vector"`
 
 ### Task 2: Spec engine — `:map-of`, `:or`, `:and`, `:enum`, `:fn`, `error->line`
@@ -254,7 +254,7 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
 - Modify: `lgx/spec.lg`
 - Modify: `test/lgx/spec_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Cover: `[:map-of]` key and value errors (key errors append the offending
   key to the path); `[:or {:msg ...}]` reports only the single message when
   all branches fail and nothing when one passes; `[:and]` stops at the first
@@ -263,18 +263,18 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
   prefixed / vector of those); `error->line` rendering for empty path,
   keyword segments, symbol segments, and `[n]` index segments.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && ./bin/lgx test test/lgx/spec_test.lg`
   Expected: FAIL on the new assertions.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Add the four forms to `validate*`; add `error->line`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build && ./bin/lgx test test/lgx/spec_test.lg`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Complete lgx.spec engine: :map-of, :or, :and, :enum, :fn"`
 
 ### Task 3: Config schema, `load-config`, normalization
