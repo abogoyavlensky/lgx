@@ -76,6 +76,51 @@
                          ["qa"]))))
 
 ;; ---------------------------------------------------------------------------
+;; shell-quote
+;; ---------------------------------------------------------------------------
+
+(deftest quote-plain-value
+  (is (= "'abc'" (args/shell-quote "abc"))))
+
+(deftest quote-embedded-single-quote
+  (is (= "'a'\\''b'" (args/shell-quote "a'b"))))
+
+(deftest quote-keeps-hostile-value-one-unit
+  (is (= "'a b; echo pwned'" (args/shell-quote "a b; echo pwned"))))
+
+;; ---------------------------------------------------------------------------
+;; substitute
+;; ---------------------------------------------------------------------------
+
+(deftest substitute-strings-pass-through
+  (is (= ["echo" "hi"]
+         (args/substitute ["echo" "hi"] {} false))))
+
+(deftest substitute-verbatim
+  (is (= ["notify.lg" "prod"]
+         (args/substitute ["notify.lg" :arg/env] {:arg/env "prod"} false))))
+
+(deftest substitute-quoted
+  (is (= ["./deploy.sh" "'prod'" "'latest'"]
+         (args/substitute ["./deploy.sh" :arg/env :arg/version]
+                          {:arg/env "prod"
+                           :arg/version "latest"}
+                          true))))
+
+(deftest substitute-keeps-order-in-mixed-vector
+  (is (= ["a" "x" "b" "y"]
+         (args/substitute ["a" :arg/one "b" :arg/two]
+                          {:arg/one "x"
+                           :arg/two "y"}
+                          false))))
+
+(deftest substitute-unbound-placeholder-throws
+  (is (= :threw
+         (try (args/substitute [:arg/missing] {} false)
+              :no-throw
+              (catch e :threw)))))
+
+;; ---------------------------------------------------------------------------
 ;; usage-line
 ;; ---------------------------------------------------------------------------
 

@@ -74,6 +74,32 @@
                      (conj errors (str "missing required argument <"
                                        (name (:name decl)) ">"))))))))))
 
+(defn shell-quote
+  "Wrap `s` in single quotes with embedded single quotes escaped as '\\''.
+   Always wraps, even when unnecessary — the value arrives at the shell as
+   exactly one uninterpreted word."
+  [s]
+  (str "'" (str/replace s "'" "'\\''") "'"))
+
+(defn- placeholder? [item]
+  (and (keyword? item) (= "arg" (namespace item))))
+
+(defn substitute
+  "Replace each :arg/<name> keyword in step vector `v` with its bound value
+   from `bindings`, shell-quoted when `quote?` is true. String items pass
+   through verbatim. An unbound placeholder is a programmer error (config
+   validation rejects it) and throws ex-info."
+  [v bindings quote?]
+  (mapv (fn [item]
+          (if (placeholder? item)
+            (if (contains? bindings item)
+              (let [value (get bindings item)]
+                (if quote? (shell-quote value) value))
+              (throw (ex-info (str "unbound placeholder " item)
+                              {:placeholder item})))
+            item))
+        v))
+
 (defn usage-line
   "Render `usage: lgx <task> <req> [opt]` from decls: required args as
    <name>, defaulted args as [name]. With no decls just `usage: lgx <task>`."
