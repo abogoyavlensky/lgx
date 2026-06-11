@@ -1,5 +1,6 @@
 (ns lgx.new
   (:require [lgx.cache :as cache]
+            [lgx.cli :as cli]
             [lgx.home :as home]
             [lgx.path :as path]
             [lgx.style :as style]
@@ -225,12 +226,15 @@
 
 (defn cmd-new!
   "Scaffold a new let-go project at <project-name> under cwd. args is the
-   forwarded positional vector."
+   forwarded rest-args vector (project name plus optional -t/--template)."
   [args _verbose?]
-  (cond
-    (empty? args) (die! "new requires a project name")
-    (> (count args) 1) (die! "new takes exactly one argument"))
-  (let [name (first args)]
+  (let [{:keys [name template]}
+        (try (cli/parse-new-args (vec args))
+             ;; Parse messages already carry the `lgx: ` prefix; die! would
+             ;; double it.
+             (catch e
+                    (write! *err* (str (ex-message e) "\n"))
+               (os/exit 1)))]
     (try (validate-name! name)
          (catch _ (die-name-invalid! name)))
     (let [target (path/join (os/cwd) name)]
@@ -238,7 +242,8 @@
            (catch e (handle-target-error! e)))
       (write! *err*
               (str (style/header (str "Creating project " name "...")) "\n"))
-      (let [coord (resolve-template-coord)
+      (let [coord (try (resolve-template-coord template)
+                       (catch e (die! (ex-message e))))
             cache-path (try (ensure-template! coord)
                             (catch e
                                    (die! (str "failed to fetch template: "
