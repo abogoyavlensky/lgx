@@ -1,4 +1,4 @@
-# Custom and Built-in Templates for `lgx new` Implementation Plan
+# Custom and Built-in Templates for `lgx new` Implementation Plan ✅ COMPLETED
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -137,7 +137,7 @@ when source under `lgx/` changed since the last build.
 - Modify: `lgx/cli.lg`
 - Test: `test/lgx/cli_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   In `test/lgx/cli_test.lg`, add a `parse-new-args` section (follow the
   existing `parse-nrepl-args` section style, using the local `threw?`
   helper):
@@ -149,22 +149,22 @@ when source under `lgx/` changed since the last build.
   - `[]` → throws (no name)
   - `["a" "b"]` → throws (two positionals)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && ./bin/lgx test test/lgx/cli_test.lg`
   Expected: FAIL (missing fn `parse-new-args`)
 
-- [ ] **Step 3: Implement `parse-new-args`**
+- [x] **Step 3: Implement `parse-new-args`**
   In `lgx/cli.lg`, after `parse-nrepl-args`: loop over args; on `-t` or
   `--template` consume the next token as the value (throw `ex-info` with the
   messages from the design if value missing or already set); otherwise
   collect as positional. After the loop enforce exactly one positional.
   Return `{:name <first positional> :template <value-or-nil>}`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build && ./bin/lgx test test/lgx/cli_test.lg`
   Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add parse-new-args for lgx new template flag"`
 
 ### Task 2: `resolve-head-sha!` in `lgx.cache`
@@ -173,7 +173,7 @@ when source under `lgx/` changed since the last build.
 - Modify: `lgx/cache.lg`
 - Test: `test/lgx/cache_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   In `test/lgx/cache_test.lg` (reuse its existing local-git-fixture helpers
   if present, else create a tmp repo with one commit the way
   `test/lgx/new_test.lg`'s `setup-fixture-repo!` does):
@@ -181,21 +181,21 @@ when source under `lgx/` changed since the last build.
     `git -C <fixture> rev-parse HEAD`
   - nonexistent path: `file:///nonexistent/repo` → throws
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && ./bin/lgx test test/lgx/cache_test.lg`
   Expected: FAIL (missing fn `resolve-head-sha!`)
 
-- [ ] **Step 3: Implement `resolve-head-sha!`**
+- [x] **Step 3: Implement `resolve-head-sha!`**
   In `lgx/cache.lg` under the git-wrappers section: call
   `(git! ["ls-remote" url "HEAD"] (str "git ls-remote failed: " url))`,
   split `:out` on whitespace, return the first token; throw `ex-info`
   `{:url url}` when output is blank.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build && ./bin/lgx test test/lgx/cache_test.lg`
   Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add resolve-head-sha! for HEAD-tracking template URLs"`
 
 ### Task 3: template registry and resolution in `lgx.new`
@@ -204,7 +204,7 @@ when source under `lgx/` changed since the last build.
 - Modify: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg`
 
-- [ ] **Step 1: Write/adjust failing tests**
+- [x] **Step 1: Write/adjust failing tests**
   In `test/lgx/new_test.lg`:
   - Update the five existing `resolve-template-coord-*` tests to call
     `(new/resolve-template-coord nil)`; replace `new/default-template`
@@ -216,11 +216,11 @@ when source under `lgx/` changed since the last build.
     `{:git/url <url> :git/sha <rev-parse HEAD>}` (reuse
     `setup-fixture-repo!`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && ./bin/lgx test test/lgx/new_test.lg`
   Expected: FAIL (arity/missing `templates`)
 
-- [ ] **Step 3: Implement registry + resolution**
+- [x] **Step 3: Implement registry + resolution**
   In `lgx/new.lg`: replace `default-template` with the `templates` registry
   map from the design (base sha unchanged, cli pinned to
   `7948695c318e9bb7a2a9c8ecaf9c8a7959033178`). Rewrite
@@ -230,11 +230,11 @@ when source under `lgx/` changed since the last build.
   other → registry lookup or `unknown template` ex-info listing
   `(sort (keys templates))`).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build && ./bin/lgx test test/lgx/new_test.lg`
   Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add template registry with built-in cli template"`
 
 ### Task 4: wire `cmd-new!` and help text
@@ -242,7 +242,7 @@ when source under `lgx/` changed since the last build.
 **Files:**
 - Modify: `lgx/new.lg`, `lgx.lg`
 
-- [ ] **Step 1: Rewire `cmd-new!`**
+- [x] **Step 1: Rewire `cmd-new!`**
   In `lgx/new.lg`: require `[lgx.cli :as cli]`; replace the manual
   arg-count checks at the top of `cmd-new!` with
   `(cli/parse-new-args args)` in a try/catch that writes `(ex-message e)`
@@ -255,21 +255,21 @@ when source under `lgx/` changed since the last build.
   Rest of the flow (validate name/target, render, next-steps output)
   unchanged.
 
-- [ ] **Step 2: Update help text**
+- [x] **Step 2: Update help text**
   In `lgx.lg` `command-rows`, replace the `new` row with
   `lgx new <name> [-t <tpl>]` + `Scaffold a let-go app (template: built-in name or git URL)`,
   hand-aligned to column 31 like neighboring rows.
 
-- [ ] **Step 3: Verify manually**
+- [x] **Step 3: Verify manually**
   Run: `make build && cd "$(mktemp -d)" && LGX_HOME="$(mktemp -d)" <repo>/bin/lgx new demo -t nope; <repo>/bin/lgx help | grep 'lgx new'`
   Expected: `lgx: unknown template: nope (built-in: base, cli)` with exit 1;
   help row renders aligned.
 
-- [ ] **Step 4: Run full unit suite**
+- [x] **Step 4: Run full unit suite**
   Run: `./bin/lgx test`
   Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Wire --template flag into lgx new"`
 
 ### Task 5: e2e scenarios
@@ -277,7 +277,7 @@ when source under `lgx/` changed since the last build.
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add scenarios 105–107**
+- [x] **Step 1: Add scenarios 105–107**
   Inside the template-fixture block (before `rm -rf "$FIXTURE_REPO_DIR"`,
   after Scenario 55), following the structure of scenarios 50–55:
   - **105**: `lgx new tpl-url -t "$FIXTURE_REPO_URL"` with `LGX_HOME` set but
@@ -290,11 +290,11 @@ when source under `lgx/` changed since the last build.
   - **107**: `lgx new demo -t` → exit 1, output contains
     `--template requires a value`.
 
-- [ ] **Step 2: Run e2e**
+- [x] **Step 2: Run e2e**
   Run: `make test`
   Expected: all scenarios pass, including 105–107.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Add e2e coverage for lgx new templates"`
 
 ### Task 6: docs
@@ -302,7 +302,7 @@ when source under `lgx/` changed since the last build.
 **Files:**
 - Modify: `README.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
   In the `lgx new` section: document `-t/--template` with the three usage
   forms, the built-in names table (`base`, `cli` — short purpose each),
   custom-URL semantics (latest default-branch HEAD, cached by sha,
@@ -310,14 +310,33 @@ when source under `lgx/` changed since the last build.
   git repo using the literal `projectname` placeholder in paths and file
   contents. Use /writing-clearly.
 
-- [ ] **Step 2: Update ARCHITECTURE.md**
+- [x] **Step 2: Update ARCHITECTURE.md**
   Update the `new` command / template section to describe the registry,
   1-arity `resolve-template-coord`, and `resolve-head-sha!`; check the
   `Verify against:` footers still hold.
 
-- [ ] **Step 3: Final full run**
+- [x] **Step 3: Final full run**
   Run: `make test`
   Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Document lgx new templates"`
+
+---
+
+## Completion summary (2026-06-11)
+
+Implemented in six commits (`97df5cd`..`f1ae51a`) exactly as planned:
+`cli/parse-new-args`, `cache/resolve-head-sha!`, the `templates` registry
+(`base` + `cli`, cli pinned to `7948695`), `cmd-new!` wiring, help row, e2e
+scenarios 105–107, and README/ARCHITECTURE docs. Full suite green: 319 unit
+tests, 246 e2e assertions.
+
+Issues encountered:
+- Codex review of the Task 3 commit flagged (correctly) that `cmd-new!`
+  still called 0-arity `resolve-template-coord` at that intermediate
+  commit; resolved one commit later by Task 4 as sequenced.
+- Codex review of the Task 6 commit flagged the README's "any git repo
+  works as a template" as overstated (SSH URLs are unsupported); fixed in
+  a follow-up commit clarifying supported URL forms (`https://`,
+  `file://`).
