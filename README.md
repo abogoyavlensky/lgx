@@ -200,7 +200,9 @@ Top-level keys: `:paths`, `:resource-paths`, `:deps`, `:main`, `:targets`,
 
 - `:paths` lists project source paths relative to the project root.
   `lgx run` prepends them to dependency paths so project namespaces
-  shadow lib namespaces. Missing entries print a warning.
+  shadow lib namespaces. Missing entries print a warning. When the key
+  is absent it defaults to `["src"]`; set `:paths []` explicitly to
+  opt out.
 - `:main` names the default entrypoint script. `lgx run` substitutes it
   when no script is given; `lgx build` bundles it.
 

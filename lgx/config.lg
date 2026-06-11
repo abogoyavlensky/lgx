@@ -394,11 +394,12 @@
      :resource-paths resource-paths}))
 
 (defn paths
-  "Return the project's :paths vector from lgx.edn, or [] if absent."
+  "Return the project's :paths vector from lgx.edn, or [\"src\"] if absent.
+   An explicit :paths [] stays empty - the default only fills in a missing key."
   [project]
   (let [config-path (path/join project config-name)
         cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (or (:paths cfg) [])))
+    (or (:paths cfg) ["src"])))
 
 (defn resource-paths
   "Return the project's :resource-paths vector from lgx.edn, or [] if absent."

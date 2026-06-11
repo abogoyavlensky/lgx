@@ -117,8 +117,10 @@ Steps 1–4 match `install` — deps are auto-installed if missing. Then:
 
 If `lgx.edn` sets top-level `:paths`, lgx resolves those
 project-root-relative paths to absolute paths and prepends them to the
-cached lib paths before the join. Missing entries log a warning to
-stderr, but lgx still passes the resolved path through to `lg`.
+cached lib paths before the join. When the key is absent, `:paths`
+defaults to `["src"]` (an explicit `:paths []` opts out). Missing
+entries log a warning to stderr, but lgx still passes the resolved
+path through to `lg`.
 
 If `lgx.edn` sets top-level `:resource-paths`, lgx resolves those
 project-root-relative dirs to absolute paths and passes them to `lg` as

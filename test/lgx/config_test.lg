@@ -188,8 +188,22 @@
 ;; paths
 ;; ---------------------------------------------------------------------------
 
-(deftest paths-returns-empty-when-absent
-  (is (= [] (or (:paths (config/validate-config! {:deps {}})) []))))
+(deftest validate-config-does-not-inject-paths
+  (is (nil? (:paths (config/validate-config! {:deps {}})))))
+
+(deftest paths-defaults-to-src-when-absent
+  (let [dir (str "/tmp/lgx-paths-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn") "{:deps {}}")
+    (is (= ["src"] (config/paths dir)))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest paths-keeps-explicit-empty-vector
+  (let [dir (str "/tmp/lgx-paths-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn") "{:paths []}")
+    (is (= [] (config/paths dir)))
+    (os/sh "rm" "-rf" dir)))
 
 (deftest paths-reads-fixture
   (is (= ["src" "test"] (config/paths "tests/fixtures/sample-project"))))
