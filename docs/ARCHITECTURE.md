@@ -28,7 +28,8 @@ embedded git library ended up shelling out for edge cases anyway.
 ```
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring
 lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port
-lgx/config.lg       find lgx.edn (walks up), parse/validate :deps/:paths/:resource-paths/:tasks/:contexts
+lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
+lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (collects all errors, never throws), error->line rendering
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
@@ -74,7 +75,10 @@ because it runs under the user's `lg` and cannot require `lgx.style`.
 same everywhere. After a `Usage: lgx [options] <command> [args...]`
 synopsis it lists built-in commands under a `Built-in commands:` title and
 project tasks under a `Project tasks:` title, both as `lgx <name>` rows aligned
-to one shared description column, with `Options:` last.
+to one shared description column, with `Options:` last. Help stays usable when
+`lgx.edn` is invalid: the tasks section is replaced by a one-line warning
+(`(omitted — lgx.edn is invalid; run \`lgx install\` to see errors)`) instead
+of failing or silently dropping tasks.
 
 ## Data flow
 
@@ -85,7 +89,14 @@ to one shared description column, with `Options:` last.
 2. Read `lgx.edn`, validate the schema
    (`{:paths [<rel-path> ...] :resource-paths [<rel-path> ...] :main <rel-path> :targets {:bin {:out <rel-path>}} :deps {<lib> {:git/url … :git/sha or :git/tag … :deps/root <opt>}}}`
    or `{<lib> {:local/root … :deps/root <opt>}}`),
-   and return the coord vector.
+   and return the coord vector. Validation (`config/load-config`, schema
+   interpreted by `lgx/spec.lg`) collects **all** errors and reports them in
+   one pass to stderr — `lgx: invalid lgx.edn (N errors)` followed by one
+   path-prefixed line per error (e.g.
+   `:tasks :lint :do [0] — unknown key :shh (allowed: :sh, :run)`) — then
+   exits 1, with no stack trace. The config is loaded once per invocation;
+   every basis command (`install`/`run`/`nrepl`/`build`/`test`/tasks) and the
+   task-name fallback in dispatch go through `load-config!`.
 3. Resolve coords breadth-first. For each unseen lib name, call
    `cache/ensure-lib!`. Git coords compute a cache ref first: the sha
    for `:git/sha`, or the tag with `/` replaced by `_` for `:git/tag`.
@@ -98,9 +109,11 @@ to one shared description column, with `Options:` last.
    this call did the clone.
 4. After a dep resolves, read that dep's own `lgx.edn` if present and
    append only its `:deps` entries to the queue. Other top-level keys in
-   a dep's config are ignored by consumers. Duplicate lib names are
-   first-wins: a later differing coord is skipped with a warning. The
-   seen set also terminates cycles.
+   a dep's config are ignored by consumers (open-map leniency in
+   `config/coords-at`); an invalid `:deps` there reports
+   `lgx: invalid lgx.edn in <dir> (N errors)` and exits 1. Duplicate lib
+   names are first-wins: a later differing coord is skipped with a
+   warning. The seen set also terminates cycles.
 5. If any dep was newly cloned, print `installing N dep(s)...`, one
    `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
    already cached, print `all deps up to date`. Empty `:deps` prints

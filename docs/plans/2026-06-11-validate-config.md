@@ -377,11 +377,11 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
 **Files:**
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update docs**
+- [x] **Step 1: Update docs**
   Add `lgx/spec.lg` to the component table; update the `lgx/config.lg` line
   (schema-as-data, load-once) and the install-flow "validate the schema"
   note; mention the all-errors report. Check the `Verify against:` footers
   still name the right files.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "Document spec engine and load-once config in architecture"`
