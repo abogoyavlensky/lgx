@@ -121,8 +121,16 @@
               (catch e :threw)))))
 
 ;; ---------------------------------------------------------------------------
-;; usage-line
+;; signature / usage-line
 ;; ---------------------------------------------------------------------------
+
+(deftest signature-empty-for-no-decls
+  (is (= "" (args/signature []))))
+
+(deftest signature-required-and-optional
+  (is (= "<env> [version]"
+         (args/signature [{:name :env}
+                          {:name :version :default "latest"}]))))
 
 (deftest usage-no-decls
   (is (= "usage: lgx deploy" (args/usage-line "deploy" []))))

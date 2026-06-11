@@ -100,15 +100,22 @@
             item))
         v))
 
-(defn usage-line
-  "Render `usage: lgx <task> <req> [opt]` from decls: required args as
-   <name>, defaulted args as [name]. With no decls just `usage: lgx <task>`."
-  [task-name decls]
+(defn signature
+  "Render decls as a space-joined signature: required args as <name>,
+   defaulted args as [name]. Empty string for no decls."
+  [decls]
   (str/join " "
-            (concat ["usage:" "lgx" (str task-name)]
-                    (map (fn [d]
-                           (let [n (name (:name d))]
-                             (if (contains? d :default)
-                               (str "[" n "]")
-                               (str "<" n ">"))))
-                         decls))))
+            (map (fn [d]
+                   (let [n (name (:name d))]
+                     (if (contains? d :default)
+                       (str "[" n "]")
+                       (str "<" n ">"))))
+                 decls)))
+
+(defn usage-line
+  "Render `usage: lgx <task> <req> [opt]` from decls. With no decls just
+   `usage: lgx <task>`."
+  [task-name decls]
+  (let [sig (signature decls)]
+    (str "usage: lgx " task-name
+         (if (str/blank? sig) "" (str " " sig)))))
