@@ -91,9 +91,15 @@
 
 (def ^:private deps-schema [:map-of :symbol coord-schema])
 
+(defn- placeholder-kw?
+  "True for an :arg/<name> placeholder keyword in a step vector."
+  [x]
+  (and (keyword? x) (= "arg" (namespace x))))
+
 (defn- action-value-errors
-  "A step's :sh/:run value: a non-blank string or a non-empty vector of
-   strings."
+  "A step's :sh/:run value: a non-blank string or a non-empty vector whose
+   items are strings or :arg/<name> placeholder keywords. Whether a
+   placeholder names a declared arg is the task-level cross-check's job."
   [v]
   (cond
     (string? v) (if (str/blank? v) ["must be a non-blank string"] [])
@@ -106,10 +112,11 @@
         (if (>= i (count v))
           acc
           (recur (inc i)
-                 (if (string? (nth v i))
+                 (if (or (string? (nth v i)) (placeholder-kw? (nth v i)))
                    acc
                    (conj acc {:path [i]
-                              :msg (str "must be a string, got "
+                              :msg (str "must be a string or :arg/<name> "
+                                        "placeholder, got "
                                         (pr-str (nth v i)))}))))))
 
     :else
@@ -136,6 +143,142 @@
     :else (str "must be a step map or non-empty vector of steps, got "
                (pr-str v))))
 
+(defn- arg-name-errors
+  "An arg's :name — an unqualified keyword; :arg/<name> can't encode a
+   namespace."
+  [v]
+  (cond
+    (not (keyword? v)) [(str "must be a keyword, got " (pr-str v))]
+    (namespace v) [(str "must be an unqualified keyword, got " v)]
+    :else []))
+
+(defn- arg-type-errors
+  "An arg's :type — :int, :string, or [:enum v1 v2 ...] with at least two
+   distinct non-blank string values (CLI values arrive as strings)."
+  [t]
+  (cond
+    (or (= t :int) (= t :string))
+    []
+
+    (and (vector? t) (= :enum (first t)))
+    (let [values (vec (rest t))]
+      (cond
+        (< (count values) 2) ["must list at least 2 enum values"]
+        (some #(or (not (string? %)) (str/blank? %)) values)
+        ["enum values must be non-blank strings"]
+        (not= (count values) (count (set values)))
+        ["enum values must be distinct"]
+        :else []))
+
+    :else
+    [(str "must be :int, :string, or [:enum ...], got " (pr-str t))]))
+
+(defn- arg-default-errors
+  "Arg-map cross-key rule: :default must match the (defaulted) :type. Runs
+   only after the structural map check passed, so :type is well-formed."
+  [a]
+  (when (contains? a :default)
+    (let [t (or (:type a) :string)
+          d (:default a)]
+      (cond
+        (= t :string)
+        (when-not (string? d)
+          {:path [:default]
+           :msg (str "must be a string (type :string), got " (pr-str d))})
+
+        (= t :int)
+        (when-not (integer? d)
+          {:path [:default]
+           :msg (str "must be an integer (type :int), got " (pr-str d))})
+
+        :else
+        (let [allowed (vec (rest t))]
+          (when-not (some #(= % d) allowed)
+            {:path [:default]
+             :msg (str "must be one of: " (str/join ", " allowed)
+                       ", got " (pr-str d))}))))))
+
+(def ^:private arg-schema
+  [:and
+   [:map {:closed true}
+    [:name [:fn arg-name-errors]]
+    [:type {:optional true} [:fn arg-type-errors]]
+    [:default {:optional true} :any]]
+   [:fn arg-default-errors]])
+
+(defn- args-vector-errors
+  "Vector-level rules over valid arg maps: unique names, and trailing
+   optionals — once an arg has :default, every later arg must too (CLI
+   values fill positions left to right, so only a trailing arg can be
+   omitted)."
+  [v]
+  (loop [i 0
+         seen #{}
+         seen-default? false
+         acc []]
+    (if (>= i (count v))
+      acc
+      (let [a (nth v i)
+            n (:name a)
+            has-default? (contains? a :default)
+            acc (if (contains? seen n)
+                  (conj acc {:path [i :name]
+                             :msg (str "duplicate arg name " n)})
+                  acc)
+            acc (if (and seen-default? (not has-default?))
+                  (conj acc {:path [i]
+                             :msg (str "required arg " n
+                                       " cannot follow an arg with :default")})
+                  acc)]
+        (recur (inc i) (conj seen n) (or seen-default? has-default?) acc)))))
+
+(def ^:private args-schema
+  [:and [:vector {:min 1} arg-schema] [:fn args-vector-errors]])
+
+(defn- step-placeholder-errors
+  "Unknown-:arg/* errors for one valid step, paths relative to the step.
+   `label` renders the declared names, or nil when the task has no :args."
+  [declared label step]
+  (let [k (if (contains? step :sh) :sh :run)
+        v (get step k)]
+    (if-not (vector? v)
+      []
+      (loop [j 0
+             acc []]
+        (if (>= j (count v))
+          acc
+          (let [item (nth v j)]
+            (recur (inc j)
+                   (if (and (placeholder-kw? item)
+                            (not (contains? declared item)))
+                     (conj acc {:path [k j]
+                                :msg (if (nil? label)
+                                       (str "placeholder " item
+                                            " used but no :args declared")
+                                       (str "unknown placeholder " item
+                                            " (declared: " label ")"))})
+                     acc))))))))
+
+(defn- task-placeholder-errors
+  "Task-level cross-key rule: every :arg/* placeholder in :do must name a
+   declared arg. Runs only after the structural schema passed, so steps and
+   :args hold their shapes. Walks both :do forms — a single step map or a
+   vector of steps — because validation runs before normalize-config."
+  [task]
+  (let [decls (:args task)
+        declared (set (mapv #(keyword "arg" (name (:name %))) (or decls [])))
+        label (when decls (str/join ", " (mapv (comp str :name) decls)))
+        d (:do task)]
+    (if (map? d)
+      (mapv (fn [e] {:path (vec (cons :do (:path e)))
+                     :msg (:msg e)})
+            (step-placeholder-errors declared label d))
+      (vec (mapcat (fn [i]
+                     (mapv (fn [e] {:path (vec (concat [:do i] (:path e)))
+                                    :msg (:msg e)})
+                           (step-placeholder-errors declared label (nth d i))))
+                   (range (count d)))))))
+
 (defn- task-name-errors [k]
   (cond
     ;; (subs (str k) 1) rather than (name k): a namespaced keyword like
@@ -152,13 +295,16 @@
     (str "conflicts with built-in command \"" (str k) "\"")))
 
 (def ^:private task-schema
-  [:map {:closed true}
-   [:doc {:optional true} :string]
-   [:do [:fn do-errors]]
-   [:extra-paths {:optional true} [:vector rel-path-schema]]
-   [:extra-resource-paths {:optional true} [:vector rel-path-schema]]
-   [:extra-deps {:optional true} deps-schema]
-   [:with {:optional true} [:vector :keyword]]])
+  [:and
+   [:map {:closed true}
+    [:doc {:optional true} :string]
+    [:args {:optional true} args-schema]
+    [:do [:fn do-errors]]
+    [:extra-paths {:optional true} [:vector rel-path-schema]]
+    [:extra-resource-paths {:optional true} [:vector rel-path-schema]]
+    [:extra-deps {:optional true} deps-schema]
+    [:with {:optional true} [:vector :keyword]]]
+   [:fn task-placeholder-errors]])
 
 ;; A context is a named overlay carrying only extras — the same shape as a
 ;; task's inline extras, lifted to the project top level for reuse across
