@@ -30,6 +30,7 @@ lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wi
 lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port
 lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
+lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
@@ -329,11 +330,18 @@ the user can inspect the generated file.
 ### `lgx <task>`
 
 After built-in dispatch, lgx looks up `<task>` (as a symbol) in the
-project's `:tasks` map. If present, lgx resolves the project basis the
-same way `lgx run` does (steps 1–4 above) and walks the task's `:do`
-vector. Config validation accepts `:do` as either a single step map or a
-vector of steps, then normalizes the single-map form to a one-item vector
-before execution walks it. Each step is one of:
+project's `:tasks` map. If present, lgx first binds the remaining CLI
+args against the task's `:args` declarations (`args/bind-args`) —
+before the basis is built, so a bad invocation never fetches deps.
+Arity is strict: missing/surplus args or a value failing its `:type`
+print each error plus a usage line derived from the declarations
+(`usage: lgx deploy <env> [version]`) and exit 1; a task without
+`:args` rejects any CLI args the same way. Then lgx resolves the
+project basis the same way `lgx run` does (steps 1–4 above) and walks
+the task's `:do` vector. Config validation accepts `:do` as either a
+single step map or a vector of steps, then normalizes the single-map
+form to a one-item vector before execution walks it. Each step is one
+of:
 
 - `{:sh <string-or-vector>}` — joined with spaces and run via
   `sh -c <cmd>`. Captured stdout/stderr is replayed after the child
@@ -341,6 +349,16 @@ before execution walks it. Each step is one of:
 - `{:run <string-or-vector>}` — invoked through the same internal path
   as `lgx run`, with the project's resolved `-source-paths` and
   `-resource-paths`. String forms are whitespace-split into argv.
+
+Vector-form step values may carry `:arg/<name>` placeholder keywords,
+replaced with the bound values just before the step runs
+(`args/substitute`): shell-quoted for `:sh` (each value arrives as one
+uninterpreted shell word), verbatim for `:run` (each vector item is
+already one argv entry). String-form values have no placeholder syntax.
+Config validation checks every placeholder names a declared arg, so an
+unbound placeholder at execution time is a programmer error (throws).
+The echoed `$ <cmd>` step line shows the substituted command, and
+`lgx help` renders each task's signature after its name.
 
 A task may augment the project basis with context overlays (its `:with`
 list and the CLI `--with`) and its own inline

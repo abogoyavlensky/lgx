@@ -91,7 +91,7 @@ lgx run
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a random port (or `N`). Writes `.nrepl-port`. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
 | `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
-| `lgx <task>` | Run a custom task defined under `:tasks` in `lgx.edn`. |
+| `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. |
 | `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
 
@@ -306,12 +306,59 @@ commands (`install`, `run`, `nrepl`, `build`, `test`, `new`, `help`,
 
 When a task has a single step, `:do` may be written as a step map
 instead of a vector. Multi-step tasks use a vector. Step values may be
-a string (split on whitespace) or a vector of strings. Output is
-buffered and replayed after each step completes.
+a string (split on whitespace) or a vector of strings and
+`:arg/<name>` placeholders (see [Positional args](#positional-args-args)).
+Output is buffered and replayed after each step completes.
 
-A task may contain only `:doc`, `:do`, `:extra-paths`, `:extra-resource-paths`,
-`:extra-deps`, and `:with`; any other key is rejected (so a typo like
-`:extra-dep` fails loudly).
+A task may contain only `:doc`, `:args`, `:do`, `:extra-paths`,
+`:extra-resource-paths`, `:extra-deps`, and `:with`; any other key is
+rejected (so a typo like `:extra-dep` fails loudly).
+
+#### Positional args (`:args`)
+
+A task may declare typed positional CLI args and reference them in
+vector-form step values as `:arg/<name>` keywords:
+
+```edn
+{:tasks
+ {deploy {:doc  "Deploy the app"
+          :args [{:name :env
+                  :type [:enum "prod" "staging"]}
+                 {:name :version
+                  :type :string
+                  :default "latest"}]
+          :do   [{:sh ["./deploy.sh" :arg/env :arg/version]}
+                 {:run ["notify.lg" :arg/env]}]}}}
+```
+
+`lgx deploy prod` runs `./deploy.sh 'prod' 'latest'`, then
+`lgx run notify.lg prod`.
+
+Each arg is a map:
+
+- `:name` — required; an unqualified keyword. The placeholder is the
+  matching `:arg/<name>` keyword.
+- `:type` — optional, defaults to `:string`. One of `:int`, `:string`,
+  or `[:enum "v1" "v2" ...]` (at least two distinct non-blank strings;
+  CLI values arrive as strings, so enums are string-only).
+- `:default` — optional; its value must match the type. Args without
+  `:default` are required and must come first; once an arg has
+  `:default`, every later arg needs one too (CLI values fill positions
+  left to right, so only trailing args can be omitted).
+
+Arity is strict: a missing required arg, a value that fails its type,
+or a surplus arg prints the error plus a usage line
+(`usage: lgx deploy <env> [version]`) and exits 1. A task that declares
+no `:args` rejects any CLI args the same way. `lgx help` shows each
+task's signature after its name.
+
+Placeholders work only in vector-form step values — there is no
+templating inside string commands — and every `:arg/<name>` must name a
+declared arg (checked when `lgx.edn` loads). In `:sh` steps each
+substituted value is single-quoted, so it always reaches the shell as
+one word and is never interpreted (`lgx greet 'a; echo pwned'` echoes
+the literal text). In `:run` steps each vector item is already one
+argument, so values pass through verbatim.
 
 #### Per-task `:extra-paths`, `:extra-resource-paths`, and `:extra-deps`
 
