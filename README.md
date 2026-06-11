@@ -285,22 +285,24 @@ non-zero exit code stops the chain.
 
 ```edn
 {:tasks
- {:lint {:doc "Run clj-kondo against the project"
-         :do  {:sh "clj-kondo --lint src test"}}
+ {lint {:doc "Run clj-kondo against the project"
+        :do  {:sh "clj-kondo --lint src test"}}
 
-  :ci {:doc "Format check, lint, and tests"
-       :do  [{:sh "cljfmt check"}
-             {:sh "clj-kondo --lint src test"}
-             {:run "test/myapp/smoke.lg"}]}
+  ci {:doc "Format check, lint, and tests"
+      :do  [{:sh "cljfmt check"}
+            {:sh "clj-kondo --lint src test"}
+            {:run "test/myapp/smoke.lg"}]}
 
-  :greet {:doc "Run main with a fixed arg"
-          :do  [{:run ["main.lg" "--" "world"]}]}}}
+  greet {:doc "Run main with a fixed arg"
+         :do  [{:run ["main.lg" "--" "world"]}]}}}
 ```
 
 Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
-tasks defined in the current project. Task names are keywords; they
-cannot shadow built-in commands (`install`, `run`, `nrepl`, `build`,
-`test`, `new`, `help`, `version`, plus reserved `add`, `update`, `tasks`).
+tasks defined in the current project. Task names are symbols, matching
+how they are typed on the command line (context names stay keywords —
+see [Contexts](#contexts-contexts)); they cannot shadow built-in
+commands (`install`, `run`, `nrepl`, `build`, `test`, `new`, `help`,
+`version`, plus reserved `add`, `update`, `tasks`).
 
 When a task has a single step, `:do` may be written as a step map
 instead of a vector. Multi-step tasks use a vector. Step values may be
@@ -318,11 +320,11 @@ that apply to *that task's* `:run` steps only:
 
 ```edn
 {:tasks
- {:repl {:doc         "REPL with dev-only tooling"
-         :extra-paths ["dev"]
-         :extra-deps  {some/nrepl {:git/url "https://github.com/x/nrepl"
-                                   :git/tag "v1"}}
-         :do          [{:run "dev/repl.lg"}]}}}
+ {repl {:doc         "REPL with dev-only tooling"
+        :extra-paths ["dev"]
+        :extra-deps  {some/nrepl {:git/url "https://github.com/x/nrepl"
+                                  :git/tag "v1"}}
+        :do          [{:run "dev/repl.lg"}]}}}
 ```
 
 - `:extra-paths` — extra project-root-relative source dirs, same rules as
@@ -360,9 +362,9 @@ across tasks.
   :test {:extra-paths ["test-support"]}}
 
  :tasks
- {:repl {:doc  "REPL with dev tooling"
-         :with [:dev]
-         :do   [{:run "dev/repl.lg"}]}}}
+ {repl {:doc  "REPL with dev tooling"
+        :with [:dev]
+        :do   [{:run "dev/repl.lg"}]}}}
 ```
 
 A context map may contain only `:extra-paths`, `:extra-resource-paths`, and

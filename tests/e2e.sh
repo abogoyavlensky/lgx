@@ -314,7 +314,7 @@ echo "==> Scenario 13: project task with :sh step"
 proj_t="$(mktemp -d)"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:hello {:doc "Say hi"
+ {hello {:doc "Say hi"
           :do [{:sh "echo hi from task"}]}}}
 EOF
 home_t="$(mktemp -d)"
@@ -325,7 +325,7 @@ assert_eq "$out" "hi from task" "task: single :sh step runs"
 echo "==> Scenario 14: multi-step task runs steps sequentially"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:ci {:doc "Run multiple steps"
+ {ci {:doc "Run multiple steps"
        :do [{:sh "echo step1"}
             {:sh "echo step2"}
             {:sh "echo step3"}]}}}
@@ -339,7 +339,7 @@ step3" "task: multi-step output streamed in order"
 echo "==> Scenario 15: vector :sh form is joined with spaces"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:greet {:do [{:sh ["echo" "hello" "world"]}]}}}
+ {greet {:do [{:sh ["echo" "hello" "world"]}]}}}
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" greet)"
 assert_eq "$out" "hello world" "task: vector :sh form joins items"
@@ -348,7 +348,7 @@ assert_eq "$out" "hello world" "task: vector :sh form joins items"
 echo "==> Scenario 16: failing step stops chain with its exit code"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:fail {:do [{:sh "echo before"}
+ {fail {:do [{:sh "echo before"}
               {:sh "exit 7"}
               {:sh "echo after"}]}}}
 EOF
@@ -364,7 +364,7 @@ assert_not_contains "$out" "after" "task fail: later step did not run"
 echo "==> Scenario 17: unknown command in a project with tasks"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:hello {:do [{:sh "echo hi"}]}}}
+ {hello {:do [{:sh "echo hi"}]}}}
 EOF
 set +e
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" nope 2>&1)"; rc=$?
@@ -376,8 +376,8 @@ assert_contains "$out" "'nope' is not a lgx command" "unknown task: error messag
 echo "==> Scenario 18: lgx help lists project tasks"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:fmt   {:doc "Format sources" :do [{:sh "echo fmt"}]}
-  :check {:doc "Run checks"     :do [{:sh "echo check"}]}}}
+ {fmt   {:doc "Format sources" :do [{:sh "echo fmt"}]}
+  check {:doc "Run checks"     :do [{:sh "echo check"}]}}}
 EOF
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" help)"
 assert_contains "$out" "Usage: lgx [options] <command> [args...]" "help: usage synopsis"
@@ -399,7 +399,7 @@ assert_not_contains "$out" $'\e[' "help: output is plain (no color)"
 echo "==> Scenario 19: task name conflicting with built-in command is rejected"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {:run {:doc "Bad" :do [{:sh "echo nope"}]}}}
+ {run {:doc "Bad" :do [{:sh "echo nope"}]}}}
 EOF
 set +e
 out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" install 2>&1)"; rc=$?
@@ -426,7 +426,7 @@ EOF
     cat > "$proj_run/lgx.edn" <<'EOF'
 {:paths ["src"]
  :tasks
- {:say {:doc "Run via :run step"
+ {say {:doc "Run via :run step"
         :do [{:run "scripts/hi.lg"}]}}}
 EOF
     out="$(cd "$proj_run" && LGX_HOME="$home_run" "$LGX" say)"
@@ -1534,7 +1534,7 @@ proj_trun="$(mktemp -d)"
 home_trun="$(mktemp -d)"
 cat > "$proj_trun/lgx.edn" <<'EOF'
 {:main "main.lg"
- :tasks {:show {:do [{:run "main.lg"}]}}}
+ :tasks {show {:do [{:run "main.lg"}]}}}
 EOF
 cat > "$proj_trun/main.lg" <<'EOF'
 (when-not *compiling-aot*
@@ -1670,7 +1670,7 @@ EOF
 EOF
     cat > "$proj_ep/lgx.edn" <<'EOF'
 {:tasks
- {:devrun {:extra-paths ["dev"]
+ {devrun {:extra-paths ["dev"]
            :do [{:run "task-main.lg"}]}}}
 EOF
     out="$(cd "$proj_ep" && LGX_HOME="$home_ep" "$LGX" devrun 2>&1)"
@@ -1696,7 +1696,7 @@ if supports_source_paths; then
 EOF
     cat > "$proj_ed/lgx.edn" <<EOF
 {:tasks
- {:fibrun {:extra-deps {test/lib {:git/url "file://$bare_ed"
+ {fibrun {:extra-deps {test/lib {:git/url "file://$bare_ed"
                                   :git/sha "$sha_ed"}}
            :do [{:run "fib-main.lg"}]}}}
 EOF
@@ -1782,7 +1782,7 @@ EOF
 EOF
     cat > "$proj_c3/lgx.edn" <<'EOF'
 {:contexts {:dev {:extra-paths ["dev"]}}
- :tasks {:t {:with [:dev] :do [{:run "m.lg"}]}}}
+ :tasks {t {:with [:dev] :do [{:run "m.lg"}]}}}
 EOF
     out="$(cd "$proj_c3" && LGX_HOME="$home_c3" "$LGX" t 2>&1)"
     assert_contains "$out" "DEV-OK" \
@@ -1815,7 +1815,7 @@ EOF
     cat > "$proj_c4/lgx.edn" <<'EOF'
 {:contexts {:a {:extra-paths ["dir-a"]}
             :b {:extra-paths ["dir-b"]}}
- :tasks {:t {:with [:a] :do [{:run "m.lg"}]}}}
+ :tasks {t {:with [:a] :do [{:run "m.lg"}]}}}
 EOF
     out="$(cd "$proj_c4" && LGX_HOME="$home_c4" "$LGX" --with b t 2>&1)"
     assert_contains "$out" "A-OK" \
@@ -1852,7 +1852,7 @@ rm -rf "$proj_c5"
 proj_c6="$(mktemp -d)"
 cat > "$proj_c6/lgx.edn" <<'EOF'
 {:contexts {:dev {}}
- :tasks {:t {:with [:nope] :do [{:sh "echo hi"}]}}}
+ :tasks {t {:with [:nope] :do [{:sh "echo hi"}]}}}
 EOF
 set +e
 out="$(cd "$proj_c6" && LGX_HOME="$home_c5" "$LGX" t 2>&1)"; rc=$?
@@ -1933,7 +1933,7 @@ if supports_resource_paths; then
 EOF
     cat > "$proj_rt/lgx.edn" <<'EOF'
 {:tasks
- {:resrun {:extra-resource-paths ["assets"]
+ {resrun {:extra-resource-paths ["assets"]
            :do [{:run "task-main.lg"}]}}}
 EOF
     out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" resrun 2>&1)"
@@ -2040,7 +2040,7 @@ rm -rf "$proj_b" "$home_b"
 echo "==> Scenario 86: task prints a purple header and \$ step lines on stderr"
 proj_ts="$(mktemp -d)"; home_ts="$(mktemp -d)"
 cat > "$proj_ts/lgx.edn" <<'EOF'
-{:tasks {:hello {:do [{:sh "echo hi from task"}]}}}
+{:tasks {hello {:do [{:sh "echo hi from task"}]}}}
 EOF
 err="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>&1 >/dev/null)"
 out="$(cd "$proj_ts" && LGX_HOME="$home_ts" LGX_NO_COLOR=1 "$LGX" hello 2>/dev/null)"
@@ -2055,7 +2055,7 @@ if supports_source_paths; then
     proj_tr2="$(mktemp -d)"; home_tr2="$(mktemp -d)"
     printf '(println :from-run-step)\n' > "$proj_tr2/r.lg"
     cat > "$proj_tr2/lgx.edn" <<'EOF'
-{:tasks {:go {:do [{:run "r.lg"}]}}}
+{:tasks {go {:do [{:run "r.lg"}]}}}
 EOF
     err="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>&1 >/dev/null)"
     out="$(cd "$proj_tr2" && LGX_HOME="$home_tr2" LGX_NO_COLOR=1 "$LGX" go 2>/dev/null)"
@@ -2166,7 +2166,7 @@ rm -rf "$proj_nr3" "$home_nr3"
 echo "==> Scenario 93: task with single-step map form :do runs through the bundled CLI"
 proj_map="$(mktemp -d)"; home_map="$(mktemp -d)"
 cat > "$proj_map/lgx.edn" <<'EOF'
-{:tasks {:hello {:do {:sh "echo hi from map do"}}}}
+{:tasks {hello {:do {:sh "echo hi from map do"}}}}
 EOF
 set +e
 out="$(cd "$proj_map" && LGX_HOME="$home_map" "$LGX" hello 2>/dev/null)"; rc=$?
@@ -2182,7 +2182,7 @@ proj_inv="$(mktemp -d)"; home_inv="$(mktemp -d)"
 cat > "$proj_inv/lgx.edn" <<'EOF'
 {:paths "src"
  :targets {:bin {}}
- :tasks {:lint {:do [{:shh "x"}]}}}
+ :tasks {lint {:do [{:shh "x"}]}}}
 EOF
 set +e
 out="$(cd "$proj_inv" && LGX_HOME="$home_inv" "$LGX" run 2>&1)"; rc=$?
@@ -2195,7 +2195,7 @@ assert_contains "$out" ':paths — must be a vector, got "src"' \
     "invalid config: :paths error line"
 assert_contains "$out" ":targets :bin — missing required key :out" \
     "invalid config: :targets error line"
-assert_contains "$out" ":tasks :lint :do [0] — unknown key :shh (allowed: :sh, :run)" \
+assert_contains "$out" ":tasks lint :do [0] — unknown key :shh (allowed: :sh, :run)" \
     "invalid config: step error line with path"
 assert_not_contains "$out" "stack trace" \
     "invalid config: no stack trace leaks"
@@ -2388,6 +2388,32 @@ fetched="$(find "$home_ac5/gitlibs" -type d -name "$sha_ac5" 2>/dev/null || true
     || fail "no test/ with :test context: dep was fetched into cache: $fetched"
 pass "no test/ with :test context: the :test dep is not fetched into the cache"
 rm -rf "$proj_ac5" "$home_ac5"
+
+echo "==> Scenario 103: keyword task name reports the symbol migration hint"
+proj_kw="$(mktemp -d)"; home_kw="$(mktemp -d)"
+cat > "$proj_kw/lgx.edn" <<'EOF'
+{:tasks {:ci {:do [{:sh "echo hi"}]}}}
+EOF
+set +e
+out="$(cd "$proj_kw" && LGX_HOME="$home_kw" "$LGX" ci 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "keyword task name: expected non-zero exit"
+pass "keyword task name: exits non-zero"
+assert_contains "$out" "task names are symbols; write ci instead of :ci" \
+    "keyword task name: error states the symbol fix"
+rm -rf "$proj_kw" "$home_kw"
+
+echo "==> Scenario 104: namespaced task name runs and lists in help"
+proj_ns="$(mktemp -d)"; home_ns="$(mktemp -d)"
+cat > "$proj_ns/lgx.edn" <<'EOF'
+{:tasks {foo/bar {:doc "Namespaced" :do [{:sh "echo hi from ns task"}]}}}
+EOF
+out="$(cd "$proj_ns" && LGX_HOME="$home_ns" "$LGX" foo/bar)"
+assert_eq "$out" "hi from ns task" "namespaced task: runs by full name"
+out="$(cd "$proj_ns" && LGX_HOME="$home_ns" "$LGX" help)"
+assert_contains "$out" "lgx foo/bar" "namespaced task: help row keeps the namespace"
+assert_contains "$out" "Namespaced" "namespaced task: help row keeps the doc"
+rm -rf "$proj_ns" "$home_ns"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

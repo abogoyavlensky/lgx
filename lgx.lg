@@ -434,7 +434,7 @@
 ;; Tasks render as `lgx <name>` aligned to the same description column as the
 ;; built-in command rows, so they read as first-class commands.
 (defn- task-line [task-name task]
-  (let [left (str "  lgx " (name task-name))
+  (let [left (str "  lgx " task-name)
         doc (:doc task)]
     (cond
       (str/blank? doc) left
@@ -454,15 +454,15 @@
          "  (omitted — lgx.edn is invalid; run `lgx install` to see errors)\n")
 
     :else
+    ;; Iterate the keys themselves: rebuilding a key from (name k) would drop
+    ;; the namespace of a task like foo/bar.
     (let [t (config/tasks (:cfg loaded))
-          sorted-names (sort (map name (keys t)))]
+          sorted-keys (sort-by str (keys t))]
       (when (seq t)
         (str "\n"
              "Project tasks:\n"
-             (str/join "\n" (map (fn [n]
-                                   (task-line (keyword n)
-                                              (get t (keyword n))))
-                                 sorted-names))
+             (str/join "\n" (map (fn [k] (task-line k (get t k)))
+                                 sorted-keys))
              "\n")))))
 
 ;; Assembled at call time so the colored titles honor LGX_NO_COLOR at runtime.
@@ -516,7 +516,7 @@
     (if-let [project (config/find-project)]
       (let [cfg (config/load-config! project)
             t (config/tasks cfg)
-            k (keyword cmd)]
+            k (symbol cmd)]
         (if (contains? t k)
           (cmd-task cmd (get t k) project cfg verbose? with)
           (unknown-command! cmd)))
