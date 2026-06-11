@@ -102,7 +102,7 @@ No new files. Modified:
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Update existing unit tests and write new failing ones**
+- [x] **Step 1: Update existing unit tests and write new failing ones**
   In `test/lgx/config_test.lg`:
   - Flip every task fixture key from keyword to symbol — e.g.
     `{:tasks {:fmt {...}}}` becomes `{:tasks {'fmt {...}}}` (quote the
@@ -122,12 +122,12 @@ No new files. Modified:
     `(symbol n)` instead of `(keyword n)`; the expected message text is
     unchanged.
 
-- [ ] **Step 2: Run unit tests to verify they fail**
+- [x] **Step 2: Run unit tests to verify they fail**
   Run from the repo root: `make build && bin/lgx test`
   Expected: FAIL — keyword fixtures now expected to error but still
   pass validation, and the new hint message doesn't exist yet.
 
-- [ ] **Step 3: Implement task-name-errors**
+- [x] **Step 3: Implement task-name-errors**
   In `lgx/config.lg`, replace `reserved-name-errors` with
   `task-name-errors` — a cond over the three cases from the design
   (keyword hint / non-symbol type error / reserved-name conflict;
@@ -136,7 +136,7 @@ No new files. Modified:
   `[:map-of [:and :keyword [:fn reserved-name-errors]] task-schema]` to
   `[:map-of [:fn task-name-errors] task-schema]`.
 
-- [ ] **Step 4: Run unit tests to verify they pass**
+- [x] **Step 4: Run unit tests to verify they pass**
   Run: `make build && bin/lgx test`
   Expected: PASS (e2e not run here; it is red until Task 2).
 
@@ -146,12 +146,12 @@ No new files. Modified:
 - Modify: `lgx.lg`
 - Test: `tests/e2e.sh`
 
-- [ ] **Step 1: Switch dispatch and help to symbols**
+- [x] **Step 1: Switch dispatch and help to symbols**
   In `lgx.lg`: in `dispatch`, change the task lookup key from
   `(keyword cmd)` to `(symbol cmd)`; in `tasks-block`, change
   `(task-line (keyword n) (get t (keyword n)))` to use `(symbol n)`.
 
-- [ ] **Step 2: Flip e2e fixtures to symbol task names**
+- [x] **Step 2: Flip e2e fixtures to symbol task names**
   In `tests/e2e.sh`, every heredoc `lgx.edn` with a `:tasks` map drops
   the colon on task names (grep `:tasks` — about 20 fixtures, e.g.
   `{:tasks {:hello {...}}}` → `{:tasks {hello {...}}}`). Task `:with`
@@ -161,20 +161,20 @@ No new files. Modified:
   `":tasks lint :do [0] — unknown key :shh ..."` (fixture key `:lint`
   → `lint` in the same scenario).
 
-- [ ] **Step 3: Add e2e scenario for the keyword hint**
+- [x] **Step 3: Add e2e scenario for the keyword hint**
   New scenario alongside the invalid-config one: project whose lgx.edn
   has `{:tasks {:ci {:do [{:sh "echo hi"}]}}}`; running any
   config-loading command exits non-zero and output contains
   `task names are symbols; write ci instead of :ci`. Follow the
   existing scenario style (`set +e` … `assert_contains`).
 
-- [ ] **Step 4: Run the full suite**
+- [x] **Step 4: Run the full suite**
   Run: `make test`
   Expected: PASS (unit + e2e). Note: if the macOS shell shares this
   checkout, avoid running `make test` there concurrently — parallel
   runs clobber `bin/lgx`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Change task names from keywords to symbols"`
   (covers Task 1 + Task 2 changes; see commit cadence note above).
 
@@ -184,7 +184,7 @@ No new files. Modified:
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update README Tasks and Contexts sections**
+- [x] **Step 1: Update README Tasks and Contexts sections**
   In the `### Tasks (:tasks)` section: drop the colon from task names
   in both edn examples (`:lint`/`:ci`/`:greet` and `:repl`); change
   "Task names are keywords" to "Task names are symbols" and add that
@@ -192,15 +192,36 @@ No new files. Modified:
   `### Contexts (:contexts)` section, fix the task key in the example
   (`:repl` → `repl`); the `:dev`/`:test` context names stay.
 
-- [ ] **Step 2: Update ARCHITECTURE.md sample error**
+- [x] **Step 2: Update ARCHITECTURE.md sample error**
   The sample validation error line (around line 96) changes from
   `:tasks :lint :do [0] — unknown key :shh ...` to
   `:tasks lint :do [0] — unknown key :shh ...`. Skim the file's other
   `:tasks` mentions for stale keyword task names.
 
-- [ ] **Step 3: Verify docs mention no keyword task names**
+- [x] **Step 3: Verify docs mention no keyword task names**
   Run: `grep -rn ':tasks {:' README.md docs/ARCHITECTURE.md examples/`
   Expected: no matches.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Document task names as symbols"`
+
+---
+
+## Status: COMPLETED (2026-06-11)
+
+Implemented across three commits on `task-as-symbols`:
+
+- `086e220` — validation (`task-name-errors` keyword hint / type error /
+  reserved check), CLI dispatch and help via `(symbol ...)`, unit and e2e
+  fixtures flipped, new hint scenario.
+- `b6fe69b` — README Tasks/Contexts sections and ARCHITECTURE.md updated.
+- `7d01c85` — follow-up from codex review: namespaced task names
+  (`foo/bar`) handled correctly — the migration hint keeps the namespace
+  (`(subs (str k) 1)`, not `(name k)`), the reserved-name check compares
+  the full printed name so `foo/run` is not rejected, and help iterates
+  task keys directly instead of rebuilding them from `(name k)`. Relies
+  on let-go's `(symbol "foo/bar")` parsing the namespace (verified;
+  unlike JVM Clojure).
+
+Final state: 302 unit tests / 437 assertions, 231 e2e assertions, all
+passing. Codex review of the full branch: no diff-introduced issues.
