@@ -1,0 +1,88 @@
+(ns lgx.args
+  (:require [string :as str]))
+
+;; --------------------------------------------------------------------------
+;; Task positional args
+;;
+;; Pure helpers for a task's :args declarations: bind CLI values against the
+;; declared positional args, render the usage line, and substitute
+;; :arg/<name> placeholders into step vectors. All bound values are strings —
+;; a provided :int value keeps its original CLI string, a filled :default is
+;; stringified. The declarations themselves are validated in lgx.config; here
+;; a malformed declaration is a programmer error.
+;; --------------------------------------------------------------------------
+
+(defn- arg-key [decl]
+  (keyword "arg" (name (:name decl))))
+
+(defn- value-error
+  "Validate one provided CLI string against decl's type (:string when
+   absent). Returns an error message string, or nil when the value conforms."
+  [decl value]
+  (let [t (or (:type decl) :string)]
+    (cond
+      (= t :int)
+      (when (nil? (parse-long value))
+        (str "argument <" (name (:name decl)) "> must be an integer, got "
+             (pr-str value)))
+
+      ;; [:enum v1 v2 ...]
+      (vector? t)
+      (let [allowed (vec (rest t))]
+        (when-not (some #(= % value) allowed)
+          (str "argument <" (name (:name decl)) "> must be one of: "
+               (str/join ", " allowed) ", got " (pr-str value))))
+
+      :else nil)))
+
+(defn bind-args
+  "Bind `cli-args` (strings) positionally against `decls`. Returns
+   {:bindings {:arg/<name> <string> ...}} or {:errors [msg ...]} with every
+   error collected. Args without :default are required; unfilled trailing
+   args bind (str default)."
+  [decls cli-args]
+  (let [decls (vec decls)
+        cli-args (vec cli-args)]
+    (if (> (count cli-args) (count decls))
+      {:errors [(if (empty? decls)
+                  (str "task takes no arguments (got " (count cli-args) ")")
+                  (str "too many arguments (expected at most " (count decls)
+                       ", got " (count cli-args) ")"))]}
+      (loop [i 0
+             bindings {}
+             errors []]
+        (if (>= i (count decls))
+          (if (seq errors)
+            {:errors errors}
+            {:bindings bindings})
+          (let [decl (nth decls i)]
+            (cond
+              (< i (count cli-args))
+              (let [v (nth cli-args i)
+                    e (value-error decl v)]
+                (if e
+                  (recur (inc i) bindings (conj errors e))
+                  (recur (inc i) (assoc bindings (arg-key decl) v) errors)))
+
+              (contains? decl :default)
+              (recur (inc i)
+                     (assoc bindings (arg-key decl) (str (:default decl)))
+                     errors)
+
+              :else
+              (recur (inc i) bindings
+                     (conj errors (str "missing required argument <"
+                                       (name (:name decl)) ">"))))))))))
+
+(defn usage-line
+  "Render `usage: lgx <task> <req> [opt]` from decls: required args as
+   <name>, defaulted args as [name]. With no decls just `usage: lgx <task>`."
+  [task-name decls]
+  (str/join " "
+            (concat ["usage:" "lgx" (str task-name)]
+                    (map (fn [d]
+                           (let [n (name (:name d))]
+                             (if (contains? d :default)
+                               (str "[" n "]")
+                               (str "<" n ">"))))
+                         decls))))
