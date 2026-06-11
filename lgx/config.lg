@@ -363,6 +363,14 @@
   [cfg]
   (or (:contexts cfg) {}))
 
+(defn auto-context
+  "Return [name] when `name` is a defined context in cfg, else []. Convention
+   contexts: run/nrepl auto-apply :dev, test auto-applies :test. Callers
+   prepend the result to the CLI --with list, so an explicit --with context
+   wins over the auto one on a lib-name collision (last-wins)."
+  [cfg name]
+  (if (contains? (contexts cfg) name) [name] []))
+
 (defn main
   "Return the :main entrypoint string from a loaded cfg map, or nil if absent."
   [cfg]

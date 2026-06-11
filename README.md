@@ -377,6 +377,15 @@ A context map may contain only `:extra-paths`, `:extra-resource-paths`, and
 - **`:with [:dev]`** on a task — that task always runs with the named contexts.
   A global `--with` on the same invocation is **unioned** on top.
 
+**Default contexts.** Two context names are conventions: when defined, `:dev`
+auto-applies to `lgx run` and `lgx nrepl`, and `:test` auto-applies to
+`lgx test` — no `--with` needed. That is the natural home for nREPL tooling
+and dev-only source dirs (`:dev`) and test helpers (`:test`), as in the
+example above. `build` and `install` never auto-apply contexts, so dev and
+test deps stay out of built binaries; task `:run` steps don't inherit them
+either (use the task's `:with`). An explicit `--with` layers on top, and
+`--verbose` prints the applied name (`+ auto context :dev`).
+
 Referencing a context that isn't defined fails loudly: a task's `:with` is
 checked when `lgx.edn` loads; an unknown `--with` name errors at runtime,
 listing the defined contexts.
@@ -386,6 +395,7 @@ specific layer wins (last-wins). Lowest → highest precedence:
 
 ```
 project :deps / :paths / :resource-paths
+  → auto context (:dev for run/nrepl, :test for test; built-in commands only)
   → task :with contexts (in order)
   → CLI --with contexts (in order)
   → task inline :extra-deps / :extra-paths / :extra-resource-paths  (highest)

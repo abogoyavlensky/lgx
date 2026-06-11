@@ -149,6 +149,8 @@ out="$("$LGX" help)"
 assert_contains "$out" "Usage:" "help prints usage"
 assert_contains "$out" "lgx install" "help lists install"
 assert_contains "$out" "lgx run" "help lists run"
+assert_contains "$out" "A :dev context auto-applies to run/nrepl, :test to test" \
+    "help notes the auto-applied convention contexts"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 3: unknown command"
@@ -2237,7 +2239,157 @@ assert_not_contains "$out" "stack trace" \
     "parse error: no stack trace leaks"
 rm -rf "$proj_par" "$home_par"
 
-echo "==> Scenario 98: keyword task name reports the symbol migration hint"
+# ---------------------------------------------------------------------------
+echo "==> Scenario 98: :dev context auto-applies to run"
+if supports_source_paths; then
+    proj_ac1="$(mktemp -d)"; home_ac1="$(mktemp -d)"
+    mkdir -p "$proj_ac1/dev"
+    cat > "$proj_ac1/dev/devtool.lg" <<'EOF'
+(ns devtool)
+(defn banner [] "AUTO-DEV-OK")
+EOF
+    cat > "$proj_ac1/m.lg" <<'EOF'
+(ns m
+  (:require [devtool]))
+(println (devtool/banner))
+EOF
+    cat > "$proj_ac1/lgx.edn" <<'EOF'
+{:main "m.lg"
+ :contexts {:dev {:extra-paths ["dev"]}}}
+EOF
+    out="$(cd "$proj_ac1" && LGX_HOME="$home_ac1" "$LGX" run 2>&1)"
+    assert_contains "$out" "AUTO-DEV-OK" \
+        "auto :dev run: resolves ns from :dev context without --with"
+    out="$(cd "$proj_ac1" && LGX_HOME="$home_ac1" "$LGX" --verbose run 2>&1)"
+    assert_contains "$out" "+ auto context :dev" \
+        "auto :dev run: --verbose names the auto context (stderr)"
+    rm -rf "$proj_ac1" "$home_ac1"
+else
+    skip "auto :dev context requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 99: :test context auto-applies to test"
+if supports_source_paths; then
+    proj_ac2="$(mktemp -d)"; home_ac2="$(mktemp -d)"
+    mkdir -p "$proj_ac2/test" "$proj_ac2/test-support"
+    cat > "$proj_ac2/lgx.edn" <<'EOF'
+{:contexts {:test {:extra-paths ["test-support"]}}}
+EOF
+    cat > "$proj_ac2/test-support/helper.lg" <<'EOF'
+(ns helper)
+(defn answer [] 42)
+EOF
+    cat > "$proj_ac2/test/x_test.lg" <<'EOF'
+(ns x-test
+  (:require [helper]
+            [test :refer [deftest is]]))
+
+(deftest helper-loads
+  (is (= 42 (helper/answer))))
+EOF
+    set +e
+    out="$(cd "$proj_ac2" && LGX_HOME="$home_ac2" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "auto :test: expected exit 0, got $rc (output: $out)"
+    pass "auto :test: exits 0"
+    assert_contains "$out" "0 failures" \
+        "auto :test: helper ns from :test context resolves without --with"
+    rm -rf "$proj_ac2" "$home_ac2"
+else
+    skip "auto :test context requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 100: --with stacks on top of the auto :dev context"
+if supports_source_paths; then
+    proj_ac3="$(mktemp -d)"; home_ac3="$(mktemp -d)"
+    mkdir -p "$proj_ac3/dev" "$proj_ac3/extra"
+    cat > "$proj_ac3/dev/devtool.lg" <<'EOF'
+(ns devtool)
+(defn banner [] "DEV-PART")
+EOF
+    cat > "$proj_ac3/extra/extratool.lg" <<'EOF'
+(ns extratool)
+(defn banner [] "EXTRA-PART")
+EOF
+    cat > "$proj_ac3/m.lg" <<'EOF'
+(ns m
+  (:require [devtool]
+            [extratool]))
+(println (devtool/banner) (extratool/banner))
+EOF
+    cat > "$proj_ac3/lgx.edn" <<'EOF'
+{:main "m.lg"
+ :contexts {:dev {:extra-paths ["dev"]}
+            :extra {:extra-paths ["extra"]}}}
+EOF
+    out="$(cd "$proj_ac3" && LGX_HOME="$home_ac3" "$LGX" --with extra run 2>&1)"
+    assert_contains "$out" "DEV-PART EXTRA-PART" \
+        "--with over auto: both the auto :dev and --with dirs resolve"
+    rm -rf "$proj_ac3" "$home_ac3"
+else
+    skip "--with over auto context requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 101: build ignores the :dev context"
+if supports_source_paths; then
+    home_ac4="$(mktemp -d)"
+    bare_ac4="$home_ac4/_fixtures/test-repo.git"
+    mkdir -p "$(dirname "$bare_ac4")"
+    sha_ac4="$(make_bare_repo "$bare_ac4")"
+    proj_ac4="$(mktemp -d)"
+    cat > "$proj_ac4/main.lg" <<'EOF'
+(when-not *compiling-aot*
+  (println :built-ok))
+EOF
+    cat > "$proj_ac4/lgx.edn" <<EOF
+{:main "main.lg"
+ :targets {:bin {:out "bin/app"}}
+ :contexts {:dev {:extra-deps {test/lib {:git/url "file://$bare_ac4"
+                                         :git/sha "$sha_ac4"}}}}}
+EOF
+    set +e
+    out="$(cd "$proj_ac4" && LGX_HOME="$home_ac4" "$LGX" build 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "build ignores :dev: expected exit 0, got $rc (output: $out)"
+    pass "build ignores :dev: exits 0"
+    assert_not_contains "$out" "installing" \
+        "build ignores :dev: the :dev dep is not fetched"
+    rm -rf "$proj_ac4" "$home_ac4"
+else
+    skip "build-ignores-:dev requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 102: missing test/ errors before the :test context fetches deps"
+home_ac5="$(mktemp -d)"
+bare_ac5="$home_ac5/_fixtures/test-repo.git"
+mkdir -p "$(dirname "$bare_ac5")"
+sha_ac5="$(make_bare_repo "$bare_ac5")"
+proj_ac5="$(mktemp -d)"
+cat > "$proj_ac5/lgx.edn" <<EOF
+{:contexts {:test {:extra-deps {test/lib {:git/url "file://$bare_ac5"
+                                          :git/sha "$sha_ac5"}}}}}
+EOF
+set +e
+out="$(cd "$proj_ac5" && LGX_HOME="$home_ac5" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "no test/ with :test context: expected non-zero exit"
+pass "no test/ with :test context: exits non-zero"
+assert_contains "$out" "lgx: no test/ directory in project" \
+    "no test/ with :test context: deterministic error"
+# The old flow fetched the dep but exited before print-installs!, so output
+# alone can't prove the fix — assert the cache side effect is absent. A fetch
+# would create gitlibs/<host>/<owner>/<repo>/<sha>/ under LGX_HOME.
+fetched="$(find "$home_ac5/gitlibs" -type d -name "$sha_ac5" 2>/dev/null || true)"
+[[ -z "$fetched" ]] \
+    || fail "no test/ with :test context: dep was fetched into cache: $fetched"
+pass "no test/ with :test context: the :test dep is not fetched into the cache"
+rm -rf "$proj_ac5" "$home_ac5"
+
+echo "==> Scenario 103: keyword task name reports the symbol migration hint"
 proj_kw="$(mktemp -d)"; home_kw="$(mktemp -d)"
 cat > "$proj_kw/lgx.edn" <<'EOF'
 {:tasks {:ci {:do [{:sh "echo hi"}]}}}
@@ -2251,7 +2403,7 @@ assert_contains "$out" "task names are symbols; write ci instead of :ci" \
     "keyword task name: error states the symbol fix"
 rm -rf "$proj_kw" "$home_kw"
 
-echo "==> Scenario 99: namespaced task name runs and lists in help"
+echo "==> Scenario 104: namespaced task name runs and lists in help"
 proj_ns="$(mktemp -d)"; home_ns="$(mktemp -d)"
 cat > "$proj_ns/lgx.edn" <<'EOF'
 {:tasks {foo/bar {:doc "Namespaced" :do [{:sh "echo hi from ns task"}]}}}
