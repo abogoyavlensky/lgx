@@ -385,3 +385,33 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
 
 - [x] **Step 2: Commit**
   `git commit -m "Document spec engine and load-once config in architecture"`
+
+---
+
+## Completion summary (2026-06-11)
+
+**Status: completed.** All six tasks implemented and committed; full suite
+green (299 unit tests, 226 e2e assertions).
+
+What was built, per the design: `lgx/spec.lg` (eight-form schema-as-data
+engine, ~170 lines), the lgx.edn format as one schema value in
+`lgx/config.lg`, `load-config`/`load-config!` (read + validate + normalize
+once per invocation), pure accessors, the all-errors stderr report with no
+stack traces, the help-warning behavior, and the dispatch/unknown-command
+report path. Architecture doc updated. Old imperative validators deleted
+(`lgx/config.lg` shrank by ~240 lines net across Tasks 3-4).
+
+Deviations from the plan, both reviewed in-session:
+
+1. **`coords-at` error mechanics.** The plan said coords-at prints the
+   dep-dir report and exits. Implemented instead as a thrown ex-info carrying
+   the rendered report plus an `:lgx/invalid-dep-config` marker, caught by
+   `coords-at!` in `lgx.lg` (print + exit 1). Same user-visible behavior,
+   but unit-testable without killing the test process, and consistent with
+   the existing `with->overlay!` marker-catch idiom.
+2. **The plan's aggregation example used task name `:build`,** which is a
+   reserved name — the test fixture was corrected to `:lint` (the engine had
+   correctly flagged the conflict as a fourth error).
+
+Per-task codex reviews found no must-fix issues; one P3 docs-wording nit on
+the final commit (overbroad "never throws" claim) was fixed.

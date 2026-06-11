@@ -29,7 +29,7 @@ embedded git library ended up shelling out for edge cases anyway.
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring
 lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port
 lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
-lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (collects all errors, never throws), error->line rendering
+lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
