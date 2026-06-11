@@ -75,7 +75,8 @@ because it runs under the user's `lg` and cannot require `lgx.style`.
 same everywhere. After a `Usage: lgx [options] <command> [args...]`
 synopsis it lists built-in commands under a `Built-in commands:` title and
 project tasks under a `Project tasks:` title, both as `lgx <name>` rows aligned
-to one shared description column, with `Options:` last. Help stays usable when
+to one shared description column, with `Options:` last, closed by a one-line
+note on the auto-applied `:dev`/`:test` convention contexts. Help stays usable when
 `lgx.edn` is invalid: the tasks section is replaced by a one-line warning
 (`(omitted — lgx.edn is invalid; run \`lgx install\` to see errors)`) instead
 of failing or silently dropping tasks.
@@ -121,7 +122,11 @@ of failing or silently dropping tasks.
 
 ### `lgx run [args...]`
 
-Steps 1–4 match `install` — deps are auto-installed if missing. Then:
+Steps 1–4 match `install` — deps are auto-installed if missing — except
+that a context named `:dev`, when defined in `:contexts`, is prepended to
+the CLI `--with` list first (`config/auto-context` via `auto-with!` in
+`lgx.lg`; silent unless `--verbose`, which prints `+ auto context :dev`).
+Then:
 
 5. If any dep was newly cloned during dependency resolution, print the same install
    block as `lgx install` (header + per-new-dep lines + `done`).
@@ -190,9 +195,9 @@ resolved upstream by `os/exec*`.)
 
 ### `lgx nrepl [--port N]`
 
-Steps 1–4 match `install` (deps auto-installed, `--with` contexts
-apply), and `:paths`/`:resource-paths` resolve exactly as in `lgx run`.
-Then:
+Steps 1–4 match `install` (deps auto-installed, `--with` contexts and a
+defined `:dev` context apply, as in `run`), and `:paths`/`:resource-paths`
+resolve exactly as in `lgx run`. Then:
 
 5. Parse the command's own args with `cli/parse-nrepl-args`: `--port N`
    must be an integer in 1–65535; anything else exits 1 with a clear
@@ -239,12 +244,16 @@ argument shape and the required-config / mkdir steps.
 
 ### `lgx test`
 
-Steps 1–4 match `install`. Then:
+Steps 1–2 (project root, config load) match `install`. Then:
 
-5. Resolve `<project-root>/test`. If it does not exist (or is not a
+3. Resolve `<project-root>/test`. If it does not exist (or is not a
    directory), exit 1 with `lgx: no test/ directory in project` on
-   stderr.
-6. Select the test files. If a positional `<file>` arg is provided,
+   stderr. This cheap check runs **before** the basis is built, so a
+   missing `test/` never fetches deps.
+4. Build the basis as in `install` steps 3–4, with a context named
+   `:test`, when defined in `:contexts`, prepended to the CLI `--with`
+   list (`auto-with!`, as `run`/`nrepl` do with `:dev`).
+5. Select the test files. If a positional `<file>` arg is provided,
    resolve it to an absolute path (project-root-relative inputs are
    joined against the project root), then `path/normalize` away any
    `.`/`..` segments and validate it against three rules:
@@ -259,12 +268,12 @@ Steps 1–4 match `install`. Then:
    With no arg, walk `test/` recursively for `*_test.lg`,
    `*_test.cljc`, and `*_test.clj` files. If the walk returns no files,
    print `No tests found in test/` and exit 0.
-7. Map each absolute path to a namespace symbol: strip `test/` prefix
+6. Map each absolute path to a namespace symbol: strip `test/` prefix
    and the extension, split on `/`, hyphenate `_` per segment, join
    with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
    This is the reverse of let-go's resolver rule
    ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
-8. Generate a one-shot harness `.lg` source string that `:require`s
+7. Generate a one-shot harness `.lg` source string that `:require`s
    every discovered ns plus `test`/`string`/`os`, embeds the discovered
    `[file ns]` test plan, and iterates each file's entries in
    `*registered-tests*`. Each `deftest` runs under `with-out-str` so
@@ -283,12 +292,12 @@ Steps 1–4 match `install`. Then:
    load diagnostics and test-emitted output (see step 10). Write it to
    `$LGX_HOME/tmp/lgx-test-<version>.lg`, overwriting the previous
    harness for the same lgx version.
-9. Compute `-source-paths` as project paths + dep paths + the
+8. Compute `-source-paths` as project paths + dep paths + the
    absolute `test/` path (so test namespaces can `require` each other
    and the harness can `require` them). Compute `-resource-paths` as the
    project's resolved resource roots (project-only; the `test/` dir is *not*
    added as a resource root).
-10. Run `lg -source-paths <X> -resource-paths <R> <harness-path>` and capture
+9. Run `lg -source-paths <X> -resource-paths <R> <harness-path>` and capture
    its output.
    Normally the harness owns the `os/exit` and that exit code is passed
    through. But let-go's `require` swallows a test file's load failure —
@@ -357,24 +366,39 @@ built-ins is reserved for later via an `:lgx/<name>` form.
 
 A `:contexts` entry is a named overlay carrying only `:extra-deps`/
 `:extra-paths`/`:extra-resource-paths` — the per-task extras, lifted to the top
-level for reuse. They are applied by the CLI `--with a,b` flag (any command)
-and a task's `:with` vector. `config/context-overlay` resolves an ordered name
+level for reuse. They are applied by the CLI `--with a,b` flag (any command),
+a task's `:with` vector, and two name conventions: a context named `:dev`,
+when defined, auto-applies to `run`/`nrepl`, and `:test` to `test`
+(`config/auto-context` returns `[name]`-or-`[]`; `auto-with!` in `lgx.lg`
+prepends it to the CLI `--with` list and prints `+ auto context <name>` under
+`--verbose`). Auto-contexts touch only those three built-in commands — never
+`build`/`install`, never a task's `:run` steps — so dev/test deps cannot leak
+into artifacts. `config/context-overlay` resolves an ordered name
 list to a single `{:deps-pairs :paths :resource-paths}` overlay, folding
 overlap among the named contexts last-wins via `config/merge-coords` (and
 throwing on an unknown name; a task's `:with` is additionally validated against
 the defined contexts when `lgx.edn` loads). A reference to an undefined context
-fails loudly — at config-load for `:with`, at runtime for `--with`.
+fails loudly — at config-load for `:with`, at runtime for `--with`; the auto
+names are only ever added when defined, so they can't trigger that error.
 
 `overlay-basis` in `lgx.lg` composes the final basis from these layers,
-lowest → highest precedence: project `:deps`/`:paths`/`:resource-paths` → task
-`:with` contexts (in order) → CLI `--with` contexts (in order) → the task's
-inline `:extra-deps`/`:extra-paths`/`:extra-resource-paths` (highest). Deps fold
+lowest → highest precedence: project `:deps`/`:paths`/`:resource-paths` → auto
+context (built-in commands only) → task `:with` contexts (in order) → CLI
+`--with` contexts (in order) → the task's inline
+`:extra-deps`/`:extra-paths`/`:extra-resource-paths` (highest). Deps fold
 last-wins through `merge-coords`; source and resource paths concatenate in the
 same order (project first, so project namespaces still shadow libs) and are
-de-duplicated keep-first. Resource paths layer identically but never pick up dep
-dirs (project-only). For `run`/`build`/`test`/`install` there is no task, so
-only the project and the CLI `--with` layers apply. `install` resolves the same
-overlay so it pre-fetches a context's deps.
+de-duplicated keep-first. Note the path asymmetry: precedence is a *deps*
+notion (a later layer's coord replaces an earlier one's), while namespace
+resolution is first-match-wins along the path order — an earlier layer's dir
+shadows a later one's for a same-named namespace, exactly as project paths
+shadow everything. Resource paths layer identically but never pick up dep
+dirs (project-only). For the built-in commands there is no task, so the
+layers are: project + auto-context + CLI `--with` for `run`/`nrepl`/`test`,
+and project + CLI `--with` only for `build`/`install` (no auto layer —
+`cmd-build`/`cmd-install` never call `auto-with!`). `install` resolves the
+same overlay so it pre-fetches a context's deps (auto names included only
+via an explicit `--with dev,test`).
 
 ### `lgx new <project-name>`
 

@@ -620,6 +620,21 @@
     (is (= ["assets" "fixtures"] (:resource-paths overlay)))))
 
 ;; ---------------------------------------------------------------------------
+;; auto-context (convention contexts auto-applied by run/nrepl/test)
+;; ---------------------------------------------------------------------------
+
+(deftest auto-context-returns-name-when-defined
+  (is (= [:dev] (config/auto-context {:contexts {:dev {:extra-paths ["dev"]}}}
+                                     :dev))))
+
+(deftest auto-context-returns-empty-when-name-absent
+  (is (= [] (config/auto-context {:contexts {:dev {:extra-paths ["dev"]}}}
+                                 :test))))
+
+(deftest auto-context-returns-empty-without-contexts
+  (is (= [] (config/auto-context {} :dev))))
+
+;; ---------------------------------------------------------------------------
 ;; coords-at (transitive: a fetched dep's own deps)
 ;; ---------------------------------------------------------------------------
 
