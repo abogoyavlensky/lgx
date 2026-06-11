@@ -93,7 +93,7 @@ of failing or silently dropping tasks.
    interpreted by `lgx/spec.lg`) collects **all** errors and reports them in
    one pass to stderr — `lgx: invalid lgx.edn (N errors)` followed by one
    path-prefixed line per error (e.g.
-   `:tasks :lint :do [0] — unknown key :shh (allowed: :sh, :run)`) — then
+   `:tasks lint :do [0] — unknown key :shh (allowed: :sh, :run)`) — then
    exits 1, with no stack trace. The config is loaded once per invocation;
    every basis command (`install`/`run`/`nrepl`/`build`/`test`/tasks) and the
    task-name fallback in dispatch go through `load-config!`.
@@ -319,7 +319,7 @@ the user can inspect the generated file.
 
 ### `lgx <task>`
 
-After built-in dispatch, lgx looks up `<task>` (as a keyword) in the
+After built-in dispatch, lgx looks up `<task>` (as a symbol) in the
 project's `:tasks` map. If present, lgx resolves the project basis the
 same way `lgx run` does (steps 1–4 above) and walks the task's `:do`
 vector. Config validation accepts `:do` as either a single step map or a
