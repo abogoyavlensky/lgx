@@ -425,7 +425,7 @@
   ;; :sh steps ignore the basis.
   (let [{:keys [results paths resource-paths]} (overlay-basis project cfg with task)]
     (print-installs! results)
-    (tasks/run-task! task-name task paths resource-paths verbose?)))
+    (tasks/run-task! task-name task paths resource-paths verbose? {})))
 
 (defn- pad-right [s n]
   (let [c (count s)]

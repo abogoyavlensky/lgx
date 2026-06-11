@@ -1,16 +1,24 @@
 (ns lgx.tasks
-  (:require [lgx.runner :as runner]
+  (:require [lgx.args :as args]
+            [lgx.runner :as runner]
             [lgx.style :as style]
             [string :as str]))
 
 ;; --------------------------------------------------------------------------
 ;; Task execution
 ;;
-;; A task is `{:doc "..." :do [<step> ...]}`. Steps run sequentially, top to
-;; bottom; the first non-zero exit code stops the chain and becomes the task's
-;; exit code. Each step is a map with exactly one action key:
+;; A task is `{:doc "..." :args [...] :do [<step> ...]}`. Steps run
+;; sequentially, top to bottom; the first non-zero exit code stops the chain
+;; and becomes the task's exit code. Each step is a map with exactly one
+;; action key:
 ;;   {:sh "..."}    shell command (string or vector joined by spaces)
 ;;   {:run "..."}   invoked like `lgx run ...` with the project basis
+;;
+;; A vector-form value may carry :arg/<name> placeholders, replaced with the
+;; bound CLI values (`bindings`, built by args/bind-args in cmd-task) before
+;; the step runs: shell-quoted for :sh (one shell word, never interpreted),
+;; verbatim for :run (each item is already one argv entry). The echoed step
+;; line shows the substituted command.
 ;;
 ;; Like the rest of lgx, child processes run through os/sh which buffers
 ;; stdout/stderr until the child exits. Output is replayed after each step.
@@ -24,8 +32,13 @@
     (vec value)
     (vec (filter #(not (str/blank? %)) (str/split value #"\s+")))))
 
-(defn- run-sh-step! [value verbose?]
-  (let [cmd (as-string value)]
+(defn- substituted [value bindings quote?]
+  (if (vector? value)
+    (args/substitute value bindings quote?)
+    value))
+
+(defn- run-sh-step! [value bindings verbose?]
+  (let [cmd (as-string (substituted value bindings true))]
     (write! *err* (str "\n" (style/step-line cmd) "\n"))
     (when verbose?
       (write! *err* (str "+ sh -c " cmd "\n")))
@@ -34,24 +47,25 @@
       (when (seq (:err r)) (write! *err* (:err r)))
       (:exit r))))
 
-(defn- run-run-step! [value lib-paths resource-paths verbose?]
+(defn- run-run-step! [value bindings lib-paths resource-paths verbose?]
   ;; A `:run` step is "invoked like `lgx run`", so it carries the same
   ;; LGX_RUN=1 contract (set in cmd-run). Set it around the child only and
   ;; restore, so a later `:sh` step that runs a bundled binary isn't misled
   ;; into dev-mode arg parsing.
-  (write! *err* (str "\n" (style/step-line (str "lgx run " (as-string value))) "\n"))
-  (let [prev (os/getenv "LGX_RUN")]
-    (os/setenv "LGX_RUN" "1")
-    (let [exit (runner/invoke-lg! lib-paths resource-paths
-                                  (as-arg-vec value) verbose?)]
-      (os/setenv "LGX_RUN" (or prev ""))
-      exit)))
+  (let [value (substituted value bindings false)]
+    (write! *err* (str "\n" (style/step-line (str "lgx run " (as-string value))) "\n"))
+    (let [prev (os/getenv "LGX_RUN")]
+      (os/setenv "LGX_RUN" "1")
+      (let [exit (runner/invoke-lg! lib-paths resource-paths
+                                    (as-arg-vec value) verbose?)]
+        (os/setenv "LGX_RUN" (or prev ""))
+        exit))))
 
-(defn- run-step! [step lib-paths resource-paths verbose?]
+(defn- run-step! [step bindings lib-paths resource-paths verbose?]
   (cond
-    (contains? step :sh) (run-sh-step! (:sh step) verbose?)
-    (contains? step :run) (run-run-step! (:run step) lib-paths resource-paths
-                                         verbose?)
+    (contains? step :sh) (run-sh-step! (:sh step) bindings verbose?)
+    (contains? step :run) (run-run-step! (:run step) bindings lib-paths
+                                         resource-paths verbose?)
     :else (throw (ex-info "step has no action key" {:step step}))))
 
 (defn run-task!
@@ -59,13 +73,16 @@
    and exits with that code. Exits 0 after all steps succeed. `task-name` is
    the task's name, printed in a purple header before the steps. `lib-paths`
    is the resolved source-path list and `resource-paths` the resolved
-   resource roots, both used for any `:run` steps."
-  [task-name task lib-paths resource-paths verbose?]
+   resource roots, both used for any `:run` steps. `bindings` maps
+   :arg/<name> placeholders to their bound CLI values ({} when the task
+   declares no :args)."
+  [task-name task lib-paths resource-paths verbose? bindings]
   (write! *err* (str (style/task-header task-name) "\n"))
   (loop [steps (:do task)]
     (if (empty? steps)
       (os/exit 0)
-      (let [exit (run-step! (first steps) lib-paths resource-paths verbose?)]
+      (let [exit (run-step! (first steps) bindings lib-paths resource-paths
+                            verbose?)]
         (if (zero? exit)
           (recur (rest steps))
           (os/exit exit))))))
