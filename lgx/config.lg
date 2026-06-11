@@ -58,7 +58,8 @@
 (defn- at-key
   "Anchor plain message strings at sub-path [k]."
   [k msgs]
-  (mapv (fn [m] {:path [k] :msg m}) msgs))
+  (mapv (fn [m] {:path [k]
+                 :msg m}) msgs))
 
 (defn- coord-errors
   "Coord rule: :local/root or :git/url + (:git/sha | :git/tag), optional

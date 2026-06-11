@@ -20,7 +20,8 @@
 (declare validate*)
 
 (defn- err [path msg]
-  {:path (vec path) :msg msg})
+  {:path (vec path)
+   :msg msg})
 
 (defn- leaf-label [kw value]
   "Return a type label when value fails kw's type check, nil when it passes."
