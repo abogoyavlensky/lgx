@@ -498,30 +498,46 @@
                     :tasks {:lint {:do [{:shh "x"}]}}}))))
 
 ;; ---------------------------------------------------------------------------
-;; coords (project-root API, rewritten over cfg in Task 4)
+;; accessors — pure functions over a loaded cfg map, no I/O
 ;; ---------------------------------------------------------------------------
 
-(deftest coords-reads-and-parses-fixture
-  (let [cs (config/coords "tests/fixtures/sample-project")
-        m (into {} cs)]
-    (is (= 2 (count cs)))
+(deftest accessors-read-cfg-values
+  (let [cfg {:deps {'foo/a {:git/url "u" :git/sha "s"}}
+             :paths ["src"]
+             :resource-paths ["resources"]
+             :main "main.lg"
+             :targets {:bin {:out "bin/app"}}
+             :contexts {:dev {}}
+             :tasks {:fmt {:do [{:sh "echo hi"}]}}}]
+    (is (= [['foo/a {:git/url "u" :git/sha "s"}]] (config/coords cfg)))
+    (is (= ["src"] (config/paths cfg)))
+    (is (= ["resources"] (config/resource-paths cfg)))
+    (is (= "main.lg" (config/main cfg)))
+    (is (= {:bin {:out "bin/app"}} (config/targets cfg)))
+    (is (= {:dev {}} (config/contexts cfg)))
+    (is (= {:fmt {:do [{:sh "echo hi"}]}} (config/tasks cfg)))))
+
+(deftest accessors-default-on-empty-cfg
+  (is (= [] (config/coords {})))
+  (is (= [] (config/paths {})))
+  (is (= [] (config/resource-paths {})))
+  (is (nil? (config/main {})))
+  (is (= {} (config/targets {})))
+  (is (= {} (config/contexts {})))
+  (is (= {} (config/tasks {}))))
+
+(deftest accessors-read-loaded-fixture
+  (let [cfg (:cfg (config/load-config "tests/fixtures/sample-project"))
+        m (into {} (config/coords cfg))]
+    (is (= 2 (count (config/coords cfg))))
     (is (= "https://github.com/nooga/let-go" (:git/url (get m 'nooga/let-go))))
     (is (= "46ce159c9b23021ff7bf38c14e812516c1e2e359"
            (:git/sha (get m 'nooga/let-go))))
-    (is (= "v0.1.0" (:git/tag (get m 'example/tagged))))))
-
-(deftest paths-reads-fixture
-  (is (= ["src" "test"] (config/paths "tests/fixtures/sample-project"))))
-
-(deftest resource-paths-reads-fixture
-  (is (= ["resources"] (config/resource-paths "tests/fixtures/sample-project"))))
-
-(deftest main-reads-fixture
-  (is (= "main.lg" (config/main "tests/fixtures/sample-project"))))
-
-(deftest targets-reads-fixture
-  (is (= {:bin {:out "bin/sample"}}
-         (config/targets "tests/fixtures/sample-project"))))
+    (is (= "v0.1.0" (:git/tag (get m 'example/tagged))))
+    (is (= ["src" "test"] (config/paths cfg)))
+    (is (= ["resources"] (config/resource-paths cfg)))
+    (is (= "main.lg" (config/main cfg)))
+    (is (= {:bin {:out "bin/sample"}} (config/targets cfg)))))
 
 ;; ---------------------------------------------------------------------------
 ;; merge-coords (task extras over project deps; extra wins)
@@ -661,4 +677,19 @@
     (spit (str dir "/lgx.edn")
           "{:deps {bad/coord {:local/root \"x\" :git/url \"y\" :git/sha \"z\"}}}")
     (is (= :threw (threw? #(config/coords-at dir))))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest coords-at-error-carries-rendered-report-and-marker
+  ;; The thrown ex-info's message is the full report naming the dep dir, and
+  ;; ex-data carries :lgx/invalid-dep-config so the caller can catch, print,
+  ;; and exit without a stack trace.
+  (let [dir (str "/tmp/lgx-coords-at-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn") "{:deps {foo/bar {:git/url \"u\"}}}")
+    (let [r (try
+              (config/coords-at dir)
+              (catch e {:msg (ex-message e) :data (ex-data e)}))]
+      (is (= dir (:lgx/invalid-dep-config (:data r))))
+      (is (str/includes? (:msg r) (str "invalid lgx.edn in " dir " (1 error)")))
+      (is (str/includes? (:msg r) "must specify :git/sha or :git/tag")))
     (os/sh "rm" "-rf" dir)))

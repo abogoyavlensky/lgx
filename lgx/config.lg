@@ -22,58 +22,7 @@
       (do (println "error: no" config-name "found in this or any parent directory")
           (os/exit 1))))
 
-(defn- bad! [msg ctx]
-  (throw (ex-info (str "lgx.edn: " msg) (or ctx {}))))
-
-(defn- validate-rel-path! [label value ctx]
-  (when-not (string? value)
-    (bad! (str label " must be a string") ctx))
-  (when (str/blank? value)
-    (bad! (str label " must be non-blank") ctx))
-  ;; lgx.edn path values use forward-slash by convention, matching tools.deps.
-  (when (str/starts-with? value "/")
-    (bad! (str label " must be relative (no leading /)") ctx))
-  (when (some #(= ".." %) (str/split value "/"))
-    (bad! (str label " must not contain .. segments") ctx)))
-
 (def ^:private git-keys #{:git/url :git/sha :git/tag})
-
-(defn- validate-local-root! [lib value]
-  (when-not (string? value)
-    (bad! (str lib " :local/root must be a string") {:lib lib}))
-  (when (str/blank? value)
-    (bad! (str lib " :local/root must be non-blank") {:lib lib})))
-
-(defn- validate-git-coord! [lib coord]
-  (let [url (:git/url coord)
-        sha (:git/sha coord)
-        tag (:git/tag coord)]
-    (when-not (string? url)
-      (bad! (str lib " missing :git/url") {:lib lib}))
-    (when-not (or (string? sha) (string? tag))
-      (bad! (str lib " must specify :git/sha or :git/tag") {:lib lib}))))
-
-(defn- validate-coord! [lib coord]
-  (when-not (map? coord)
-    (bad! (str lib " coord must be a map") {:lib lib}))
-  (let [has-local? (contains? coord :local/root)
-        has-git? (some #(contains? coord %) git-keys)
-        root (:deps/root coord)]
-    (when (and has-local? has-git?)
-      (bad! (str lib " coord cannot mix :local/root with :git/* keys")
-            {:lib lib}))
-    (if has-local?
-      (validate-local-root! lib (:local/root coord))
-      (validate-git-coord! lib coord))
-    (when (contains? coord :deps/root)
-      (validate-rel-path! (str lib " :deps/root") root {:lib lib}))
-    coord))
-
-(defn- validate-paths! [label paths]
-  (when-not (vector? paths)
-    (bad! (str label " must be a vector") {}))
-  (doseq [p paths]
-    (validate-rel-path! (str label " entry") p {:value p})))
 
 ;; Built-in CLI commands that may not be shadowed by a project task. Includes
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
@@ -81,260 +30,6 @@
 (def reserved-task-names
   #{"run" "nrepl" "install" "new" "add" "update" "tasks" "help" "version"
     "build" "test"})
-
-(def ^:private allowed-step-keys #{:sh :run})
-
-(defn- validate-action-value! [task-name idx action value]
-  (cond
-    (string? value)
-    (when (str/blank? value)
-      (bad! (str "invalid step in task " task-name " at index " idx
-                 ".\n\n" action " value must be a non-blank string.")
-            {:task task-name
-             :index idx}))
-
-    (vector? value)
-    (do
-      (when (empty? value)
-        (bad! (str "invalid step in task " task-name " at index " idx
-                   ".\n\n" action " value must be a non-empty vector.")
-              {:task task-name
-               :index idx}))
-      (doseq [item value]
-        (when-not (string? item)
-          (bad! (str "invalid step in task " task-name " at index " idx
-                     ".\n\n" action " vector items must be strings.")
-                {:task task-name
-                 :index idx}))))
-
-    :else
-    (bad! (str "invalid step in task " task-name " at index " idx
-               ".\n\n" action " value must be a string or vector of strings.")
-          {:task task-name
-           :index idx})))
-
-(defn- validate-step! [task-name idx step]
-  (when-not (map? step)
-    (bad! (str "invalid step in task " task-name " at index " idx
-               ".\n\nA step must be a map.")
-          {:task task-name
-           :index idx}))
-  (let [ks (vec (keys step))
-        action-ks (filter #(contains? allowed-step-keys %) ks)
-        unknown-ks (filter #(not (contains? allowed-step-keys %)) ks)]
-    (when (seq unknown-ks)
-      (bad! (str "invalid step in task " task-name " at index " idx
-                 ".\n\nUnknown step keys: " (str/join ", " (map str unknown-ks))
-                 ".\nAllowed keys: :sh, :run.")
-            {:task task-name
-             :index idx}))
-    (when-not (= 1 (count action-ks))
-      (bad! (str "invalid step in task " task-name " at index " idx
-                 ".\n\nA step must contain exactly one action key."
-                 "\nAllowed keys: :sh, :run."
-                 "\nGot: " (str/join ", " (map str ks)))
-            {:task task-name
-             :index idx}))
-    (let [action (first action-ks)]
-      (validate-action-value! task-name idx action (get step action)))))
-
-(def ^:private allowed-task-keys
-  #{:doc :do :extra-paths :extra-resource-paths :extra-deps :with})
-
-(defn- validate-extra-deps! [label extra]
-  (when-not (map? extra)
-    (bad! (str "invalid " label ".\n\n:extra-deps must be a map.")
-          {:label label}))
-  (doseq [[lib c] extra]
-    (validate-coord! lib c)))
-
-(defn- validate-with! [task-name with defined]
-  (when-not (vector? with)
-    (bad! (str "invalid task " task-name ".\n\n:with must be a vector of context keywords.")
-          {:task task-name}))
-  (doseq [c with]
-    (when-not (keyword? c)
-      (bad! (str "invalid task " task-name ".\n\n:with entries must be keywords.")
-            {:task task-name}))
-    (when-not (contains? defined c)
-      (bad! (str "task " task-name " references unknown context " c
-                 ".\nDefined contexts: "
-                 (if (seq defined)
-                   (str/join ", " (sort (map str defined)))
-                   "(none)")
-                 ".")
-            {:task task-name
-             :context c}))))
-
-(defn- normalize-task-steps! [task-name steps]
-  "Normalize :do value to a vector. Accepts a single step map or a vector of
-   step maps. Returns a vector of validated step maps."
-  (cond
-    (map? steps)
-    (do
-      (validate-step! task-name 0 steps)
-      [steps])
-
-    (vector? steps)
-    (do
-      (when (empty? steps)
-        (bad! (str "invalid task " task-name ".\n\n:do must contain at least one step.")
-              {:task task-name}))
-      (loop [i 0
-             xs steps]
-        (when (seq xs)
-          (validate-step! task-name i (first xs))
-          (recur (inc i) (rest xs))))
-      steps)
-
-    :else
-    (bad! (str "invalid task " task-name
-               ".\n\nExpected :do to be a step map or vector of steps, got "
-               (cond
-                 (string? steps) "string"
-                 (nil? steps) "nil"
-                 :else (str (type steps)))
-               ".")
-          {:task task-name})))
-
-(defn- validate-task! [task-name task defined]
-  (when-not (map? task)
-    (bad! (str "invalid task " task-name ".\n\nTask value must be a map.")
-          {:task task-name}))
-  (let [unknown-ks (filter #(not (contains? allowed-task-keys %)) (keys task))]
-    (when (seq unknown-ks)
-      (bad! (str "invalid task " task-name
-                 ".\n\nUnknown task keys: " (str/join ", " (map str unknown-ks))
-                 ".\nAllowed keys: :doc, :do, :extra-paths, :extra-resource-paths,"
-                 " :extra-deps, :with.")
-            {:task task-name})))
-  (when (contains? task :doc)
-    (when-not (string? (:doc task))
-      (bad! (str "invalid task " task-name ".\n\n:doc must be a string.")
-            {:task task-name})))
-  (when-not (contains? task :do)
-    (bad! (str "invalid task " task-name ".\n\nMissing required :do vector.")
-          {:task task-name}))
-  (let [normalized-steps (normalize-task-steps! task-name (:do task))]
-    (when (contains? task :extra-paths)
-      (validate-paths! ":extra-paths" (:extra-paths task)))
-    (when (contains? task :extra-resource-paths)
-      (validate-paths! ":extra-resource-paths" (:extra-resource-paths task)))
-    (when (contains? task :extra-deps)
-      (validate-extra-deps! (str "task " task-name) (:extra-deps task)))
-    (when (contains? task :with)
-      (validate-with! task-name (:with task) defined))
-    (assoc task :do normalized-steps)))
-
-(defn- validate-tasks! [tasks defined]
-  (when-not (map? tasks)
-    (bad! ":tasks must be a map" {}))
-  (into {}
-        (map (fn [[task-name task]]
-               (when-not (keyword? task-name)
-                 (bad! (str "task name " task-name " must be a keyword")
-                       {:task task-name}))
-               (let [n (name task-name)]
-                 (when (contains? reserved-task-names n)
-                   (bad! (str "task " task-name " conflicts with built-in command \""
-                              n "\".\nTask overriding is not supported yet.")
-                         {:task task-name})))
-               [task-name (validate-task! task-name task defined)])
-             tasks)))
-
-;; A context is a named overlay carrying only :extra-deps / :extra-paths — the
-;; same shape as a task's inline extras, lifted to the project top level so it
-;; can be reused across commands (via --with) and tasks (via :with).
-(def ^:private allowed-context-keys
-  #{:extra-deps :extra-paths :extra-resource-paths})
-
-(defn- validate-context! [ctx-name ctx]
-  (when-not (map? ctx)
-    (bad! (str "invalid context " ctx-name ".\n\nContext value must be a map.")
-          {:context ctx-name}))
-  (let [unknown-ks (filter #(not (contains? allowed-context-keys %)) (keys ctx))]
-    (when (seq unknown-ks)
-      (bad! (str "invalid context " ctx-name
-                 ".\n\nUnknown context keys: " (str/join ", " (map str unknown-ks))
-                 ".\nAllowed keys: :extra-deps, :extra-paths, :extra-resource-paths.")
-            {:context ctx-name})))
-  (when (contains? ctx :extra-paths)
-    (validate-paths! ":extra-paths" (:extra-paths ctx)))
-  (when (contains? ctx :extra-resource-paths)
-    (validate-paths! ":extra-resource-paths" (:extra-resource-paths ctx)))
-  (when (contains? ctx :extra-deps)
-    (validate-extra-deps! (str "context " ctx-name) (:extra-deps ctx))))
-
-(defn- validate-contexts! [contexts]
-  (when-not (map? contexts)
-    (bad! ":contexts must be a map" {}))
-  (doseq [[ctx-name ctx] contexts]
-    (when-not (keyword? ctx-name)
-      (bad! (str "context name " ctx-name " must be a keyword")
-            {:context ctx-name}))
-    (validate-context! ctx-name ctx)))
-
-(defn- validate-main! [value]
-  (validate-rel-path! ":main" value {:value value}))
-
-(def ^:private allowed-targets #{:bin})
-(def ^:private allowed-bin-keys #{:out})
-
-(defn- validate-bin-target! [bin]
-  (when-not (map? bin)
-    (bad! ":targets/:bin must be a map" {}))
-  (doseq [k (keys bin)]
-    (when-not (contains? allowed-bin-keys k)
-      (bad! (str ":targets/:bin has unknown key " k
-                 ".\nAllowed keys: :out.")
-            {:key k})))
-  (when-not (contains? bin :out)
-    (bad! ":targets/:bin must contain :out" {}))
-  (validate-rel-path! ":targets/:bin :out"
-                      (:out bin)
-                      {:value (:out bin)}))
-
-(defn- validate-targets! [targets]
-  (when-not (map? targets)
-    (bad! ":targets must be a map" {}))
-  (doseq [k (keys targets)]
-    (when-not (contains? allowed-targets k)
-      (bad! (str ":targets has unknown target " k
-                 ".\nAllowed targets: :bin.")
-            {:target k})))
-  (when-let [bin (:bin targets)]
-    (validate-bin-target! bin)))
-
-(def ^:private allowed-top-level
-  #{:deps :paths :resource-paths :tasks :main :targets :contexts})
-
-(defn validate-config! [cfg]
-  (when-not (map? cfg)
-    (bad! "top-level form must be a map" {}))
-  (doseq [k (keys cfg)]
-    (when-not (contains? allowed-top-level k)
-      (bad! (str "unknown top-level key " k) {:key k})))
-  (when-let [deps (:deps cfg)]
-    (when-not (map? deps)
-      (bad! ":deps must be a map" {}))
-    (doseq [[lib c] deps]
-      (validate-coord! lib c)))
-  (when (contains? cfg :paths)
-    (validate-paths! ":paths" (:paths cfg)))
-  (when (contains? cfg :resource-paths)
-    (validate-paths! ":resource-paths" (:resource-paths cfg)))
-  (when (contains? cfg :contexts)
-    (validate-contexts! (:contexts cfg)))
-  (let [normalized-tasks (when (contains? cfg :tasks)
-                           (validate-tasks! (:tasks cfg)
-                                            (set (keys (or (:contexts cfg) {})))))]
-    (when (contains? cfg :main)
-      (validate-main! (:main cfg)))
-    (when (contains? cfg :targets)
-      (validate-targets! (:targets cfg)))
-    (if normalized-tasks
-      (assoc cfg :tasks normalized-tasks)
-      cfg)))
 
 ;; ---------------------------------------------------------------------------
 ;; lgx.edn format as one schema value (see lgx.spec for the schema language)
@@ -547,11 +242,9 @@
       (:cfg r))))
 
 (defn coords
-  "Return a vector of [lib coord] pairs from the project's lgx.edn."
-  [project]
-  (let [config-path (path/join project config-name)
-        cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (vec (:deps cfg))))
+  "Return a vector of [lib coord] pairs from a loaded cfg map."
+  [cfg]
+  (vec (:deps cfg)))
 
 (defn merge-coords
   "Merge a task's `extra-pairs` over `project-pairs` (both vectors of
@@ -605,70 +298,65 @@
      :resource-paths resource-paths}))
 
 (defn paths
-  "Return the project's :paths vector from lgx.edn, or [] if absent."
-  [project]
-  (let [config-path (path/join project config-name)
-        cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (or (:paths cfg) [])))
+  "Return the :paths vector from a loaded cfg map, or [] if absent."
+  [cfg]
+  (or (:paths cfg) []))
 
 (defn resource-paths
-  "Return the project's :resource-paths vector from lgx.edn, or [] if absent."
-  [project]
-  (let [config-path (path/join project config-name)
-        cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (or (:resource-paths cfg) [])))
+  "Return the :resource-paths vector from a loaded cfg map, or [] if absent."
+  [cfg]
+  (or (:resource-paths cfg) []))
+
+;; Read leniently: only the :deps coords are validated. A dep's other keys
+;; (:paths, :main, :tasks, :targets) describe how to build that project, not
+;; how to consume it — and a dep built with a newer lgx may carry top-level
+;; keys this version doesn't know. The open :map (no :closed) encodes exactly
+;; that.
+(def ^:private dep-config-schema
+  [:map [:deps {:optional true} deps-schema]])
 
 (defn coords-at
   "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
-   is absent. Unlike `coords`, a missing file is not an error: most deps ship
-   no lgx.edn, and only a dep's :deps matters for transitive resolution.
+   is absent. Unlike the project's own lgx.edn, a missing file is not an
+   error: most deps ship no lgx.edn, and only a dep's :deps matters for
+   transitive resolution.
 
-   Read leniently: only the :deps coords are validated. A dep's other keys
-   (:paths, :main, :tasks, :targets) describe how to build that project, not
-   how to consume it — and a dep built with a newer lgx may carry top-level
-   keys this version doesn't know. Running full validate-config! here would let
-   either break a consumer that only needs the dep's :deps."
+   On invalid content throws ex-info whose message is the rendered error
+   report naming dir, with {:lgx/invalid-dep-config dir} in ex-data so the
+   caller can print it and exit without a stack trace."
   [dir]
   (let [config-path (path/join dir config-name)]
-    (if (file-exists? config-path)
-      (let [cfg (edn/read-string (slurp config-path))]
-        (when-not (map? cfg)
-          (bad! "top-level form must be a map" {}))
-        (let [deps (:deps cfg)]
-          (if (nil? deps)
-            []
-            (do
-              (when-not (map? deps)
-                (bad! ":deps must be a map" {}))
-              (doseq [[lib c] deps]
-                (validate-coord! lib c))
-              (vec deps)))))
-      [])))
+    (if-not (file-exists? config-path)
+      []
+      (let [parsed (try
+                     {:value (edn/read-string (slurp config-path))}
+                     (catch e
+                            {:error (first-line (ex-message e))}))
+            errors (if (contains? parsed :error)
+                     [{:path []
+                       :msg (str "could not parse lgx.edn: " (:error parsed))}]
+                     (spec/validate dep-config-schema (:value parsed)))]
+        (if (seq errors)
+          (throw (ex-info (errors-report (str "lgx.edn in " dir) errors)
+                          {:lgx/invalid-dep-config dir}))
+          (vec (or (:deps (:value parsed)) [])))))))
 
 (defn tasks
-  "Return the project's :tasks map from lgx.edn, or {} if absent."
-  [project]
-  (let [config-path (path/join project config-name)
-        cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (or (:tasks cfg) {})))
+  "Return the :tasks map from a loaded cfg map, or {} if absent."
+  [cfg]
+  (or (:tasks cfg) {}))
 
 (defn contexts
-  "Return the project's :contexts map from lgx.edn, or {} if absent."
-  [project]
-  (let [config-path (path/join project config-name)
-        cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (or (:contexts cfg) {})))
+  "Return the :contexts map from a loaded cfg map, or {} if absent."
+  [cfg]
+  (or (:contexts cfg) {}))
 
 (defn main
-  "Return the project's :main entrypoint string from lgx.edn, or nil if absent."
-  [project]
-  (let [config-path (path/join project config-name)
-        cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (:main cfg)))
+  "Return the :main entrypoint string from a loaded cfg map, or nil if absent."
+  [cfg]
+  (:main cfg))
 
 (defn targets
-  "Return the project's :targets map from lgx.edn, or {} if absent."
-  [project]
-  (let [config-path (path/join project config-name)
-        cfg (validate-config! (edn/read-string (slurp config-path)))]
-    (or (:targets cfg) {})))
+  "Return the :targets map from a loaded cfg map, or {} if absent."
+  [cfg]
+  (or (:targets cfg) {}))

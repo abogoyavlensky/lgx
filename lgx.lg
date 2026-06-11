@@ -50,6 +50,18 @@
                            (path/normalize (path/join base local))))
     c))
 
+(defn- coords-at!
+  "config/coords-at, but an invalid dep config prints its rendered report and
+   exits 1 instead of escaping as a stack trace."
+  [dir]
+  (try
+    (config/coords-at dir)
+    (catch e
+           (if (:lgx/invalid-dep-config (ex-data e))
+             (do (write! *err* (ex-message e))
+                 (os/exit 1))
+             (throw e)))))
+
 (defn- ensure-all!
   "Resolve the project's coords and, transitively, the coords each fetched dep
    declares in its own lgx.edn. Breadth-first from the project root, so a coord
@@ -81,7 +93,7 @@
             (recur rest-q seen out))
           (let [{:keys [path dir installed?]} (cache/ensure-lib! c base)
                 children (mapv (fn [[clib cc]] [clib cc dir])
-                               (config/coords-at dir))]
+                               (coords-at! dir))]
             (recur (vec (concat rest-q children))
                    (assoc seen lib id)
                    (conj out {:lib lib
@@ -97,11 +109,11 @@
       (println "done"))))
 
 (defn- with->overlay!
-  "Resolve the effective context-name list against the project's :contexts.
+  "Resolve the effective context-name list against the loaded cfg's :contexts.
    On an unknown name, print a clear error and exit 1; other errors propagate."
-  [project names]
+  [cfg names]
   (try
-    (config/context-overlay (config/contexts project) names)
+    (config/context-overlay (config/contexts cfg) names)
     (catch e
            (let [data (ex-data e)
                  nm (:lgx/unknown-context data)]
@@ -121,8 +133,9 @@
 
 (defn- cmd-install [with]
   (let [project (config/find-project!)
-        overlay (with->overlay! project (vec with))
-        coords (config/merge-coords (config/coords project)
+        cfg (config/load-config! project)
+        overlay (with->overlay! cfg (vec with))
+        coords (config/merge-coords (config/coords cfg)
                                     (:deps-pairs overlay))]
     (write! *err* (str (style/header "Installing dependencies...") "\n"))
     (if (empty? coords)
@@ -184,20 +197,21 @@
    deps/paths/resource-paths < task :with contexts < CLI --with contexts < task
    inline :extra-* (highest). Resource paths layer the same way but, unlike
    source paths, never pick up dep dirs. With no contexts and no task this
-   reduces to the project's own deps/paths/resource-paths."
-  [project cli-with task]
+   reduces to the project's own deps/paths/resource-paths. `cfg` is the
+   project's loaded config map (load-config!)."
+  [project cfg cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
-        overlay (with->overlay! project names)
+        overlay (with->overlay! cfg names)
         inline-deps (vec (or (:extra-deps task) {}))
         coords (reduce config/merge-coords
-                       (config/coords project)
+                       (config/coords cfg)
                        [(:deps-pairs overlay) inline-deps])
         raw-paths (dedup-keep-first
-                    (concat (config/paths project)
+                    (concat (config/paths cfg)
                             (:paths overlay)
                             (or (:extra-paths task) [])))
         raw-resource-paths (dedup-keep-first
-                             (concat (config/resource-paths project)
+                             (concat (config/resource-paths cfg)
                                      (:resource-paths overlay)
                                      (or (:extra-resource-paths task) [])))]
     (basis project coords raw-paths raw-resource-paths)))
@@ -235,8 +249,9 @@
 
 (defn- cmd-run [forward-args verbose? with]
   (let [project (config/find-project!)
-        {:keys [results paths resource-paths]} (overlay-basis project with nil)
-        main-script (config/main project)
+        cfg (config/load-config! project)
+        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+        main-script (config/main cfg)
         dd (position forward-args "--")
         args (cond
                (and (empty? forward-args) main-script)
@@ -276,7 +291,8 @@
                  (write! *err* (str (ex-message e) "\n"))
             (os/exit 1)))
         project (config/find-project!)
-        {:keys [results paths resource-paths]} (overlay-basis project with nil)
+        cfg (config/load-config! project)
+        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         ;; lg writes the literal -p value to .nrepl-port, so "random port"
         ;; means lgx picks the number itself (IANA ephemeral range). On a
         ;; collision lg prints "failed to run nREPL server on port N" and
@@ -296,9 +312,10 @@
 
 (defn- cmd-build [forward-args verbose? with]
   (let [project (config/find-project!)
-        {:keys [results paths resource-paths]} (overlay-basis project with nil)
-        main-script (config/main project)
-        bin (:bin (config/targets project))]
+        cfg (config/load-config! project)
+        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+        main-script (config/main cfg)
+        bin (:bin (config/targets cfg))]
     (when (nil? main-script)
       (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
       (os/exit 1))
@@ -342,7 +359,8 @@
     (write! *err* "lgx: test takes at most one argument\n")
     (os/exit 1))
   (let [project (config/find-project!)
-        {:keys [results paths resource-paths]} (overlay-basis project with nil)
+        cfg (config/load-config! project)
+        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         test-dir (path/join project "test")
         stat (os/stat test-dir)]
     (when (or (nil? stat) (not (:dir? stat)))
@@ -379,15 +397,16 @@
               (os/exit 1))
           (os/exit exit))))))
 
-(defn- cmd-task [task-name task verbose? with]
-  (let [project (config/find-project!)
-        ;; A task's basis layers, low->high precedence: project deps/paths <
-        ;; the task's :with contexts < the CLI --with contexts < the task's
-        ;; inline :extra-deps/:extra-paths/:extra-resource-paths. extra-deps
-        ;; override same-named deps (silently; see config/merge-coords). All of
-        ;; this affects only the task's :run steps (source + resource paths);
-        ;; :sh steps ignore the basis.
-        {:keys [results paths resource-paths]} (overlay-basis project with task)]
+;; `project` and `cfg` arrive preloaded from dispatch, which had to read the
+;; config to know the command names a task at all.
+(defn- cmd-task [task-name task project cfg verbose? with]
+  ;; A task's basis layers, low->high precedence: project deps/paths <
+  ;; the task's :with contexts < the CLI --with contexts < the task's
+  ;; inline :extra-deps/:extra-paths/:extra-resource-paths. extra-deps
+  ;; override same-named deps (silently; see config/merge-coords). All of
+  ;; this affects only the task's :run steps (source + resource paths);
+  ;; :sh steps ignore the basis.
+  (let [{:keys [results paths resource-paths]} (overlay-basis project cfg with task)]
     (print-installs! results)
     (tasks/run-task! task-name task paths resource-paths verbose?)))
 
@@ -405,43 +424,54 @@
       (>= (count left) doc-col) (str left "  " doc)
       :else (str (pad-right left doc-col) doc))))
 
-(defn- tasks-block [project]
-  (let [t (try (config/tasks project) (catch _ {}))
-        sorted-names (sort (map name (keys t)))]
-    (when (seq t)
-      (str "\n"
-           "Project tasks:\n"
-           (str/join "\n" (map (fn [n]
-                                 (task-line (keyword n)
-                                            (get t (keyword n))))
-                               sorted-names))
-           "\n"))))
+;; `loaded` is config/load-config output ({:cfg ...} or {:errors ...}), or nil
+;; when no project was found. Help must stay usable with a broken config, so
+;; an invalid lgx.edn renders a one-line warning instead of failing.
+(defn- tasks-block [loaded]
+  (cond
+    (nil? loaded) nil
+
+    (:errors loaded)
+    (str "\n"
+         "Project tasks:\n"
+         "  (omitted — lgx.edn is invalid; run `lgx install` to see errors)\n")
+
+    :else
+    (let [t (config/tasks (:cfg loaded))
+          sorted-names (sort (map name (keys t)))]
+      (when (seq t)
+        (str "\n"
+             "Project tasks:\n"
+             (str/join "\n" (map (fn [n]
+                                   (task-line (keyword n)
+                                              (get t (keyword n))))
+                                 sorted-names))
+             "\n")))))
 
 ;; Assembled at call time so the colored titles honor LGX_NO_COLOR at runtime.
 ;; Order: synopsis -> Built-in commands -> Project tasks (if any) -> Global
-;; options. `project` may be nil (no project found); the tasks block is then
+;; options. `loaded` may be nil (no project found); the tasks block is then
 ;; omitted.
-(defn- usage-for [project]
+(defn- usage-for [loaded]
   (str "lgx - project manager for let-go\n"
        "\n"
        "Usage: lgx [options] <command> [args...]\n"
        "\n"
        "Built-in commands:\n"
        command-rows
-       (or (tasks-block project) "")
+       (or (tasks-block loaded) "")
        "\n"
        "Options:\n"
        option-rows))
 
 (defn- print-usage! []
-  (print (usage-for (config/find-project))))
+  (print (usage-for (when-let [project (config/find-project)]
+                      (config/load-config project)))))
 
-(defn- lookup-task [cmd]
-  (when-let [project (config/find-project)]
-    (let [t (config/tasks project)
-          k (keyword cmd)]
-      (when (contains? t k)
-        (get t k)))))
+(defn- unknown-command! [cmd]
+  (write! *err*
+          (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
+  (os/exit 1))
 
 ;; `with` is the CLI --with context-name list (empty when the flag is absent).
 ;; It is threaded to every command, but only the basis commands
@@ -461,11 +491,17 @@
     "-h" (print-usage!)
     "--help" (print-usage!)
     nil (do (print-usage!) (os/exit 1))
-    (if-let [task (lookup-task cmd)]
-      (cmd-task cmd task verbose? with)
-      (do (write! *err*
-                  (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
-          (os/exit 1)))))
+    ;; The command may name a project task, which takes reading the config to
+    ;; know — so with a project present, an invalid lgx.edn reports its
+    ;; validation errors here rather than a misleading "not a lgx command".
+    (if-let [project (config/find-project)]
+      (let [cfg (config/load-config! project)
+            t (config/tasks cfg)
+            k (keyword cmd)]
+        (if (contains? t k)
+          (cmd-task cmd (get t k) project cfg verbose? with)
+          (unknown-command! cmd)))
+      (unknown-command! cmd))))
 
 (defn- main []
   (let [{:keys [verbose? with args]}

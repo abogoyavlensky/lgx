@@ -322,17 +322,17 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
 - Modify: `lgx.lg`
 - Modify: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Add tests: `coords` / `paths` / `resource-paths` / `tasks` / `contexts` /
   `main` / `targets` over a loaded cfg map (no I/O, correct defaults);
   `coords-at` still lenient (unknown top-level keys fine, missing file → `[]`,
   only `:deps` validated).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && ./bin/lgx test test/lgx/config_test.lg`
   Expected: FAIL (accessors still take a project root).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Convert accessors to pure fns over cfg; rewrite `coords-at` on the deps
   sub-schema with the dep-dir report; delete `validate-config!`, `bad!`, and
   all `validate-*` helpers; thread cfg through `lgx.lg`: each `cmd-*` calls
@@ -342,13 +342,13 @@ test/lgx/<file>.lg` (the runner takes one file), and the full suite with
   the cfg, `tasks-block` / `usage-for` / `print-usage!` use `load-config`
   with the warning line on `:errors`.
 
-- [ ] **Step 4: Run full suite**
+- [x] **Step 4: Run full suite**
   Run: `make test`
   Expected: PASS (unit + existing e2e — existing e2e error-message
   assertions may need updating to the new report wording; update them as
   part of this step).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Load lgx.edn once per invocation; thread cfg through commands"`
 
 ### Task 5: E2E coverage for the new error surface
