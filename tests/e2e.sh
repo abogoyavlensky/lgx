@@ -2415,5 +2415,85 @@ assert_contains "$out" "lgx foo/bar" "namespaced task: help row keeps the namesp
 assert_contains "$out" "Namespaced" "namespaced task: help row keeps the doc"
 rm -rf "$proj_ns" "$home_ns"
 
+echo "==> Scenario 105: task :args bind and substitute into :sh and :run steps"
+proj_args="$(mktemp -d)"; home_args="$(mktemp -d)"
+cat > "$proj_args/lgx.edn" <<'EOF'
+{:tasks
+ {deploy {:doc "Deploy"
+          :args [{:name :env :type [:enum "prod" "staging"]}
+                 {:name :version :type :string :default "latest"}]
+          :do [{:sh ["echo" "sh" :arg/env :arg/version]}
+               {:run ["printer.lg" :arg/env]}]}}}
+EOF
+cat > "$proj_args/printer.lg" <<'EOF'
+(when-not *compiling-aot*
+  (println (str "run-env=" (last os/args))))
+EOF
+out="$(cd "$proj_args" && LGX_HOME="$home_args" "$LGX" deploy prod 1.2)"
+assert_contains "$out" "sh prod 1.2" "task args: :sh substitutes both values"
+assert_contains "$out" "run-env=prod" "task args: :run substitutes the arg"
+out="$(cd "$proj_args" && LGX_HOME="$home_args" "$LGX" deploy staging)"
+assert_contains "$out" "sh staging latest" \
+    "task args: omitted optional fills its default"
+
+echo "==> Scenario 106: bad arg value errors with the usage line"
+set +e
+out="$(cd "$proj_args" && LGX_HOME="$home_args" "$LGX" deploy qa 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "task args enum: expected exit 1, got $rc"
+pass "task args enum: exits 1"
+assert_contains "$out" 'must be one of: prod, staging, got "qa"' \
+    "task args enum: error names the allowed values"
+assert_contains "$out" "usage: lgx deploy <env> [version]" \
+    "task args enum: usage line shows the signature"
+
+echo "==> Scenario 107: args passed to a task without :args error"
+proj_noargs="$(mktemp -d)"; home_noargs="$(mktemp -d)"
+cat > "$proj_noargs/lgx.edn" <<'EOF'
+{:tasks {fmt {:do [{:sh "echo hi"}]}}}
+EOF
+set +e
+out="$(cd "$proj_noargs" && LGX_HOME="$home_noargs" "$LGX" fmt extra 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "argless task: expected exit 1, got $rc"
+pass "argless task: exits 1 (args no longer silently dropped)"
+assert_contains "$out" "task takes no arguments (got 1)" \
+    "argless task: error states the arity"
+assert_contains "$out" "usage: lgx fmt" "argless task: usage line printed"
+rm -rf "$proj_noargs" "$home_noargs"
+
+echo "==> Scenario 108: a hostile :sh arg value stays one quoted word"
+proj_q="$(mktemp -d)"; home_q="$(mktemp -d)"
+cat > "$proj_q/lgx.edn" <<'EOF'
+{:tasks {greet {:args [{:name :msg}]
+                :do [{:sh ["echo" :arg/msg]}]}}}
+EOF
+out="$(cd "$proj_q" && LGX_HOME="$home_q" "$LGX" greet 'a; echo pwned')"
+assert_eq "$out" "a; echo pwned" \
+    "task args quoting: value echoes literally, shell never interprets it"
+rm -rf "$proj_q" "$home_q"
+
+echo "==> Scenario 109: help shows the task arg signature"
+out="$(cd "$proj_args" && LGX_HOME="$home_args" "$LGX" help)"
+assert_contains "$out" "lgx deploy <env> [version]" \
+    "task args help: signature rendered after the task name"
+rm -rf "$proj_args" "$home_args"
+
+echo "==> Scenario 110: required arg after a defaulted one is a config error"
+proj_ta="$(mktemp -d)"; home_ta="$(mktemp -d)"
+cat > "$proj_ta/lgx.edn" <<'EOF'
+{:tasks {d {:args [{:name :version :default "latest"}
+                   {:name :env}]
+            :do [{:sh "echo hi"}]}}}
+EOF
+set +e
+out="$(cd "$proj_ta" && LGX_HOME="$home_ta" "$LGX" install 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "trailing-optional: expected exit 1, got $rc"
+pass "trailing-optional: exits 1"
+assert_contains "$out" "required arg :env cannot follow an arg with :default" \
+    "trailing-optional: error names the misordered arg"
+rm -rf "$proj_ta" "$home_ta"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
