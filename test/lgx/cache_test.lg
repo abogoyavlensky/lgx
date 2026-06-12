@@ -3,6 +3,7 @@
 
 (ns lgx.cache-test
   (:require [lgx.cache :as cache]
+            [string :as str]
             [test :refer [deftest is]]))
 
 (defn- threw? [f]
@@ -229,4 +230,30 @@
             :dir dir}
            (cache/ensure-lib! {:local/root "lib"} project)))
     (os/sh "rm" "-rf" project)))
+
+;; ---------------------------------------------------------------------------
+;; resolve-head-sha!
+;; ---------------------------------------------------------------------------
+
+(defn- setup-fixture-repo! []
+  (let [dir (str "/tmp/lgx-head-sha-test-" (rand-int 100000000))
+        run (fn [& args] (apply os/sh args))]
+    (mkdir dir)
+    (spit (str dir "/hello.txt") "hi\n")
+    (run "git" "-C" dir "init" "-q" "-b" "master")
+    (run "git" "-C" dir "-c" "user.email=t@t" "-c" "user.name=t"
+         "add" "-A")
+    (run "git" "-C" dir "-c" "user.email=t@t" "-c" "user.name=t"
+         "commit" "-q" "-m" "fixture")
+    (let [sha (str/trim (:out (run "git" "-C" dir "rev-parse" "HEAD")))]
+      {:dir dir
+       :sha sha})))
+
+(deftest resolve-head-sha-returns-head-of-fixture
+  (let [{:keys [dir sha]} (setup-fixture-repo!)]
+    (is (= sha (cache/resolve-head-sha! (str "file://" dir))))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest resolve-head-sha-throws-on-missing-repo
+  (is (= :threw (threw? #(cache/resolve-head-sha! "file:///nonexistent/repo")))))
 

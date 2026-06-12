@@ -29,7 +29,7 @@
        "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
        "                               (one file if given, else walk test/)\n"
-       "  lgx new <project-name>       Scaffold a new let-go app from the default template\n"
+       "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in name or git URL)\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"))
 

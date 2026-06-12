@@ -101,3 +101,34 @@
 (deftest nrepl-unexpected-arg-throws
   (is (= :threw (threw? #(cli/parse-nrepl-args ["extra"]))))
   (is (= :threw (threw? #(cli/parse-nrepl-args ["--port" "7888" "extra"])))))
+
+;; ---------------------------------------------------------------------------
+;; parse-new-args
+;; ---------------------------------------------------------------------------
+
+(deftest new-name-only
+  (is (= {:name "myapp" :template nil} (cli/parse-new-args ["myapp"]))))
+
+(deftest new-template-after-name
+  (is (= {:name "myapp" :template "cli"}
+         (cli/parse-new-args ["myapp" "-t" "cli"]))))
+
+(deftest new-template-before-name
+  (is (= {:name "myapp" :template "cli"}
+         (cli/parse-new-args ["-t" "cli" "myapp"]))))
+
+(deftest new-template-long-form-url
+  (is (= {:name "myapp" :template "https://github.com/u/r"}
+         (cli/parse-new-args ["myapp" "--template" "https://github.com/u/r"]))))
+
+(deftest new-template-missing-value-throws
+  (is (= :threw (threw? #(cli/parse-new-args ["myapp" "-t"])))))
+
+(deftest new-template-repeated-throws
+  (is (= :threw (threw? #(cli/parse-new-args ["-t" "a" "--template" "b" "myapp"])))))
+
+(deftest new-no-name-throws
+  (is (= :threw (threw? #(cli/parse-new-args [])))))
+
+(deftest new-two-positionals-throws
+  (is (= :threw (threw? #(cli/parse-new-args ["a" "b"])))))

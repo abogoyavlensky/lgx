@@ -63,6 +63,42 @@
       :else
       (throw (ex-info nrepl-args-error {})))))
 
+(def ^:private template-value-error
+  "lgx: --template requires a value (built-in name or git URL)")
+
+(def ^:private template-repeat-error
+  "lgx: --template given more than once")
+
+(defn parse-new-args
+  "Parse the `new` command's rest-args. Accepts `-t`/`--template <value>` at
+   any position plus exactly one positional (the project name). Returns
+   {:name <string> :template <string or nil>}. Throws ex-info on a
+   missing/repeated template value or a positional count other than one."
+  [args]
+  (loop [positionals []
+         template nil
+         xs (seq args)]
+    (if (nil? xs)
+      (cond
+        (empty? positionals)
+        (throw (ex-info "lgx: new requires a project name" {}))
+
+        (> (count positionals) 1)
+        (throw (ex-info "lgx: new takes exactly one project name" {}))
+
+        :else
+        {:name (first positionals)
+         :template template})
+      (let [tok (first xs)]
+        (if (or (= tok "-t") (= tok "--template"))
+          (let [value (first (next xs))]
+            (when (nil? value)
+              (throw (ex-info template-value-error {})))
+            (when-not (nil? template)
+              (throw (ex-info template-repeat-error {})))
+            (recur positionals value (next (next xs))))
+          (recur (conj positionals tok) template (next xs)))))))
+
 (defn parse-leading-flags
   "Parse leading global flags from `args` (the `user-args` output). Consumes
    leading `--verbose` and `--with a,b` tokens, in any order and repeatable, up

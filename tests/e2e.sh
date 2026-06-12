@@ -1199,6 +1199,51 @@ set -e
 pass "new cold: cache dir created on first call"
 rm -rf "$work_s55" "$home_s55"
 
+echo "==> Scenario 105: lgx new -t <url> scaffolds from template HEAD"
+work_s105="$(mktemp -d)"
+home_s105="$(mktemp -d)"
+set +e
+out="$(cd "$work_s105" \
+    && LGX_HOME="$home_s105" \
+       "$LGX" new tpl-url -t "$FIXTURE_REPO_URL" 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new -t url: expected exit 0, got $rc"; }
+[[ -f "$work_s105/tpl-url/src/tpl_url/greeter.lg" ]] \
+    || fail "new -t url: underscore path missing"
+assert_contains "$(cat "$work_s105/tpl-url/main.lg")" "(ns tpl-url.main" \
+    "new -t url: ns substituted in main.lg"
+# HEAD was resolved to the fixture sha, so the cache lands sha-keyed.
+[[ -d "$home_s105/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA" ]] \
+    || fail "new -t url: sha-keyed cache dir not created"
+pass "new -t url: scaffolds from HEAD with sha-keyed cache"
+rm -rf "$work_s105" "$home_s105"
+
+echo "==> Scenario 106: lgx new -t rejects unknown built-in name"
+work_s106="$(mktemp -d)"
+home_s106="$(mktemp -d)"
+set +e
+out="$(cd "$work_s106" \
+    && LGX_HOME="$home_s106" \
+       "$LGX" new demo -t nope 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "new -t unknown: expected exit 1, got $rc"
+assert_contains "$out" "lgx: unknown template: nope (built-in: base, cli)" \
+    "new -t unknown: clear error with names list"
+rm -rf "$work_s106" "$home_s106"
+
+echo "==> Scenario 107: lgx new -t requires a value"
+work_s107="$(mktemp -d)"
+home_s107="$(mktemp -d)"
+set +e
+out="$(cd "$work_s107" \
+    && LGX_HOME="$home_s107" \
+       "$LGX" new demo -t 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "new -t no-value: expected exit 1, got $rc"
+assert_contains "$out" "--template requires a value" \
+    "new -t no-value: clear error"
+rm -rf "$work_s107" "$home_s107"
+
 rm -rf "$FIXTURE_REPO_DIR"
 
 # ---------------------------------------------------------------------------

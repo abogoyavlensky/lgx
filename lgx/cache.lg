@@ -60,6 +60,18 @@
                        :stderr (:err r)})))
     r))
 
+(defn resolve-head-sha!
+  "Resolve the default-branch HEAD of a remote (or file://) repo to a full
+   sha via `git ls-remote`. Throws ex-info when the command fails or the
+   remote reports no HEAD."
+  [url]
+  (let [r (git! ["ls-remote" url "HEAD"]
+                (str "git ls-remote failed: " url))
+        sha (first (str/split (str/trim (:out r)) #"\s+"))]
+    (when (str/blank? sha)
+      (throw (ex-info (str "no HEAD found at " url) {:url url})))
+    sha))
+
 (defn finalize-worktree! [tmp dest]
   ;; Drop the .git dir - we don't need history once the ref is checked out.
   (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
