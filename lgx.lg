@@ -2,6 +2,7 @@
   (:require [lgx.args :as args]
             [lgx.cache :as cache]
             [lgx.cli :as cli]
+            [lgx.completion :as completion]
             [lgx.config :as config]
             [lgx.new :as new]
             [lgx.path :as path]
@@ -523,6 +524,12 @@
     "help" (print-usage!)
     "-h" (print-usage!)
     "--help" (print-usage!)
+    ;; Hidden: no help row for either. `completion` prints a shell script for
+    ;; the README setup snippets; `__complete` is the dynamic endpoint those
+    ;; scripts call on TAB.
+    "completion" (completion/cmd-completion! (vec rest-args))
+    "__complete" (do (completion/complete! (vec rest-args))
+                     (os/exit 0))
     nil (do (print-usage!) (os/exit 1))
     ;; The command may name a project task, which takes reading the config to
     ;; know — so with a project present, an invalid lgx.edn reports its
