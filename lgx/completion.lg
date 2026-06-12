@@ -1,0 +1,53 @@
+(ns lgx.completion
+  (:require [string :as str]))
+
+;; --------------------------------------------------------------------------
+;; Shell TAB completion.
+;;
+;; Pure candidate logic for the hidden `lgx __complete` endpoint. Candidates
+;; are offered only at the command position — no flag completion, no
+;; per-command argument completion. Isolated from lgx.main so it can be
+;; unit-tested (lgx.main's load runs (main)).
+;; --------------------------------------------------------------------------
+
+;; Commands offered at the command position. The dispatch case in lgx.lg is
+;; the source of truth; keep this list in sync with it. `completion` and
+;; `__complete` are deliberately absent: both are hidden (setup/internal).
+(def builtin-commands
+  ["build" "help" "install" "new" "nrepl" "run" "test" "version"])
+
+(defn- prompt-state
+  "Classify the words typed before the cursor against lgx's grammar
+   (`lgx [--verbose|--with a,b]* <command> [args...]`). Any `-`-prefixed
+   token is skipped so a stray flag is never mistaken for a command; `--with`
+   also consumes the following word. Returns :command-position (still
+   completing the command), :awaiting-value (`--with` is the final word, so
+   the cursor sits on its value), or :command-typed."
+  [words]
+  (loop [ws (seq words)]
+    (cond
+      (nil? ws) :command-position
+
+      (= "--with" (first ws))
+      (if (nil? (next ws))
+        :awaiting-value
+        (recur (next (next ws))))
+
+      (str/starts-with? (first ws) "-") (recur (next ws))
+
+      :else :command-typed)))
+
+(defn candidates
+  "Completion candidates for the lgx command line. `words` are the typed
+   tokens before the cursor (binary name and `__complete` excluded), `cur`
+   the word being completed (may be \"\"), `task-names` the project's task
+   names as strings. Returns a sorted, prefix-filtered vector of built-in
+   command and task names when the cursor is at the command position, else
+   []; empty means \"nothing to offer\" and the shell falls back to its
+   default (file) completion."
+  [words cur task-names]
+  (if (or (not= :command-position (prompt-state words))
+          (str/starts-with? cur "-"))
+    []
+    (vec (sort (filter (fn [c] (str/starts-with? c cur))
+                       (concat builtin-commands task-names))))))

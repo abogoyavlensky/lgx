@@ -1,0 +1,69 @@
+;; Unit tests for lgx.completion — pure TAB-completion candidate logic.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.completion-test
+  (:require [lgx.completion :as completion]
+            [test :refer [deftest is]]))
+
+(def ^:private builtins
+  ["build" "help" "install" "new" "nrepl" "run" "test" "version"])
+
+;; ---------------------------------------------------------------------------
+;; candidates — command position
+;; ---------------------------------------------------------------------------
+
+(deftest all-commands-at-empty-prompt
+  (is (= (vec (sort (concat builtins ["fmt" "lint"])))
+         (completion/candidates [] "" ["fmt" "lint"]))))
+
+(deftest builtins-only-without-tasks
+  (is (= builtins (completion/candidates [] "" []))))
+
+(deftest prefix-filters-run
+  (is (= ["run"] (completion/candidates [] "ru" []))))
+
+(deftest prefix-filters-test
+  (is (= ["test"] (completion/candidates [] "te" []))))
+
+(deftest namespaced-task-name-offered
+  (is (= ["foo/bar"] (completion/candidates [] "foo" ["foo/bar"]))))
+
+(deftest hidden-commands-absent
+  (let [cs (completion/candidates [] "" [])]
+    (is (= [] (filterv #(= "completion" %) cs)))
+    (is (= [] (filterv #(= "__complete" %) cs)))))
+
+;; ---------------------------------------------------------------------------
+;; candidates — leading global flags before the command
+;; ---------------------------------------------------------------------------
+
+(deftest verbose-prefix-still-completes
+  (is (= ["run"] (completion/candidates ["--verbose"] "ru" []))))
+
+(deftest with-and-value-still-completes
+  (is (= ["run"] (completion/candidates ["--with" "dev"] "ru" []))))
+
+(deftest unknown-flag-token-skipped
+  ;; A stray -v / --foo is not mistaken for a command.
+  (is (= ["run"] (completion/candidates ["--foo"] "ru" [])))
+  (is (= ["run"] (completion/candidates ["-v"] "ru" []))))
+
+(deftest cursor-on-with-value-offers-nothing
+  (is (= [] (completion/candidates ["--with"] "" []))))
+
+;; ---------------------------------------------------------------------------
+;; candidates — nothing after the command or on flags
+;; ---------------------------------------------------------------------------
+
+(deftest nothing-after-command
+  (is (= [] (completion/candidates ["run"] "" []))))
+
+(deftest nothing-after-flags-and-command
+  (is (= [] (completion/candidates ["--verbose" "build"] "" []))))
+
+(deftest nothing-after-task-command
+  (is (= [] (completion/candidates ["fmt"] "" ["fmt"]))))
+
+(deftest nothing-for-flag-cursor
+  (is (= [] (completion/candidates [] "-" [])))
+  (is (= [] (completion/candidates [] "--" []))))
