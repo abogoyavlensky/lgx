@@ -10,28 +10,35 @@
 (def ^:private builtins
   ["build" "help" "install" "new" "nrepl" "run" "test" "version"])
 
+;; Tasks map as complete! builds it: task-name string → :args decls (or nil).
+(def ^:private deploy-tasks
+  {"deploy" [{:name :env :type [:enum "staging" "prod"]}
+             {:name :mode :type [:enum "fast" "full"] :default "fast"}
+             {:name :count :type :int}
+             {:name :note}]})
+
 ;; ---------------------------------------------------------------------------
 ;; candidates — command position
 ;; ---------------------------------------------------------------------------
 
 (deftest all-commands-at-empty-prompt
   (is (= (vec (sort (concat builtins ["fmt" "lint"])))
-         (completion/candidates [] "" ["fmt" "lint"]))))
+         (completion/candidates [] "" {"fmt" nil "lint" nil}))))
 
 (deftest builtins-only-without-tasks
-  (is (= builtins (completion/candidates [] "" []))))
+  (is (= builtins (completion/candidates [] "" {}))))
 
 (deftest prefix-filters-run
-  (is (= ["run"] (completion/candidates [] "ru" []))))
+  (is (= ["run"] (completion/candidates [] "ru" {}))))
 
 (deftest prefix-filters-test
-  (is (= ["test"] (completion/candidates [] "te" []))))
+  (is (= ["test"] (completion/candidates [] "te" {}))))
 
 (deftest namespaced-task-name-offered
-  (is (= ["foo/bar"] (completion/candidates [] "foo" ["foo/bar"]))))
+  (is (= ["foo/bar"] (completion/candidates [] "foo" {"foo/bar" nil}))))
 
 (deftest hidden-commands-absent
-  (let [cs (completion/candidates [] "" [])]
+  (let [cs (completion/candidates [] "" {})]
     (is (= [] (filterv #(= "completion" %) cs)))
     (is (= [] (filterv #(= "__complete" %) cs)))))
 
@@ -40,35 +47,75 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest verbose-prefix-still-completes
-  (is (= ["run"] (completion/candidates ["--verbose"] "ru" []))))
+  (is (= ["run"] (completion/candidates ["--verbose"] "ru" {}))))
 
 (deftest with-and-value-still-completes
-  (is (= ["run"] (completion/candidates ["--with" "dev"] "ru" []))))
+  (is (= ["run"] (completion/candidates ["--with" "dev"] "ru" {}))))
 
 (deftest unknown-flag-token-skipped
   ;; A stray -v / --foo is not mistaken for a command.
-  (is (= ["run"] (completion/candidates ["--foo"] "ru" [])))
-  (is (= ["run"] (completion/candidates ["-v"] "ru" []))))
+  (is (= ["run"] (completion/candidates ["--foo"] "ru" {})))
+  (is (= ["run"] (completion/candidates ["-v"] "ru" {}))))
 
 (deftest cursor-on-with-value-offers-nothing
-  (is (= [] (completion/candidates ["--with"] "" []))))
+  (is (= [] (completion/candidates ["--with"] "" {}))))
 
 ;; ---------------------------------------------------------------------------
 ;; candidates — nothing after the command or on flags
 ;; ---------------------------------------------------------------------------
 
 (deftest nothing-after-command
-  (is (= [] (completion/candidates ["run"] "" []))))
+  (is (= [] (completion/candidates ["run"] "" {}))))
 
 (deftest nothing-after-flags-and-command
-  (is (= [] (completion/candidates ["--verbose" "build"] "" []))))
+  (is (= [] (completion/candidates ["--verbose" "build"] "" {}))))
 
 (deftest nothing-after-task-command
-  (is (= [] (completion/candidates ["fmt"] "" ["fmt"]))))
+  (is (= [] (completion/candidates ["fmt"] "" {"fmt" nil}))))
 
 (deftest nothing-for-flag-cursor
-  (is (= [] (completion/candidates [] "-" [])))
-  (is (= [] (completion/candidates [] "--" []))))
+  (is (= [] (completion/candidates [] "-" {})))
+  (is (= [] (completion/candidates [] "--" {}))))
+
+;; ---------------------------------------------------------------------------
+;; candidates — enum values at task arg positions
+;; ---------------------------------------------------------------------------
+
+(deftest enum-values-at-first-arg
+  (is (= ["prod" "staging"]
+         (completion/candidates ["deploy"] "" deploy-tasks))))
+
+(deftest enum-values-prefix-filtered
+  (is (= ["staging"]
+         (completion/candidates ["deploy"] "st" deploy-tasks))))
+
+(deftest defaulted-enum-at-second-arg
+  (is (= ["fast" "full"]
+         (completion/candidates ["deploy" "prod"] "" deploy-tasks))))
+
+(deftest int-arg-offers-nothing
+  (is (= [] (completion/candidates ["deploy" "prod" "fast"] "" deploy-tasks))))
+
+(deftest string-arg-offers-nothing
+  (is (= [] (completion/candidates ["deploy" "prod" "fast" "3"] "" deploy-tasks))))
+
+(deftest past-last-arg-offers-nothing
+  (is (= [] (completion/candidates ["deploy" "prod" "fast" "3" "hi"] ""
+                                   deploy-tasks))))
+
+(deftest global-flags-do-not-shift-arg-positions
+  (is (= ["prod" "staging"]
+         (completion/candidates ["--verbose" "--with" "dev" "deploy"] ""
+                                deploy-tasks))))
+
+(deftest enum-flag-cursor-offers-nothing
+  (is (= [] (completion/candidates ["deploy"] "-" deploy-tasks))))
+
+(deftest builtin-args-offer-nothing
+  (is (= [] (completion/candidates ["run"] "" deploy-tasks))))
+
+(deftest unknown-command-args-offer-nothing
+  (is (= [] (completion/candidates ["mystery"] "" deploy-tasks))))
 
 ;; ---------------------------------------------------------------------------
 ;; completion-script — the bundled shell scripts
