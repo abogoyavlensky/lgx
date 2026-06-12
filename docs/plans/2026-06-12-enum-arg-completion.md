@@ -1,5 +1,7 @@
 # Enum Arg Completion Implementation Plan
 
+> **Status: COMPLETED** (2026-06-12). See summary at the end.
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `lgx __complete` offers a task's `[:enum ...]` values when the cursor sits on that positional arg, so TAB completes enum-typed task args in bash/zsh/fish.
@@ -71,7 +73,7 @@ exercises `__complete` against a fixture project.
 - Modify: `lgx/completion.lg`
 - Test: `test/lgx/completion_test.lg`
 
-- [ ] **Step 1: Write/update unit tests**
+- [x] **Step 1: Write/update unit tests**
   New cases: enum values offered for first and second arg positions;
   prefix filtering (`"st"` → `["staging"]`); defaulted enum arg still
   completes; `:int`/`:string` arg offers nothing; position past the
@@ -81,11 +83,11 @@ exercises `__complete` against a fixture project.
   Update existing `candidates` calls: task-name vectors become maps
   (e.g. `["deploy"]` → `{"deploy" nil}`).
 
-- [ ] **Step 2: Run unit tests, expect failures**
+- [x] **Step 2: Run unit tests, expect failures**
   Run: `make build && bin/lgx test`
   Expected: new enum tests FAIL (existing ones updated, passing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `lgx/completion.lg`: extend `prompt-state` to return
   `{:state ... :command ... :args-typed ...}`; rework `candidates` per
   Design; rename `project-task-names` → `project-tasks` returning the
@@ -93,11 +95,11 @@ exercises `__complete` against a fixture project.
   module header comment that says "no per-command argument
   completion").
 
-- [ ] **Step 4: Run unit tests**
+- [x] **Step 4: Run unit tests**
   Run: `bin/lgx test` (rebuild first: `make build`)
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Complete enum values for task typed args"`
 
 ### Task 2: E2E assertion and docs
@@ -106,23 +108,49 @@ exercises `__complete` against a fixture project.
 - Modify: `tests/e2e.sh` (Scenario 111)
 - Modify: `README.md` ("Shell completions" section)
 
-- [ ] **Step 1: Extend Scenario 111**
+- [x] **Step 1: Extend Scenario 111**
   In the fixture project used by the scenario, ensure a task with an
   enum-typed arg exists (add one if the fixture lacks it, matching how
   the scenario builds its project), then assert
   `lgx __complete <task> ""` prints the enum values and
   `lgx __complete <task> <prefix>` filters them.
 
-- [ ] **Step 2: Add README line**
+- [x] **Step 2: Add README line**
   In "Shell completions" (~line 490), mention that completion also
   offers declared `[:enum ...]` values for task args. Use
   /writing-clearly.
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
   Run: `make test`
   Expected: unit + e2e PASS. (Note: shared-fs race — avoid running
   `make test` concurrently from the macOS shell; it clobbers
   `bin/lgx`.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Cover enum arg completion in e2e and docs"`
+
+---
+
+## Completion summary (2026-06-12)
+
+Both tasks done; full suite green (408 unit + 277 e2e). `lgx __complete
+<task>` now offers a task arg's `[:enum ...]` values at that arg's
+position, prefix-filtered, in bash/zsh/fish.
+
+Implementation matched the plan, plus one security hardening found in
+review:
+
+- **Shell-injection guard (codex P1).** Enum values are
+  project-controlled arbitrary strings, but completion candidates land
+  on the shell command line on TAB. A value like `$(cmd)` or one with
+  spaces would be active syntax once accepted, so a malicious `lgx.edn`
+  could run code on a stray TAB. Fix: the bash script reads candidates
+  straight into `COMPREPLY` (no `compgen -W` wordlist expansion), and —
+  the uniform, shell-agnostic guard — `candidates` only offers enum
+  values matching `^[A-Za-z0-9._/:=+,@-]+$`. Unsafe values are omitted
+  from completion but still validate and run when typed. Covered by a
+  regression test (`unsafe-enum-values-omitted`) and noted in the README.
+
+Commits: `54803ec` (logic + unit tests), `8ab7399` (bash COMPREPLY),
+`d92c6ad` (shell-safe filter), `9268bd6` (e2e + docs), `d51fde7` (doc
+wording).
