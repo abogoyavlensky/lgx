@@ -1,6 +1,6 @@
 [tools]
 lg = "1.10.0"
-lgx = "0.1.0-alpha13"
+lgx = "0.1.0-alpha16"
 cljfmt = "0.16.4"
 lefthook = "2.1.6"
 
