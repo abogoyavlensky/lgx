@@ -292,8 +292,8 @@
 
 (deftest load-rejects-task-with-unknown-key
   (is (= {:errors [{:path [:tasks 'dev]
-                    :msg (str "unknown key :extra-dep (allowed: :doc, :do, "
-                              ":extra-paths, :extra-resource-paths, "
+                    :msg (str "unknown key :extra-dep (allowed: :doc, :args, "
+                              ":do, :extra-paths, :extra-resource-paths, "
                               ":extra-deps, :with)")}]}
          (load-cfg {:tasks {'dev {:extra-dep {}
                                   :do [{:sh "echo hi"}]}}}))))
@@ -356,8 +356,153 @@
                     :msg "must be a non-empty vector of strings"}]}
          (load-cfg {:tasks {'fmt {:do [{:sh []}]}}})))
   (is (= {:errors [{:path [:tasks 'fmt :do 0 :sh 1]
-                    :msg "must be a string, got 5"}]}
+                    :msg "must be a string or :arg/<name> placeholder, got 5"}]}
          (load-cfg {:tasks {'fmt {:do [{:sh ["echo" 5]}]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: task :args declarations
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-task-args
+  (let [cfg {:tasks {'deploy {:args [{:name :env
+                                      :type [:enum "prod" "staging"]}
+                                     {:name :port :type :int}
+                                     {:name :version
+                                      :type :string
+                                      :default "latest"}]
+                              :do [{:sh ["./deploy.sh" :arg/env :arg/version]}
+                                   {:run ["notify.lg" :arg/env :arg/port]}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-unused-declared-arg
+  (let [cfg {:tasks {'d {:args [{:name :env}]
+                         :do [{:sh "echo hi"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-empty-args
+  (is (= {:errors [{:path [:tasks 'd :args]
+                    :msg "must contain at least 1 element"}]}
+         (load-cfg {:tasks {'d {:args []
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-arg-with-unknown-key
+  (is (= {:errors [{:path [:tasks 'd :args 0]
+                    :msg "unknown key :typ (allowed: :name, :type, :default)"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env :typ :int}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-arg-missing-name
+  (is (= {:errors [{:path [:tasks 'd :args 0]
+                    :msg "missing required key :name"}]}
+         (load-cfg {:tasks {'d {:args [{:type :int}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-non-keyword-arg-name
+  (is (= {:errors [{:path [:tasks 'd :args 0 :name]
+                    :msg "must be a keyword, got \"env\""}]}
+         (load-cfg {:tasks {'d {:args [{:name "env"}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-namespaced-arg-name
+  (is (= {:errors [{:path [:tasks 'd :args 0 :name]
+                    :msg "must be an unqualified keyword, got :foo/env"}]}
+         (load-cfg {:tasks {'d {:args [{:name :foo/env}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-duplicate-arg-name
+  (is (= {:errors [{:path [:tasks 'd :args 1 :name]
+                    :msg "duplicate arg name :env"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env} {:name :env}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-bad-arg-type
+  (is (= {:errors [{:path [:tasks 'd :args 0 :type]
+                    :msg "must be :int, :string, or [:enum ...], got :float"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env :type :float}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-enum-with-one-value
+  (is (= {:errors [{:path [:tasks 'd :args 0 :type]
+                    :msg "must list at least 2 enum values"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env :type [:enum "prod"]}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-enum-with-non-string-value
+  (is (= {:errors [{:path [:tasks 'd :args 0 :type]
+                    :msg "enum values must be non-blank strings"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env :type [:enum "prod" 5]}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-enum-with-duplicate-values
+  (is (= {:errors [{:path [:tasks 'd :args 0 :type]
+                    :msg "enum values must be distinct"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env
+                                        :type [:enum "prod" "prod"]}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-string-arg-with-non-string-default
+  ;; :type omitted defaults to :string.
+  (is (= {:errors [{:path [:tasks 'd :args 0 :default]
+                    :msg "must be a string (type :string), got 5"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env :default 5}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-int-arg-with-string-default
+  (is (= {:errors [{:path [:tasks 'd :args 0 :default]
+                    :msg "must be an integer (type :int), got \"x\""}]}
+         (load-cfg {:tasks {'d {:args [{:name :port :type :int :default "x"}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-enum-arg-with-non-member-default
+  (is (= {:errors [{:path [:tasks 'd :args 0 :default]
+                    :msg "must be one of: prod, staging, got \"qa\""}]}
+         (load-cfg {:tasks {'d {:args [{:name :env
+                                        :type [:enum "prod" "staging"]
+                                        :default "qa"}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-required-arg-after-defaulted
+  (is (= {:errors [{:path [:tasks 'd :args 1]
+                    :msg "required arg :env cannot follow an arg with :default"}]}
+         (load-cfg {:tasks {'d {:args [{:name :version :default "latest"}
+                                       {:name :env}]
+                                :do [{:sh "echo hi"}]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :arg/* placeholders in steps
+;; ---------------------------------------------------------------------------
+
+(deftest load-rejects-unknown-placeholder
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg "unknown placeholder :arg/typo (declared: :env)"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env}]
+                                :do [{:sh ["echo" :arg/typo]}]}}}))))
+
+(deftest load-rejects-placeholder-without-args
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg "placeholder :arg/x used but no :args declared"}]}
+         (load-cfg {:tasks {'d {:do [{:sh ["echo" :arg/x]}]}}}))))
+
+(deftest load-rejects-placeholder-in-single-step-map-do
+  ;; Validation runs before normalization, so the map form is walked too.
+  (is (= {:errors [{:path [:tasks 'd :do :sh 1]
+                    :msg "placeholder :arg/x used but no :args declared"}]}
+         (load-cfg {:tasks {'d {:do {:sh ["echo" :arg/x]}}}}))))
+
+(deftest load-rejects-placeholder-in-run-step
+  (is (= {:errors [{:path [:tasks 'd :do 0 :run 1]
+                    :msg "unknown placeholder :arg/typo (declared: :env)"}]}
+         (load-cfg {:tasks {'d {:args [{:name :env}]
+                                :do [{:run ["t.lg" :arg/typo]}]}}}))))
+
+(deftest load-rejects-non-arg-keyword-in-step-vector
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg "must be a string or :arg/<name> placeholder, got :env"}]}
+         (load-cfg {:tasks {'d {:do [{:sh ["echo" :env]}]}}})))
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg (str "must be a string or :arg/<name> placeholder, "
+                              "got :foo/env")}]}
+         (load-cfg {:tasks {'d {:do [{:sh ["echo" :foo/env]}]}}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: single-step-map :do normalization

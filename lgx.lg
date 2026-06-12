@@ -1,5 +1,6 @@
 (ns lgx.main
-  (:require [lgx.cache :as cache]
+  (:require [lgx.args :as args]
+            [lgx.cache :as cache]
             [lgx.cli :as cli]
             [lgx.config :as config]
             [lgx.new :as new]
@@ -416,25 +417,39 @@
 
 ;; `project` and `cfg` arrive preloaded from dispatch, which had to read the
 ;; config to know the command names a task at all.
-(defn- cmd-task [task-name task project cfg verbose? with]
+(defn- cmd-task [task-name task rest-args project cfg verbose? with]
   ;; A task's basis layers, low->high precedence: project deps/paths <
   ;; the task's :with contexts < the CLI --with contexts < the task's
   ;; inline :extra-deps/:extra-paths/:extra-resource-paths. extra-deps
   ;; override same-named deps (silently; see config/merge-coords). All of
   ;; this affects only the task's :run steps (source + resource paths);
   ;; :sh steps ignore the basis.
-  (let [{:keys [results paths resource-paths]} (overlay-basis project cfg with task)]
-    (print-installs! results)
-    (tasks/run-task! task-name task paths resource-paths verbose?)))
+  ;;
+  ;; CLI args bind against the task's :args first — cheap validation before
+  ;; the basis is built, so a bad invocation never fetches deps. Strict
+  ;; arity: a task without :args rejects any args.
+  (let [decls (vec (or (:args task) []))
+        bound (args/bind-args decls rest-args)]
+    (when (:errors bound)
+      (doseq [msg (:errors bound)]
+        (write! *err* (str "lgx: " task-name ": " msg "\n")))
+      (write! *err* (str (args/usage-line task-name decls) "\n"))
+      (os/exit 1))
+    (let [{:keys [results paths resource-paths]} (overlay-basis project cfg with task)]
+      (print-installs! results)
+      (tasks/run-task! task-name task paths resource-paths verbose?
+                       (:bindings bound)))))
 
 (defn- pad-right [s n]
   (let [c (count s)]
     (if (>= c n) s (str s (apply str (repeat (- n c) " "))))))
 
-;; Tasks render as `lgx <name>` aligned to the same description column as the
-;; built-in command rows, so they read as first-class commands.
+;; Tasks render as `lgx <name> <arg> [arg]` aligned to the same description
+;; column as the built-in command rows, so they read as first-class commands.
 (defn- task-line [task-name task]
-  (let [left (str "  lgx " task-name)
+  (let [sig (args/signature (or (:args task) []))
+        left (str "  lgx " task-name
+                  (if (str/blank? sig) "" (str " " sig)))
         doc (:doc task)]
     (cond
       (str/blank? doc) left
@@ -518,7 +533,7 @@
             t (config/tasks cfg)
             k (symbol cmd)]
         (if (contains? t k)
-          (cmd-task cmd (get t k) project cfg verbose? with)
+          (cmd-task cmd (get t k) (vec rest-args) project cfg verbose? with)
           (unknown-command! cmd)))
       (unknown-command! cmd))))
 
