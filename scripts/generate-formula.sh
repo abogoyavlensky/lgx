@@ -40,7 +40,6 @@ cat <<EOF
 class Lgx < Formula
   desc "Package and project manager for the let-go Clojure dialect"
   homepage "https://github.com/abogoyavlensky/lgx"
-  version "${version}"
   license "MIT"
 
   livecheck do
@@ -49,22 +48,22 @@ class Lgx < Formula
 
   on_macos do
     on_intel do
-      url "https://github.com/abogoyavlensky/lgx/releases/download/v#{version}/lgx_#{version}_darwin_amd64.tar.gz"
+      url "https://github.com/abogoyavlensky/lgx/releases/download/v${version}/lgx_${version}_darwin_amd64.tar.gz"
       sha256 "${darwin_amd64}"
     end
     on_arm do
-      url "https://github.com/abogoyavlensky/lgx/releases/download/v#{version}/lgx_#{version}_darwin_arm64.tar.gz"
+      url "https://github.com/abogoyavlensky/lgx/releases/download/v${version}/lgx_${version}_darwin_arm64.tar.gz"
       sha256 "${darwin_arm64}"
     end
   end
 
   on_linux do
     on_intel do
-      url "https://github.com/abogoyavlensky/lgx/releases/download/v#{version}/lgx_#{version}_linux_amd64.tar.gz"
+      url "https://github.com/abogoyavlensky/lgx/releases/download/v${version}/lgx_${version}_linux_amd64.tar.gz"
       sha256 "${linux_amd64}"
     end
     on_arm do
-      url "https://github.com/abogoyavlensky/lgx/releases/download/v#{version}/lgx_#{version}_linux_arm64.tar.gz"
+      url "https://github.com/abogoyavlensky/lgx/releases/download/v${version}/lgx_${version}_linux_arm64.tar.gz"
       sha256 "${linux_arm64}"
     end
   end
