@@ -14,11 +14,16 @@
 ;;   {:sh "..."}    shell command (string or vector joined by spaces)
 ;;   {:run "..."}   invoked like `lgx run ...` with the project basis
 ;;
-;; A vector-form value may carry :arg/<name> placeholders, replaced with the
-;; bound CLI values (`bindings`, built by args/bind-args in cmd-task) before
-;; the step runs: shell-quoted for :sh (one shell word, never interpreted),
-;; verbatim for :run (each item is already one argv entry). The echoed step
-;; line shows the substituted command.
+;; A step value may reference the bound CLI values (`bindings`, built by
+;; args/bind-args in cmd-task) in two ways, applied before the step runs:
+;;   - :arg/<name> items in a vector-form value, replaced whole: shell-quoted
+;;     for :sh (one shell word, never interpreted), verbatim for :run (each
+;;     item is already one argv entry).
+;;   - {{<name>}} tokens inside any string — a whole-string value or a vector
+;;     item — spliced in raw with no quoting added; tokens that don't name a
+;;     declared arg pass through untouched. A :run string value is expanded
+;;     first and then whitespace-split into argv.
+;; The echoed step line shows the substituted command.
 ;;
 ;; Like the rest of lgx, child processes run through os/sh which buffers
 ;; stdout/stderr until the child exits. Output is replayed after each step.
@@ -34,8 +39,9 @@
 
 (defn- substituted [value bindings quote?]
   (if (vector? value)
-    (args/substitute value bindings quote?)
-    value))
+    (args/substitute (mapv #(if (string? %) (args/expand % bindings) %) value)
+                     bindings quote?)
+    (args/expand value bindings)))
 
 (defn- run-sh-step! [value bindings verbose?]
   (let [cmd (as-string (substituted value bindings true))]

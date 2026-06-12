@@ -2586,5 +2586,27 @@ assert_not_contains "$out" "completion" "help: completion stays hidden"
 
 rm -rf "$proj_comp" "$home_comp"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 112: {{name}} templates expand in task step strings"
+proj_tpl="$(mktemp -d)"; home_tpl="$(mktemp -d)"
+cat > "$proj_tpl/lgx.edn" <<'EOF'
+{:tasks
+ {deploy {:args [{:name :env}
+                 {:name :version :default "latest"}]
+          :do [{:sh "echo tag=v{{version}} env={{env}}"}
+               {:sh ["echo" "item=v{{version}}" :arg/env]}
+               {:sh "echo miss={{nope}}"}]}}}
+EOF
+out="$(cd "$proj_tpl" && LGX_HOME="$home_tpl" "$LGX" deploy prod 1.2)"
+assert_contains "$out" "tag=v1.2 env=prod" \
+    "template: string-form :sh expands tokens"
+assert_contains "$out" "item=v1.2 prod" \
+    "template: vector item expands alongside :arg keyword"
+assert_contains "$out" "miss={{nope}}" \
+    "template: unknown token passes through"
+out="$(cd "$proj_tpl" && LGX_HOME="$home_tpl" "$LGX" deploy prod)"
+assert_contains "$out" "tag=vlatest" "template: default fills the token"
+rm -rf "$proj_tpl" "$home_tpl"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

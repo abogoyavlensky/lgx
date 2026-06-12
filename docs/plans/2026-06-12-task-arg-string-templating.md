@@ -122,7 +122,7 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
 - Modify: `lgx/args.lg`
 - Test: `test/lgx/args_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Add an `expand` section to `test/lgx/args_test.lg` following the
   existing `deftest`/`is` style. Cases:
   - basic: `(expand "v{{version}}" {:arg/version "1.2"})` → `"v1.2"`
@@ -140,12 +140,12 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
     bound → `"{{aprod"`
   - no tokens at all: plain string returned as-is
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `bin/lgx test` (if `bin/lgx` is missing, `make build` first)
   Expected: FAIL — `expand` does not exist yet. All pre-existing tests
   still pass.
 
-- [ ] **Step 3: Implement `expand`**
+- [x] **Step 3: Implement `expand`**
   In `lgx/args.lg`, next to `substitute`. Loop with an output string
   accumulator and a scan index, per the scanner spec in the Design
   section (`string/index-of` with a from-index, `subs` for slices).
@@ -154,11 +154,11 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
   4–13) to mention `{{name}}` templating alongside keyword
   substitution.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `bin/lgx test`
   Expected: PASS, including all pre-existing tests.
 
-- [ ] **Step 5: Lint, format, commit**
+- [x] **Step 5: Lint, format, commit**
   Run: `make fmt && make lint`
   `git commit -m "Add args/expand for {{name}} templating"`
 
@@ -168,7 +168,7 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
 - Modify: `lgx/tasks.lg`
 - Test: `tests/e2e.sh`
 
-- [ ] **Step 1: Write the failing e2e scenario**
+- [x] **Step 1: Write the failing e2e scenario**
   Append Scenario 112 to `tests/e2e.sh`, modeled on Scenario 105
   (`tests/e2e.sh:2461`): fresh `mktemp -d` project + `LGX_HOME`, an
   `lgx.edn` like:
@@ -187,23 +187,23 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
   token passes through). One more invocation `lgx deploy prod`
   asserting `tag=vlatest` (default fills the template).
 
-- [ ] **Step 2: Run the scenario to verify it fails**
+- [x] **Step 2: Run the scenario to verify it fails**
   Run: `make test`
   Expected: unit tests pass; e2e fails at Scenario 112 with the
   un-expanded `tag=v{{version}}` output.
 
-- [ ] **Step 3: Apply expand in `substituted`**
+- [x] **Step 3: Apply expand in `substituted`**
   In `lgx/tasks.lg`, change `substituted` (line 35): string value →
   `args/expand`; vector value → map `args/expand` over string items
   (leave keywords for `args/substitute`, which runs as today). Update
   the ns header comment paragraph (lines 17–21) to cover both
   placeholder forms.
 
-- [ ] **Step 4: Run the full suite to verify it passes**
+- [x] **Step 4: Run the full suite to verify it passes**
   Run: `make test`
   Expected: all unit + e2e tests pass, including Scenario 112.
 
-- [ ] **Step 5: Lint, format, commit**
+- [x] **Step 5: Lint, format, commit**
   Run: `make fmt && make lint`
   `git commit -m "Expand {{name}} templates in task step strings"`
 
