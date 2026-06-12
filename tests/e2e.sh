@@ -2542,7 +2542,9 @@ rm -rf "$proj_ta" "$home_ta"
 echo "==> Scenario 111: shell completion (completion + __complete)"
 proj_comp="$(mktemp -d)"; home_comp="$(mktemp -d)"
 cat > "$proj_comp/lgx.edn" <<'EOF'
-{:tasks {fmt {:doc "Format" :do [{:sh "echo fmt"}]}}}
+{:tasks {fmt {:doc "Format" :do [{:sh "echo fmt"}]}
+         deploy {:args [{:name :env :type [:enum "staging" "prod"]}]
+                 :do [{:sh "echo {{env}}"}]}}}
 EOF
 
 out="$(cd "$proj_comp" && LGX_HOME="$home_comp" "$LGX" __complete "")"
@@ -2553,6 +2555,14 @@ assert_not_contains "$out" "completion" "__complete: hidden command not offered"
 
 out="$(cd "$proj_comp" && LGX_HOME="$home_comp" "$LGX" __complete fm)"
 assert_eq "$out" "fmt" "__complete: prefix-filters to the task"
+
+# A task arg's [:enum ...] values complete at that arg's position.
+out="$(cd "$proj_comp" && LGX_HOME="$home_comp" "$LGX" __complete deploy "")"
+assert_contains "$out" "staging" "__complete: offers enum value staging"
+assert_contains "$out" "prod" "__complete: offers enum value prod"
+
+out="$(cd "$proj_comp" && LGX_HOME="$home_comp" "$LGX" __complete deploy st)"
+assert_eq "$out" "staging" "__complete: prefix-filters enum values"
 
 # Outside any project: built-ins still complete, exit 0.
 nowhere="$(mktemp -d)"
