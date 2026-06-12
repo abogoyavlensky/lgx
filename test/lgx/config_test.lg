@@ -4,7 +4,7 @@
 (ns lgx.config-test
   (:require [lgx.config :as config]
             [string :as str]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 (defn- threw? [f]
   (try (f) :no-throw (catch e :threw)))

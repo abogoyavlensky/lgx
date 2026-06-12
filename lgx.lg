@@ -385,37 +385,37 @@
       (write! *err* "lgx: no test/ directory in project\n")
       (os/exit 1))
     (let [with (auto-with! cfg :test with verbose?)
-          {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
-      (let [single? (= 1 (count forward-args))
-            entries (if single?
-                      (single-file-entries! test-dir (first forward-args) project)
-                      (let [files (test-runner/discover-test-files test-dir)]
-                        (when (empty? files)
-                          (println "No tests found in test/")
-                          (os/exit 0))
-                        (mapv #(test-runner/test-entry test-dir %) files)))
-            header (if single? (first (first entries)) "test/")
-            harness (test-runner/write-harness! entries version)
-            source-paths (vec (concat paths [test-dir]))]
-        (when verbose?
-          (write! *err* (str "+ test runner: " harness "\n")))
-        (write! *err*
-                (str (style/header (str "Running tests in " header "...")) "\n"))
-        (print-installs! results)
+          {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+          single? (= 1 (count forward-args))
+          entries (if single?
+                    (single-file-entries! test-dir (first forward-args) project)
+                    (let [files (test-runner/discover-test-files test-dir)]
+                      (when (empty? files)
+                        (println "No tests found in test/")
+                        (os/exit 0))
+                      (mapv #(test-runner/test-entry test-dir %) files)))
+          header (if single? (first (first entries)) "test/")
+          harness (test-runner/write-harness! entries version)
+          source-paths (vec (concat paths [test-dir]))]
+      (when verbose?
+        (write! *err* (str "+ test runner: " harness "\n")))
+      (write! *err*
+              (str (style/header (str "Running tests in " header "...")) "\n"))
+      (print-installs! results)
       ;; let-go's require swallows a test file's compile error: lg prints
       ;; "error: failed to load ..." to stderr but exits 0, so the harness
       ;; reports 0 failures. Replay lg's output (minus the harness marker)
       ;; and, if a pre-harness load error slipped through a zero exit, fail.
-        (let [r (runner/run-lg! source-paths resource-paths [harness] verbose?)
-              exit (:exit r)]
-          (when (seq (:out r)) (write! *out* (:out r)))
-          (let [shown-err (test-runner/strip-ready-marker (:err r))]
-            (when (seq shown-err) (write! *err* shown-err)))
-          (if (and (zero? exit)
-                   (test-runner/load-error-before-harness? (:err r)))
-            (do (write! *err* "lgx: a test file failed to load (see errors above)\n")
-                (os/exit 1))
-            (os/exit exit)))))))
+      (let [r (runner/run-lg! source-paths resource-paths [harness] verbose?)
+            exit (:exit r)]
+        (when (seq (:out r)) (write! *out* (:out r)))
+        (let [shown-err (test-runner/strip-ready-marker (:err r))]
+          (when (seq shown-err) (write! *err* shown-err)))
+        (if (and (zero? exit)
+                 (test-runner/load-error-before-harness? (:err r)))
+          (do (write! *err* "lgx: a test file failed to load (see errors above)\n")
+              (os/exit 1))
+          (os/exit exit))))))
 
 ;; `project` and `cfg` arrive preloaded from dispatch, which had to read the
 ;; config to know the command names a task at all.

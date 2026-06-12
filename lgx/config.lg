@@ -292,7 +292,7 @@
     ;; (str k) rather than (name k): only a bare name can shadow a built-in —
     ;; a namespaced foo/run dispatches as "foo/run", never as "run".
     (contains? reserved-task-names (str k))
-    (str "conflicts with built-in command \"" (str k) "\"")))
+    (str "conflicts with built-in command \"" k "\"")))
 
 (def ^:private task-schema
   [:and

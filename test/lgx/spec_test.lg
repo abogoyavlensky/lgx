@@ -3,7 +3,7 @@
 
 (ns lgx.spec-test
   (:require [lgx.spec :as spec]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Leaf types

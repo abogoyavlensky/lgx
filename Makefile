@@ -55,6 +55,11 @@ fmt-check:
 	@$(INFO) "Checking code formatting..."
 	cljfmt check
 
+.PHONY: lint # Lint code with clj-kondo
+lint:
+	@$(INFO) "Linting code..."
+	find lgx test -type f -name '*.lg' -print0 | xargs -0 clj-kondo --lint lgx.lg
+
 .PHONY: clean  # Clean build artifacts
 clean:
 	@$(INFO) "Cleaning build artifacts..."

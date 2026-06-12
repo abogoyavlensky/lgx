@@ -6,7 +6,7 @@
             [lgx.path :as path]
             [lgx.test-runner :as tr]
             [string :as str]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 (def sep os/file-separator)
 
@@ -91,7 +91,8 @@
 (defn- parses? [s]
   ;; Wrap in (do ...) so the reader consumes the whole harness as one
   ;; form; otherwise read-string only returns the first top-level form.
-  (try (do (edn/read-string (str "(do " s ")")) true)
+  (try (edn/read-string (str "(do " s ")"))
+       true
        (catch _ false)))
 
 (deftest harness-source-empty-ns-list-parses

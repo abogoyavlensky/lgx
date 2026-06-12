@@ -3,7 +3,7 @@
 
 (ns lgx.args-test
   (:require [lgx.args :as args]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 ;; ---------------------------------------------------------------------------
 ;; bind-args

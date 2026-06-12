@@ -23,8 +23,9 @@
   {:path (vec path)
    :msg msg})
 
-(defn- leaf-label [kw value]
+(defn- leaf-label
   "Return a type label when value fails kw's type check, nil when it passes."
+  [kw value]
   (case kw
     :string (when-not (string? value) "a string")
     :keyword (when-not (keyword? value) "a keyword")

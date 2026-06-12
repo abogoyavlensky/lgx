@@ -3,7 +3,7 @@
 
 (ns lgx.style-test
   (:require [lgx.style :as style]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 (def esc "\u001b")
 

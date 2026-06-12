@@ -3,7 +3,7 @@
 
 (ns lgx.path-test
   (:require [lgx.path :as path]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 (def sep os/file-separator)
 

@@ -1,0 +1,28 @@
+;; clj-kondo config for let-go (.lg) sources.
+;;
+;; let-go's catch takes no exception class: (catch binding & body).
+;; clj-kondo parses the binding symbol as a class name (-> unresolved
+;; symbol) and the first body form as the binding (-> unsupported
+;; binding form), and never analyzes the catch body. The settings
+;; below silence exactly that fallout, plus let-go builtins that
+;; don't exist in clojure.core.
+{:linters
+ {;; First catch body form lands in kondo's binding position, reported
+  ;; as a :syntax error. Cost of :off: kondo also stops reporting
+  ;; unbalanced parens — cljfmt and the compiler still catch those.
+  :syntax {:level :off}
+  :unresolved-symbol
+  {:exclude [;; catch binding symbols, parsed as class names
+             e _
+             ;; let-go builtins
+             mkdir delete-file file-exists? write! *compiling-aot*]}
+  ;; let-go builtin namespace, available without require
+  :unresolved-namespace {:exclude [os]}
+  ;; Vars referenced only inside catch bodies, which kondo skips.
+  :unused-private-var
+  {:exclude [lgx.main/validate-error-line
+             lgx.config/first-line
+             lgx.new/die-name-invalid!
+             lgx.new/handle-target-error!]}}
+ ;; lgx.lg is the entry script; its ns is lgx.main by design.
+ :config-in-ns {lgx.main {:linters {:namespace-name-mismatch {:level :off}}}}}

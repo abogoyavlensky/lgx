@@ -3,7 +3,7 @@
 
 (ns lgx.cli-test
   (:require [lgx.cli :as cli]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 (defn- threw? [f]
   (try (f) :no-throw (catch e :threw)))

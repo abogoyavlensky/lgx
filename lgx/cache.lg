@@ -89,7 +89,7 @@
 (defn clone-sha! [url sha dest]
   ;; Use a tmp dir as parent for atomicity, then rename.
   (let [parent (path/parent dest)
-        tmp (str dest ".tmp." (str (rand-int 1000000)))]
+        tmp (str dest ".tmp." (rand-int 1000000))]
     (mkdir parent)
     (git! ["clone" "--quiet" url tmp]
           (str "git clone failed: " url))
@@ -100,7 +100,7 @@
 (defn- clone-tag! [url tag dest]
   ;; Use a tmp dir as parent for atomicity, then rename.
   (let [parent (path/parent dest)
-        tmp (str dest ".tmp." (str (rand-int 1000000)))]
+        tmp (str dest ".tmp." (rand-int 1000000))]
     (mkdir parent)
     (git! ["clone" "--quiet" "--branch" tag "--depth" "1" url tmp]
           (str "git clone failed: " url))

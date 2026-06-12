@@ -4,7 +4,7 @@
 (ns lgx.new-test
   (:require [lgx.new :as new]
             [string :as str]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 (defn- caught-reason [f]
   (try (f) nil

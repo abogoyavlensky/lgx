@@ -3,7 +3,7 @@
 
 (ns lgx.runner-test
   (:require [lgx.runner :as runner]
-            [test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]]))
 
 (deftest env-trace-line-lists-set-vars-in-order
   (is (= "+ env LG_READ_CLJ=1 LGX_RUN=1\n"

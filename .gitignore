@@ -7,3 +7,5 @@ lgx-bundle
 .idea/
 .tmp/
 .nrepl-port
+.clj-kondo/*
+!.clj-kondo/config.edn
