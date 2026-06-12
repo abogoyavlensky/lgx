@@ -4,6 +4,8 @@
 
 **Goal:** Let task steps embed declared positional args inside strings via `{{arg-name}}` tokens, e.g. `{:sh "git tag v{{version}}"}`.
 
+**Status:** ✅ Completed 2026-06-12 (see summary at the end).
+
 **Tech Stack:** let-go (`.lg` sources), bash e2e harness.
 
 ---
@@ -240,3 +242,22 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
 
 - [x] **Step 4: Commit**
   `git commit -m "Document {{name}} task arg templating"`
+
+---
+
+## Completion Summary
+
+Implemented as planned, no deviations:
+
+- `b029870` — `args/expand` single-pass scanner + 12 unit tests
+  (397 unit tests passing).
+- `31f4f82` — wired into `tasks.lg`'s `substituted` for string values
+  and vector string items; e2e Scenario 112 (274 e2e assertions
+  passing).
+- `eb6a1e0` — README and ARCHITECTURE.md updated.
+
+Each commit passed a codex second-opinion review. The only finding
+(P2 on `31f4f82`: stale docs) was already covered by Task 3. No other
+issues encountered; `string/index-of`'s nil-on-miss + from-index
+behavior was verified against the let-go source before implementing
+the scanner.
