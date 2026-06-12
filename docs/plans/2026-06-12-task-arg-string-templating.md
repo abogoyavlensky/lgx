@@ -213,7 +213,7 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
   In the "Positional args (`:args`)" section (~line 391): replace the
   closing paragraph ("Placeholders work only in vector-form step
   values - there is no templating inside string commands...") with the
@@ -227,16 +227,16 @@ literal text. The existing `throw` for unbound `:arg/` keyword items in
   existing enum-typed `:env` arg as-is — and mirror the new step in the
   prose that walks through `lgx deploy prod`.
 
-- [ ] **Step 2: Update ARCHITECTURE.md**
+- [x] **Step 2: Update ARCHITECTURE.md**
   Line ~33: extend the `args.lg` one-liner with "expand `{{name}}`
   templates in step strings". Lines ~354–361: rewrite the substitution
   paragraph to cover both forms and drop "String-form values have no
   placeholder syntax"; keep the note that keyword placeholders are
   config-validated while `{{name}}` tokens are not.
 
-- [ ] **Step 3: Verify docs match behavior**
+- [x] **Step 3: Verify docs match behavior**
   Re-read both edits against `lgx/args.lg` and `lgx/tasks.lg`; check
   the README example matches what Scenario 112 asserts.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Document {{name}} task arg templating"`

@@ -301,7 +301,8 @@ key's rules in detail.
                   :type    :string
                   :default "latest"}]              ; :default makes an arg optional
           :do   [{:sh  ["./deploy.sh" :arg/env :arg/version]} ; :arg/<name> fills
-                 {:run ["notify.lg" :arg/env]}]}   ; in declared args
+                 {:run ["notify.lg" :arg/env]}     ; in declared args
+                 {:sh  "echo deploying v{{version}}"}]} ; {{name}} expands in strings
 
   repl   {:doc                  "REPL with dev tooling"
           :with                 [:dev]             ; always apply these contexts
@@ -391,9 +392,10 @@ rejected (so a typo like `:extra-dep` fails loudly).
 #### Positional args (`:args`)
 
 A task may declare typed positional CLI args and reference them in
-vector-form step values as `:arg/<name>` keywords, like the `deploy`
-task in the reference above. `lgx deploy prod` runs
-`./deploy.sh 'prod' 'latest'`, then `lgx run notify.lg prod`.
+vector-form step values as `:arg/<name>` keywords or embed them in step
+strings as `{{<name>}}` templates, like the `deploy` task in the
+reference above. `lgx deploy prod` runs `./deploy.sh 'prod' 'latest'`,
+then `lgx run notify.lg prod`, then `echo deploying vlatest`.
 
 Each arg is a map:
 
@@ -413,13 +415,23 @@ or a surplus arg prints the error plus a usage line
 no `:args` rejects any CLI args the same way. `lgx help` shows each
 task's signature after its name.
 
-Placeholders work only in vector-form step values - there is no
-templating inside string commands - and every `:arg/<name>` must name a
-declared arg (checked when `lgx.edn` loads). In `:sh` steps each
-substituted value is single-quoted, so it always reaches the shell as
-one word and is never interpreted (`lgx greet 'a; echo pwned'` echoes
-the literal text). In `:run` steps each vector item is already one
-argument, so values pass through verbatim.
+Args can be referenced two ways:
+
+- **`:arg/<name>` keyword items** in vector-form step values. Each must
+  name a declared arg (checked when `lgx.edn` loads). In `:sh` steps the
+  substituted value is single-quoted, so it always reaches the shell as
+  one word and is never interpreted (`lgx greet 'a; echo pwned'` echoes
+  the literal text). In `:run` steps each vector item is already one
+  argument, so values pass through verbatim.
+- **`{{<name>}}` templates** inside any step string - a whole-string
+  command or a string item in a vector. The value is spliced in raw with
+  no quoting added; quote it yourself when it may contain spaces or
+  shell syntax (`{:sh "git tag 'v{{version}}'"}`). A token that does not
+  name a declared arg is left untouched (which also lets a command carry
+  literal `{{...}}` text), and a bound value is never re-expanded. A
+  string-form `:run` value is expanded first and then whitespace-split,
+  so a value with spaces becomes several arguments - use the vector form
+  (`{:run ["notify.lg" "{{env}}"]}`) when it must stay one.
 
 #### Per-task `:extra-paths`, `:extra-resource-paths`, and `:extra-deps`
 

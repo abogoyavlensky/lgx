@@ -30,7 +30,7 @@ lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wi
 lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port
 lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
-lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors
+lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
@@ -351,15 +351,19 @@ of:
   as `lgx run`, with the project's resolved `-source-paths` and
   `-resource-paths`. String forms are whitespace-split into argv.
 
-Vector-form step values may carry `:arg/<name>` placeholder keywords,
-replaced with the bound values just before the step runs
-(`args/substitute`): shell-quoted for `:sh` (each value arrives as one
-uninterpreted shell word), verbatim for `:run` (each vector item is
-already one argv entry). String-form values have no placeholder syntax.
-Config validation checks every placeholder names a declared arg, so an
-unbound placeholder at execution time is a programmer error (throws).
-The echoed `$ <cmd>` step line shows the substituted command, and
-`lgx help` renders each task's signature after its name.
+Step values may reference the bound args two ways, applied just before
+the step runs. Vector-form values may carry `:arg/<name>` placeholder
+keywords, replaced whole (`args/substitute`): shell-quoted for `:sh`
+(each value arrives as one uninterpreted shell word), verbatim for
+`:run` (each vector item is already one argv entry). Any step string —
+a whole-string value or a vector item — may embed `{{<name>}}` templates
+(`args/expand`), spliced in raw with no quoting added; tokens that don't
+name a declared arg pass through untouched, and a string-form `:run`
+value is expanded before its whitespace split. Config validation checks
+every keyword placeholder names a declared arg, so an unbound keyword at
+execution time is a programmer error (throws); `{{name}}` tokens are not
+validated. The echoed `$ <cmd>` step line shows the substituted command,
+and `lgx help` renders each task's signature after its name.
 
 A task may augment the project basis with context overlays (its `:with`
 list and the CLI `--with`) and its own inline
