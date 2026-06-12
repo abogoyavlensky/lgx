@@ -125,7 +125,7 @@ lgx run
 
 Options:
 
-- `--with <a,b,...>` applies one or more named [contexts](#contexts-contexts)
+- `--with <a,b,...>` applies one or more named [contexts](#contexts)
   (reusable `:extra-deps`/`:extra-paths` overlays) to the command. Applies to
   `run`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task it
   unions with the task's own `:with`.
@@ -243,15 +243,76 @@ become hyphens; `/` becomes `.`.
 {}
 ```
 
-Top-level keys: `:paths`, `:resource-paths`, `:deps`, `:main`, `:targets`,
-`:tasks`, `:contexts`.
-
-### Source paths and entrypoint
+Every key is optional. The annotated reference below shows all of them
+with their possible values; the sections that follow spell out each
+key's rules in detail.
 
 ```edn
-{:paths ["src"]
- :main  "main.lg"}
+{;; Source dirs, relative to the project root. Prepended to dependency
+ ;; paths, so project namespaces shadow lib namespaces.
+ :paths ["src"]
+
+ ;; Resource roots for (io/resource "..."): on the path for run/test,
+ ;; embedded into the binary by build.
+ :resource-paths ["resources"]
+
+ ;; Default entrypoint: `lgx run` runs it, `lgx build` bundles it. Does not have to be in the `:paths`
+ :main "main.lg"
+
+ ;; Git or local deps. A dep's own :deps are resolved too (first-wins).
+ :deps
+ {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
+                          :git/tag "v0.2.0"}      ; pin by tag...
+  org.clojure/tools.cli  {:git/url  "https://github.com/clojure/tools.cli"
+                          :git/sha  "0123456789abcdef0123456789abcdef01234567" ; ...or by sha
+                          :deps/root "src/main/clojure"} ; source subdir (default "src")
+  my/lib                 {:local/root "../my-lib"}}      ; local dir, no gitlibs cache
+
+ ;; Build output for `lgx build`. :bin is the only target; :out is
+ ;; relative to the project root.
+ :targets {:bin {:out "bin/myapp"}}
+
+ ;; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
+ ;; or a task's :with; :dev auto-applies to run/nrepl, :test to `lgx test`.
+ :contexts
+ {:dev  {:extra-paths          ["dev"]            ; appended after :paths
+         :extra-resource-paths ["dev-resources"]  ; appended after :resource-paths
+         :extra-deps           {nrepl {:git/url "https://github.com/x/nrepl"
+                                       :git/tag "v1"}}} ; same grammar as :deps
+  :test {:extra-paths ["test-support"]}}
+
+ ;; Custom commands: `lgx <task> [args...]`. A step is {:sh ...} (shell)
+ ;; or {:run ...} (like `lgx run ...`); a string value splits on whitespace.
+ :tasks
+ {fmt   {:doc "Lint the project"                   ; :doc shows up in `lgx help`
+         :do  {:sh "cljfmt fix"}}                  ; single step: bare map
+
+  ci     {:doc "Lint, then test"                   ; multi-step: vector,
+          :do  [{:sh  "cljfmt check"}              ; stops at first failure
+                {:run "scripts/check.lg"}]}
+
+  greet  {:doc "Run main with a fixed arg"
+          :do  [{:run ["main.lg" "--" "world"]}]}  ; vector form: explicit argv
+
+  deploy {:doc  "Deploy the app"
+          :args [{:name :env                       ; typed positional CLI args
+                  :type [:enum "prod" "staging"]}  ; :string (default), :int, [:enum ...]
+                 {:name    :version
+                  :type    :string
+                  :default "latest"}]              ; :default makes an arg optional
+          :do   [{:sh  ["./deploy.sh" :arg/env :arg/version]} ; :arg/<name> fills
+                 {:run ["notify.lg" :arg/env]}]}   ; in declared args
+
+  repl   {:doc                  "REPL with dev tooling"
+          :with                 [:dev]             ; always apply these contexts
+          :extra-paths          ["repl"]           ; task-private extras:
+          :extra-resource-paths ["repl-resources"] ; same shape as a context,
+          :extra-deps           {seme-extra-dep {:git/url "https://github.com/some-extra/dep"
+                                                 :git/tag "v1"}}
+          :do                   [{:run "dev/repl.lg"}]}}}
 ```
+
+### `:paths` and `:main`
 
 - `:paths` lists project source paths relative to the project root.
   `lgx run` prepends them to dependency paths so project namespaces
@@ -259,11 +320,7 @@ Top-level keys: `:paths`, `:resource-paths`, `:deps`, `:main`, `:targets`,
 - `:main` names the default entrypoint script. `lgx run` substitutes it
   when no script is given; `lgx build` bundles it.
 
-### Resource paths (`:resource-paths`)
-
-```edn
-{:resource-paths ["resources"]}
-```
+### `:resource-paths`
 
 - `:resource-paths` lists project-relative directories that hold resources
   (templates, data files, static assets) reachable from `(io/resource "…")`.
@@ -273,21 +330,9 @@ Top-level keys: `:paths`, `:resource-paths`, `:deps`, `:main`, `:targets`,
   so `io/resource` keeps working with no files alongside the executable.
 - Missing entries print a warning, same as `:paths`. Unlike source paths,
   resource roots come only from your project (its top level plus any applied
-  contexts/tasks) — dependencies never contribute resource roots.
+  contexts/tasks) - dependencies never contribute resource roots.
 
-### Dependencies (`:deps`)
-
-```edn
-{:deps
- {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
-                          :git/tag "v0.2.0"}
-
-  org.clojure/tools.cli  {:git/url "https://github.com/clojure/tools.cli"
-                          :git/sha "0123456789abcdef0123456789abcdef01234567"
-                          :deps/root "src/main/clojure"}
-
-  my/lib                 {:local/root "../my-lib"}}}
-```
+### `:deps`
 
 Each coord uses either a git source or `:local/root`, never both.
 
@@ -300,62 +345,36 @@ Each coord uses either a git source or `:local/root`, never both.
   the source. Defaults to `src` if that directory exists, else the repo
   root. Matches tools.deps' `:deps/root`.
 
-### Transitive dependencies
-
-lgx follows transitive deps: after fetching a dep, it reads that dep's own
+**Transitive dependencies.** lgx follows transitive deps: after
+fetching a dep, it reads that dep's own
 `lgx.edn` (if it ships one) and resolves its `:deps` too, recursively. Only
-a dep's `:deps` is consulted — its `:paths`, `:main`, `:tasks`, and
+a dep's `:deps` is consulted - its `:paths`, `:main`, `:tasks`, and
 `:targets` describe how to build *that* project, not how to consume it.
 
 Resolution is breadth-first from your project, and conflicts are
 **first-wins**: the first coord seen for a given lib name is kept, and a
 later, differing coord for the same lib is skipped with a warning on
 stderr. A coord you list directly therefore overrides the same lib pulled
-in transitively. (Git coords have no version ordering, so first-wins —
-shallowest — is the resolution rule; pin the exact coord you want at the
-top level to override a transitive one.)
+in transitively.
 
-> [!NOTE]
-> This is a behavior change from earlier lgx, which resolved only the
-> coords in your own `lgx.edn`. If you depend on a lib that ships its own
-> `lgx.edn` with `:deps`, those deps are now fetched as well.
-
-### Build target (`:targets`)
-
-```edn
-{:main    "main.lg"
- :targets {:bin {:out "bin/myapp"}}}
-```
+### `:targets`
 
 Currently, supports the `:bin` target only. `:out` is the output path
 relative to the project root; lgx creates the parent directory if
 missing.
 
-### Tasks (`:tasks`)
+### `:tasks`
 
 Tasks replace ad-hoc Makefile or Taskfile recipes for let-go projects.
 A task is a sequence of steps; each step is either `:sh` (shell command)
 or `:run` (invoked like `lgx run ...` with the project basis). The first
-non-zero exit code stops the chain.
-
-```edn
-{:tasks
- {lint {:doc "Run clj-kondo against the project"
-        :do  {:sh "clj-kondo --lint src test"}}
-
-  ci {:doc "Format check, lint, and tests"
-      :do  [{:sh "cljfmt check"}
-            {:sh "clj-kondo --lint src test"}
-            {:run "test/myapp/smoke.lg"}]}
-
-  greet {:doc "Run main with a fixed arg"
-         :do  [{:run ["main.lg" "--" "world"]}]}}}
-```
+non-zero exit code stops the chain. The `lint`, `ci`, and `greet` tasks
+in the reference above show the common forms.
 
 Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
 tasks defined in the current project. Task names are symbols, matching
-how they are typed on the command line (context names stay keywords —
-see [Contexts](#contexts-contexts)); they cannot shadow built-in
+how they are typed on the command line (context names stay keywords -
+see [Contexts](#contexts)); they cannot shadow built-in
 commands (`install`, `run`, `nrepl`, `build`, `test`, `new`, `help`,
 `version`, plus reserved `add`, `update`, `tasks`).
 
@@ -372,31 +391,18 @@ rejected (so a typo like `:extra-dep` fails loudly).
 #### Positional args (`:args`)
 
 A task may declare typed positional CLI args and reference them in
-vector-form step values as `:arg/<name>` keywords:
-
-```edn
-{:tasks
- {deploy {:doc  "Deploy the app"
-          :args [{:name :env
-                  :type [:enum "prod" "staging"]}
-                 {:name :version
-                  :type :string
-                  :default "latest"}]
-          :do   [{:sh ["./deploy.sh" :arg/env :arg/version]}
-                 {:run ["notify.lg" :arg/env]}]}}}
-```
-
-`lgx deploy prod` runs `./deploy.sh 'prod' 'latest'`, then
-`lgx run notify.lg prod`.
+vector-form step values as `:arg/<name>` keywords, like the `deploy`
+task in the reference above. `lgx deploy prod` runs
+`./deploy.sh 'prod' 'latest'`, then `lgx run notify.lg prod`.
 
 Each arg is a map:
 
-- `:name` — required; an unqualified keyword. The placeholder is the
+- `:name` - required; an unqualified keyword. The placeholder is the
   matching `:arg/<name>` keyword.
-- `:type` — optional, defaults to `:string`. One of `:int`, `:string`,
+- `:type` - optional, defaults to `:string`. One of `:int`, `:string`,
   or `[:enum "v1" "v2" ...]` (at least two distinct non-blank strings;
   CLI values arrive as strings, so enums are string-only).
-- `:default` — optional; its value must match the type. Args without
+- `:default` - optional; its value must match the type. Args without
   `:default` are required and must come first; once an arg has
   `:default`, every later arg needs one too (CLI values fill positions
   left to right, so only trailing args can be omitted).
@@ -407,8 +413,8 @@ or a surplus arg prints the error plus a usage line
 no `:args` rejects any CLI args the same way. `lgx help` shows each
 task's signature after its name.
 
-Placeholders work only in vector-form step values — there is no
-templating inside string commands — and every `:arg/<name>` must name a
+Placeholders work only in vector-form step values - there is no
+templating inside string commands - and every `:arg/<name>` must name a
 declared arg (checked when `lgx.edn` loads). In `:sh` steps each
 substituted value is single-quoted, so it always reaches the shell as
 one word and is never interpreted (`lgx greet 'a; echo pwned'` echoes
@@ -418,72 +424,50 @@ argument, so values pass through verbatim.
 #### Per-task `:extra-paths`, `:extra-resource-paths`, and `:extra-deps`
 
 A task may declare extra source paths, resource roots, and dependencies
-that apply to *that task's* `:run` steps only:
+that apply to *that task's* `:run` steps only, like the `repl` task in
+the reference above:
 
-```edn
-{:tasks
- {repl {:doc         "REPL with dev-only tooling"
-        :extra-paths ["dev"]
-        :extra-deps  {some/nrepl {:git/url "https://github.com/x/nrepl"
-                                  :git/tag "v1"}}
-        :do          [{:run "dev/repl.lg"}]}}}
-```
-
-- `:extra-paths` — extra project-root-relative source dirs, same rules as
+- `:extra-paths` - extra project-root-relative source dirs, same rules as
   top-level `:paths`. Appended after the project's `:paths`.
-- `:extra-resource-paths` — extra project-root-relative resource roots, same
+- `:extra-resource-paths` - extra project-root-relative resource roots, same
   rules as top-level `:resource-paths`. Appended after the project's
   `:resource-paths`.
-- `:extra-deps` — extra coords, same grammar as top-level `:deps` (git,
+- `:extra-deps` - extra coords, same grammar as top-level `:deps` (git,
   `:local/root`, `:deps/root`). Fetched on first run like any dep.
 
 These augment the `-source-paths` and `-resource-paths` for the task's `:run`
 steps. `:sh` steps are plain shell and are unaffected. When an `:extra-deps`
 coord names a lib already in the project's top-level `:deps`, the extra coord
-wins for that task only (a silent override) — other commands still use the
+wins for that task only (a silent override) - other commands still use the
 project coord.
 
 These per-task extras are the task-private, anonymous form of a
-[context](#contexts-contexts): use them for one-off extras, and named
+[context](#contexts): use them for one-off extras, and named
 `:contexts` + `:with` when an overlay is shared across tasks or commands.
 
-### Contexts (`:contexts`)
+### `:contexts`
 
 A **context** is a named, reusable overlay of `:extra-paths`,
-`:extra-resource-paths`, and `:extra-deps` — the same shape as per-task extras,
+`:extra-resource-paths`, and `:extra-deps` - the same shape as per-task extras,
 lifted to the project top level so it can be applied to any command or shared
-across tasks.
-
-```edn
-{:deps  {a {:git/url "…a" :git/tag "v1"}}
- :paths ["src"]
-
- :contexts
- {:dev  {:extra-paths ["dev"]
-         :extra-deps  {nrepl {:git/url "…nrepl" :git/tag "v1"}}}
-  :test {:extra-paths ["test-support"]}}
-
- :tasks
- {repl {:doc  "REPL with dev tooling"
-        :with [:dev]
-        :do   [{:run "dev/repl.lg"}]}}}
-```
+across tasks (the `:dev` and `:test` contexts in the reference above,
+applied by the `repl` task's `:with`).
 
 A context map may contain only `:extra-paths`, `:extra-resource-paths`, and
 `:extra-deps`, validated by the same rules as the top-level
 `:paths`/`:resource-paths`/`:deps`. Apply contexts two ways:
 
-- **`lgx --with dev,test <command>`** — a global, comma-separated flag that
+- **`lgx --with dev,test <command>`** - a global, comma-separated flag that
   applies the named contexts to `run`, `build`, `test`, `install`, or a task.
   `install` pre-fetches the contexts' deps.
-- **`:with [:dev]`** on a task — that task always runs with the named contexts.
+- **`:with [:dev]`** on a task - that task always runs with the named contexts.
   A global `--with` on the same invocation is **unioned** on top.
 
 **Default contexts.** Two context names are conventions: when defined, `:dev`
 auto-applies to `lgx run` and `lgx nrepl`, and `:test` auto-applies to
-`lgx test` — no `--with` needed. That is the natural home for nREPL tooling
+`lgx test` - no `--with` needed. That is the natural home for nREPL tooling
 and dev-only source dirs (`:dev`) and test helpers (`:test`), as in the
-example above. `build` and `install` never auto-apply contexts, so dev and
+reference above. `build` and `install` never auto-apply contexts, so dev and
 test deps stay out of built binaries; task `:run` steps don't inherit them
 either (use the task's `:with`). An explicit `--with` layers on top, and
 `--verbose` prints the applied name (`+ auto context :dev`).
