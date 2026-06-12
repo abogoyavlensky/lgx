@@ -1,28 +1,25 @@
 # lgx
 
-A project manager for [let-go](https://github.com/nooga/let-go): git-based
+A package and project manager for [let-go](https://github.com/nooga/let-go): git-based
 dependency manager, runner, build tool, test runner, scaffolder, and task
 runner, in one binary.
 
 ```sh
 lgx new myapp        # scaffold a project
 cd myapp
+lgx install          # install deps from lgx.edn
 lgx run              # fetch deps, run :main
+lgx nrepl            # run nrepl
 lgx build            # bundle a standalone binary
 lgx test             # run tests under test/
 lgx <task>           # run a custom task from lgx.edn
 ```
 
-## Status
-
-Pre-alpha. The CLI surface and `lgx.edn` schema may still change. lgx is
-used in some projects today; see [Projects using lgx](#projects-using-lgx).
-
 ## Requirements
 
 - [`lg`](https://github.com/nooga/let-go) => `1.10.0` on `PATH` (or pointed to by
-  `LGX_LG`). lgx shells out to it.
-  Install with `brew install nooga/let-go/let-go`.
+  `LGX_LG`).
+  Install with `brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`.
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
 
 ## Installation
@@ -45,7 +42,7 @@ See the [script's README](./scripts/README.md) for options.
 Ad hoc:
 
 ```sh
-mise use github:abogoyavlensky/lgx@latest
+mise use -g github:abogoyavlensky/lgx@latest
 ```
 
 Or pin per project in `.mise.toml`:
@@ -154,17 +151,15 @@ lgx new myapp -t cli         # built-in template by name
 lgx new myapp -t https://github.com/user/my-template
 ```
 
-Built-in templates are pinned to a known-good revision:
+Built-in templates are pinned to a latest revision:
 
 | Name | Repo | Purpose |
 | --- | --- | --- |
 | `base` | [lgx-template-base](https://github.com/abogoyavlensky/lgx-template-base) | Minimal let-go app. |
 | `cli` | [lgx-template-cli](https://github.com/abogoyavlensky/lgx-template-cli) | Command-line app skeleton. |
 
-A URL template uses the repo's latest default-branch HEAD: each run resolves
-HEAD with `git ls-remote`, then caches the checkout by sha under
-`$LGX_HOME/templates/`, so repeat scaffolds of an unchanged template skip
-the clone.
+A URL template uses the repo's latest default-branch HEAD and caches the checkout by sha under
+`$LGX_HOME/templates/`.
 
 Template URLs must be `https://host/owner/repo` (or `file:///path/to/repo`
 for local development); SSH forms like `git@host:owner/repo` are not

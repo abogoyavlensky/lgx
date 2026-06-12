@@ -88,7 +88,7 @@ esac
 cat <<EOF
 
 \`lgx run\` also requires \`lg\` on PATH. install it via:
-  mise:     mise use github:nooga/let-go
-  Homebrew: brew install nooga/let-go/let-go
+  mise:     mise use -g github:nooga/let-go
+  Homebrew: brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go
   manual:   https://github.com/nooga/let-go/releases
 EOF
