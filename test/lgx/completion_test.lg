@@ -117,6 +117,15 @@
 (deftest unknown-command-args-offer-nothing
   (is (= [] (completion/candidates ["mystery"] "" deploy-tasks))))
 
+(deftest unsafe-enum-values-omitted
+  ;; A project-controlled enum value with shell metacharacters must not be
+  ;; offered — accepting it on TAB would put active syntax on the command
+  ;; line. Safe siblings still complete.
+  (let [tasks {"deploy" [{:name :env
+                          :type [:enum "prod" "$(touch x)" "a b" "us-east-1"]}]}]
+    (is (= ["prod" "us-east-1"]
+           (completion/candidates ["deploy"] "" tasks)))))
+
 ;; ---------------------------------------------------------------------------
 ;; completion-script — the bundled shell scripts
 ;; ---------------------------------------------------------------------------

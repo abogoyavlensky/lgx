@@ -43,15 +43,28 @@
              :command (first ws)
              :args-typed (count (rest ws))})))
 
+;; Enum values are arbitrary project-controlled strings, but completion
+;; candidates are inserted onto the shell command line on TAB. A value like
+;; `$(cmd)` or one with spaces would be active syntax once accepted, so a
+;; malicious lgx.edn could run code on a stray TAB. We only offer values made
+;; of inert characters; anything else is omitted from completion (the arg
+;; still validates and runs when typed by hand). Covers realistic enum values
+;; (prod, us-east-1, v1.2.0) while excluding every shell metacharacter.
+(def ^:private shell-safe-re #"^[A-Za-z0-9._/:=+,@-]+$")
+
+(defn- shell-safe? [s]
+  (boolean (re-matches shell-safe-re s)))
+
 (defn- enum-values
-  "The [:enum ...] values of the decl at position `idx` of `decls`, or nil
-   when there is no decl there or its :type isn't an enum. Config validation
-   guarantees an enum :type is a vector and the only vector :type."
+  "The shell-safe [:enum ...] values of the decl at position `idx` of
+   `decls`, or nil when there is no decl there or its :type isn't an enum.
+   Config validation guarantees an enum :type is a vector and the only
+   vector :type."
   [decls idx]
   (let [decls (vec decls)
         t (when (< idx (count decls)) (:type (nth decls idx)))]
     (when (vector? t)
-      (rest t))))
+      (filter shell-safe? (rest t)))))
 
 (defn- matches
   "Sorted vector of the `values` that start with `cur`."
