@@ -43,6 +43,10 @@ class Lgx < Formula
   version "${version}"
   license "MIT"
 
+  livecheck do
+    skip "Formula is updated by lgx release CI"
+  end
+
   on_macos do
     on_intel do
       url "https://github.com/abogoyavlensky/lgx/releases/download/v#{version}/lgx_#{version}_darwin_amd64.tar.gz"
@@ -63,10 +67,6 @@ class Lgx < Formula
       url "https://github.com/abogoyavlensky/lgx/releases/download/v#{version}/lgx_#{version}_linux_arm64.tar.gz"
       sha256 "${linux_arm64}"
     end
-  end
-
-  livecheck do
-    skip "Formula is updated by lgx release CI"
   end
 
   def install
