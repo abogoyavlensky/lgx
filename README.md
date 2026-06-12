@@ -492,7 +492,9 @@ pick up dependency dirs. Like per-task extras, contexts augment only the
 `lgx completion <shell>` prints a completion script for bash, zsh, or
 fish. TAB then completes the built-in commands and the current
 project's tasks from `lgx.edn`. For a task arg typed as `[:enum ...]`,
-TAB at that argument completes the declared values.
+TAB at that argument completes the declared values (those made of shell-safe
+characters; a value containing spaces or shell metacharacters is skipped, but
+still works when typed by hand).
 
 Bash (add to `~/.bashrc`):
 
