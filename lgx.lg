@@ -23,13 +23,14 @@
 (def ^:private command-rows
   (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
-       "                               (uses :main from lgx.edn when script is omitted)\n"
-       "  lgx nrepl [--port N]         Start a REPL with an nREPL server (random port unless --port given)\n"
+       "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context if defined)\n"
+       "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
+       "                               (random port unless --port given; auto-applies :dev context if defined)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
-       "                               (one file if given, else walk test/)\n"
-       "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in name or git URL)\n"
+       "                               (one file if given, else walk test/; auto-applies :test context if defined)\n"
+       "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in name `cli` or git URL)\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"))
 
@@ -494,9 +495,7 @@
        (or (tasks-block loaded) "")
        "\n"
        "Options:\n"
-       option-rows
-       "\n"
-       "A :dev context auto-applies to run/nrepl, :test to test (when defined; --with adds on top).\n"))
+       option-rows))
 
 (defn- print-usage! []
   (print (usage-for (when-let [project (config/find-project)]

@@ -149,8 +149,6 @@ out="$("$LGX" help)"
 assert_contains "$out" "Usage:" "help prints usage"
 assert_contains "$out" "lgx install" "help lists install"
 assert_contains "$out" "lgx run" "help lists run"
-assert_contains "$out" "A :dev context auto-applies to run/nrepl, :test to test" \
-    "help notes the auto-applied convention contexts"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 3: unknown command"
