@@ -26,6 +26,7 @@ lgx <task>           # run a custom task from lgx.edn
 
 Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
 `darwin_arm64` are attached to each [GitHub Release](https://github.com/abogoyavlensky/lgx/releases).
+There are few options to install `lgx`.
 
 ### Homebrew
 
