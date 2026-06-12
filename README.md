@@ -38,19 +38,7 @@ brew install abogoyavlensky/lgx/lgx
 This installs lgx only; `lg` still needs to be on `PATH` (see
 [Requirements](#requirements)).
 
-### Install script
-
-Installs the latest release to `~/.local/bin/lgx`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
-```
-
-See the [script's README](./scripts/README.md) for options.
-
 ### With [mise](https://mise.jdx.dev)
-
-Ad hoc:
 
 ```sh
 mise use -g github:abogoyavlensky/lgx@latest
@@ -60,20 +48,19 @@ Or pin per project in `.mise.toml`:
 
 ```toml
 [tools]
-lg = "latest"
-lgx = "latest"
-
-[tool_alias]
-lg = "github:nooga/let-go"
-lgx = "github:abogoyavlensky/lgx"
+"github:nooga/let-go" = "latest"
+"github:abogoyavlensky/lgx" = "latest"
 ```
 
-Then run `mise install`.
+### Install script
 
-> [!TIP]
-> If mise hits a GitHub auth problem, pin specific versions in
-> `.mise.toml` or set `export GITHUB_TOKEN="$(gh auth token)"` in your
-> shell config.
+Installs the latest release to `~/.local/bin/lgx`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash
+```
+
+See the [script's README](./scripts/README.md) for options.
 
 ## Quickstart
 
