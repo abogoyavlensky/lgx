@@ -91,11 +91,14 @@
   "# bash completion for lgx.
 # Load with: source <(lgx completion bash)
 _lgx_complete() {
-    local cur candidates
-    cur=\"${COMP_WORDS[COMP_CWORD]}\"
-    candidates=\"$(\"${COMP_WORDS[0]}\" __complete \"${COMP_WORDS[@]:1:COMP_CWORD}\" 2>/dev/null)\"
-    local IFS=$'\\n'
-    COMPREPLY=($(compgen -W \"$candidates\" -- \"$cur\"))
+    local line
+    COMPREPLY=()
+    # __complete already prefix-filters, so candidates go straight into
+    # COMPREPLY. No compgen -W: it shell-expands the wordlist, which would
+    # execute project-controlled text (e.g. an enum value \"$(cmd)\").
+    while IFS= read -r line; do
+        [ -n \"$line\" ] && COMPREPLY+=(\"$line\")
+    done < <(\"${COMP_WORDS[0]}\" __complete \"${COMP_WORDS[@]:1:COMP_CWORD}\" 2>/dev/null)
 }
 
 # -o default: fall back to filename completion when lgx offers nothing
