@@ -21,9 +21,23 @@ before piping if you'd rather see what runs.
 
 `lgx run` also needs `lg` on `PATH`. Install it via
 [mise](https://mise.jdx.dev) (`mise use github:nooga/let-go`), Homebrew
-(`brew install nooga/let-go/let-go`),
+(`brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`),
 or grab a binary from
 [let-go releases](https://github.com/nooga/let-go/releases).
+
+## Homebrew formula generator
+
+`generate-formula.sh` prints the Homebrew formula for a given release:
+
+```sh
+scripts/generate-formula.sh 0.1.0 checksums.txt > lgx.rb
+```
+
+It takes a version (no `v` prefix) and a release `checksums.txt`, and
+fails if any of the four target checksums is missing. Release CI runs
+it on every tag to update `Formula/lgx.rb` in
+[homebrew-lgx](https://github.com/abogoyavlensky/homebrew-lgx) - don't
+edit that file by hand.
 
 ## Or manually download latest release
 
