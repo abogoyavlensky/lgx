@@ -5,11 +5,12 @@
 ;; Task positional args
 ;;
 ;; Pure helpers for a task's :args declarations: bind CLI values against the
-;; declared positional args, render the usage line, and substitute
-;; :arg/<name> placeholders into step vectors. All bound values are strings —
-;; a provided :int value keeps its original CLI string, a filled :default is
-;; stringified. The declarations themselves are validated in lgx.config; here
-;; a malformed declaration is a programmer error.
+;; declared positional args, render the usage line, substitute :arg/<name>
+;; placeholders into step vectors, and expand {{<name>}} templates inside
+;; step strings. All bound values are strings — a provided :int value keeps
+;; its original CLI string, a filled :default is stringified. The
+;; declarations themselves are validated in lgx.config; here a malformed
+;; declaration is a programmer error.
 ;; --------------------------------------------------------------------------
 
 (defn- arg-key [decl]
@@ -99,6 +100,33 @@
                               {:placeholder item})))
             item))
         v))
+
+(defn expand
+  "Replace each {{<name>}} token in `s` whose name matches a bound arg with
+   its value from `bindings`, spliced in raw — no quoting is added, the task
+   author quotes the surrounding text when needed. Tokens that don't name a
+   bound arg pass through untouched (including empty or namespaced names),
+   as does an unclosed {{. Substituted values are never re-scanned."
+  [s bindings]
+  (loop [idx 0
+         out ""]
+    (let [open (str/index-of s "{{" idx)]
+      (if (nil? open)
+        (str out (subs s idx))
+        (let [close (str/index-of s "}}" (+ open 2))]
+          (if (nil? close)
+            (str out (subs s idx))
+            (let [n (subs s (+ open 2) close)
+                  k (when (and (not= n "") (nil? (str/index-of n "/")))
+                      (keyword "arg" n))]
+              (if (and k (contains? bindings k))
+                (recur (+ close 2)
+                       (str out (subs s idx open) (get bindings k)))
+                ;; Not a bound token: emit through the opening braces and
+                ;; rescan right after them, so "{{a{{env}}" still expands
+                ;; the inner token.
+                (recur (+ open 2)
+                       (str out (subs s idx (+ open 2))))))))))))
 
 (defn signature
   "Render decls as a space-joined signature: required args as <name>,

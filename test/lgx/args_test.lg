@@ -121,6 +121,51 @@
               (catch e :threw)))))
 
 ;; ---------------------------------------------------------------------------
+;; expand
+;; ---------------------------------------------------------------------------
+
+(deftest expand-basic
+  (is (= "v1.2" (args/expand "v{{version}}" {:arg/version "1.2"}))))
+
+(deftest expand-multiple-tokens
+  (is (= "prod-1.2"
+         (args/expand "{{env}}-{{version}}" {:arg/env "prod"
+                                             :arg/version "1.2"}))))
+
+(deftest expand-whole-string-is-one-token
+  (is (= "prod" (args/expand "{{env}}" {:arg/env "prod"}))))
+
+(deftest expand-unknown-name-passes-through
+  (is (= "v{{verison}}" (args/expand "v{{verison}}" {:arg/version "1.2"}))))
+
+(deftest expand-empty-bindings-leaves-tokens
+  (is (= "v{{version}}" (args/expand "v{{version}}" {}))))
+
+(deftest expand-unclosed-token-passes-through
+  (is (= "v{{version" (args/expand "v{{version" {:arg/version "1.2"}))))
+
+(deftest expand-empty-name-passes-through
+  (is (= "x{{}}y" (args/expand "x{{}}y" {:arg/version "1.2"}))))
+
+(deftest expand-slash-name-passes-through
+  (is (= "{{a/b}}" (args/expand "{{a/b}}" {:arg/version "1.2"}))))
+
+(deftest expand-values-are-inert
+  ;; A bound value containing another token is never re-expanded.
+  (is (= "{{b}}" (args/expand "{{a}}" {:arg/a "{{b}}"
+                                       :arg/b "x"}))))
+
+(deftest expand-raw-splice-adds-no-quoting
+  (is (= "tag 1.2; echo hi"
+         (args/expand "tag {{v}}" {:arg/v "1.2; echo hi"}))))
+
+(deftest expand-stray-braces-before-real-token
+  (is (= "{{aprod" (args/expand "{{a{{env}}" {:arg/env "prod"}))))
+
+(deftest expand-no-tokens-returns-string-as-is
+  (is (= "plain text" (args/expand "plain text" {:arg/env "prod"}))))
+
+;; ---------------------------------------------------------------------------
 ;; signature / usage-line
 ;; ---------------------------------------------------------------------------
 
