@@ -1,5 +1,6 @@
 (ns lgx.completion
-  (:require [string :as str]))
+  (:require [lgx.config :as config]
+            [string :as str]))
 
 ;; --------------------------------------------------------------------------
 ;; Shell TAB completion.
@@ -150,3 +151,30 @@ complete -c lgx -n 'not __lgx_complete' -F
         (do (write! *err* (str "lgx: unsupported shell: " (first args)
                                " (expected one of: bash, zsh, fish)\n"))
             (os/exit 1))))))
+
+(defn- project-task-names
+  "Task names (as strings, namespaces preserved) of the project enclosing the
+   cwd, or [] when there is no project or its lgx.edn is invalid. Uses the
+   non-throwing config readers; its own try/catch keeps built-in completion
+   alive even if the config layer surprises."
+  []
+  (try
+    (or (when-let [project (config/find-project)]
+          (when-let [cfg (:cfg (config/load-config project))]
+            (mapv str (keys (config/tasks cfg)))))
+        [])
+    (catch e [])))
+
+(defn complete!
+  "I/O entry point for the hidden `lgx __complete` call made by the shell
+   scripts. `argv` is the typed words after `__complete`; the last one is the
+   word under the cursor (possibly empty). Prints one candidate per line.
+   Never throws — a broken state must not break the user's shell — and never
+   exits; the dispatch branch exits 0 after it returns."
+  [argv]
+  (try
+    (let [words (vec (butlast argv))
+          cur (or (last argv) "")]
+      (doseq [c (candidates words cur (project-task-names))]
+        (println c)))
+    (catch e nil)))

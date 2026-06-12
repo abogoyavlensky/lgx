@@ -2538,5 +2538,53 @@ assert_contains "$out" "required arg :env cannot follow an arg with :default" \
     "trailing-optional: error names the misordered arg"
 rm -rf "$proj_ta" "$home_ta"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 111: shell completion (completion + __complete)"
+proj_comp="$(mktemp -d)"; home_comp="$(mktemp -d)"
+cat > "$proj_comp/lgx.edn" <<'EOF'
+{:tasks {fmt {:doc "Format" :do [{:sh "echo fmt"}]}}}
+EOF
+
+out="$(cd "$proj_comp" && LGX_HOME="$home_comp" "$LGX" __complete "")"
+assert_contains "$out" "run" "__complete: lists run"
+assert_contains "$out" "build" "__complete: lists build"
+assert_contains "$out" "fmt" "__complete: lists project task"
+assert_not_contains "$out" "completion" "__complete: hidden command not offered"
+
+out="$(cd "$proj_comp" && LGX_HOME="$home_comp" "$LGX" __complete fm)"
+assert_eq "$out" "fmt" "__complete: prefix-filters to the task"
+
+# Outside any project: built-ins still complete, exit 0.
+nowhere="$(mktemp -d)"
+set +e
+out="$(cd "$nowhere" && LGX_HOME="$home_comp" "$LGX" __complete "")"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "__complete outside project: expected exit 0, got $rc"
+pass "__complete outside project: exits 0"
+assert_contains "$out" "run" "__complete outside project: built-ins listed"
+rm -rf "$nowhere"
+
+# Invalid lgx.edn must not break completion: built-ins, exit 0.
+echo '{:tasks' > "$proj_comp/lgx.edn"
+set +e
+out="$(cd "$proj_comp" && LGX_HOME="$home_comp" "$LGX" __complete "")"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "__complete invalid config: expected exit 0, got $rc"
+pass "__complete invalid config: exits 0"
+assert_contains "$out" "run" "__complete invalid config: built-ins listed"
+
+out="$("$LGX" completion bash)"
+assert_contains "$out" "__complete" "completion bash: script calls __complete"
+set +e
+out="$("$LGX" completion nope 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "completion nope: expected exit 1, got $rc"
+assert_contains "$out" "lgx: unsupported shell: nope" "completion nope: clear error"
+
+out="$("$LGX" help)"
+assert_not_contains "$out" "completion" "help: completion stays hidden"
+
+rm -rf "$proj_comp" "$home_comp"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
