@@ -3,6 +3,8 @@
 
 (ns lgx.completion-test
   (:require [lgx.completion :as completion]
+            [lgx.config :as config]
+            [string :as str]
             [test :refer [deftest is]]))
 
 (def ^:private builtins
@@ -67,3 +69,33 @@
 (deftest nothing-for-flag-cursor
   (is (= [] (completion/candidates [] "-" [])))
   (is (= [] (completion/candidates [] "--" []))))
+
+;; ---------------------------------------------------------------------------
+;; completion-script — the bundled shell scripts
+;; ---------------------------------------------------------------------------
+
+(deftest bash-script-registers-completion
+  (let [s (completion/completion-script "bash")]
+    (is (str/includes? s "__complete"))
+    (is (str/includes? s "complete -o default"))))
+
+(deftest zsh-script-registers-completion
+  (let [s (completion/completion-script "zsh")]
+    (is (str/includes? s "__complete"))
+    (is (str/includes? s "#compdef lgx"))))
+
+(deftest fish-script-registers-completion
+  (let [s (completion/completion-script "fish")]
+    (is (str/includes? s "__complete"))
+    (is (str/includes? s "complete -c lgx"))))
+
+(deftest unknown-shell-has-no-script
+  (is (nil? (completion/completion-script "nope"))))
+
+;; ---------------------------------------------------------------------------
+;; reserved task names — tasks may not shadow the completion commands
+;; ---------------------------------------------------------------------------
+
+(deftest completion-commands-reserved
+  (is (contains? config/reserved-task-names "completion"))
+  (is (contains? config/reserved-task-names "__complete")))

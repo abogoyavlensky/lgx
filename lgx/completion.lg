@@ -51,3 +51,102 @@
     []
     (vec (sort (filter (fn [c] (str/starts-with? c cur))
                        (concat builtin-commands task-names))))))
+
+;; --------------------------------------------------------------------------
+;; Bundled shell scripts (ported from wtr). String constants rather than
+;; io/resource: lgx runs as plain `lg lgx.lg` in dev and bundles with plain
+;; `lg -b`, so there is no resource root in either mode. Each script invokes
+;; the binary by the name it was called as, so install location is moot.
+;; --------------------------------------------------------------------------
+
+(def ^:private bash-script
+  "# bash completion for lgx.
+# Load with: source <(lgx completion bash)
+_lgx_complete() {
+    local cur candidates
+    cur=\"${COMP_WORDS[COMP_CWORD]}\"
+    candidates=\"$(\"${COMP_WORDS[0]}\" __complete \"${COMP_WORDS[@]:1:COMP_CWORD}\" 2>/dev/null)\"
+    local IFS=$'\\n'
+    COMPREPLY=($(compgen -W \"$candidates\" -- \"$cur\"))
+}
+
+# -o default: fall back to filename completion when lgx offers nothing
+# (e.g. a script path for `lgx run` / `lgx test`).
+complete -o default -F _lgx_complete lgx
+")
+
+(def ^:private zsh-script
+  "#compdef lgx
+# zsh completion for lgx.
+# Load with: source <(lgx completion zsh)
+# or save on your fpath: lgx completion zsh > ~/.zfunc/_lgx
+
+_lgx() {
+    local -a candidates
+    candidates=(\"${(@f)$(\"${words[1]}\" __complete \"${(@)words[2,CURRENT]}\" 2>/dev/null)}\")
+    if (( ${#candidates[@]} )) && [[ -n \"${candidates[1]}\" ]]; then
+        compadd -Q -a candidates
+    else
+        # Nothing to offer (e.g. a script path for `lgx run`): fall back
+        # to default (filename) completion.
+        _default
+    fi
+}
+
+# On fpath, #compdef invokes _lgx for us; when sourced, register it manually.
+if [[ \"${funcstack[1]}\" == \"_lgx\" ]]; then
+    _lgx \"$@\"
+else
+    compdef _lgx lgx
+fi
+")
+
+(def ^:private fish-script
+  "# fish completion for lgx.
+# Load with: lgx completion fish | source
+# or save it: lgx completion fish > ~/.config/fish/completions/lgx.fish
+function __lgx_complete
+    set -l words (commandline -opc)
+    set -l cur (commandline -ct)
+    # \"$cur\" stays quoted: at an argument boundary it is empty and must
+    # still reach __complete as the word under the cursor.
+    set -g __lgx_candidates ($words[1] __complete $words[2..-1] \"$cur\" 2>/dev/null)
+    test (count $__lgx_candidates) -gt 0
+end
+
+# Dynamic candidates when lgx offers any...
+complete -c lgx -f -n '__lgx_complete' -a '$__lgx_candidates'
+# ...otherwise fall back to file completion (e.g. a script path for
+# `lgx run` / `lgx test`).
+complete -c lgx -n 'not __lgx_complete' -F
+")
+
+(defn completion-script
+  "The bundled completion script for `shell`, or nil for an unknown shell."
+  [shell]
+  (case shell
+    "bash" bash-script
+    "zsh" zsh-script
+    "fish" fish-script
+    nil))
+
+(defn cmd-completion!
+  "Handler for the hidden `lgx completion <shell>`: prints the script for
+   bash/zsh/fish to stdout; anything else errors to stderr and exits 1."
+  [args]
+  (let [args (vec args)]
+    (cond
+      (empty? args)
+      (do (write! *err* "lgx: completion requires a shell argument (bash, zsh, or fish)\n")
+          (os/exit 1))
+
+      (> (count args) 1)
+      (do (write! *err* "lgx: completion takes exactly one argument (bash, zsh, or fish)\n")
+          (os/exit 1))
+
+      :else
+      (if-let [script (completion-script (first args))]
+        (print script)
+        (do (write! *err* (str "lgx: unsupported shell: " (first args)
+                               " (expected one of: bash, zsh, fish)\n"))
+            (os/exit 1))))))
