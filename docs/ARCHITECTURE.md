@@ -36,6 +36,7 @@ lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
 lgx/new.lg          scaffold a new project from a built-in or URL template
+lgx/completion.lg   shell TAB completion: pure candidate logic, bundled bash/zsh/fish scripts, the `completion`/`__complete` handlers
 lgx/style.lg        colored status headers (green built-ins, purple tasks), LGX_NO_COLOR gate
 ```
 
@@ -475,6 +476,33 @@ encodes the per-site form.
 
 No git init or initial commit in the new project — the user owns the
 choice of VCS.
+
+### `lgx completion <shell>` and `lgx __complete` (hidden)
+
+Shell TAB completion lives in `lgx/completion.lg`. Both commands are
+dispatch branches in `lgx.lg`, both are absent from `lgx help`, and
+both are reserved task names so a project task can't shadow them.
+`completion` is documented in the README's install instructions only.
+
+`lgx completion <shell>` prints the bash, zsh, or fish completion
+script to stdout. The scripts are string constants, not resources:
+lgx runs as plain `lg lgx.lg` in dev and bundles with plain `lg -b`,
+so neither mode has a resource root. Each script invokes the binary by
+the name it was called as and asks `lgx __complete <words…> <cur>` for
+candidates on TAB. An unknown or missing shell argument errors to
+stderr and exits 1.
+
+`lgx __complete` prints one candidate per line: the built-in command
+names (a def in `lgx/completion.lg`, kept in sync with `dispatch` by
+hand; `completion` and `__complete` stay hidden) plus the enclosing
+project's task names, prefix-filtered and sorted. Candidates appear
+only at the command position; after a command, or when the cursor is
+on a flag or a `--with` value, it prints nothing and the shell falls
+back to file completion (which suits `lgx run <script>` and
+`lgx test <file>`). The handler reads the config through the
+non-throwing path (`config/find-project`, `config/load-config`),
+swallows every error, and always exits 0: a broken `lgx.edn` drops the
+task names but never breaks the user's shell.
 
 ## State layout
 

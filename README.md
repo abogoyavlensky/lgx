@@ -67,6 +67,36 @@ Then run `mise install`.
 > `.mise.toml` or set `export GITHUB_TOKEN="$(gh auth token)"` in your
 > shell config.
 
+### Shell completions
+
+`lgx completion <shell>` prints a completion script for bash, zsh, or
+fish. TAB then completes the built-in commands and the current
+project's tasks from `lgx.edn`.
+
+Bash (add to `~/.bashrc`):
+
+```sh
+source <(lgx completion bash)
+```
+
+Zsh, either sourced (add to `~/.zshrc`):
+
+```sh
+source <(lgx completion zsh)
+```
+
+or saved on your `fpath` (run once; assumes `~/.zfunc` is on `fpath`):
+
+```sh
+lgx completion zsh > ~/.zfunc/_lgx
+```
+
+Fish (run once):
+
+```sh
+lgx completion fish > ~/.config/fish/completions/lgx.fish
+```
+
 ## Quickstart
 
 Create a new project and run it:
