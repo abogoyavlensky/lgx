@@ -152,7 +152,7 @@ test command (verified working in this environment):
 - Create: `lgx/completion.lg`
 - Test: `test/lgx/completion_test.lg`
 
-- [ ] **Step 1: Write failing tests for `candidates`**
+- [x] **Step 1: Write failing tests for `candidates`**
   Cover: empty `words` + empty `cur` → all built-ins plus task names,
   sorted; prefix filter (`"ru"` → `["run"]`, `"te"` → `["test"]`);
   a namespaced task name `foo/bar` offered and prefix-matched by
@@ -164,20 +164,20 @@ test command (verified working in this environment):
   (`["--foo"]`) is skipped and command names still complete;
   `cur` of `"-"`/`"--"` → `[]`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg lg lgx.lg test test/lgx/completion_test.lg`
   Expected: FAIL (namespace `lgx.completion` does not exist yet).
 
-- [ ] **Step 3: Implement `builtin-commands` and `candidates`**
+- [x] **Step 3: Implement `builtin-commands` and `candidates`**
   Pure code only — no I/O in these functions. Loop-based word walk as
   designed above; prefix filter with `str/starts-with?`; sort the
   result.
 
-- [ ] **Step 4: Run the full unit suite**
+- [x] **Step 4: Run the full unit suite**
   Run: `LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg lg lgx.lg test`
   Expected: PASS (366 + new assertions, 0 failures).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add pure completion candidate logic"`
 
 ### Task 2: Script constants and the `completion` command
@@ -186,7 +186,7 @@ test command (verified working in this environment):
 - Modify: `lgx/completion.lg`, `lgx.lg`, `lgx/config.lg`
 - Test: `test/lgx/completion_test.lg`
 
-- [ ] **Step 1: Write failing tests for the script constants and shell lookup**
+- [x] **Step 1: Write failing tests for the script constants and shell lookup**
   Each of the three script strings is non-empty, contains
   `__complete`, and registers completion for `lgx` (bash:
   `complete -o default`, zsh: `#compdef lgx`, fish: `complete -c
@@ -194,11 +194,11 @@ test command (verified working in this environment):
   assert `"completion"` and `"__complete"` are in
   `config/reserved-task-names`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg lg lgx.lg test test/lgx/completion_test.lg`
   Expected: FAIL (constants and lookup missing).
 
-- [ ] **Step 3: Implement the scripts, lookup, and `cmd-completion!`**
+- [x] **Step 3: Implement the scripts, lookup, and `cmd-completion!`**
   Port the three wtr scripts (see Design) as string constants with a
   `completion-script` lookup fn; `cmd-completion!` validates its
   single argument and prints the script or the stderr error + exit 1.
@@ -207,16 +207,16 @@ test command (verified working in this environment):
   (require `lgx.completion`). Do **not** touch `command-rows` — the
   command stays out of help.
 
-- [ ] **Step 4: Run the full unit suite**
+- [x] **Step 4: Run the full unit suite**
   Run: `LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg lg lgx.lg test`
   Expected: PASS.
 
-- [ ] **Step 5: Smoke-check in dev mode**
+- [x] **Step 5: Smoke-check in dev mode**
   Run: `lg lgx.lg completion bash | head -3` → bash script;
   `lg lgx.lg completion nope; echo exit=$?` → stderr error, `exit=1`;
   `lg lgx.lg help | grep -c completion` → `0`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Add hidden lgx completion command with bash/zsh/fish scripts"`
 
 ### Task 3: `__complete` endpoint and e2e coverage
@@ -224,13 +224,13 @@ test command (verified working in this environment):
 **Files:**
 - Modify: `lgx/completion.lg`, `lgx.lg`, `tests/e2e.sh`
 
-- [ ] **Step 1: Implement `complete!` and the dispatch branch**
+- [x] **Step 1: Implement `complete!` and the dispatch branch**
   `complete!` as designed (words/cur split, non-throwing config read,
   try/catch around the whole body, no `os/exit` inside). Dispatch:
   `"__complete"` branch calls it then `(os/exit 0)`. Place both new
   branches near `"help"` in the case.
 
-- [ ] **Step 2: Smoke-check in dev mode**
+- [x] **Step 2: Smoke-check in dev mode**
   From the repo root (lgx is itself an lgx project with no `:tasks`):
   `lg lgx.lg __complete ""` → the eight built-ins;
   `lg lgx.lg __complete ru` → `run`;
@@ -238,7 +238,7 @@ test command (verified working in this environment):
   from `/tmp` (no project): `lg` dev mode won't work there, so this
   case is covered in e2e instead.
 
-- [ ] **Step 3: Add e2e checks to `tests/e2e.sh`**
+- [x] **Step 3: Add e2e checks to `tests/e2e.sh`**
   Following the file's existing helper/assert style: `bin/lgx
   __complete ""` lists `run` and `build`; in a fixture project that
   declares tasks, the task name appears in `__complete ""` output and
@@ -250,20 +250,20 @@ test command (verified working in this environment):
   Reuse/extend an existing task fixture under `tests/fixtures/` if one
   declares `:tasks`; otherwise add a minimal one.
 
-- [ ] **Step 4: Run the full suite (build + unit + e2e)**
+- [x] **Step 4: Run the full suite (build + unit + e2e)**
   Run: `bash tests/run.sh`
   Expected: all pass. (Known flake: the macOS shell sharing this
   filesystem can clobber `bin/lgx` if it runs `make test`
   concurrently — an `Exec format error` mid-e2e means rerun, not a
   regression.)
 
-- [ ] **Step 5: Interactive bash smoke test**
+- [x] **Step 5: Interactive bash smoke test**
   `source <(bin/lgx completion bash)` in a bash shell, then check
   `lgx <TAB>` lists commands and `lgx ru<TAB>` completes to `run`.
   zsh/fish scripts follow wtr's tested patterns; if those shells are
   unavailable here, note it in the final report.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Add __complete endpoint for dynamic shell completion"`
 
 ### Task 4: Documentation
@@ -271,7 +271,7 @@ test command (verified working in this environment):
 **Files:**
 - Modify: `README.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README "Shell completions" section**
+- [x] **Step 1: README "Shell completions" section**
   Under Installation, one snippet per shell: bash
   `source <(lgx completion bash)` in `~/.bashrc`; zsh
   `lgx completion zsh > ~/.zfunc/_lgx` (with an `fpath` note) or
@@ -280,17 +280,44 @@ test command (verified working in this environment):
   Mention that completion covers commands and project task names.
   Use /writing-clearly.
 
-- [ ] **Step 2: Update `docs/ARCHITECTURE.md`**
+- [x] **Step 2: Update `docs/ARCHITECTURE.md`**
   Add `lgx/completion.lg` to the components table and a short
   paragraph describing the two hidden entry points and the
   never-break-the-shell error policy. Note `completion`/`__complete`
   in the reserved-names context where the doc discusses task
   shadowing, if it does.
 
-- [ ] **Step 3: Format check and final run**
+- [x] **Step 3: Format check and final run**
   Run: `make fmt-check` then
   `LGX_LG=/Users/andrew/Projects/let-go/.tmp/lg lg lgx.lg test`
   Expected: both pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Document shell completions"`
+
+---
+
+## Status: Completed (2026-06-12)
+
+All four tasks implemented and verified.
+
+**What was built:** `lgx completion <shell>` prints bash/zsh/fish
+scripts embedded as string constants in `lgx/completion.lg`; a hidden
+`lgx __complete` dispatch branch returns sorted, prefix-filtered
+candidates (eight built-ins plus the enclosing project's task names,
+namespaced names preserved) at the command position only. Both
+commands are hidden from help and TAB candidates, and reserved as task
+names. `__complete` swallows all errors and exits 0; outside a project
+or with a broken `lgx.edn` the built-ins still complete.
+
+**Verification:** 385 unit tests / 531 assertions pass; full
+`tests/run.sh` (build + unit + 270 e2e assertions) green, including
+the new Scenario 111; `make fmt-check` clean. The bash flow was tested
+end to end by sourcing `bin/lgx completion bash` and driving
+`_lgx_complete` with `COMP_WORDS`/`COMP_CWORD`. zsh and fish were not
+installed in the dev environment; their scripts are byte-for-byte
+ports of wtr's interactively tested ones.
+
+**Deviations from the plan:** none in behavior. Each task's codex
+review came back clean (Task 2's single P1 — missing `__complete`
+endpoint — was the planned Task 3, implemented next).
