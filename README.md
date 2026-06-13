@@ -33,7 +33,7 @@ There are few options to install `lgx`.
 Works on macOS and Linux:
 
 ```sh
-brew install abogoyavlensky/lgx/lgx
+brew install abogoyavlensky/tap/lgx
 ```
 
 This installs lgx only; `lg` still needs to be on `PATH` (see

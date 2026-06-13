@@ -4,7 +4,7 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make lgx installable with a single command — `brew install abogoyavlensky/lgx/lgx` — on macOS and Linux, with the tap formula updated automatically on every release.
+**Goal:** Make lgx installable with a single command — `brew install abogoyavlensky/tap/lgx` — on macOS and Linux, with the tap formula updated automatically on every release.
 
 **Tech Stack:** Homebrew formula (Ruby), bash, GitHub Actions.
 
@@ -19,10 +19,10 @@
   `checksums.txt` to each GitHub Release. Tarball name:
   `lgx_<version>_<target>.tar.gz`, containing a single `lgx` binary at
   the archive root. Latest release: `v0.1.0-rc1`.
-- The tap repo `abogoyavlensky/homebrew-lgx` exists (local checkout at
-  `/Users/andrew/Projects/homebrew-lgx`) and contains only a stub
+- The tap repo `abogoyavlensky/homebrew-tap` exists (local checkout at
+  `/Users/andrew/Projects/homebrew-tap`) and contains only a stub
   `README.md`. It follows the `homebrew-<name>` convention, so
-  `brew install abogoyavlensky/lgx/lgx` auto-taps it.
+  `brew install abogoyavlensky/tap/lgx` auto-taps it.
 - **No let-go dependency.** lgx requires `lg` >= 1.10.0 on PATH at
   runtime, but nooga ships let-go as a *cask* inside the main
   `nooga/let-go` repo (non-conventional tap name, not auto-tappable;
@@ -33,7 +33,7 @@
 
 ### Components
 
-**1. Formula (`Formula/lgx.rb` in homebrew-lgx)** — a binary formula:
+**1. Formula (`Formula/lgx.rb` in homebrew-tap)** — a binary formula:
 no compilation, downloads the release tarball for the user's
 OS/architecture. Shape:
 
@@ -109,7 +109,7 @@ runs after the `release` job on every tag push:
 1. `gh release download "$TAG" -p checksums.txt` from the just-published
    release.
 2. `bash scripts/generate-formula.sh "${TAG#v}" checksums.txt > lgx.rb`.
-3. Clone `abogoyavlensky/homebrew-lgx` using a PAT, write
+3. Clone `abogoyavlensky/homebrew-tap` using a PAT, write
    `Formula/lgx.rb`, commit `lgx <version>`, push. Skip the commit if
    the formula is unchanged (idempotent re-runs).
 
@@ -117,7 +117,7 @@ The tap updates on **every** tag, including `-rc`/`-alpha` — matching
 how releases are published today (rc1 is marked Latest).
 
 **4. Auth (manual step)** — a fine-grained PAT scoped to only the
-`homebrew-lgx` repo with Contents read/write, stored as the
+`homebrew-tap` repo with Contents read/write, stored as the
 `HOMEBREW_TAP_TOKEN` secret in the lgx repo.
 
 ### Error handling
@@ -139,7 +139,7 @@ how releases are published today (rc1 is marked Latest).
 - End-to-end on Linux: `brew install --formula ./Formula/lgx.rb`, then
   `lgx --version` and `brew test lgx`.
 - macOS verification by Andrey after the tap is pushed:
-  `brew install abogoyavlensky/lgx/lgx`.
+  `brew install abogoyavlensky/tap/lgx`.
 - The CI path proves itself on the next tagged release.
 
 ## File Structure
@@ -152,7 +152,7 @@ In `/Users/andrew/Projects/lgx`:
 - Modify: `scripts/README.md` — document the generator script.
 - Modify: `README.md` — add Homebrew to the Installation section.
 
-In `/Users/andrew/Projects/homebrew-lgx`:
+In `/Users/andrew/Projects/homebrew-tap`:
 
 - Create: `Formula/lgx.rb` — bootstrap formula for `v0.1.0-rc1`.
 - Modify: `README.md` — install instructions, lg note, how the tap is
@@ -205,20 +205,20 @@ In `/Users/andrew/Projects/homebrew-lgx`:
 
 ### Task 2: Bootstrap the tap with the v0.1.0-rc1 formula
 
-**Files (in `/Users/andrew/Projects/homebrew-lgx`):**
+**Files (in `/Users/andrew/Projects/homebrew-tap`):**
 - Create: `Formula/lgx.rb`
 - Modify: `README.md`
 
 - [x] **Step 1: Generate the formula**
   Run from `/Users/andrew/Projects/lgx`:
   ```sh
-  mkdir -p /Users/andrew/Projects/homebrew-lgx/Formula
+  mkdir -p /Users/andrew/Projects/homebrew-tap/Formula
   bash scripts/generate-formula.sh 0.1.0-rc1 /tmp/lgx-checksums.txt \
-    > /Users/andrew/Projects/homebrew-lgx/Formula/lgx.rb
+    > /Users/andrew/Projects/homebrew-tap/Formula/lgx.rb
   ```
 
 - [x] **Step 2: Style-check the formula**
-  Run: `brew style /Users/andrew/Projects/homebrew-lgx/Formula/lgx.rb`
+  Run: `brew style /Users/andrew/Projects/homebrew-tap/Formula/lgx.rb`
   Expected: no offenses. If brew flags style issues, fix them in the
   *generator script* (Task 1) and regenerate — the .rb file is build
   output.
@@ -226,7 +226,7 @@ In `/Users/andrew/Projects/homebrew-lgx`:
 - [x] **Step 3: Install end-to-end on Linux**
   Run:
   ```sh
-  brew install --formula /Users/andrew/Projects/homebrew-lgx/Formula/lgx.rb
+  brew install --formula /Users/andrew/Projects/homebrew-tap/Formula/lgx.rb
   lgx --version
   ```
   Expected: install succeeds with the lg caveat printed;
@@ -235,13 +235,13 @@ In `/Users/andrew/Projects/homebrew-lgx`:
 
 - [x] **Step 4: Write the tap README**
   Replace the stub `README.md`: what the tap is, install command
-  (`brew install abogoyavlensky/lgx/lgx`), the lg requirement with
+  (`brew install abogoyavlensky/tap/lgx`), the lg requirement with
   nooga's tap command, and a note that `Formula/lgx.rb` is
   auto-generated by lgx release CI (do not edit by hand). Use
   /writing-clearly.
 
 - [x] **Step 5: Commit and push the tap**
-  In `/Users/andrew/Projects/homebrew-lgx`:
+  In `/Users/andrew/Projects/homebrew-tap`:
   ```sh
   git add Formula/lgx.rb README.md
   git commit -m "Add lgx formula for v0.1.0-rc1"
@@ -273,7 +273,7 @@ In `/Users/andrew/Projects/homebrew-lgx`:
           set -euo pipefail
           version="${TAG#v}"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" -p checksums.txt -O checksums.txt
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/abogoyavlensky/homebrew-lgx.git" tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/abogoyavlensky/homebrew-tap.git" tap
           mkdir -p tap/Formula
           bash scripts/generate-formula.sh "$version" checksums.txt > tap/Formula/lgx.rb
           cd tap
@@ -302,7 +302,7 @@ In `/Users/andrew/Projects/homebrew-lgx`:
   Tell Andrey to create a fine-grained PAT at
   https://github.com/settings/personal-access-tokens/new with:
   Resource owner `abogoyavlensky`, repository access **only**
-  `abogoyavlensky/homebrew-lgx`, permission Contents: Read and write,
+  `abogoyavlensky/homebrew-tap`, permission Contents: Read and write,
   expiration of his choice. Then store it:
   `gh secret set HOMEBREW_TAP_TOKEN --repo abogoyavlensky/lgx`.
   The `homebrew` CI job fails without it; everything else in this plan
@@ -317,7 +317,7 @@ In `/Users/andrew/Projects/homebrew-lgx`:
   In `## Installation`, add `### Homebrew` as the **first** method
   (before "Install script"):
   ```sh
-  brew install abogoyavlensky/lgx/lgx
+  brew install abogoyavlensky/tap/lgx
   ```
   One sentence: works on macOS and Linux; note that `lg` still needs to
   be installed (link to Requirements). Use /writing-clearly.
@@ -330,7 +330,7 @@ In `/Users/andrew/Projects/homebrew-lgx`:
 - [x] **Step 1: Install from the pushed tap on Linux**
   Run:
   ```sh
-  brew install abogoyavlensky/lgx/lgx
+  brew install abogoyavlensky/tap/lgx
   lgx --version
   brew test lgx
   ```
@@ -338,7 +338,7 @@ In `/Users/andrew/Projects/homebrew-lgx`:
   `lgx 0.1.0-rc1`, test passes.
 
 - [x] **Step 2: Hand off macOS check to Andrey**
-  Ask Andrey to run `brew install abogoyavlensky/lgx/lgx` on his Mac.
+  Ask Andrey to run `brew install abogoyavlensky/tap/lgx` on his Mac.
   The CI auto-update path gets proven on the next tagged release —
   no action needed now.
 
@@ -346,7 +346,7 @@ In `/Users/andrew/Projects/homebrew-lgx`:
 
 ## Completion summary (2026-06-12)
 
-All six tasks done. `brew install abogoyavlensky/lgx/lgx` verified
+All six tasks done. `brew install abogoyavlensky/tap/lgx` verified
 end-to-end on Linux against the pushed GitHub tap: auto-tap, install,
 `lgx --version` -> `lgx 0.1.0-rc1`, `brew test` pass.
 
@@ -370,9 +370,9 @@ Deviations from the plan, found during execution:
 Outstanding (manual, Andrey):
 
 - Create a fine-grained PAT (repo access: only
-  `abogoyavlensky/homebrew-lgx`, Contents read/write) and store it:
+  `abogoyavlensky/homebrew-tap`, Contents read/write) and store it:
   `gh secret set HOMEBREW_TAP_TOKEN --repo abogoyavlensky/lgx`.
   Without it the `homebrew` release job fails (release itself is
   unaffected).
-- Verify `brew install abogoyavlensky/lgx/lgx` on macOS.
+- Verify `brew install abogoyavlensky/tap/lgx` on macOS.
 - The CI auto-update path proves itself on the next tagged release.

@@ -36,7 +36,7 @@ scripts/generate-formula.sh 0.1.0 checksums.txt > lgx.rb
 It takes a version (no `v` prefix) and a release `checksums.txt`, and
 fails if any of the four target checksums is missing. Release CI runs
 it on every tag to update `Formula/lgx.rb` in
-[homebrew-lgx](https://github.com/abogoyavlensky/homebrew-lgx) - don't
+[homebrew-tap](https://github.com/abogoyavlensky/homebrew-tap) - don't
 edit that file by hand.
 
 ## Or manually download latest release

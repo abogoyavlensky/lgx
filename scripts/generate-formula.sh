@@ -9,7 +9,7 @@
 #   CHECKSUMS_FILE  path to the release checksums.txt (sha256sum format)
 #
 # Release CI runs this to update Formula/lgx.rb in
-# https://github.com/abogoyavlensky/homebrew-lgx on every release.
+# https://github.com/abogoyavlensky/homebrew-tap on every release.
 
 set -euo pipefail
 
