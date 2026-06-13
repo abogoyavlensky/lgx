@@ -20,9 +20,9 @@
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .hero-bg {
       background-image:
-        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(16, 185, 129, 0.10), transparent),
-        linear-gradient(to right, rgba(16, 185, 129, 0.05) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(16, 185, 129, 0.05) 1px, transparent 1px);
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(99, 102, 241, 0.10), transparent),
+        linear-gradient(to right, rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
       background-size: 100% 100%, 56px 56px, 56px 56px;
     }
   </style>
@@ -48,22 +48,22 @@
   <!-- Hero -->
   <header class="hero-bg">
     <div class="mx-auto max-w-6xl px-5 pt-20 pb-16 text-center sm:pt-28 sm:pb-20">
-      <p class="mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-700">
+      <p class="mb-5 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-sm font-medium text-indigo-700">
         One binary · zero ceremony
       </p>
       <h1 class="mx-auto max-w-3xl font-display text-4xl font-bold tracking-tight text-balance text-gray-900 sm:text-6xl">
-        The package &amp; project manager for <a href="https://github.com/nooga/let-go" class="text-emerald-600 underline decoration-emerald-300 decoration-2 underline-offset-4 hover:decoration-emerald-500">let-go</a>
+        The package &amp; project manager for <a href="https://github.com/nooga/let-go" class="text-indigo-600 underline decoration-indigo-300 decoration-2 underline-offset-4 hover:decoration-indigo-500">let-go</a>
       </h1>
       <p class="mx-auto mt-5 max-w-2xl text-xl text-pretty text-gray-600">
         Git deps, runner, build tool, test runner, scaffolder, and task runner — in one binary.
       </p>
       <div class="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
         <div class="flex max-w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white py-3 pr-2 pl-5 shadow-sm">
-          <code class="no-scrollbar overflow-x-auto font-mono text-base whitespace-nowrap text-gray-800"><span class="text-emerald-600 select-none">$ </span>brew install abogoyavlensky/lgx/lgx</code>
+          <code class="no-scrollbar overflow-x-auto font-mono text-base whitespace-nowrap text-gray-800"><span class="text-indigo-600 select-none">$ </span>brew install abogoyavlensky/lgx/lgx</code>
           <button type="button" data-copy="brew install abogoyavlensky/lgx/lgx" aria-label="Copy install command"
                   class="shrink-0 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700">
             <svg class="copy-icon size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            <svg class="check-icon hidden size-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <svg class="check-icon hidden size-4 text-indigo-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
           </button>
         </div>
         <a href="https://github.com/abogoyavlensky/lgx" class="text-base font-medium text-gray-600 hover:text-gray-900">View on GitHub →</a>
@@ -104,66 +104,66 @@ Welcome to let-go!</pre>
       <div class="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
 
         <div class="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
             <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><circle cx="18" cy="18" r="3"/></svg>
           </div>
           <h3 class="font-display text-xl font-semibold text-gray-900">Git-based dependencies</h3>
           <p class="mt-2 text-[15px] leading-7 text-gray-600">Pin libraries straight from git by tag or sha — no registry needed. Transitive deps are resolved too, with first-wins conflict handling.</p>
-          <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300">{<span class="text-emerald-400">:deps</span>
+          <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300">{<span class="text-violet-400">:deps</span>
  {tiny-cli
-  {<span class="text-emerald-400">:git/url</span> <span class="text-amber-300">"https://github.com/..."</span>
-   <span class="text-emerald-400">:git/tag</span> <span class="text-amber-300">"v0.2.0"</span>}}}</pre>
+  {<span class="text-violet-400">:git/url</span> <span class="text-amber-300">"https://github.com/..."</span>
+   <span class="text-violet-400">:git/tag</span> <span class="text-amber-300">"v0.2.0"</span>}}}</pre>
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
             <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
           </div>
           <h3 class="font-display text-xl font-semibold text-gray-900">Run &amp; REPL</h3>
-          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-emerald-700">lgx run</code> fetches deps and runs your entrypoint with everything on the source path. Without a script or <code class="font-mono">:main</code> it opens a REPL; <code class="font-mono text-emerald-700">lgx nrepl</code> adds an nREPL server for your editor.</p>
+          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-indigo-700">lgx run</code> fetches deps and runs your entrypoint with everything on the source path. Without a script or <code class="font-mono">:main</code> it opens a REPL; <code class="font-mono text-indigo-700">lgx nrepl</code> adds an nREPL server for your editor.</p>
           <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300"><span class="text-gray-500">$</span> lgx run
 <span class="text-gray-500">$</span> lgx nrepl --port 7888</pre>
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
             <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           </div>
           <h3 class="font-display text-xl font-semibold text-gray-900">Standalone binaries</h3>
-          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-emerald-700">lgx build</code> bundles your app into a single executable — resources embedded, nothing to install on the target machine.</p>
+          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-indigo-700">lgx build</code> bundles your app into a single executable — resources embedded, nothing to install on the target machine.</p>
           <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300"><span class="text-gray-500">$</span> lgx build
 <span class="text-gray-500">$</span> ./bin/myapp</pre>
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
             <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
           </div>
           <h3 class="font-display text-xl font-semibold text-gray-900">Test runner</h3>
-          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-emerald-700">lgx test</code> discovers every test file under <code class="font-mono">test/</code> and runs each <code class="font-mono">deftest</code> against your project's source paths. No harness to maintain.</p>
+          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-indigo-700">lgx test</code> discovers every test file under <code class="font-mono">test/</code> and runs each <code class="font-mono">deftest</code> against your project's source paths. No harness to maintain.</p>
           <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300"><span class="text-gray-500">$</span> lgx test
 <span class="text-emerald-400">✓</span> 24 assertions, 0 failures</pre>
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
             <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
           </div>
           <h3 class="font-display text-xl font-semibold text-gray-900">Project scaffolding</h3>
-          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-emerald-700">lgx new</code> starts a project from the built-in <code class="font-mono">base</code> or <code class="font-mono">cli</code> templates — or from any git repo you point it at.</p>
+          <p class="mt-2 text-[15px] leading-7 text-gray-600"><code class="font-mono text-indigo-700">lgx new</code> starts a project from the built-in <code class="font-mono">base</code> or <code class="font-mono">cli</code> templates — or from any git repo you point it at.</p>
           <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300"><span class="text-gray-500">$</span> lgx new myapp -t cli</pre>
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+          <div class="mb-4 flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
             <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           </div>
           <h3 class="font-display text-xl font-semibold text-gray-900">Tasks &amp; contexts</h3>
-          <p class="mt-2 text-[15px] leading-7 text-gray-600">Replace your Makefile with tasks in <code class="font-mono">lgx.edn</code>, complete with typed positional args. Contexts layer dev- or test-only deps and paths with <code class="font-mono text-emerald-700">--with</code>.</p>
-          <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300">{<span class="text-emerald-400">:tasks</span>
- {ci {<span class="text-emerald-400">:doc</span> <span class="text-amber-300">"Lint, then test"</span>
-      <span class="text-emerald-400">:do</span>  [{<span class="text-emerald-400">:sh</span> <span class="text-amber-300">"cljfmt check"</span>}
-            {<span class="text-emerald-400">:run</span> <span class="text-amber-300">"scripts/check.lg"</span>}]}}}</pre>
+          <p class="mt-2 text-[15px] leading-7 text-gray-600">Replace your Makefile with tasks in <code class="font-mono">lgx.edn</code>, complete with typed positional args. Contexts layer dev- or test-only deps and paths with <code class="font-mono text-indigo-700">--with</code>.</p>
+          <pre class="no-scrollbar mt-4 overflow-x-auto rounded-xl bg-gray-950 p-4 font-mono text-[13px] leading-6 text-gray-300">{<span class="text-violet-400">:tasks</span>
+ {ci {<span class="text-violet-400">:doc</span> <span class="text-amber-300">"Lint, then test"</span>
+      <span class="text-violet-400">:do</span>  [{<span class="text-violet-400">:sh</span> <span class="text-amber-300">"cljfmt check"</span>}
+            {<span class="text-violet-400">:run</span> <span class="text-amber-300">"scripts/check.lg"</span>}]}}}</pre>
         </div>
 
       </div>
@@ -186,7 +186,7 @@ Welcome to let-go!</pre>
             <button type="button" data-copy="brew install abogoyavlensky/lgx/lgx" aria-label="Copy Homebrew command"
                     class="shrink-0 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-white/10 hover:text-gray-200">
               <svg class="copy-icon size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              <svg class="check-icon hidden size-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              <svg class="check-icon hidden size-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
             </button>
           </div>
         </div>
@@ -199,7 +199,7 @@ Welcome to let-go!</pre>
             <button type="button" data-copy="mise use -g github:abogoyavlensky/lgx@latest" aria-label="Copy mise command"
                     class="shrink-0 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-white/10 hover:text-gray-200">
               <svg class="copy-icon size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              <svg class="check-icon hidden size-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              <svg class="check-icon hidden size-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
             </button>
           </div>
         </div>
@@ -212,16 +212,16 @@ Welcome to let-go!</pre>
             <button type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/abogoyavlensky/lgx/master/scripts/install.sh | bash" aria-label="Copy install script command"
                     class="shrink-0 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-white/10 hover:text-gray-200">
               <svg class="copy-icon size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              <svg class="check-icon hidden size-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              <svg class="check-icon hidden size-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
             </button>
           </div>
         </div>
 
       </div>
 
-      <p class="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-base text-emerald-900">
+      <p class="mt-8 rounded-2xl border border-indigo-200 bg-indigo-50 px-5 py-4 text-base text-indigo-900">
         <strong class="font-semibold">Requires let-go.</strong>
-        lgx drives the <a href="https://github.com/nooga/let-go" class="font-medium underline decoration-emerald-300 underline-offset-2 hover:decoration-emerald-500">lg</a> binary (≥ 1.10.0), so it needs <code class="font-mono">lg</code> on your <code class="font-mono">PATH</code> — plus <code class="font-mono">git</code> for fetching deps.
+        lgx drives the <a href="https://github.com/nooga/let-go" class="font-medium underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500">lg</a> binary (≥ 1.10.0), so it needs <code class="font-mono">lg</code> on your <code class="font-mono">PATH</code> — plus <code class="font-mono">git</code> for fetching deps.
       </p>
     </div>
   </section>
