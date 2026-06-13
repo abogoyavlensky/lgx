@@ -1,4 +1,4 @@
-# Landing Page Implementation Plan
+# Landing Page Implementation Plan (Completed)
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -60,36 +60,36 @@ anything broken. No automated tests.
 **Files:**
 - Create: `index.html`
 
-- [ ] **Step 1: Write the page skeleton**
+- [x] **Step 1: Write the page skeleton**
   HTML5 document with meta description, title ("lgx — package and
   project manager for let-go"), Tailwind v4 browser-build CDN script,
   Google Fonts (Inter, JetBrains Mono), and the six sections from the
   design as empty landmarks (nav, header/hero, terminal demo, features,
   install, footer).
 
-- [ ] **Step 2: Implement nav and hero**
+- [x] **Step 2: Implement nav and hero**
   Sticky nav with mono `lgx` wordmark, anchor links to #features and
   #install, GitHub button linking to
   `https://github.com/abogoyavlensky/lgx`. Hero with headline, subhead,
   brew-install pill with copy button, secondary GitHub link.
 
-- [ ] **Step 3: Implement the terminal demo**
+- [x] **Step 3: Implement the terminal demo**
   Rounded dark terminal card (the one dark element on the light page)
   with traffic-light dots, mono font, showing `lgx new hello` /
   `cd hello` / `lgx run` and plausible output consistent with the
   README (e.g. green `=>` status headers).
 
-- [ ] **Step 4: Implement the feature grid**
+- [x] **Step 4: Implement the feature grid**
   Six cards in a responsive grid (1 col mobile, 2 cols md, 3 cols lg)
   per the design list. Keep snippets accurate to the README.
 
-- [ ] **Step 5: Implement install section and footer**
+- [x] **Step 5: Implement install section and footer**
   Three install cards (Homebrew, mise, curl script) with exact commands
   from the README and copy buttons; the `lg` requirement note linking
   to `https://github.com/nooga/let-go`. Footer with MIT license,
   GitHub, and let-go links.
 
-- [ ] **Step 6: Add copy-to-clipboard JS**
+- [x] **Step 6: Add copy-to-clipboard JS**
   One small script: every copy button copies its associated command via
   `navigator.clipboard.writeText`, swaps to a checkmark briefly, and
   does nothing if the API is missing.
@@ -99,19 +99,43 @@ anything broken. No automated tests.
 **Files:**
 - Modify: `index.html` (fixes only)
 
-- [ ] **Step 1: Screenshot desktop**
+- [x] **Step 1: Screenshot desktop**
   Open `index.html` via agent-browser at ~1440px width, screenshot the
   full page.
   Expected: all sections render, no overflow, terminal and cards look
   intentional.
 
-- [ ] **Step 2: Screenshot mobile**
+- [x] **Step 2: Screenshot mobile**
   Re-screenshot at ~390px width.
   Expected: nav collapses gracefully (links may hide; GitHub button
   stays), grid stacks to one column, commands wrap or scroll without
   breaking layout.
 
-- [ ] **Step 3: Test copy buttons and fix issues**
+- [x] **Step 3: Test copy buttons and fix issues**
   Click a copy button; confirm the checkmark feedback. Fix any layout
   or behavior problems found, then re-screenshot.
   Expected: clean page at both widths, working copy buttons.
+
+---
+
+## Summary
+
+Implemented `index.html` as planned: sticky nav, hero with brew-install
+copy pill, dark terminal demo, six-card feature grid, three install
+cards with an lg-requirement note, and footer. One addition beyond the
+plan: Bricolage Grotesque as the display font for headings (body stays
+Inter, code JetBrains Mono).
+
+Codex review found two content inaccuracies, both fixed: the terminal
+demo now shows the real `lgx new` output (`=> Creating project hello...`,
+`Created hello at ...`, `Next steps:` block, and `Welcome to let-go!`
+from the base template), and the Run & REPL card now says the REPL opens
+only without a script or `:main`.
+
+Verified with headless Chromium at 1440px and 390px (sections render,
+grid collapses to one column, commands scroll inside their pills) and
+with a DevTools-protocol script for the copy buttons (correct text
+copied, icon swaps to a checkmark and reverts, all four buttons wired).
+The agent-browser daemon was unusable on this host (Linux arm64, snap
+Chromium), so verification drove `chromium-browser --headless=new`
+directly.
