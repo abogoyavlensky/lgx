@@ -60,6 +60,16 @@ lint:
 	@$(INFO) "Linting code..."
 	find lgx test -type f -name '*.lg' -print0 | xargs -0 clj-kondo --lint lgx.lg
 
+.PHONY: landing  # Build landing page CSS
+landing:
+	@$(INFO) "Building landing CSS..."
+	cd landing && tailwindcss -i ./input.css -o ./style.css --minify
+
+.PHONY: landing-dev  # Watch and rebuild landing page CSS
+landing-dev:
+	@$(INFO) "Watching landing CSS..."
+	cd landing && tailwindcss -i ./input.css -o ./style.css --watch
+
 .PHONY: clean  # Clean build artifacts
 clean:
 	@$(INFO) "Cleaning build artifacts..."
