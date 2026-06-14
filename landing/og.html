@@ -1,0 +1,99 @@
+<!doctype html>
+<!--
+  Source template for the social-share image (og.png), 1200x630.
+  Regenerate after editing: render this file at 1200x630 in a headless
+  browser and screenshot to og.png. E.g. with the Chrome CLI:
+    chromium --headless --window-size=1200,630 --screenshot=og.png \
+      --default-background-color=FFFFFFFF --hide-scrollbars og.html
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 1200px; height: 630px; }
+    body {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 84px 88px;
+      font-family: "Inter", system-ui, sans-serif;
+      color: #111827;
+      background-color: #ffffff;
+      background-image:
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(16, 185, 129, 0.16), transparent),
+        linear-gradient(to right, rgba(16, 185, 129, 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(16, 185, 129, 0.06) 1px, transparent 1px);
+      background-size: 100% 100%, 64px 64px, 64px 64px;
+    }
+    .brand {
+      position: absolute;
+      top: 64px;
+      left: 88px;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 600;
+      font-size: 42px;
+      letter-spacing: -0.02em;
+      color: #111827;
+    }
+    h1 {
+      max-width: 1010px;
+      font-family: "Bricolage Grotesque", "Inter", sans-serif;
+      font-weight: 700;
+      font-size: 80px;
+      line-height: 1.04;
+      letter-spacing: -0.03em;
+    }
+    h1 .accent { color: #059669; }
+    p {
+      margin-top: 30px;
+      max-width: 940px;
+      font-size: 31px;
+      line-height: 1.4;
+      color: #4b5563;
+    }
+    .chip {
+      align-self: flex-start;
+      margin-top: 46px;
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      background: #ffffff;
+      padding: 18px 26px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 26px;
+      color: #1f2937;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+    .chip .dollar { color: #059669; }
+    .footer {
+      position: absolute;
+      bottom: 60px;
+      left: 88px;
+      right: 88px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 23px;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="brand">lgx</div>
+  <h1>The package &amp; project manager for <span class="accent">let-go</span></h1>
+  <p>Git deps · runner · build · test · scaffold · tasks — in one binary.</p>
+  <div class="chip"><span class="dollar">$</span> brew install abogoyavlensky/tap/lgx</div>
+  <div class="footer">
+    <span>lgx.bogoyavlensky.com</span>
+    <span>Built for let-go</span>
+  </div>
+</body>
+</html>
