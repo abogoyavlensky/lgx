@@ -36,6 +36,7 @@ jobs:
         run: |
           mkdir -p _site
           cp landing/index.html landing/style.css landing/og.png landing/CNAME _site/
+          cp landing/favicon.ico landing/favicon.svg landing/apple-touch-icon.png _site/
 
       - uses: actions/upload-pages-artifact@v3
         with:
