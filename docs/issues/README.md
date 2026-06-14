@@ -12,3 +12,4 @@ Issues filed (or to be filed) against
 | [error-color-missing-esc.md](./error-color-missing-esc.md) | Error formatter emits ANSI codes without `\x1b` ESC byte | draft (fix on `fix-colored-output`) |
 | [load-failure-silent.md](./load-failure-silent.md) | `(:require)` of a file with a compile error returns nil and prints to stderr only — exit 0, missing tests hidden | draft |
 | [nrepl-port-zero.md](./nrepl-port-zero.md) | `-p 0` should bind an OS-assigned nREPL port and report the real one | draft |
+| [http-request-method-string.md](./http-request-method-string.md) | `http` server delivers `:request-method` as a String, not a Keyword (breaks Ring routers) | draft |
