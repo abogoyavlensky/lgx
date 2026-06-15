@@ -467,13 +467,17 @@
   [cfg]
   (or (:resource-paths cfg) []))
 
-;; Read leniently: only the :deps coords are validated. A dep's other keys
-;; (:paths, :main, :tasks, :targets) describe how to build that project, not
-;; how to consume it — and a dep built with a newer lgx may carry top-level
-;; keys this version doesn't know. The open :map (no :closed) encodes exactly
-;; that.
+;; Read leniently: validate only the keys lgx consumes from a dependency —
+;; :deps (transitive resolution) and the wasm-dep keys :resource-paths,
+;; :lgx/lib, :lgx/min-lg-version. A dep's build-only keys (:paths, :main,
+;; :tasks, :targets) and any top-level keys a newer lgx may add are tolerated:
+;; the open :map (no :closed) encodes exactly that.
 (def ^:private dep-config-schema
-  [:map [:deps {:optional true} deps-schema]])
+  [:map
+   [:deps {:optional true} deps-schema]
+   [:resource-paths {:optional true} [:vector rel-path-schema]]
+   [:lgx/lib {:optional true} [:map [:resources {:optional true} :any]]]
+   [:lgx/min-lg-version {:optional true} :string]])
 
 (defn dep-config-at
   "Parse the lenient lgx.edn in dir (only :deps is validated), returning the

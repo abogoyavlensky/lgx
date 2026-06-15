@@ -96,9 +96,14 @@
 (deftest load-rejects-unknown-top-level-key
   (is (= {:errors [{:path []
                     :msg (str "unknown key :extra (allowed: :deps, :paths, "
-                              ":resource-paths, :main, :targets, :contexts, "
-                              ":tasks)")}]}
+                              ":resource-paths, :lgx/lib, :lgx/min-lg-version, "
+                              ":main, :targets, :contexts, :tasks)")}]}
          (load-cfg {:deps {} :extra 1}))))
+
+(deftest load-accepts-lgx-lib-and-min-lg-version
+  (is (nil? (:errors (load-cfg {:deps {}
+                                :lgx/lib {:resources true}
+                                :lgx/min-lg-version "1.11.0"})))))
 
 (deftest load-rejects-deps-not-a-map
   (is (= {:errors [{:path [:deps] :msg "must be a map, got [:not :a :map]"}]}
