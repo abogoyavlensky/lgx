@@ -145,14 +145,103 @@ libcurl, libgit2, etc. all become `.lg` binding packages over a system
 
 ## 5. wazero — dynamic WASM modules
 
-Covered in detail in
-[`GO_LIBS_INTEROP_OPTIONS.md` §4.3](./GO_LIBS_INTEROP_OPTIONS.md). In
-brief: embed the pure-Go `wazero` runtime in `lg` once; distribute libs
-as `.wasm`; load at runtime. The boundary is WASM's primitive ABI
-(numbers + one linear memory → pointer/length marshaling), and SQLite
-needs host callbacks for file I/O (its pluggable VFS). Pure Go on every
-platform, sandboxed, but slower than native; the ABI/marshaling layer is
-the work. `ncruces/go-sqlite3` proves the SQLite-via-wazero pattern.
+Embed the pure-Go [`wazero`](https://github.com/tetratelabs/wazero)
+runtime in `lg` once; distribute libs as `.wasm`; load at runtime. The
+boundary is WASM's primitive ABI (numbers + one linear memory →
+pointer/length marshaling); SQLite additionally needs host callbacks for
+file I/O (its pluggable VFS). Pure Go on every platform, sandboxed, but
+slower than native; the ABI/marshaling layer is the work.
+`ncruces/go-sqlite3` proves the SQLite-via-wazero pattern. (See also
+[`GO_LIBS_INTEROP_OPTIONS.md` §4.3](./GO_LIBS_INTEROP_OPTIONS.md).)
+
+### 5.1 What you can actually wrap — Go included, with a catch
+
+wazero runs WASM **regardless of source language**: C/C++ (wasi-sdk,
+Emscripten), Rust (best-in-class), Zig, and **Go itself** (standard
+toolchain `GOOS=wasip1` + `//go:wasmexport` reactors since Go 1.24, or
+**TinyGo** — smaller, better for library-style wasm). So the precise
+statement is **not** "only existing wasm libs, not Go libs." It is:
+
+- You wrap **anything compiled to a `.wasm` artifact**, *including* a Go
+  library — but you load the **compiled `.wasm` + a hand-written export/
+  marshaling shim**, never a Go *package* directly (that's the bricked
+  Go-dynamic door from §2).
+- A Go→wasm module **bundles its own runtime/GC** and exports only
+  `(ptr,len)`-style numeric functions, so wrapping a Go lib means two
+  layers of glue (in-wasm export wrappers + let-go-side marshaling) and a
+  heavier artifact than an equivalent C/Rust one.
+- In practice you wrap libs that **already have good standalone
+  (WASI/non-browser) wasm builds**, because someone already did the
+  export+marshaling work.
+
+**Net:** any-language-to-wasm, but always the artifact + a shim — this
+does **not** give you "use any Go lib."
+
+### 5.2 Distributing wasm libs through lgx
+
+A "let-go wasm lib" = **`.lg` glue** (API + marshaling that drives the
+wazero host) **+ a `.wasm` blob** (+ metadata).
+
+- **As a git dep today:** works. Git can carry the `.wasm`; lgx clones,
+  the `.lg` code loads it. No deps-manager change strictly required.
+- **Why you'd still extend lgx:**
+  - `.wasm` blobs **bloat git history** (SQLite-wasm ≈ 1 MB) → a
+    lightweight `:wasm`/`:artifact` dep type that **downloads by URL +
+    verifies a checksum** keeps blobs out of git;
+  - **integrity** — a checksum/lockfile entry (you're running native-ish
+    code);
+  - **runtime requirement** — the lib needs "an `lg` with the wazero host
+    compiled in"; lgx should declare and check that.
+- **Big upside vs native:** WASM is **platform-independent** — **one
+  artifact for all OS/arch**, no per-platform matrix. This makes the lgx
+  side far simpler than the compile-in or purego paths.
+
+### 5.3 End-user experience (lgx / let-go)
+
+| Aspect | Experience |
+|---|---|
+| **Toolchain** | **none** — stock `lg` (wazero baked in once, upstream); `lgx install/run/repl/build` all work, no `go build`, no per-lib rebuild. The whole win. |
+| **Startup latency** | wazero compiles each `.wasm` to native on instantiate (tens-to-low-hundreds of ms) — noticeable against let-go's ~7 ms cold start. Mitigated by wazero's **on-disk compilation cache** (amortized after first run). |
+| **Bundling (`lgx build`)** | let-go's bundle format has a **resource archive** (the `LGB2` trailer, gzipped — `lg.go`/`resources.go`), so the `.wasm` can be **embedded as a bundled resource** → self-contained standalone binary. Needs wiring the blob into the resource archive on build. |
+| **Memory** | each module has its own linear memory (64 KB pages); SQLite-wasm with data → a few MB. |
+| **Sandbox / I/O** | wasm can't touch disk/network unless the host grants it; SQLite's file I/O is wired through host functions (its VFS). The wrapper author's job; invisible to the end user. |
+| **Errors** | failures surface as wasm **traps** — catchable and sandboxed (won't crash the host, unlike purego segfaults), but less friendly than native let-go stack traces. |
+| **Base `lg` size** | wazero in *stock* `lg` adds ~1–3 MB **for everyone**, even without a wasm lib. Keeping it truly "stock" means it's always present; gating it reintroduces build-variants (a genuine tension). |
+
+### 5.4 Ecosystem maturity — how many usable libs?
+
+Two separate things:
+
+- **The runtime is mature.** wazero is production-grade, pure-Go,
+  zero-dependency. No concern.
+- **The *callable-library* ecosystem is still maturing.** The clean
+  "require a wasm lib and call typed functions" story depends on the
+  **Component Model + WIT** (WASI Preview 2) — real but **young**, with
+  immature tooling; wazero's component support lags its rock-solid core
+  (wasip1). Today you mostly **hand-write marshaling** over `(ptr,len)` +
+  linear memory.
+
+**Usable, host-callable libs today = a curated handful**, not an
+npm-scale catalog:
+
+- **SQLite** — the flagship; excellent (official SQLite-wasm;
+  `ncruces/go-sqlite3`). wazero's best case.
+- Solid: compression (zstd/brotli/zlib), crypto/hashing (libsodium),
+  regex (re2), markdown (comrak), QuickJS (JS engine), some language
+  runtimes (Python/Pyodide — heavy), assorted parsers/validators.
+- **Rust** has by far the richest compile-as-a-wasm-library story; many C
+  libs have community builds.
+
+**The big gotcha:** "a wasm build exists" ≠ "it runs under wazero." Much
+existing wasm is **browser-targeted** (Emscripten / `GOOS=js`) and
+assumes a JS runtime — it won't run standalone under wazero without that
+glue. You want **WASI/standalone-targeted** builds, a smaller subset.
+
+**Library-pool contrast:** the purego/C-FFI path (§4) taps the entire
+existing **system `.so` ecosystem** — vastly larger than the
+callable-wasm pool — at the cost of being unsafe, per-platform, and the
+Linux-cgo caveat. So "how many libs" favors C-FFI; "portable + safe +
+no-matrix + no-toolchain" favors wasm.
 
 ---
 
@@ -193,6 +282,17 @@ For SQLite specifically:
   everywhere, but slower.
 - **compile-in (done)** — simplest and safe, but rebuilds the runtime
   (+3.75 MiB; see [`LG_BUILT_IN_SQLITE.md`](./LG_BUILT_IN_SQLITE.md)).
+
+**On wazero specifically:** it is the most elegant fit for the stock-`lg`,
+no-rebuild, no-matrix goal, and **SQLite is its ideal target**. But it is
+an **upstream project** (host + per-lib marshaling), its general-purpose
+reach is **limited by ecosystem maturity** (a curated handful of
+host-callable libs; the browser-vs-WASI gotcha; manual marshaling until
+the Component Model matures), and it carries a **startup-latency +
+base-size** cost. Excellent for SQLite and a small curated set; **not yet
+a universal "use any native lib" answer.** If broadest library reach
+matters most, C-FFI wins the count; if portability / safety / no-matrix /
+no-toolchain matter most, wasm wins.
 
 **Suggested next step:** spike the purego path — a throwaway,
 `CGO_ENABLED=0` Go program that `dlopen`s the system `libsqlite3` and
