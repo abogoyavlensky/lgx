@@ -1,4 +1,4 @@
 {:main "main.lg"
  :targets {:bin {:out "bin/server"}}
  :deps {askonomm/ruuter {:git/url "https://git.nmm.ee/asko/ruuter"
-                         :git/tag "2.1.1"}}}
+                         :git/tag "v2.1.1"}}}
