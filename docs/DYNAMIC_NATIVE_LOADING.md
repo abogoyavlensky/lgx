@@ -201,7 +201,7 @@ wazero host) **+ a `.wasm` blob** (+ metadata).
 | Aspect | Experience |
 |---|---|
 | **Toolchain** | **none** — stock `lg` (wazero baked in once, upstream); `lgx install/run/repl/build` all work, no `go build`, no per-lib rebuild. The whole win. |
-| **Startup latency** | wazero compiles each `.wasm` to native on instantiate (tens-to-low-hundreds of ms) — noticeable against let-go's ~7 ms cold start. Mitigated by wazero's **on-disk compilation cache** (amortized after first run). |
+| **Startup latency** | small — **measured ~1–4 ms** over native to compile+instantiate SQLite-wasm (wazero is a fast single-pass compiler; see §5.5). Well within let-go's single-digit-ms cold-start budget; no disk cache needed. |
 | **Bundling (`lgx build`)** | let-go's bundle format has a **resource archive** (the `LGB2` trailer, gzipped — `lg.go`/`resources.go`), so the `.wasm` can be **embedded as a bundled resource** → self-contained standalone binary. Needs wiring the blob into the resource archive on build. |
 | **Memory** | each module has its own linear memory (64 KB pages); SQLite-wasm with data → a few MB. |
 | **Sandbox / I/O** | wasm can't touch disk/network unless the host grants it; SQLite's file I/O is wired through host functions (its VFS). The wrapper author's job; invisible to the end user. |
@@ -242,6 +242,50 @@ existing **system `.so` ecosystem** — vastly larger than the
 callable-wasm pool — at the cost of being unsafe, per-platform, and the
 Linux-cgo caveat. So "how many libs" favors C-FFI; "portable + safe +
 no-matrix + no-toolchain" favors wasm.
+
+### 5.5 Measured performance (spike, 2026-06-15)
+
+Benchmarked **wasm SQLite** (`ncruces/go-sqlite3` = wazero + SQLite-wasm)
+vs **native pure-Go SQLite** (`modernc.org/sqlite`), both `CGO_ENABLED=0`,
+`:memory:`, on linux/arm64 (Go 1.26.3):
+
+| | startup (cold → warm) | insert 50k | scan 50k | binary size (`-s -w`) |
+|---|---|---|---|---|
+| native modernc | 3.8 → 2.7 ms | 50.2 ms | 25.3 ms | 6.03 MB |
+| wasm (wazero) | 5.8 → 2.0 ms | 48.7 ms | 24.6 ms | 7.93 MB |
+| *(Go runtime baseline)* | 1.7 ms | — | — | 1.25 MB |
+
+Findings:
+
+- **Startup is negligible.** Compiling+instantiating SQLite-wasm costs
+  only **~1–4 ms** over the native path — within let-go's single-digit-ms
+  cold-start budget. wazero's single-pass compiler is fast; there is **no
+  disk cache by default and none is needed**. (This corrects an earlier
+  "tens-to-hundreds of ms" estimate.)
+- **Throughput is a wash.** wasm and native modernc are within ~±5% for
+  both writes and reads — both are cgo-free SQLite ending up as native
+  code, neither pays a cgo boundary.
+- **Size: wasm is ~1.8 MiB *larger*** (it carries the wazero runtime +
+  the ~1 MB `sqlite.wasm`). wasm's wins are no-rebuild / portability /
+  composability, **not** binary size.
+
+Caveats (these are the *floor*):
+
+1. `:memory:` isolates engine speed. Real disk DBs route file I/O through
+   the VFS as **host-function callbacks** (wasm→host per I/O); I/O-heavy
+   workloads can trail more there (not measured).
+2. This is the **Go-host→wasm** path (ncruces, highly optimized). A
+   *let-go*→wasm wrapper adds a **let-go-value ↔ wasm-memory marshaling
+   layer**; coarse calls (one query → many rows) amortize it, chatty
+   fine-grained calls cost more.
+3. Hand-written **cgo C** (mattn / purego→libsqlite3) would likely still
+   be fastest for CPU-bound work — but it isn't cgo-free, so it's
+   off-menu here. Against the cgo-free baseline (modernc), wasm ties.
+
+**Takeaway:** performance is not a reason to avoid wazero. A bundled app
+using a wasm lib starts in single-digit ms and runs SQLite at
+native-pure-Go speed; the costs are ~1.8 MiB of binary and a modest
+per-call marshaling overhead.
 
 ---
 
@@ -288,9 +332,10 @@ no-rebuild, no-matrix goal, and **SQLite is its ideal target**. But it is
 an **upstream project** (host + per-lib marshaling), its general-purpose
 reach is **limited by ecosystem maturity** (a curated handful of
 host-callable libs; the browser-vs-WASI gotcha; manual marshaling until
-the Component Model matures), and it carries a **startup-latency +
-base-size** cost. Excellent for SQLite and a small curated set; **not yet
-a universal "use any native lib" answer.** If broadest library reach
+the Component Model matures), and it carries a **base-size + per-call
+marshaling** cost (startup is small — measured ~1–4 ms; see §5.5).
+Excellent for SQLite and a small curated set; **not yet a universal "use
+any native lib" answer.** If broadest library reach
 matters most, C-FFI wins the count; if portability / safety / no-matrix /
 no-toolchain matter most, wasm wins.
 
