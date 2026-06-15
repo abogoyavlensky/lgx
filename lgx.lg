@@ -138,6 +138,46 @@
                  (os/exit 1))
                (throw e))))))
 
+(defn- semver-vec
+  "Parse \"X.Y.Z\" to [x y z], or nil for a non-numeric/partial version
+   (e.g. \"dev\" or \"1.2.0-rc1\"), so callers can stay permissive."
+  [s]
+  (let [base (first (str/split (or s "") "-"))
+        parts (str/split base ".")
+        digit? (fn [t] (and (seq t)
+                            (every? (fn [c] (and (>= (int c) 48) (<= (int c) 57)))
+                                    (seq t))))]
+    (when (and (= 3 (count parts)) (every? digit? parts))
+      (mapv (fn [t] (reduce (fn [a c] (+ (* 10 a) (- (int c) 48))) 0 (seq t)))
+            parts))))
+
+(defn- semver<
+  "True when version vector a is strictly less than b ([maj min patch])."
+  [a b]
+  (loop [a a b b]
+    (cond
+      (empty? a) false
+      (< (first a) (first b)) true
+      (> (first a) (first b)) false
+      :else (recur (rest a) (rest b)))))
+
+(defn- check-min-lg-version!
+  "Throw a clear error if a resolved dep declares :lgx/min-lg-version newer than
+   the active lg. Permissive: skipped when the active lg version can't be parsed
+   (e.g. a locally-built dev lg)."
+  [results]
+  (let [reqs (keep (fn [r] (get-in r [:dep-cfg :lgx/min-lg-version])) results)]
+    (when (seq reqs)                       ; only probe `lg -v` if a dep needs it
+      (when-let [have (semver-vec (runner/lg-version))]
+        (doseq [r results]
+          (let [req-str (get-in r [:dep-cfg :lgx/min-lg-version])
+                req (semver-vec req-str)]
+            (when (and req (semver< have req))
+              (write! *err* (str "lgx: dependency " (:lib r) " requires lg >= " req-str
+                                 ", but the active lg is " (runner/lg-version)
+                                 ". Upgrade lg, or point LGX_LG at a newer build.\n"))
+              (os/exit 1))))))))
+
 (defn- cmd-install [with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
@@ -148,6 +188,7 @@
     (if (empty? coords)
       (println "no deps in lgx.edn")
       (let [results (ensure-all! project coords)]
+        (check-min-lg-version! results)
         (if (some :installed? results)
           (print-installs! results)
           (println "all deps up to date"))))))
@@ -203,6 +244,7 @@
         own-res (resolve-project-paths ":resource-paths" project raw-resource-paths)
         dep-res (vec (mapcat dep-resource-roots results))
         resource-paths (dedup-keep-first (concat own-res dep-res))]
+    (check-min-lg-version! results)
     {:project project
      :results results
      :paths paths
