@@ -142,8 +142,10 @@
   "Parse \"X.Y.Z\" to [x y z], or nil for a non-numeric/partial version
    (e.g. \"dev\" or \"1.2.0-rc1\"), so callers can stay permissive."
   [s]
-  (let [base (first (str/split (or s "") "-"))
-        parts (str/split base ".")
+  ;; Only a clean numeric X.Y.Z parses; anything hyphenated/suffixed (e.g.
+  ;; "1.10.0-dev") or non-numeric ("dev") returns nil, so the active version of
+  ;; a dev build is treated as unknown and the check stays permissive.
+  (let [parts (str/split (or s "") ".")
         digit? (fn [t] (and (seq t)
                             (every? (fn [c] (and (>= (int c) 48) (<= (int c) 57)))
                                     (seq t))))]
