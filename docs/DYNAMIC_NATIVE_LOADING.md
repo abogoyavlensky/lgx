@@ -201,7 +201,7 @@ wazero host) **+ a `.wasm` blob** (+ metadata).
 | Aspect | Experience |
 |---|---|
 | **Toolchain** | **none** — stock `lg` (wazero baked in once, upstream); `lgx install/run/repl/build` all work, no `go build`, no per-lib rebuild. The whole win. |
-| **Startup latency** | small — **measured ~1–4 ms** over native to compile+instantiate SQLite-wasm (wazero is a fast single-pass compiler; see §5.5). Well within let-go's single-digit-ms cold-start budget; no disk cache needed. |
+| **Startup latency** | first run compiles the module (**~0.5–0.6 s** for 1.3 MB SQLite); the host's **disk compilation cache** makes warm restarts **~90 ms**. Cache lives under `os.UserCacheDir()`; no writable fs ⇒ recompiles each run (see §5.5). |
 | **Bundling (`lgx build`)** | let-go's bundle format has a **resource archive** (the `LGB2` trailer, gzipped — `lg.go`/`resources.go`), so the `.wasm` can be **embedded as a bundled resource** → self-contained standalone binary. Needs wiring the blob into the resource archive on build. |
 | **Memory** | each module has its own linear memory (64 KB pages); SQLite-wasm with data → a few MB. |
 | **Sandbox / I/O** | wasm can't touch disk/network unless the host grants it; SQLite's file I/O is wired through host functions (its VFS). The wrapper author's job; invisible to the end user. |
@@ -257,11 +257,12 @@ vs **native pure-Go SQLite** (`modernc.org/sqlite`), both `CGO_ENABLED=0`,
 
 Findings:
 
-- **Startup is negligible.** Compiling+instantiating SQLite-wasm costs
-  only **~1–4 ms** over the native path — within let-go's single-digit-ms
-  cold-start budget. wazero's single-pass compiler is fast; there is **no
-  disk cache by default and none is needed**. (This corrects an earlier
-  "tens-to-hundreds of ms" estimate.)
+- **Startup: compile once, then cache.** The `ncruces` row above reflects its
+  *cached* path. A from-scratch wazero compile of our own 1.3 MB SQLite module
+  is **~0.5–0.6 s** — not negligible. The let-go `wasm` host therefore ships a
+  **disk compilation cache** (under `os.UserCacheDir()`): first run ~0.5–0.6 s,
+  warm restarts **~90 ms** (cache hit). Without a writable fs it recompiles each
+  run. (This supersedes an earlier "~1–4 ms, no cache needed" note.)
 - **Throughput is a wash.** wasm and native modernc are within ~±5% for
   both writes and reads — both are cgo-free SQLite ending up as native
   code, neither pays a cgo boundary.
@@ -333,7 +334,7 @@ an **upstream project** (host + per-lib marshaling), its general-purpose
 reach is **limited by ecosystem maturity** (a curated handful of
 host-callable libs; the browser-vs-WASI gotcha; manual marshaling until
 the Component Model matures), and it carries a **base-size + per-call
-marshaling** cost (startup is small — measured ~1–4 ms; see §5.5).
+marshaling** cost (first-run compile ~0.5 s, ~90 ms warm via the compilation cache; see §5.5).
 Excellent for SQLite and a small curated set; **not yet a universal "use
 any native lib" answer.** If broadest library reach
 matters most, C-FFI wins the count; if portability / safety / no-matrix /
