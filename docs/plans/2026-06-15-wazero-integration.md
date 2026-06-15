@@ -325,3 +325,28 @@ Let-go-defined host functions; module/compile caching; float-arg helpers; SQLite
 - `sqlite-lg` runs `:memory:` and file round-trips via the wasm host using only `lg` (no lgx).
 - A sample project declaring `sqlite-lg` as a dep runs via `lgx run` and produces a self-contained binary via `lgx build`, both exercising real SQLite queries.
 - The `min-lg-version` check errors clearly against an old `lg` and is permissive on dev versions.
+
+---
+
+## Implementation summary (2026-06-15) — ✅ Complete
+
+All three phases implemented, tested, and committed; the A→B→C pipeline is verified end-to-end.
+
+**Phase A — let-go wasm host** (`nooga/let-go` branch `wazero`): `pkg/rt/wasm.go` — `wasm/instantiate|call|read|read-string|read-cstring|write|close` (wazero + WASI; type-aware i32/i64/f32/f64; core-start-section rejection; nil-memory guards). Commits `6b82d47`, `3ad494e`, `740f2ce`. wazero adds **+2.56 MiB**; the built `lg` reports `1.11.0`.
+
+**Phase B — sqlite-lg** (`master`): `sqlite3.wasm` (SQLite 3.53.2, WASI reactor, built via `lgx build-wasm` + wasi-sdk) and the `sqlite` namespace (`open`/`execute!`/`query`/`close`; `?` params; typed columns INTEGER/REAL/TEXT/NULL; `try/finally` finalize). `:memory:` and file DBs both verified. Commits `b5b9720`, `aaac349`, `0f90d23`, `9da2804`, `4774951`, `f006bdc`.
+
+**Phase C — lgx** (branch `wazero`): opt-in dep resources via `:lgx/lib {:resources true}` folded into `-resource-paths`; lenient dep-config reader surfacing the consumer-facing keys; `:lgx/min-lg-version` enforced via `lg -v` (permissive on dev). Full suite green (277+ assertions). Commits `97f06c4`, `6fbc05a`, `8876041`, `0b1d51a`.
+
+**End-to-end verification:** a sample app depending on `sqlite-lg` runs via `lgx run` (`query => [{:x 1, :y hello}]`) and `lgx build` yields a self-contained ~16 MB binary (embedded `sqlite3.wasm`) that runs standalone (no `lg`/`lgx`/`go`).
+
+### Deviations from the plan
+- **wasi-sdk install via lgx task, not mise.** The asdf/mise wasi-sdk plugin is broken (pre-v25, non-arch URL → 404; no arm64), so the Makefile was replaced by lgx `:tasks` — `setup-wasi-sdk` (arch-aware) + `build-wasm` (per the user's suggestion to use lgx tasks).
+- **Added `wasm/read-string` / `wasm/read-cstring`** to the host (let-go has no UTF-8 bytes→string decode) — needed to read TEXT columns/errmsg correctly.
+- **Contract keys phased.** `:lgx/lib` / `:lgx/min-lg-version` were held out of `sqlite-lg/lgx.edn` until Phase C taught lgx's closed schema about them, then re-added (`f006bdc`).
+
+### Codex findings fixed along the way
+Auto-`_start` + core-start-section handling; i32 sign / float result decoding; uint32 range checks; compiled-module cleanup; `:dir` keyword-form option; statement finalize-on-error; closed-schema test update + dep-key validation; version-check short-circuit + defensive `lg -v`.
+
+### Known v1 limitations (documented)
+Single-writer file DBs (WASI has no locking); BLOBs best-effort as bytes; transactions / prepared-stmt reuse / pragmas not yet wrapped; browser-WASM excludes the wasm host (same boundary as pods).
