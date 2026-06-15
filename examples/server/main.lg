@@ -1,0 +1,55 @@
+(ns main
+  (:require [http :as http]
+            [json :as json]
+            [ruuter.core :as r]))
+
+;; A small HTTP server: let-go's built-in `http` provides the Ring-style
+;; server, and ruuter (a third-party lib, fetched from lgx.edn) does the
+;; routing. Run with `lgx run`, then:
+;;
+;;   curl http://localhost:7070/
+;;   curl http://localhost:7070/health
+;;   curl http://localhost:7070/users/42
+;;   curl -d 'hi there' http://localhost:7070/echo
+
+(defn json-response [status data]
+  {:status status
+   :headers {"Content-Type" "application/json"}
+   :body (json/write-json data)})
+
+(def routes
+  [{:path "/"
+    :method :get
+    :response {:status 200
+               :headers {"Content-Type" "text/plain"}
+               :body "let-go http + ruuter\n"}}
+
+   ;; A function response receives the request map. ruuter merges parsed
+   ;; path params under :params.
+   {:path "/health"
+    :method :get
+    :response (fn [_] (json-response 200 {:status "ok"}))}
+
+   {:path "/users/:id"
+    :method :get
+    :response (fn [req] (json-response 200 {:id (-> req :params :id)}))}
+
+   ;; let-go passes the request body as a string under :body.
+   {:path "/echo"
+    :method :post
+    :response (fn [req] (json-response 200 {:echo (:body req)}))}
+
+   ;; ruuter falls back to the :not-found route when nothing matches.
+   {:path :not-found
+    :response (fn [_] (json-response 404 {:error "not found"}))}])
+
+;; let-go's server hands the handler a Ring-style request map, but
+;; :request-method arrives as a string ("get") while ruuter matches routes
+;; against keyword methods (:get). Keywordize it before routing.
+(defn handler [req]
+  (println (:request-method req) (:uri req))
+  (r/route routes (update req :request-method keyword)))
+
+(def port ":7070")
+(println (str "Listening on http://localhost" port))
+(http/serve handler port)
