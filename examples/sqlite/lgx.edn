@@ -1,0 +1,4 @@
+{:deps {sqlite {:git/url "https://github.com/abogoyavlensky/sqlite-lg"
+                :git/sha "a416b236ead0e2982b7858071e48d92843300ffc"}}
+ :targets {:bin {:out "bin/notes"}}
+ :main "main.lg"}

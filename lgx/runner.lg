@@ -13,6 +13,17 @@
   (when (seq paths)
     ["-resource-paths" (str/join os/path-separator paths)]))
 
+(defn lg-version
+  "The active lg's version string from `lg -v` (e.g. \"1.11.0\" or
+   \"1.11.0-dev\"), or nil if it can't be read."
+  []
+  (try
+    (let [out (str (:out (os/sh (lg-binary) "-v")))
+          toks (str/split (str/trim out) " ")]
+      (when (>= (count toks) 2)
+        (second toks)))
+    (catch e nil)))
+
 (defn lg-args
   "Assemble lg's argv: -source-paths / -resource-paths flags (omitted when
    the corresponding path list is empty) followed by the forwarded args."

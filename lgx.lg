@@ -53,12 +53,13 @@
                            (path/normalize (path/join base local))))
     c))
 
-(defn- coords-at!
-  "config/coords-at, but an invalid dep config prints its rendered report and
-   exits 1 instead of escaping as a stack trace."
+(defn- dep-config-at!
+  "config/dep-config-at (a dep's lenient lgx.edn map, or nil), but an invalid
+   dep config prints its rendered report and exits 1 instead of escaping as a
+   stack trace."
   [dir]
   (try
-    (config/coords-at dir)
+    (config/dep-config-at dir)
     (catch e
            (if (:lgx/invalid-dep-config (ex-data e))
              (do (write! *err* (ex-message e))
@@ -95,12 +96,15 @@
                            (coord-label id) "\n")))
             (recur rest-q seen out))
           (let [{:keys [path dir installed?]} (cache/ensure-lib! c base)
+                dep-cfg (dep-config-at! dir)
                 children (mapv (fn [[clib cc]] [clib cc dir])
-                               (coords-at! dir))]
+                               (vec (:deps dep-cfg)))]
             (recur (vec (concat rest-q children))
                    (assoc seen lib id)
                    (conj out {:lib lib
                               :path path
+                              :dir dir
+                              :dep-cfg dep-cfg
                               :installed? installed?}))))))))
 
 (defn- print-installs! [results]
@@ -134,6 +138,48 @@
                  (os/exit 1))
                (throw e))))))
 
+(defn- semver-vec
+  "Parse \"X.Y.Z\" to [x y z], or nil for a non-numeric/partial version
+   (e.g. \"dev\" or \"1.2.0-rc1\"), so callers can stay permissive."
+  [s]
+  ;; Only a clean numeric X.Y.Z parses; anything hyphenated/suffixed (e.g.
+  ;; "1.10.0-dev") or non-numeric ("dev") returns nil, so the active version of
+  ;; a dev build is treated as unknown and the check stays permissive.
+  (let [parts (str/split (or s "") ".")
+        digit? (fn [t] (and (seq t)
+                            (every? (fn [c] (and (>= (int c) 48) (<= (int c) 57)))
+                                    (seq t))))]
+    (when (and (= 3 (count parts)) (every? digit? parts))
+      (mapv (fn [t] (reduce (fn [a c] (+ (* 10 a) (- (int c) 48))) 0 (seq t)))
+            parts))))
+
+(defn- semver<
+  "True when version vector a is strictly less than b ([maj min patch])."
+  [a b]
+  (loop [a a b b]
+    (cond
+      (empty? a) false
+      (< (first a) (first b)) true
+      (> (first a) (first b)) false
+      :else (recur (rest a) (rest b)))))
+
+(defn- check-min-lg-version!
+  "Throw a clear error if a resolved dep declares :lgx/min-lg-version newer than
+   the active lg. Permissive: skipped when the active lg version can't be parsed
+   (e.g. a locally-built dev lg)."
+  [results]
+  (let [reqs (keep (fn [r] (get-in r [:dep-cfg :lgx/min-lg-version])) results)]
+    (when (seq reqs)                       ; only probe `lg -v` if a dep needs it
+      (when-let [have (semver-vec (runner/lg-version))]
+        (doseq [r results]
+          (let [req-str (get-in r [:dep-cfg :lgx/min-lg-version])
+                req (semver-vec req-str)]
+            (when (and req (semver< have req))
+              (write! *err* (str "lgx: dependency " (:lib r) " requires lg >= " req-str
+                                 ", but the active lg is " (runner/lg-version)
+                                 ". Upgrade lg, or point LGX_LG at a newer build.\n"))
+              (os/exit 1))))))))
+
 (defn- cmd-install [with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
@@ -144,6 +190,7 @@
     (if (empty? coords)
       (println "no deps in lgx.edn")
       (let [results (ensure-all! project coords)]
+        (check-min-lg-version! results)
         (if (some :installed? results)
           (print-installs! results)
           (println "all deps up to date"))))))
@@ -159,27 +206,6 @@
             abs))
         paths))
 
-(defn- basis
-  "Resolve `coords`, `raw-paths`, and `raw-resource-paths` into a basis for the
-   active project. Returns a map with the project root, the install results, the
-   joined source path vector used for `-source-paths`, and the resolved resource
-   roots used for `-resource-paths`. `coords` is the coord pair list to resolve
-   (project deps, or project+task extras merged); `raw-paths` is the
-   project-relative source path list (project :paths, or project :paths ++ a
-   task's :extra-paths); `raw-resource-paths` is the project-relative resource
-   root list. Source paths include resolved dep dirs; resource paths are
-   project-only (deps never contribute resource roots)."
-  [project coords raw-paths raw-resource-paths]
-  (let [results (ensure-all! project coords)
-        own-paths (resolve-project-paths ":paths" project raw-paths)
-        paths (vec (concat own-paths (mapv :path results)))
-        resource-paths (resolve-project-paths ":resource-paths" project
-                                              raw-resource-paths)]
-    {:project project
-     :results results
-     :paths paths
-     :resource-paths resource-paths}))
-
 (defn- dedup-keep-first
   "Return xs with duplicates removed, keeping each value's first position."
   [xs]
@@ -193,15 +219,49 @@
           (recur seen acc (next ys))
           (recur (conj seen x) (conj acc x) (next ys)))))))
 
+(defn- dep-resource-roots
+  "Resource roots a dep contributes to consumers. A dep opts in by declaring
+   :lgx/lib {:resources true} in its lgx.edn; lgx then exposes its
+   :resource-paths (resolved under the dep's dir). Deps that don't opt in
+   contribute nothing (source-only)."
+  [{:keys [dir dep-cfg]}]
+  (if (get-in dep-cfg [:lgx/lib :resources])
+    (mapv (fn [p] (path/join dir p)) (or (:resource-paths dep-cfg) []))
+    []))
+
+(defn- basis
+  "Resolve `coords`, `raw-paths`, and `raw-resource-paths` into a basis for the
+   active project. Returns a map with the project root, the install results, the
+   joined source path vector used for `-source-paths`, and the resolved resource
+   roots used for `-resource-paths`. `coords` is the coord pair list to resolve
+   (project deps, or project+task extras merged); `raw-paths` is the
+   project-relative source path list; `raw-resource-paths` is the
+   project-relative resource root list. Source paths include resolved dep dirs;
+   resource paths include the project's own plus those of deps that opt in via
+   :lgx/lib {:resources true}."
+  [project coords raw-paths raw-resource-paths]
+  (let [results (ensure-all! project coords)
+        own-paths (resolve-project-paths ":paths" project raw-paths)
+        paths (vec (concat own-paths (mapv :path results)))
+        own-res (resolve-project-paths ":resource-paths" project raw-resource-paths)
+        dep-res (vec (mapcat dep-resource-roots results))
+        resource-paths (dedup-keep-first (concat own-res dep-res))]
+    (check-min-lg-version! results)
+    {:project project
+     :results results
+     :paths paths
+     :resource-paths resource-paths}))
+
 (defn- overlay-basis
   "Build the basis (source paths, resource paths, deps) with context overlays
    applied. `cli-with` is the --with name list (possibly empty); `task` is the
    task map, or nil for run/build/test. Layering, low->high precedence: project
    deps/paths/resource-paths < task :with contexts < CLI --with contexts < task
-   inline :extra-* (highest). Resource paths layer the same way but, unlike
-   source paths, never pick up dep dirs. With no contexts and no task this
-   reduces to the project's own deps/paths/resource-paths. `cfg` is the
-   project's loaded config map (load-config!)."
+   inline :extra-* (highest). Resource paths layer the same way; deps also
+   contribute resource roots when they opt in via :lgx/lib {:resources true}.
+   With no contexts and no task this reduces to the project's own
+   deps/paths/resource-paths. `cfg` is the project's loaded config map
+   (load-config!)."
   [project cfg cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
         overlay (with->overlay! cfg names)

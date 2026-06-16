@@ -1,0 +1,14 @@
+(ns main
+  (:require [sqlite :as sqlite]))
+
+(let [db (sqlite/open ":memory:")]
+  (sqlite/execute! db "create table notes (id integer primary key, title text, done integer)")
+  (sqlite/execute! db "insert into notes (title, done) values (?, ?)" "buy milk" 0)
+  (sqlite/execute! db "insert into notes (title, done) values (?, ?)" "write docs" 1)
+
+  (println "notes:")
+  (doseq [n (sqlite/query db "select * from notes order by id")]
+    (println " " (:id n) (if (zero? (:done n)) "[ ]" "[x]") (:title n)))
+
+  (println "open:" (:n (first (sqlite/query db "select count(*) as n from notes where done = 0"))))
+  (sqlite/close db))

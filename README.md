@@ -241,6 +241,10 @@ key's rules in detail.
  ;; relative to the project root.
  :targets {:bin {:out "bin/myapp"}}
 
+ ;; WASM-library metadata — set only when this project IS a wasm lib (see below).
+ :lgx/lib {:resources true}    ; expose :resource-paths (e.g. a .wasm) to consumers
+ :lgx/min-lg-version "1.11.0"  ; consumers' lg must be at least this version
+
  ;; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
  ;; or a task's :with; :dev auto-applies to run/nrepl, :test to `lgx test`.
  :contexts
@@ -298,9 +302,28 @@ key's rules in detail.
 - `lgx run` and `lgx test` make the resources resolvable at runtime; `lgx
   build` **embeds** every resource under these roots into the bundled binary,
   so `io/resource` keeps working with no files alongside the executable.
-- Missing entries print a warning, same as `:paths`. Unlike source paths,
-  resource roots come only from your project (its top level plus any applied
-  contexts/tasks) - dependencies never contribute resource roots.
+- Missing entries print a warning, same as `:paths`. Resource roots come from
+  your project (its top level plus any applied contexts/tasks) and from any
+  dependency that opts in with `:lgx/lib {:resources true}` (see below).
+
+### `:lgx/lib` and `:lgx/min-lg-version` (WASM libraries)
+
+These let a library ship native functionality as a WebAssembly module (run
+in-process via let-go's `wasm` host) and have lgx wire it up for consumers.
+
+- **`:lgx/lib {:resources true}`** — when this project is used as a dependency,
+  lgx adds its `:resource-paths` (where the `.wasm` lives) to consumers'
+  `-resource-paths`. Libraries that don't set it stay source-only, so a
+  dependency never contributes resources unless it opts in.
+- **`:lgx/min-lg-version "X.Y.Z"`** — the minimum `lg` the library needs (e.g.
+  one with the `wasm` host). lgx checks the active `lg` (`lg -v`) and errors
+  clearly if it's older; permissive on unparseable/dev versions.
+
+**Making a WASM library:** declare both keys, put the `.wasm` under
+`:resource-paths`, and provide a `.lg` API that drives the `wasm` host
+(`wasm/instantiate`, `wasm/call`, `wasm/read`/`read-string`, `wasm/write`, …).
+See [`docs/USING_WASM_LIBS.md`](docs/USING_WASM_LIBS.md) and the
+[`sqlite-lg`](https://github.com/abogoyavlensky/sqlite-lg) example.
 
 ### `:deps`
 

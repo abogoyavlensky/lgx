@@ -344,6 +344,8 @@
     [:deps {:optional true} deps-schema]
     [:paths {:optional true} [:vector rel-path-schema]]
     [:resource-paths {:optional true} [:vector rel-path-schema]]
+    [:lgx/lib {:optional true} [:map [:resources {:optional true} :any]]]
+    [:lgx/min-lg-version {:optional true} :string]
     [:main {:optional true} rel-path-schema]
     [:targets {:optional true} targets-schema]
     [:contexts {:optional true} [:map-of :keyword context-schema]]
@@ -465,27 +467,28 @@
   [cfg]
   (or (:resource-paths cfg) []))
 
-;; Read leniently: only the :deps coords are validated. A dep's other keys
-;; (:paths, :main, :tasks, :targets) describe how to build that project, not
-;; how to consume it — and a dep built with a newer lgx may carry top-level
-;; keys this version doesn't know. The open :map (no :closed) encodes exactly
-;; that.
+;; Read leniently: validate only the keys lgx consumes from a dependency —
+;; :deps (transitive resolution) and the wasm-dep keys :resource-paths,
+;; :lgx/lib, :lgx/min-lg-version. A dep's build-only keys (:paths, :main,
+;; :tasks, :targets) and any top-level keys a newer lgx may add are tolerated:
+;; the open :map (no :closed) encodes exactly that.
 (def ^:private dep-config-schema
-  [:map [:deps {:optional true} deps-schema]])
+  [:map
+   [:deps {:optional true} deps-schema]
+   [:resource-paths {:optional true} [:vector rel-path-schema]]
+   [:lgx/lib {:optional true} [:map [:resources {:optional true} :any]]]
+   [:lgx/min-lg-version {:optional true} :string]])
 
-(defn coords-at
-  "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
-   is absent. Unlike the project's own lgx.edn, a missing file is not an
-   error: most deps ship no lgx.edn, and only a dep's :deps matters for
-   transitive resolution.
-
-   On invalid content throws ex-info whose message is the rendered error
-   report naming dir, with {:lgx/invalid-dep-config dir} in ex-data so the
-   caller can print it and exit without a stack trace."
+(defn dep-config-at
+  "Parse the lenient lgx.edn in dir (only :deps is validated), returning the
+   parsed config map, or nil when no lgx.edn is present. Throws ex-info with
+   {:lgx/invalid-dep-config dir} on malformed content so the caller can print
+   the report and exit without a stack trace. Used to read a dep's transitive
+   :deps and its consumer-facing keys (:resource-paths, :lgx/lib,
+   :lgx/min-lg-version)."
   [dir]
   (let [config-path (path/join dir config-name)]
-    (if-not (file-exists? config-path)
-      []
+    (when (file-exists? config-path)
       (let [parsed (try
                      {:value (edn/read-string (slurp config-path))}
                      (catch e
@@ -497,7 +500,14 @@
         (if (seq errors)
           (throw (ex-info (errors-report (str "lgx.edn in " dir) errors)
                           {:lgx/invalid-dep-config dir}))
-          (vec (or (:deps (:value parsed)) [])))))))
+          (:value parsed))))))
+
+(defn coords-at
+  "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
+   is absent. A missing file is not an error: most deps ship no lgx.edn, and
+   only a dep's :deps matters for transitive resolution."
+  [dir]
+  (vec (or (:deps (dep-config-at dir)) [])))
 
 (defn tasks
   "Return the :tasks map from a loaded cfg map, or {} if absent."
