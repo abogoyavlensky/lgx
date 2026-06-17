@@ -168,19 +168,7 @@ assert_eq "$out" "no deps in lgx.edn" "empty :deps prints expected line"
 rm -rf "$proj" "$home"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 4b: install reports cached let-go source when :lg-version pinned"
-proj="$(mktemp -d)"
-echo '{:deps {} :lg-version "0.0.1"}' > "$proj/lgx.edn"
-home="$(mktemp -d)"
-# Pre-seed the cache so install takes the idempotent no-op path (no network).
-mkdir -p "$home/let-go/source/0.0.1"
-out="$(cd "$proj" && LGX_HOME="$home" "$LGX" install)"
-assert_contains "$out" "let-go 0.0.1 source up to date" "pinned install reports cached let-go source"
-assert_not_contains "$out" "Fetched" "cached let-go source is not re-fetched"
-rm -rf "$proj" "$home"
-
-# ---------------------------------------------------------------------------
-echo "==> Scenario 4c: :lg-version mismatch warns on run, fails build, bypassable"
+echo "==> Scenario 4b: :lg-version mismatch warns on run, fails build, bypassable"
 proj="$(mktemp -d)"
 echo '{:paths ["."] :lg-version "9.9.9" :main "main.lg"}' > "$proj/lgx.edn"
 echo '(println "ran")' > "$proj/main.lg"

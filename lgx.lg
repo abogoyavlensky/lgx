@@ -142,9 +142,8 @@
   (when-let [version (config/lg-version cfg)]
     (try
       (let [r (cache/ensure-letgo-source! version)]
-        (if (:installed? r)
-          (println (str "Fetched let-go " version " source (for editor navigation)"))
-          (println (str "let-go " version " source up to date"))))
+        (when (:installed? r)
+          (println (str "Fetched let-go " version " source"))))
       (catch e
              (write! *err* (str "warning: failed to fetch let-go " version
                                 " source: " (ex-message e) "\n"))))))
