@@ -1,6 +1,8 @@
 # let-go Version Pinning & Source Fetch Implementation Plan
 
-> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: COMPLETED (2026-06-17).** See the summary at the end.
+
+> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Let a project pin the let-go version it targets via an optional
 `:lg-version` key in `lgx.edn`. When pinned, `lgx install` fetches the matching
@@ -188,25 +190,25 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
 - Modify: `lgx/config.lg`
 - Modify: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - `lgx.edn` with `:lg-version "1.10.0"` validates; with `:lg-version ""` or a
     non-string fails validation; absent validates.
   - `config/lg-version` returns `"1.10.0"` when present, `nil` when absent.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL (key unknown to the closed schema / accessor missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Add `[:lg-version {:optional true} <non-blank-string-schema>]` to `lgx-schema`
   (reuse the same string shape `:main`/paths use, minus path semantics). Add
   `config/lg-version` returning `(:lg-version cfg)`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS (no regressions in existing config tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add optional :lg-version key to lgx.edn schema"`
 
 ### Task 2: `ensure-letgo-source!` in cache.lg
@@ -216,7 +218,7 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
 - Create: `test/lgx/cache_test.lg`
 - Modify: `tests/fixtures/` (tagged `file://` git remote fixture)
 
-- [ ] **Step 1: Write failing tests** (against a local `file://` git remote: a
+- [x] **Step 1: Write failing tests** (against a local `file://` git remote: a
   tmp repo with one commit tagged `v0.0.1`)
   - `ensure-letgo-source!` with version `"0.0.1"` clones into
     `<home>/let-go/source/0.0.1/`, returns `:installed? true`, and the worktree
@@ -226,11 +228,11 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
   (Parameterize the repo URL/`home` for the test so it points at the fixture,
   not GitHub.)
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL (fn missing).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   - Make `clone-tag!` callable from the new fn (drop the `-`/private or add a
     thin public wrapper).
   - `ensure-letgo-source!`: compute `(path/join (home/root) "let-go" "source"
@@ -242,11 +244,11 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
     cache base) as parameters defaulting to `nooga/let-go` and `(home/root)`, so
     the unit test points them at the `file://` fixture without touching GitHub.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Fetch let-go source into LGX_HOME/let-go/source/<version>"`
 
 ### Task 3: Wire source fetch into `lgx install`
@@ -255,17 +257,17 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
 - Modify: `lgx.lg` (`cmd-install`)
 - Modify: `tests/e2e.sh` + `tests/fixtures/` (install behavior)
 
-- [ ] **Step 1: Write failing test/e2e**
+- [x] **Step 1: Write failing test/e2e**
   With a project whose `lgx.edn` pins `:lg-version "0.0.1"` (pointing the fetch
   at the fixture remote), `lgx install` fetches the source and prints a
   `Fetched let-go 0.0.1 source …` line; a second `install` prints the
   already-present line and does not re-clone; an unpinned project prints neither.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
   Run: `make test`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `cmd-install`, after the deps step, when `config/lg-version` is set, call
   `ensure-letgo-source!` and print `Fetched let-go <version> source (for editor
   navigation)` on fresh fetch / a quiet up-to-date line otherwise. Report a
@@ -275,11 +277,11 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
   early-returns on the `no deps in lgx.edn` branch; a deps-less project that
   pins `:lg-version` must still fetch the source.
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "lgx install: fetch let-go source when :lg-version is pinned"`
 
 ### Task 4: Version compatibility check (warn run/nrepl, fail build/test)
@@ -288,7 +290,7 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
 - Modify: `lgx.lg`
 - Add: `test/lgx/<module>_test.lg` (check logic) + `tests/e2e.sh` (tiers via the binary)
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - Pinned + matching installed version → no message, proceeds.
   - Pinned + mismatch → `cmd-run`/`cmd-nrepl` warn (once) and proceed;
     `cmd-build`/`cmd-test` fail (non-zero) with both versions shown.
@@ -297,11 +299,11 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
   - Unpinned → no check.
   (Stub/inject the "installed version" so tests don't depend on a real `lg`.)
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
   Run: `make test`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   - `lg-installed-version`: run `lg -v`, parse the version token; `nil`/`:dev`
     when unparseable or `lg` absent.
   - `check-lg-version!` (taking a severity): exact compare; honor
@@ -309,11 +311,11 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
   - Call at warn in `cmd-run`/`cmd-nrepl`, at fail in `cmd-build`/`cmd-test`,
     only when `config/lg-version` is set.
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
   Run: `make test`
   Expected: PASS (existing run/build/test behavior unchanged when unpinned).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Check lg version against :lg-version (warn run/nrepl, fail build/test)"`
 
 ### Task 5: Docs
@@ -322,18 +324,18 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
 - Modify: `README.md`
 - Create: `docs/knowledge-base/let-go-version-pinning.md` (optional)
 
-- [ ] **Step 1: README reference + section**
+- [x] **Step 1: README reference + section**
   Add `:lg-version "1.10.0"` (commented, one-line description) to the
   `## Configuration: lgx.edn` example. Add a concise `### let-go version pinning`
   section (mechanism, cache path, warn/fail tiers, `LGX_SKIP_VERSION_CHECK`, and
   "lgx does not install `lg`"). Update the `lgx install` Commands-table row.
 
-- [ ] **Step 2: Knowledge-base note (optional)**
+- [x] **Step 2: Knowledge-base note (optional)**
   `docs/knowledge-base/let-go-version-pinning.md` — rationale and the
   editor/clj-pulse integration, matching the existing `let-go-*.md` notes. Use
   the /writing-clearly skill.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Document :lg-version pinning and the source-fetch mechanism"`
 
 ---
@@ -349,3 +351,43 @@ Reuse `clone-tag!`, `finalize-worktree!`, `(home/root)`, `path/join`,
   lgx to manage the binary too — explicitly out of scope.
 - **Tag-format assumption** (`v<version>`) must be confirmed against
   nooga/let-go releases during Task 2.
+
+---
+
+## Implementation summary (2026-06-17)
+
+Implemented on branch `lg-version`. `make test` (run via `mise exec` so it uses
+the project-pinned lg 1.10.0) is green: **416 unit tests / 568 assertions** and
+the full e2e suite (incl. the new Scenarios 4b/4c).
+
+- **`lgx/config.lg`** — `:lg-version` added to the closed schema (optional
+  non-blank string) + `config/lg-version` accessor.
+- **`lgx/cache.lg`** — `ensure-letgo-source!` clones `nooga/let-go` at
+  `v<version>` into `$LGX_HOME/let-go/source/<version>/` (idempotent, reuses the
+  private `clone-tag!`), with a URL/home seam for the `file://`-fixture unit test.
+- **`lgx.lg`** — `cmd-install` fetches the source when pinned (runs even with
+  empty `:deps`), logging `Fetched let-go <version> source (for editor
+  navigation)`; `check-lg-version!` warns on `run`/`nrepl`, fails on
+  `build`/`test`, honors `LGX_SKIP_VERSION_CHECK`.
+- **`lgx/version.lg` (new)** — pure `check` (`:ok`/`:skip`/`:mismatch`) +
+  `installed` (parses `lg -v`, via `runner/lg-binary` so it honors `LGX_LG`).
+- **`README.md`** — `:lg-version` reference, a `### :lg-version` mechanism
+  section, the `lgx install` row, `LGX_SKIP_VERSION_CHECK`, and the state-layout
+  entry.
+
+### Notes from execution
+
+- **Toolchain:** the ambient shell had global lg 2.0.2 (incompatible: `os/exec*`
+  removed in let-go 2.x); all builds/tests run via `mise exec` to use the
+  project-pinned lg 1.10.0.
+- **Two let-go gotchas surfaced by tests:** `os/getenv` returns `""` (truthy)
+  for unset vars — the skip-check guard needed `str/blank?`, not `when-not`; and
+  e2e's `set -eu` required a `set +e` guard around the intentionally-non-zero
+  `build` case.
+- **Codex review:** the one finding (a `:lgx/min-lg-version` semver-suffix
+  concern) described a min-version feature this change does not implement —
+  the check is exact-match and skips the literal `"dev"` that let-go dev builds
+  report. Not applicable; no change made.
+- **Skipped (optional):** the `docs/knowledge-base/let-go-version-pinning.md`
+  note. **Open:** confirm `nooga/let-go`'s tag format (`v<version>`) against a
+  real release.
