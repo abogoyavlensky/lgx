@@ -1,13 +1,14 @@
 ;; Version compatibility between the :lg-version pin and the installed lg.
 
 (ns lgx.version
-  (:require [string :as str]))
+  (:require [lgx.runner :as runner]
+            [string :as str]))
 
 (defn installed
   "The version token from `lg -v` (e.g. \"1.10.0\"), or nil when lg is absent or
-   the output is unparseable. Uses the lg on PATH (the project's, under mise)."
+   the output is unparseable. Probes the same lg lgx invokes (honoring LGX_LG)."
   []
-  (let [r (try (os/sh "lg" "-v") (catch e nil))]
+  (let [r (try (os/sh (runner/lg-binary) "-v") (catch e nil))]
     (when (and r (zero? (:exit r)))
       (let [toks (str/split (str/trim (:out r)) #"\s+")]
         (if (= (first toks) "lg") (second toks) (first toks))))))
