@@ -134,6 +134,20 @@
                  (os/exit 1))
                (throw e))))))
 
+;; Fetch the let-go source matching :lg-version (for editor navigation). Runs
+;; regardless of :deps so a deps-less pinned project still gets it; a fetch
+;; failure is its own warning and never fails the (already done) deps install.
+(defn- install-letgo-source! [cfg]
+  (when-let [version (config/lg-version cfg)]
+    (try
+      (let [r (cache/ensure-letgo-source! version)]
+        (if (:installed? r)
+          (println (str "Fetched let-go " version " source (for editor navigation)"))
+          (println (str "let-go " version " source up to date"))))
+      (catch e
+        (write! *err* (str "warning: failed to fetch let-go " version
+                           " source: " (ex-message e) "\n"))))))
+
 (defn- cmd-install [with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
@@ -146,7 +160,8 @@
       (let [results (ensure-all! project coords)]
         (if (some :installed? results)
           (print-installs! results)
-          (println "all deps up to date"))))))
+          (println "all deps up to date"))))
+    (install-letgo-source! cfg)))
 
 (defn- cmd-version []
   (println (str "lgx " version)))
