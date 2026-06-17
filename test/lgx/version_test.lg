@@ -1,0 +1,16 @@
+;; Unit tests for lgx.version — the pure pin-vs-installed decision.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.version-test
+  (:require [lgx.version :as version]
+            [clojure.test :refer [deftest is]]))
+
+(deftest check-ok-on-exact-match
+  (is (= :ok (version/check "1.10.0" "1.10.0"))))
+
+(deftest check-mismatch-on-different-version
+  (is (= :mismatch (version/check "1.10.0" "2.0.2"))))
+
+(deftest check-skips-on-unknown-or-dev
+  (is (= :skip (version/check "1.10.0" nil)))
+  (is (= :skip (version/check "1.10.0" "dev"))))

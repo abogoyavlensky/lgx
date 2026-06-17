@@ -10,6 +10,7 @@
             [lgx.style :as style]
             [lgx.tasks :as tasks]
             [lgx.test-runner :as test-runner]
+            [lgx.version :as version]
             [string :as str]))
 
 (def version "0.1.0-rc1")
@@ -276,9 +277,25 @@
       (write! *err* (str "+ auto context " name "\n")))
     (vec (concat auto with))))
 
+;; Preflight: when :lg-version is pinned, compare it to the lg on PATH. Warn for
+;; iteration commands (run/nrepl), fail for build/test. LGX_SKIP_VERSION_CHECK
+;; bypasses both; a dev/unknown installed version is skipped, not warned.
+(defn- check-lg-version! [cfg severity]
+  (when-let [pinned (config/lg-version cfg)]
+    ;; os/getenv returns "" (truthy) when unset, so gate on a non-blank value.
+    (when (str/blank? (os/getenv "LGX_SKIP_VERSION_CHECK"))
+      (let [installed (version/installed)]
+        (when (= :mismatch (version/check pinned installed))
+          (let [msg (str "lg " installed " on PATH does not match :lg-version "
+                         pinned " in lgx.edn (update the pin or the installed lg)")]
+            (if (= severity :fail)
+              (do (write! *err* (str "error: " msg "\n")) (os/exit 1))
+              (write! *err* (str "warning: " msg "\n")))))))))
+
 (defn- cmd-run [forward-args verbose? with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
+        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg :dev with verbose?)
         {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         main-script (config/main cfg)
@@ -322,6 +339,7 @@
             (os/exit 1)))
         project (config/find-project!)
         cfg (config/load-config! project)
+        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg :dev with verbose?)
         {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         ;; lg writes the literal -p value to .nrepl-port, so "random port"
@@ -344,6 +362,7 @@
 (defn- cmd-build [forward-args verbose? with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
+        _ (check-lg-version! cfg :fail)
         {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         main-script (config/main cfg)
         bin (:bin (config/targets cfg))]
@@ -391,6 +410,7 @@
     (os/exit 1))
   (let [project (config/find-project!)
         cfg (config/load-config! project)
+        _ (check-lg-version! cfg :fail)
         test-dir (path/join project "test")
         stat (os/stat test-dir)]
     ;; Cheap validation first: a missing test/ must error before the basis is
