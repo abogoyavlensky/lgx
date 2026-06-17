@@ -81,6 +81,13 @@
   (is (= {:cfg {:main "main.lg"}} (load-cfg {:main "main.lg"})))
   (is (= {:cfg {:main "scripts/dev.lg"}} (load-cfg {:main "scripts/dev.lg"}))))
 
+(deftest load-accepts-lg-version
+  (is (= {:cfg {:lg-version "1.10.0"}} (load-cfg {:lg-version "1.10.0"}))))
+
+(deftest lg-version-accessor
+  (is (= "1.10.0" (config/lg-version {:lg-version "1.10.0"})))
+  (is (nil? (config/lg-version {}))))
+
 (deftest load-accepts-targets-bin
   (let [cfg {:targets {:bin {:out "bin/app"}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
@@ -96,9 +103,13 @@
 (deftest load-rejects-unknown-top-level-key
   (is (= {:errors [{:path []
                     :msg (str "unknown key :extra (allowed: :deps, :paths, "
-                              ":resource-paths, :main, :targets, :contexts, "
-                              ":tasks)")}]}
+                              ":resource-paths, :main, :lg-version, :targets, "
+                              ":contexts, :tasks)")}]}
          (load-cfg {:deps {} :extra 1}))))
+
+(deftest load-rejects-blank-lg-version
+  (is (= {:errors [{:path [:lg-version] :msg "must be non-blank"}]}
+         (load-cfg {:lg-version ""}))))
 
 (deftest load-rejects-deps-not-a-map
   (is (= {:errors [{:path [:deps] :msg "must be a map, got [:not :a :map]"}]}

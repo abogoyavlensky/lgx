@@ -345,6 +345,7 @@
     [:paths {:optional true} [:vector rel-path-schema]]
     [:resource-paths {:optional true} [:vector rel-path-schema]]
     [:main {:optional true} rel-path-schema]
+    [:lg-version {:optional true} [:fn non-blank-string-errors]]
     [:targets {:optional true} targets-schema]
     [:contexts {:optional true} [:map-of :keyword context-schema]]
     [:tasks {:optional true}
@@ -521,6 +522,11 @@
   "Return the :main entrypoint string from a loaded cfg map, or nil if absent."
   [cfg]
   (:main cfg))
+
+(defn lg-version
+  "Return the :lg-version pin from a loaded cfg map, or nil if absent."
+  [cfg]
+  (:lg-version cfg))
 
 (defn targets
   "Return the :targets map from a loaded cfg map, or {} if absent."
