@@ -186,6 +186,8 @@
   ([version url]
    (let [dir (letgo-source-dir version)]
      (if (file-exists? dir)
-       {:installed? false :dir dir}
+       {:installed? false
+        :dir dir}
        (do (clone-tag! url (str "v" version) dir)
-           {:installed? true :dir dir})))))
+           {:installed? true
+            :dir dir})))))

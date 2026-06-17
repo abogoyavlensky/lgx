@@ -146,8 +146,8 @@
           (println (str "Fetched let-go " version " source (for editor navigation)"))
           (println (str "let-go " version " source up to date"))))
       (catch e
-        (write! *err* (str "warning: failed to fetch let-go " version
-                           " source: " (ex-message e) "\n"))))))
+             (write! *err* (str "warning: failed to fetch let-go " version
+                                " source: " (ex-message e) "\n"))))))
 
 (defn- cmd-install [with]
   (let [project (config/find-project!)
