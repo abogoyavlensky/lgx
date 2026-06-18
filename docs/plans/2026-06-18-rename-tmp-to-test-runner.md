@@ -67,7 +67,7 @@ new name and run the full suite (`make test` → bundle, unit, e2e).
 - Test: `test/lgx/home_test.lg`
 - Test: `test/lgx/test_runner_test.lg`
 
-- [ ] **Step 1: Update the unit test assertions (failing first)**
+- [x] **Step 1: Update the unit test assertions (failing first)**
   In `test/lgx/home_test.lg`: rename `deftest tmp-dir-lives-under-lgx-home`
   → `test-runner-dir-lives-under-lgx-home`, change the call `(home/tmp-dir)`
   → `(home/test-runner-dir)`, and the expected path
@@ -75,12 +75,12 @@ new name and run the full suite (`make test` → bundle, unit, e2e).
   In `test/lgx/test_runner_test.lg` (`write-harness-uses-versioned-stable-path`,
   ~line 334): change `(path/join home "tmp" …)` → `(path/join home "test-runner" …)`.
 
-- [ ] **Step 2: Run unit tests to verify they fail**
+- [x] **Step 2: Run unit tests to verify they fail**
   Run: `make build >/dev/null && bin/lgx test`
   Expected: FAIL — `home/test-runner-dir` is unresolved and/or the path
   assertions mismatch (`test-runner` vs `tmp`).
 
-- [ ] **Step 3: Rename the fn and the directory literal**
+- [x] **Step 3: Rename the fn and the directory literal**
   In `lgx/home.lg`: rename `tmp-dir` → `test-runner-dir`, change
   `(path/join (root) "tmp")` → `(path/join (root) "test-runner")`, and update
   the docstring (e.g. "Return the directory for the generated test-runner
@@ -89,11 +89,11 @@ new name and run the full suite (`make test` → bundle, unit, e2e).
   `(home/tmp-dir)` → `(home/test-runner-dir)` and the `write-harness!`
   docstring "under LGX_HOME/tmp" → "under LGX_HOME/test-runner".
 
-- [ ] **Step 4: Run unit tests to verify they pass**
+- [x] **Step 4: Run unit tests to verify they pass**
   Run: `make build >/dev/null && bin/lgx test`
   Expected: PASS (all unit tests green).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Rename LGX_HOME/tmp to LGX_HOME/test-runner"`
 
 ### Task 2: Update the e2e harness-path assertion
@@ -101,19 +101,19 @@ new name and run the full suite (`make test` → bundle, unit, e2e).
 **Files:**
 - Modify: `tests/e2e.sh` (scenario 44, ~lines 939–944)
 
-- [ ] **Step 1: Update the path and assertion messages**
+- [x] **Step 1: Update the path and assertion messages**
   Change `harness="$home_t6/tmp/lgx-test-$version.lg"`
   → `harness="$home_t6/test-runner/lgx-test-$version.lg"`. Update the two
   human-readable strings that say `LGX_HOME/tmp` →
   `LGX_HOME/test-runner` (the `assert_contains` label and the `pass` message).
   Leave the `$harness` variable-based assertions as-is — they follow the path.
 
-- [ ] **Step 2: Run e2e to verify scenario 44 passes**
+- [x] **Step 2: Run e2e to verify scenario 44 passes**
   Run: `make build >/dev/null && bash tests/e2e.sh`
   Expected: PASS — scenario 44 writes the harness under `test-runner/` and the
   path assertion matches.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "Update e2e harness-path assertion for test-runner rename"`
 
 ### Task 3: Update living docs
@@ -124,7 +124,7 @@ new name and run the full suite (`make test` → bundle, unit, e2e).
 
 Use /writing-clearly for the prose edits.
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
   - `lgx test` details (~188): "a one-shot harness under `$LGX_HOME/tmp/`"
     → `$LGX_HOME/test-runner/`.
   - Env-var table `LGX_HOME` row (~538): "the test harness tmp dir"
@@ -132,7 +132,7 @@ Use /writing-clearly for the prose edits.
   - State-layout tree (~551): `tmp/lgx-test-<version>.lg`
     → `test-runner/lgx-test-<version>.lg`.
 
-- [ ] **Step 2: Update ARCHITECTURE**
+- [x] **Step 2: Update ARCHITECTURE**
   - Write-path prose (~295): `$LGX_HOME/tmp/lgx-test-<version>.lg`
     → `$LGX_HOME/test-runner/lgx-test-<version>.lg`.
   - State-layout tree (~517): `tmp/lgx-test-<version>.lg`
@@ -140,14 +140,31 @@ Use /writing-clearly for the prose edits.
   - Prose (~523): "The `tmp` directory holds generated lgx…"
     → "The `test-runner` directory holds generated lgx…".
 
-- [ ] **Step 3: Verify no stale references remain in living files**
+- [x] **Step 3: Verify no stale references remain in living files**
   Run: `grep -rn 'LGX_HOME/tmp\|(root) "tmp"\|home "tmp"\|/tmp/lgx-test-\|tmp-dir' lgx/ test/ tests/ README.md docs/ARCHITECTURE.md`
   Expected: no matches. (Hits inside `docs/plans/` and unrelated system
   `/tmp/...` scratch paths are out of scope and stay.)
 
-- [ ] **Step 4: Run the full suite as a final check**
+- [x] **Step 4: Run the full suite as a final check**
   Run: `make test`
   Expected: "All tests passed."
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Update docs for LGX_HOME/test-runner rename"`
+
+---
+
+## Completion summary
+
+**Status:** Done. All tasks completed; full suite green (`make test` — 281 e2e assertions + 416 unit tests, 0 failures).
+
+Renamed `$LGX_HOME/tmp` → `$LGX_HOME/test-runner` and the fn `home/tmp-dir` → `home/test-runner-dir`. Updated its one caller and docstring in `lgx/test_runner.lg`, the two unit tests (`home_test.lg`, `test_runner_test.lg`), e2e scenario 44, and living docs (README, ARCHITECTURE).
+
+**Commits (branch `rename-test-runner-dir`):**
+- `bd9e45a` source + unit tests
+- `d9efb9c` e2e harness-path assertion
+- `32689ad` docs
+
+**Review:** Two `review-with-codex` passes. The first (Task 1 in isolation) flagged the still-stale e2e/doc references — already covered by Tasks 2 & 3. The final pass over the full branch was clean: "applied consistently across source, tests, e2e assertions, and living docs ... no introduced correctness issues."
+
+**Notes:** No migration/cleanup of a pre-existing `~/.lgx/tmp/` (pure regenerated scratch; harmless if left). Historical plan docs under `docs/plans/` were intentionally left untouched.
