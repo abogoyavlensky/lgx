@@ -45,6 +45,16 @@
     (when (seq pairs)
       (str "+ env " (str/join " " pairs) "\n"))))
 
+(defn binary-trace-line
+  "Build the `+ lg <version> (<path>)` trace line describing the resolved lg
+   binary. `version` is the token from `lg -v` (omitted when blank/nil);
+   `path` is the resolved full path, falling back to `bin` when blank/nil.
+   Always returns the line with a trailing newline."
+  [version path bin]
+  (let [loc (if (str/blank? path) bin path)
+        ver (when-not (str/blank? version) (str " " version))]
+    (str "+ lg" ver " (" loc ")\n")))
+
 (defn replay-output!
   "Write lg's captured {:out :err} back to *out*/*err*. Imperfect
    substitute for inherited stdio."
