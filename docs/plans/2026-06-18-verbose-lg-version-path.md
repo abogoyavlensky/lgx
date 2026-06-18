@@ -1,4 +1,4 @@
-# Verbose lg Version & Path Implementation Plan
+# Verbose lg Version & Path Implementation Plan — ✅ COMPLETED
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -85,7 +85,7 @@ e2e). For faster unit iteration: `make build && bin/lgx test`.
 - Modify: `lgx/runner.lg`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `runner_test.lg`, add cases for a new pure `runner/binary-trace-line`
   (takes a version string-or-nil and a path string-or-nil, returns the `+ …\n`
   line):
@@ -95,21 +95,21 @@ e2e). For faster unit iteration: `make build && bin/lgx test`.
     the fallback bin name in; see Step 3)
   Match the existing `env-trace-line` test style.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build && bin/lgx test`
   Expected: FAIL — `binary-trace-line` unresolved / wrong output.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
   Add `binary-trace-line` to `runner.lg`: a pure fn `[version path bin]` that
   builds `+ lg` + optional ` <version>` (when non-blank) + ` (<path-or-bin>)`
   + `\n`. The path argument falls back to `bin` when nil/blank. Keep it
   alongside `env-trace-line`, docstring in the same voice.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build && bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Add binary-trace-line formatter to runner"`
 
 ### Task 2: Version & path resolution
@@ -119,18 +119,18 @@ e2e). For faster unit iteration: `make build && bin/lgx test`.
 - Modify: `lgx/version.lg`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   In `runner_test.lg`, add cases for a pure `runner/display-path` helper that
   resolves the explicit-path (`LGX_LG`) branch given `[bin cwd]`:
   - absolute bin (`"/opt/lg"`, any cwd) → `"/opt/lg"` unchanged
   - relative bin (`"./.tmp/lg"`, cwd `"/home/u/proj"`) → normalized absolute
     `"/home/u/proj/.tmp/lg"` (use `path/join` + `path/normalize`)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `make build && bin/lgx test`
   Expected: FAIL — `display-path` unresolved.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
   In `runner.lg`:
   - `display-path [bin cwd]` (pure): if `path/absolute?` return bin, else
     `path/normalize (path/join cwd bin)`. Requires adding `[lgx.path :as path]`
@@ -144,12 +144,12 @@ e2e). For faster unit iteration: `make build && bin/lgx test`.
   In `version.lg`: change `installed` to delegate to `runner/lg-version`
   (drop the duplicated probe; keep the docstring accurate).
 
-- [ ] **Step 4: Run test to verify it passes; confirm no regression**
+- [x] **Step 4: Run test to verify it passes; confirm no regression**
   Run: `make build && bin/lgx test`
   Expected: PASS (new `display-path` cases + all existing runner/version-dependent
   tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "Add lg version/path resolution to runner; version delegates"`
 
 ### Task 3: Wire trace line + e2e
@@ -158,23 +158,23 @@ e2e). For faster unit iteration: `make build && bin/lgx test`.
 - Modify: `lgx/runner.lg`
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Wire into `lg-invocation!`**
+- [x] **Step 1: Wire into `lg-invocation!`**
   Under the existing `(when verbose? …)`, before the env line, write
   `(binary-trace-line (lg-version) (lg-resolved-path) bin)` to `*err*`. Keep
   the env and `+ <bin> <args>` lines exactly as they are. Update the
   `lg-invocation!` docstring to mention the version/path line.
 
-- [ ] **Step 2: Extend e2e Scenario 12**
+- [x] **Step 2: Extend e2e Scenario 12**
   In `tests/e2e.sh` Scenario 12 (verbose run), add an `assert_contains` that
   `$out_verbose` includes `"+ lg "` followed by a parenthesized path — assert
   on `+ lg ` and on `(` / the bin path. Keep it tolerant of version being
   present or absent (don't hard-code a version number).
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
   Run: `make test`
   Expected: all unit + e2e pass, including the new Scenario 12 assertion.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "Print lg version and path on --verbose"`
 
 ### Task 4: Docs
@@ -183,18 +183,56 @@ e2e). For faster unit iteration: `make build && bin/lgx test`.
 - Modify: `lgx.lg`
 - Modify: `README.md`
 
-- [ ] **Step 1: Update help text**
+- [x] **Step 1: Update help text**
   In `lgx.lg` (the `--verbose` help line ~41), note it also prints the resolved
   `lg` version and path. Keep it to one concise clause.
 
-- [ ] **Step 2: Update README**
+- [x] **Step 2: Update README**
   In `README.md` (the `--verbose` options bullet ~101), document the new
   `+ lg <version> (<path>)` line and that the path reflects `LGX_LG` overrides.
   Use /writing-clearly.
 
-- [ ] **Step 3: Verify build still succeeds**
+- [x] **Step 3: Verify build still succeeds**
   Run: `make build && bin/lgx --verbose run -e '(println :ok)'`
   Expected: stderr shows the `+ lg <version> (<path>)` line above the env line.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "Document verbose lg version/path output"`
+
+---
+
+## Completion Summary
+
+All four tasks landed on branch `add-verbose-lg-path-and-version` (4 commits,
+one per task), following the design as written — no scope changes.
+
+**What was implemented:**
+- `runner/binary-trace-line` — pure formatter producing `+ lg <version> (<path>)`
+  (version omitted when blank; path falls back to the bare bin name).
+- `runner/lg-version` — the `lg -v` probe, extracted so it has one home.
+- `runner/lg-resolved-path` — absolute path of the lg lgx will run: explicit
+  `LGX_LG` paths normalized against cwd; bare names resolved on PATH via
+  `sh -c 'command -v -- "$1"' sh <bin>` (bin passed as an argument, no injection).
+- `runner/display-path` — pure helper for the `LGX_LG`-path branch.
+- `lg-invocation!` prints the new line first under `verbose?`; env + invocation
+  lines unchanged.
+- `version/installed` now delegates to `runner/lg-version` (DRY, no behavior
+  change).
+- Unit tests for `binary-trace-line` and `display-path`; e2e Scenario 12
+  extended with a grep for the `+ lg … (<path>)` line. Help text + README updated.
+
+**Verification:** `make test` green — 421 unit tests / 575 assertions and 282
+e2e assertions. Live trace confirmed:
+```
++ lg 1.10.0 (/.../mise/installs/lg/1.10.0/lg)
++ env LG_READ_CLJ=1 LG_SUPPRESS_SOURCE_PATHS_WARNING=1 LGX_RUN=1
++ lg -source-paths … -e (println :ok)
+```
+
+**Second-opinion review (codex, vs master):** no actionable regressions — the
+additions are scoped to verbose execution and preserve existing invocation
+behavior.
+
+**Issues encountered:** none in the code. One tooling hiccup — this codex
+version (`codex-cli 0.139.0`) rejects a positional PROMPT alongside `--base`
+(same restriction it has with `--uncommitted`); re-ran without the prompt.
