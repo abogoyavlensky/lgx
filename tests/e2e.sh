@@ -312,6 +312,15 @@ assert_contains "$out_verbose" "(println :ok)" "verbose: trace includes forwarde
 assert_contains "$out_verbose" "+ env " "verbose: env line has + env prefix"
 assert_contains "$out_verbose" "LG_READ_CLJ=1" "verbose: env line includes LG_READ_CLJ=1"
 assert_contains "$out_verbose" "LGX_RUN=1" "verbose: env line includes LGX_RUN=1 on run path"
+# The resolved lg line: '+ lg <version> (<absolute path>)'. lg is on PATH here,
+# so the path is absolute; don't pin a version number.
+if echo "$out_verbose" | grep -qE '^\+ lg .*\(/.*\)$'; then
+    pass "verbose: '+ lg <version> (<path>)' line shows resolved path in parens"
+else
+    echo "---- stderr ----" >&2
+    echo "$out_verbose" >&2
+    fail "verbose: did not find '+ lg <version> (<path>)' line"
+fi
 
 # Without --verbose, no line should start with the trace prefix "+ ".
 home_verbose2="$(mktemp -d)"
