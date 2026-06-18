@@ -257,3 +257,42 @@
 (deftest resolve-head-sha-throws-on-missing-repo
   (is (= :threw (threw? #(cache/resolve-head-sha! "file:///nonexistent/repo")))))
 
+;; ---------------------------------------------------------------------------
+;; ensure-letgo-source!
+;; ---------------------------------------------------------------------------
+
+(defn- setup-tagged-repo! [tag]
+  (let [dir (str "/tmp/lgx-letgo-src-fixture-" (rand-int 100000000))
+        run (fn [& args] (apply os/sh args))]
+    (mkdir dir)
+    (spit (str dir "/marker.txt") "letgo\n")
+    (run "git" "-C" dir "init" "-q" "-b" "master")
+    (run "git" "-C" dir "-c" "user.email=t@t" "-c" "user.name=t" "add" "-A")
+    (run "git" "-C" dir "-c" "user.email=t@t" "-c" "user.name=t"
+         "commit" "-q" "-m" "fixture")
+    (run "git" "-C" dir "tag" tag)
+    dir))
+
+(deftest ensure-letgo-source-clones-into-versioned-dir
+  (let [home (str "/tmp/lgx-letgo-home-" (rand-int 100000000))
+        repo (setup-tagged-repo! "v0.0.1")
+        url (str "file://" repo)
+        dir (str home "/let-go/source/0.0.1")]
+    (os/setenv "LGX_HOME" home)
+    (let [r (cache/ensure-letgo-source! "0.0.1" url)]
+      (is (= true (:installed? r)))
+      (is (= dir (:dir r)))
+      (is (file-exists? (str dir "/marker.txt")))
+      (is (not (file-exists? (str dir "/.git")))))
+    ;; Idempotent: a second call is a no-op.
+    (is (= {:installed? false :dir dir} (cache/ensure-letgo-source! "0.0.1" url)))
+    (os/sh "rm" "-rf" home repo)))
+
+(deftest ensure-letgo-source-errors-on-missing-tag
+  (let [home (str "/tmp/lgx-letgo-home-" (rand-int 100000000))
+        repo (setup-tagged-repo! "v0.0.1")
+        url (str "file://" repo)]
+    (os/setenv "LGX_HOME" home)
+    (is (= :threw (threw? #(cache/ensure-letgo-source! "9.9.9" url))))
+    (os/sh "rm" "-rf" home repo)))
+

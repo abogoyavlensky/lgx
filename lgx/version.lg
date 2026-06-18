@@ -1,0 +1,24 @@
+;; Version compatibility between the :lg-version pin and the installed lg.
+
+(ns lgx.version
+  (:require [lgx.runner :as runner]
+            [string :as str]))
+
+(defn installed
+  "The version token from `lg -v` (e.g. \"1.10.0\"), or nil when lg is absent or
+   the output is unparseable. Probes the same lg lgx invokes (honoring LGX_LG)."
+  []
+  (let [r (try (os/sh (runner/lg-binary) "-v") (catch e nil))]
+    (when (and r (zero? (:exit r)))
+      (let [toks (str/split (str/trim (:out r)) #"\s+")]
+        (if (= (first toks) "lg") (second toks) (first toks))))))
+
+(defn check
+  "Pure decision comparing the pinned version to the installed one: :ok on exact
+   match, :skip when the installed version is unknown or a dev build, :mismatch
+   otherwise."
+  [pinned installed]
+  (cond
+    (or (nil? installed) (= installed "dev")) :skip
+    (= pinned installed) :ok
+    :else :mismatch))

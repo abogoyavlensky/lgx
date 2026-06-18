@@ -167,3 +167,27 @@
         {:path (resolve-source-path dir root url ref)
          :dir dir
          :installed? installed?}))))
+
+;; ---------------------------------------------------------------------------
+;; let-go source (pinned via lgx.edn :lg-version, for editor tooling)
+;; ---------------------------------------------------------------------------
+
+(def letgo-repo-url "https://github.com/nooga/let-go")
+
+(defn- letgo-source-dir [version]
+  (path/join (home/root) "let-go" "source" version))
+
+(defn ensure-letgo-source!
+  "Fetch the let-go source at `version` into $LGX_HOME/let-go/source/<version>/
+   so editor tooling can navigate into core/stdlib. Idempotent: a no-op when the
+   dir already exists. `url` defaults to the canonical let-go repo; tests pass a
+   fixture. Returns {:installed? <bool> :dir <path>}."
+  ([version] (ensure-letgo-source! version letgo-repo-url))
+  ([version url]
+   (let [dir (letgo-source-dir version)]
+     (if (file-exists? dir)
+       {:installed? false
+        :dir dir}
+       (do (clone-tag! url (str "v" version) dir)
+           {:installed? true
+            :dir dir})))))

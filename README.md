@@ -83,7 +83,7 @@ lgx run
 | Command | What it does |
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
-| `lgx install` | Fetch deps declared in `:deps` key of `lgx.edn`. Idempotent. |
+| `lgx install` | Fetch deps from `:deps`, plus the let-go source for `:lg-version` (when set). Idempotent. |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. Without a script and `:main`, opens `lg`'s REPL. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a random port (or `N`). Writes `.nrepl-port`. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
@@ -228,6 +228,11 @@ key's rules in detail.
  ;; Default entrypoint: `lgx run` runs it, `lgx build` bundles it. Does not have to be in the `:paths`
  :main "main.lg"
 
+ ;; The let-go version this project targets. When set, `lgx install` fetches the
+ ;; matching let-go source for editor navigation, and run/build/test check it
+ ;; against the lg on PATH. lgx does not install lg itself.
+ :lg-version "1.10.0"
+
  ;; Git or local deps. A dep's own :deps are resolved too (first-wins).
  :deps
  {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
@@ -289,6 +294,22 @@ key's rules in detail.
   shadow lib namespaces. Missing entries print a warning.
 - `:main` names the default entrypoint script. `lgx run` substitutes it
   when no script is given; `lgx build` bundles it.
+
+### `:lg-version`
+
+Optional. The let-go version this project targets (a published let-go release,
+e.g. `"1.10.0"`). lgx does **not** install or manage the `lg` binary — you get
+that from mise/brew/etc. — but when `:lg-version` is set lgx does two things:
+
+- **`lgx install` fetches the matching let-go _source_** (not the binary) into
+  `$LGX_HOME/let-go/source/<version>/`, so editor tooling (e.g. an LSP) can
+  navigate into let-go's `core`/stdlib. The fetch is idempotent and a network
+  failure is a warning, not a hard error.
+- **`run`/`nrepl`/`build`/`test` check it** against the `lg` on `PATH`: a
+  mismatch **warns** on `run`/`nrepl` (so iteration isn't blocked) and **fails**
+  on `build`/`test` (where a wrong-runtime artifact or test verdict matters).
+  A dev/unparseable installed version is skipped, not warned. Set
+  `LGX_SKIP_VERSION_CHECK` to a non-empty value to bypass the check.
 
 ### `:resource-paths`
 
@@ -514,7 +535,8 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 | --- | --- | --- |
 | `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. |
 | `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev-vs-bundled mode (see [`lgx run` details](#lgx-run-details)). |
-| `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, template cache, and test harness tmp dir. |
+| `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test harness tmp dir. |
+| `LGX_SKIP_VERSION_CHECK` | _(unset)_ | Set to any non-empty value to bypass the `:lg-version` compatibility check on `run`/`nrepl`/`build`/`test`. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |
 | `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo of the built-in `base` template. |
 | `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the revision of the built-in `base` template. |
@@ -524,6 +546,7 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 ```
 $LGX_HOME/
   gitlibs/<host>/<owner>/<repo>/<ref>/
+  let-go/source/<version>/
   templates/<host>/<owner>/<repo>/<sha>/
   tmp/lgx-test-<version>.lg
 ```

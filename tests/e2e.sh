@@ -168,6 +168,28 @@ assert_eq "$out" "no deps in lgx.edn" "empty :deps prints expected line"
 rm -rf "$proj" "$home"
 
 # ---------------------------------------------------------------------------
+echo "==> Scenario 4b: :lg-version mismatch warns on run, fails build, bypassable"
+proj="$(mktemp -d)"
+echo '{:paths ["."] :lg-version "9.9.9" :main "main.lg"}' > "$proj/lgx.edn"
+echo '(println "ran")' > "$proj/main.lg"
+home="$(mktemp -d)"
+# run: warns (stderr) but still runs the script (exit 0).
+out="$(cd "$proj" && LGX_HOME="$home" "$LGX" run 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] || fail "run with version mismatch should still exit 0 (got $rc)"
+assert_contains "$out" "does not match :lg-version 9.9.9" "run warns on version mismatch"
+assert_contains "$out" "ran" "run proceeds despite version mismatch"
+# bypass: no warning.
+out="$(cd "$proj" && LGX_SKIP_VERSION_CHECK=1 LGX_HOME="$home" "$LGX" run 2>&1)"
+assert_not_contains "$out" "does not match" "LGX_SKIP_VERSION_CHECK bypasses the check"
+# build: fails (non-zero) at the check, before building.
+set +e
+out="$(cd "$proj" && LGX_HOME="$home" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "build with version mismatch should exit non-zero (got $rc)"
+assert_contains "$out" "does not match :lg-version 9.9.9" "build fails on version mismatch"
+rm -rf "$proj" "$home"
+
+# ---------------------------------------------------------------------------
 echo "==> Scenario 5: local dep install and run"
 root_local="$(mktemp -d)"
 make_local_project "$root_local"
