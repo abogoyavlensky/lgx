@@ -99,8 +99,10 @@ Options:
   `run`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task it
   unions with the task's own `:with`.
 - `--verbose` prints the resolved `lg` invocation before running (applies to
-  `run`, `nrepl`, `build`, `test`, and user tasks). It also prints a `+ env …` line
-  listing the env vars lgx sets: `LG_READ_CLJ=1` and
+  `run`, `nrepl`, `build`, `test`, and user tasks). It first prints a
+  `+ lg <version> (<path>)` line naming the `lg` it resolved — the version from
+  `lg -v` and the full binary path, which reflects an `LGX_LG` override. It also
+  prints a `+ env …` line listing the env vars lgx sets: `LG_READ_CLJ=1` and
   `LG_SUPPRESS_SOURCE_PATHS_WARNING=1` for every `lg` invocation (the latter
   silences lg's source-paths transition notice, since lgx always passes an
   explicit `-source-paths`), plus `LGX_RUN=1` on `run` paths.

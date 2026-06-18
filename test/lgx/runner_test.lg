@@ -27,6 +27,38 @@
   (is (nil? (runner/env-trace-line {"LG_READ_CLJ" "" "LGX_RUN" ""}))))
 
 ;; ---------------------------------------------------------------------------
+;; binary-trace-line
+;; ---------------------------------------------------------------------------
+
+(deftest binary-trace-line-version-and-path
+  (is (= "+ lg 1.10.0 (/usr/local/bin/lg)\n"
+         (runner/binary-trace-line "1.10.0" "/usr/local/bin/lg" "lg"))))
+
+(deftest binary-trace-line-omits-blank-version
+  (is (= "+ lg (/usr/local/bin/lg)\n"
+         (runner/binary-trace-line nil "/usr/local/bin/lg" "lg")))
+  (is (= "+ lg (/usr/local/bin/lg)\n"
+         (runner/binary-trace-line "" "/usr/local/bin/lg" "lg"))))
+
+(deftest binary-trace-line-falls-back-to-bin-when-path-blank
+  (is (= "+ lg 1.10.0 (lg)\n"
+         (runner/binary-trace-line "1.10.0" nil "lg")))
+  (is (= "+ lg 1.10.0 (mylg)\n"
+         (runner/binary-trace-line "1.10.0" "" "mylg"))))
+
+;; ---------------------------------------------------------------------------
+;; display-path (explicit LGX_LG-path branch)
+;; ---------------------------------------------------------------------------
+
+(deftest display-path-keeps-absolute-bin
+  (is (= "/opt/lg"
+         (runner/display-path "/opt/lg" "/home/u/proj"))))
+
+(deftest display-path-resolves-relative-against-cwd
+  (is (= "/home/u/proj/.tmp/lg"
+         (runner/display-path "./.tmp/lg" "/home/u/proj"))))
+
+;; ---------------------------------------------------------------------------
 ;; lg-args
 ;; ---------------------------------------------------------------------------
 
