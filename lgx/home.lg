@@ -10,7 +10,7 @@
       (path/join (os/getenv "HOME") ".lgx")
       override)))
 
-(defn tmp-dir
-  "Return the directory for generated lgx runtime files."
+(defn test-runner-dir
+  "Return the directory for the generated test-runner harness."
   []
-  (path/join (root) "tmp"))
+  (path/join (root) "test-runner"))

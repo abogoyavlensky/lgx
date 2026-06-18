@@ -292,7 +292,7 @@ Steps 1–2 (project root, config load) match `install`. Then:
    after the `:require` loads every test ns) it writes a `harness-ready`
    marker to stderr; this splits lg's captured stderr into pre-harness
    load diagnostics and test-emitted output (see step 10). Write it to
-   `$LGX_HOME/tmp/lgx-test-<version>.lg`, overwriting the previous
+   `$LGX_HOME/test-runner/lgx-test-<version>.lg`, overwriting the previous
    harness for the same lgx version.
 8. Compute `-source-paths` as project paths + dep paths + the
    absolute `test/` path (so test namespaces can `require` each other
@@ -514,14 +514,14 @@ task names but never breaks the user's shell.
 $LGX_HOME/
   gitlibs/<host>/<owner>/<repo>/<ref>/
   templates/<host>/<owner>/<repo>/<sha>/
-  tmp/lgx-test-<version>.lg
+  test-runner/lgx-test-<version>.lg
 ```
 
 `LGX_HOME` defaults to `~/.lgx`. Gitlib cache paths are pure functions
 of the git URL and ref. For `:git/sha` coords, `<ref>` is the sha. For
 `:git/tag` coords, `<ref>` is the tag with `/` replaced by `_`. Each
-leaf is a read-only worktree. The `tmp` directory holds generated lgx
-runtime files such as the test harness. The `templates/` tree parallels
+leaf is a read-only worktree. The `test-runner` directory holds the
+generated test harness. The `templates/` tree parallels
 gitlibs but uses sha-only keying — populated by `lgx new` on first use
 and reused on subsequent runs.
 

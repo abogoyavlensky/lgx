@@ -185,7 +185,7 @@ Both `:main` and `:targets/:bin` are required.
 ### `lgx test` details
 
 `lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` / `*_test.clj` files, generates
-a one-shot harness under `$LGX_HOME/tmp/`, and runs every `deftest`
+a one-shot harness under `$LGX_HOME/test-runner/`, and runs every `deftest`
 against the project's resolved `-source-paths`. Prints summary results.
 
 A test file may contain `deftest` forms, fixtures and some helpers.
@@ -535,7 +535,7 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 | --- | --- | --- |
 | `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. |
 | `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev-vs-bundled mode (see [`lgx run` details](#lgx-run-details)). |
-| `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test harness tmp dir. |
+| `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test-runner harness dir. |
 | `LGX_SKIP_VERSION_CHECK` | _(unset)_ | Set to any non-empty value to bypass the `:lg-version` compatibility check on `run`/`nrepl`/`build`/`test`. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |
 | `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo of the built-in `base` template. |
@@ -548,7 +548,7 @@ $LGX_HOME/
   gitlibs/<host>/<owner>/<repo>/<ref>/
   let-go/source/<version>/
   templates/<host>/<owner>/<repo>/<sha>/
-  tmp/lgx-test-<version>.lg
+  test-runner/lgx-test-<version>.lg
 ```
 
 `<ref>` is the sha for `:git/sha` coords, or the tag with `/` replaced

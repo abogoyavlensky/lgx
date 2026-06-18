@@ -936,12 +936,12 @@ EOF
     err="$(cd "$proj_t6" && LGX_HOME="$home_t6" "$LGX" --verbose test 2>&1 >/dev/null)"
     set -e
     version="$(awk -F '"' '/def[[:space:]]+version[[:space:]]+"/ { print $2; exit }' "$ROOT/lgx.lg")"
-    harness="$home_t6/tmp/lgx-test-$version.lg"
+    harness="$home_t6/test-runner/lgx-test-$version.lg"
     assert_contains "$err" "+ " "verbose test: trace line has + prefix"
     assert_contains "$err" "$harness" "verbose test: LGX_HOME harness path mentioned"
     assert_contains "$err" "-source-paths" "verbose test: trace includes -source-paths"
     [[ -f "$harness" ]] || fail "verbose test: expected harness file at $harness"
-    pass "verbose test: harness file written under LGX_HOME/tmp"
+    pass "verbose test: harness file written under LGX_HOME/test-runner"
     rm -rf "$proj_t6" "$home_t6"
 else
     skip "lgx test requires lg with -source-paths support"
