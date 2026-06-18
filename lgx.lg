@@ -13,7 +13,7 @@
             [lgx.version :as version]
             [string :as str]))
 
-(def version "0.1.0-rc1")
+(def version "0.1.0-rc2")
 
 ;; Description column the static rows below are hand-aligned to; task rows align
 ;; to it too (see task-line). If you re-pad the rows, update this constant.
