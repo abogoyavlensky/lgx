@@ -245,13 +245,13 @@
     (str harness-header extra "))" body)))
 
 (defn- temp-path [version]
-  (let [dir (home/tmp-dir)
+  (let [dir (home/test-runner-dir)
         name (str harness-prefix version harness-suffix)]
     (mkdir dir)
     (path/join dir name)))
 
 (defn write-harness!
-  "Materialize the harness source for entries under LGX_HOME/tmp,
+  "Materialize the harness source for entries under LGX_HOME/test-runner,
    overwriting the previous harness for the same lgx version.
    Returns the absolute path of the written file."
   [entries version]

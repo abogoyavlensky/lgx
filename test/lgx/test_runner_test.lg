@@ -331,7 +331,7 @@
 (deftest write-harness-uses-versioned-stable-path
   (let [home (str "/tmp/lgx-harness-test-" (rand-int 100000000))
         version "0.1.0-test"
-        expected (path/join home "tmp" (str "lgx-test-" version ".lg"))
+        expected (path/join home "test-runner" (str "lgx-test-" version ".lg"))
         _ (os/setenv "LGX_HOME" home)
         p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version)
         src1 (slurp p1)

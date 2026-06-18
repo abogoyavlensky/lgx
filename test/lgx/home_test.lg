@@ -10,6 +10,6 @@
   (os/setenv "LGX_HOME" "/tmp/lgx-home-test")
   (is (= "/tmp/lgx-home-test" (home/root))))
 
-(deftest tmp-dir-lives-under-lgx-home
+(deftest test-runner-dir-lives-under-lgx-home
   (os/setenv "LGX_HOME" "/tmp/lgx-home-test")
-  (is (= (path/join "/tmp/lgx-home-test" "tmp") (home/tmp-dir))))
+  (is (= (path/join "/tmp/lgx-home-test" "test-runner") (home/test-runner-dir))))
