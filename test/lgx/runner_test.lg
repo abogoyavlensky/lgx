@@ -47,6 +47,18 @@
          (runner/binary-trace-line "1.10.0" "" "mylg"))))
 
 ;; ---------------------------------------------------------------------------
+;; display-path (explicit LGX_LG-path branch)
+;; ---------------------------------------------------------------------------
+
+(deftest display-path-keeps-absolute-bin
+  (is (= "/opt/lg"
+         (runner/display-path "/opt/lg" "/home/u/proj"))))
+
+(deftest display-path-resolves-relative-against-cwd
+  (is (= "/home/u/proj/.tmp/lg"
+         (runner/display-path "./.tmp/lg" "/home/u/proj"))))
+
+;; ---------------------------------------------------------------------------
 ;; lg-args
 ;; ---------------------------------------------------------------------------
 

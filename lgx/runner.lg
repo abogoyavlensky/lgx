@@ -1,11 +1,43 @@
 (ns lgx.runner
-  (:require [string :as str]))
+  (:require [lgx.path :as path]
+            [string :as str]))
 
 (defn lg-binary
   "The lg binary lgx invokes: $LGX_LG when set, else `lg` on PATH."
   []
   (let [v (os/getenv "LGX_LG")]
     (if (str/blank? v) "lg" v)))
+
+(defn lg-version
+  "The version token from `lg -v` (e.g. \"1.10.0\"), or nil when lg is absent or
+   the output is unparseable. Probes the same lg lgx invokes (honoring LGX_LG)."
+  []
+  (let [r (try (os/sh (lg-binary) "-v") (catch e nil))]
+    (when (and r (zero? (:exit r)))
+      (let [toks (str/split (str/trim (:out r)) #"\s+")]
+        (if (= (first toks) "lg") (second toks) (first toks))))))
+
+(defn display-path
+  "Resolve an explicit lg binary path (LGX_LG) for display: absolute paths are
+   returned unchanged, relative ones are normalized to absolute against `cwd`."
+  [bin cwd]
+  (if (path/absolute? bin)
+    bin
+    (path/normalize (path/join cwd bin))))
+
+(defn lg-resolved-path
+  "The full path of the lg binary lgx will invoke, or nil when it can't be
+   resolved. An explicit LGX_LG path is normalized to absolute against cwd; a
+   bare name is resolved on PATH via `command -v` (bin passed as an argument,
+   never interpolated into the script)."
+  []
+  (let [bin (lg-binary)]
+    (if (str/includes? bin os/file-separator)
+      (display-path bin (os/cwd))
+      (let [r (try (os/sh "sh" "-c" "command -v -- \"$1\"" "sh" bin)
+                   (catch e nil))]
+        (when (and r (zero? (:exit r)) (not (str/blank? (:out r))))
+          (str/trim (:out r)))))))
 
 (defn- source-paths-flag [paths]
   (when (seq paths)
