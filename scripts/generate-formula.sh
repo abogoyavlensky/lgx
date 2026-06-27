@@ -40,6 +40,7 @@ cat <<EOF
 class Lgx < Formula
   desc "Package and project manager for the let-go Clojure dialect"
   homepage "https://github.com/abogoyavlensky/lgx"
+  version "${version}"
   license "MIT"
 
   livecheck do

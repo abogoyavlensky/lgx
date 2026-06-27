@@ -3,7 +3,7 @@ bin/
 .DS_Store
 lgx-bundle
 .claude
-.clj-lsp
+.clj-pulse
 .idea/
 .tmp/
 .nrepl-port
