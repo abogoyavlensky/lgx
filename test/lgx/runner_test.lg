@@ -9,8 +9,10 @@
   (is (= "+ env LG_READ_CLJ=1 LGX_RUN=1\n"
          (runner/env-trace-line {"LG_READ_CLJ" "1" "LGX_RUN" "1"}))))
 
-(deftest env-trace-line-includes-suppress-warning
-  (is (= "+ env LG_READ_CLJ=1 LG_SUPPRESS_SOURCE_PATHS_WARNING=1 LGX_RUN=1\n"
+(deftest env-trace-line-ignores-vars-outside-the-allowlist
+  ;; LG_SUPPRESS_SOURCE_PATHS_WARNING is no longer set by lgx (let-go 1.11.0
+  ;; dropped the warning), so env-trace-line skips it even when present.
+  (is (= "+ env LG_READ_CLJ=1 LGX_RUN=1\n"
          (runner/env-trace-line {"LG_READ_CLJ" "1"
                                  "LG_SUPPRESS_SOURCE_PATHS_WARNING" "1"
                                  "LGX_RUN" "1"}))))
@@ -65,8 +67,8 @@
 (deftest lg-args-builds-full-argv
   (is (= ["-source-paths" (str "a" os/path-separator "b")
           "-resource-paths" "res"
-          "main.lg" "--"]
-         (runner/lg-args ["a" "b"] ["res"] ["main.lg" "--"]))))
+          "main.lg" "arg"]
+         (runner/lg-args ["a" "b"] ["res"] ["main.lg" "arg"]))))
 
 (deftest lg-args-omits-empty-path-flags
   (is (= ["main.lg"]

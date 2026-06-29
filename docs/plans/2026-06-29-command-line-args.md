@@ -150,8 +150,8 @@ This task removes *every* trace of the env var — code, tests, and the two pros
 - [ ] **Step 5: Run tests + grep to verify**
   Run: `make test`
   Expected: PASS.
-  Run: `grep -rn 'LG_SUPPRESS_SOURCE_PATHS_WARNING' lgx.lg lgx/ test/ README.md docs/ARCHITECTURE.md`
-  Expected: no matches. (`tests/e2e.sh` still references it in Scenario 88, removed in Task 4; historical `docs/plans/` entries keep their mentions — both are out of scope here.)
+  Run: `grep -rn 'LG_SUPPRESS_SOURCE_PATHS_WARNING' lgx.lg lgx/ README.md docs/ARCHITECTURE.md`
+  Expected: no matches. (`test/lgx/runner_test.lg` intentionally keeps the name as an *ignored-input fixture* — a guard against re-adding it to the allowlist; `tests/e2e.sh` Scenario 88 is removed in Task 4; historical `docs/plans/` entries keep their mentions — all out of scope here.)
 
 - [ ] **Step 6: Commit**
   `git commit -m "Remove dead LG_SUPPRESS_SOURCE_PATHS_WARNING (let-go 1.11.0)"`
@@ -229,5 +229,5 @@ The existing `docs/issues/nrepl-port-zero.md` is the upstream issue draft that l
 
 - `make test` passes (unit + e2e), with a real `lg` ≥ 1.11.0 available to the e2e suite.
 - `lgx run` (bare, with `:main`) yields `*command-line-args*` = `nil`; `lgx run -- a b` yields `("a" "b")`; `lgx run -- a -- b` yields `("a" "--" "b")`.
-- No `LG_SUPPRESS_SOURCE_PATHS_WARNING` remains in source, tests, the README, or ARCHITECTURE.md (historical `docs/plans/` entries keep their mentions and are out of scope).
+- No `LG_SUPPRESS_SOURCE_PATHS_WARNING` is *set* anywhere in source, the README, or ARCHITECTURE.md (the only remaining reference is the intentional ignored-input fixture in `test/lgx/runner_test.lg`; historical `docs/plans/` entries are out of scope).
 - README and ARCHITECTURE describe only the `*command-line-args*` convention; no `drop-while`/`--`-marker guidance survives.

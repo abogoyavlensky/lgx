@@ -558,10 +558,7 @@ exists and `<local>/` when it does not. lgx reads a local lib's own
   `LG_READ_CLJ=1` before every spawn so `.clj` library files are
   resolvable and `:clj` reader-conditional branches match; `.clj` library
   support requires let-go ≥ vN.N (**TODO before merge:** fill in once
-  upstream tags a release). It also exports
-  `LG_SUPPRESS_SOURCE_PATHS_WARNING=1` before every spawn to silence lg's
-  source-paths transition notice — lgx owns the search path and always
-  passes an explicit `-source-paths` that omits `.`.
+  upstream tags a release).
 - **Default template repo** — `lgx new` pulls from
   `https://github.com/abogoyavlensky/lgx-template-base` at a sha pinned
   in lgx source. Override with `LGX_TEMPLATE_BASE_URL` and

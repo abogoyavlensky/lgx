@@ -103,13 +103,10 @@
             {:argv (vec (concat pre [main-script] post)) :inject? true}))))))
 
 ;; Env vars lgx writes into the environment, in display order:
-;; LG_READ_CLJ for the lg child (see run-lg!),
-;; LG_SUPPRESS_SOURCE_PATHS_WARNING silences lg's source-paths transition
-;; notice — lgx owns the search path and deliberately omits "." (see
-;; run-lg!) — and LGX_RUN is lgx's own run-marker (set by cmd-run / :run
-;; task steps before invoke-lg!).
+;; LG_READ_CLJ for the lg child (see run-lg!), and LGX_RUN is lgx's own
+;; run-marker (set by cmd-run / :run task steps before invoke-lg!).
 (def ^:private lgx-set-env-names
-  ["LG_READ_CLJ" "LG_SUPPRESS_SOURCE_PATHS_WARNING" "LGX_RUN"])
+  ["LG_READ_CLJ" "LGX_RUN"])
 
 (defn env-trace-line
   "Build the `+ env NAME=VALUE ...` trace line for the env vars lgx sets.
@@ -152,10 +149,6 @@
   ;; docs/issues/letgo-clj-support.md. Set before the verbose trace so the
   ;; env line reflects it.
   (os/setenv "LG_READ_CLJ" "1")
-  ;; lgx always passes an explicit -source-paths that omits ".", which makes
-  ;; lg print its source-paths transition notice (see lg.go warning). lgx is
-  ;; the tooling that warning anticipates, so silence it.
-  (os/setenv "LG_SUPPRESS_SOURCE_PATHS_WARNING" "1")
   (let [bin (lg-binary)
         args (lg-args lib-paths resource-paths forward-args)]
     (when verbose?
