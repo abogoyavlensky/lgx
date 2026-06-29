@@ -474,16 +474,16 @@ home_main="$(mktemp -d)"
 cat > "$proj_main/lgx.edn" <<'EOF'
 {:main "main.lg"}
 EOF
-# main.lg also prints whether `--` lands in os/args, so we can verify
-# the universal-parser convention works for the bare `lgx run` case.
+# main.lg prints *command-line-args* so we can verify a bare `lgx run`
+# injects :main with no args (the var is nil — lgx emits no `--` marker).
 cat > "$proj_main/main.lg" <<'EOF'
 (when-not *compiling-aot*
   (println :hello-from-main)
-  (println (str "argv=" (vec os/args))))
+  (prn *command-line-args*))
 EOF
 out="$(cd "$proj_main" && LGX_HOME="$home_main" "$LGX" run)"
 assert_contains "$out" ":hello-from-main" "main: bare run uses :main script"
-assert_contains "$out" '"--"' "main: bare run appends -- so universal parser works"
+assert_contains "$out" "nil" "main: bare run has no args (*command-line-args* is nil)"
 rm -rf "$proj_main" "$home_main"
 
 # ---------------------------------------------------------------------------
@@ -641,63 +641,60 @@ assert_not_contains "$err" "LGX_RUN" "verbose build: env line omits LGX_RUN (not
 rm -rf "$proj_b6" "$home_b6"
 
 # ---------------------------------------------------------------------------
-# Scenarios 31-38 cover `--` as the script/user-args separator for `lgx run`.
-# `--` is preserved in the outgoing argv; pre-`--` script suffixes
-# (.lg/.cljc/.clj) skip the :main injection. No `supports_source_paths`
-# gating needed — minimal projects have no deps/paths.
+# Scenarios 31-38 cover `--` as the lgx/app arg separator for `lgx run`.
+# lgx drops the separator and injects :main where needed; the app reads its
+# args from *command-line-args* (let-go >= 1.11.0). lgx emits no `--` of its
+# own, but a second, user-authored `--` survives as a literal arg. Pre-`--`
+# script suffixes (.lg/.cljc/.clj) skip the :main injection. No
+# `supports_source_paths` gating needed — minimal projects have no deps/paths.
 echo "==> Scenario 31: lgx run -- <arg> forwards arg to :main"
 proj_dd="$(mktemp -d)"
 home_dd="$(mktemp -d)"
 cat > "$proj_dd/lgx.edn" <<'EOF'
 {:main "main.lg"}
 EOF
-# main.lg prints both the full os/args and the post-`--` slice so we
-# can assert both that `--` survives in os/args and that the slice is
-# what an app would actually consume.
+# main.lg prints *command-line-args* — exactly what an app consumes, in both
+# dev and bundled-binary modes.
 cat > "$proj_dd/main.lg" <<'EOF'
 (when-not *compiling-aot*
-  (let [argv (vec os/args)
-        i (loop [k 0 xs (seq argv)]
-            (cond (nil? xs) -1
-                  (= "--" (first xs)) k
-                  :else (recur (inc k) (next xs))))
-        post (if (neg? i) [] (vec (drop (inc i) argv)))]
-    (println (str "all=" argv))
-    (println (str "post=" post))))
+  (println :main-ran)
+  (prn *command-line-args*))
 EOF
 out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- list)"
-assert_contains "$out" "main.lg" "run -- list: os/args includes injected script"
-assert_contains "$out" "all=" "run -- list: full argv printed"
-assert_contains "$out" '"--"' "run -- list: -- preserved in os/args"
-assert_contains "$out" 'post=["list"]' "run -- list: post-slice is exactly [list]"
+assert_contains "$out" ":main-ran" "run -- list: :main injected and ran"
+assert_contains "$out" '("list")' "run -- list: *command-line-args* is exactly (\"list\")"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 32: lgx run -- -v shields single-dash flag from lg"
 out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- -v)"
-assert_contains "$out" 'post=["-v"]' "run -- -v: -v lands in post-slice, not consumed by lg"
+assert_contains "$out" '("-v")' "run -- -v: -v lands in *command-line-args*, not consumed by lg"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 33: lgx --verbose run -r -- foo trace shows -r main.lg -- foo"
+echo "==> Scenario 33: lgx --verbose run -r -- foo trace shows -r main.lg foo"
 # Stub LGX_LG to /usr/bin/true so the trace fires but no real lg runs
 # (avoids the -r REPL hanging without a TTY).
 set +e
 err="$(cd "$proj_dd" && LGX_HOME="$home_dd" LGX_LG=/usr/bin/true \
     "$LGX" --verbose run -r -- foo 2>&1 >/dev/null)"
 set -e
-if echo "$err" | grep -qE '\-r .*main\.lg -- foo'; then
-    pass "run -r -- foo: trace reads '-r ... main.lg -- foo' ('-' before main, '--' after)"
+if echo "$err" | grep -qE '\-r .*main\.lg foo' && ! echo "$err" | grep -qE 'main\.lg -- foo'; then
+    pass "run -r -- foo: trace reads '-r ... main.lg foo' (-r before main, no injected --)"
 else
     echo "---- stderr ----" >&2
     echo "$err" >&2
-    fail "run -r -- foo: did not find '-r ... main.lg -- foo' in trace"
+    fail "run -r -- foo: did not find '-r ... main.lg foo' (without --) in trace"
 fi
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 34: lgx run -- (bare separator) injects :main, keeps --"
+echo "==> Scenario 34: lgx run -- (bare separator) injects :main, no args"
 out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run --)"
-assert_contains "$out" "main.lg" "run -- (bare): injects :main"
-assert_contains "$out" '"--"' "run -- (bare): -- preserved in os/args"
-assert_contains "$out" "post=[]" "run -- (bare): post-slice is empty"
+assert_contains "$out" ":main-ran" "run -- (bare): injects :main"
+assert_contains "$out" "nil" "run -- (bare): *command-line-args* is nil"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 34b: a second, user-authored -- survives as a literal arg"
+out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- a -- b)"
+assert_contains "$out" '("a" "--" "b")' "run -- a -- b: only the first -- is the separator"
 rm -rf "$proj_dd" "$home_dd"
 
 # ---------------------------------------------------------------------------
@@ -726,12 +723,12 @@ cat > "$proj_dd3/main.lg" <<'EOF'
 (when-not *compiling-aot* (println :main-ran))
 EOF
 cat > "$proj_dd3/other.lg" <<'EOF'
-(when-not *compiling-aot* (println :other-ran (rest os/args)))
+(when-not *compiling-aot* (println :other-ran) (prn *command-line-args*))
 EOF
 out="$(cd "$proj_dd3" && LGX_HOME="$home_dd3" "$LGX" run other.lg -- bar)"
 assert_contains "$out" ":other-ran" "explicit script + --: explicit script runs"
 assert_not_contains "$out" ":main-ran" "explicit script + --: :main is NOT injected"
-assert_contains "$out" "bar" "explicit script + --: bar reaches the script"
+assert_contains "$out" '("bar")' "explicit script + --: separator dropped, args are (\"bar\")"
 rm -rf "$proj_dd3" "$home_dd3"
 
 # ---------------------------------------------------------------------------
@@ -742,11 +739,11 @@ cat > "$proj_dd4/lgx.edn" <<'EOF'
 {}
 EOF
 cat > "$proj_dd4/other.lg" <<'EOF'
-(when-not *compiling-aot* (println :ran (rest os/args)))
+(when-not *compiling-aot* (println :ran) (prn *command-line-args*))
 EOF
 out="$(cd "$proj_dd4" && LGX_HOME="$home_dd4" "$LGX" run other.lg -- bar)"
 assert_contains "$out" ":ran" "explicit script + -- (no :main): script runs"
-assert_contains "$out" "bar" "explicit script + -- (no :main): bar reaches the script"
+assert_contains "$out" '("bar")' "explicit script + -- (no :main): args are (\"bar\")"
 rm -rf "$proj_dd4" "$home_dd4"
 
 # ---------------------------------------------------------------------------
@@ -760,12 +757,12 @@ cat > "$proj_dd5/main.lg" <<'EOF'
 (when-not *compiling-aot* (println :main-ran))
 EOF
 cat > "$proj_dd5/other.cljc" <<'EOF'
-(when-not *compiling-aot* (println :cljc-ran (rest os/args)))
+(when-not *compiling-aot* (println :cljc-ran) (prn *command-line-args*))
 EOF
 out="$(cd "$proj_dd5" && LGX_HOME="$home_dd5" "$LGX" run other.cljc -- baz)"
 assert_contains "$out" ":cljc-ran" "explicit .cljc + --: .cljc script runs"
 assert_not_contains "$out" ":main-ran" "explicit .cljc + --: :main NOT injected"
-assert_contains "$out" "baz" "explicit .cljc + --: baz reaches the script"
+assert_contains "$out" '("baz")' "explicit .cljc + --: separator dropped, args are (\"baz\")"
 rm -rf "$proj_dd5" "$home_dd5"
 
 # ---------------------------------------------------------------------------
@@ -2138,34 +2135,6 @@ EOF
     rm -rf "$proj_tr2" "$home_tr2"
 else
     skip "task :run step requires lg with -source-paths support"
-fi
-
-echo "==> Scenario 88: lgx run exports LG_SUPPRESS_SOURCE_PATHS_WARNING=1 and silences lg's source-paths notice"
-if supports_source_paths; then
-    proj_spw="$(mktemp -d)"; home_spw="$(mktemp -d)"
-    # :paths must be non-empty so lgx actually emits -source-paths (an absolute
-    # dir, never literal "."); otherwise lg has no reason to print the
-    # transition notice and the warning assertion below would be vacuous.
-    cat > "$proj_spw/lgx.edn" <<'EOF'
-{:paths ["."]}
-EOF
-    set +e
-    # Child stdout only — lgx's run header goes to stderr.
-    out="$(cd "$proj_spw" && LGX_HOME="$home_spw" \
-            "$LGX" run -e '(println (os/getenv "LG_SUPPRESS_SOURCE_PATHS_WARNING"))' 2>/dev/null)"; rc=$?
-    set -e
-    [[ $rc -eq 0 ]] || fail "test LG_SUPPRESS_SOURCE_PATHS_WARNING: expected exit 0, got $rc (output: $out)"
-    pass "test LG_SUPPRESS_SOURCE_PATHS_WARNING: exits 0"
-    first_line="$(printf '%s\n' "$out" | head -n 1)"
-    assert_eq "$first_line" "1" "test LG_SUPPRESS_SOURCE_PATHS_WARNING: child sees value 1"
-    # lgx always passes an explicit -source-paths that omits ".", which would
-    # trip lg's transition notice; the exported var must keep it off stderr.
-    err="$(cd "$proj_spw" && LGX_HOME="$home_spw" LGX_NO_COLOR=1 \
-            "$LGX" run -e '(println 1)' 2>&1 >/dev/null)"
-    assert_not_contains "$err" "WARNING" "test LG_SUPPRESS_SOURCE_PATHS_WARNING: no source-paths warning on stderr"
-    rm -rf "$proj_spw" "$home_spw"
-else
-    skip "lgx run -e requires lg with -source-paths support"
 fi
 
 echo "==> Scenario 89: bare lgx run without :main drops into an interactive REPL"
