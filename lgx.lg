@@ -241,29 +241,10 @@
       (os/exit 1))
     main-script))
 
-(defn- position
-  "Index of the first occurrence of x in v, or -1 if absent."
-  [v x]
-  (loop [i 0
-         xs (seq v)]
-    (cond
-      (nil? xs) -1
-      (= x (first xs)) i
-      :else (recur (inc i) (next xs)))))
-
 (defn- require-main-for-double-dash! [main-script]
   (when (nil? main-script)
     (write! *err* "lgx: -- requires :main to be set in lgx.edn\n")
     (os/exit 1)))
-
-(def ^:private script-exts [".lg" ".cljc" ".clj"])
-
-(defn- script-arg? [s]
-  (and (string? s)
-       (some #(str/ends-with? s %) script-exts)))
-
-(defn- has-script? [args]
-  (some script-arg? args))
 
 (defn- auto-with!
   "Prepend the convention context `name` (when defined in cfg's :contexts) to
@@ -298,36 +279,25 @@
         with (auto-with! cfg :dev with verbose?)
         {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         main-script (config/main cfg)
-        dd (position forward-args "--")
-        args (cond
-               (and (empty? forward-args) main-script)
-               ;; Always emit a trailing `--` so a script can use the
-               ;; universal `(drop-while #(not= "--" %) os/args)` idiom
-               ;; for arg parsing across dev (`lgx run`) and binary modes.
-               [(resolve-main-script! project main-script) "--"]
-
-               (neg? dd)
-               forward-args
-
-               :else
-               (let [pre (vec (take dd forward-args))
-                     post (vec (drop (inc dd) forward-args))]
-                 (if (has-script? pre)
-                   forward-args
-                   (do (require-main-for-double-dash! main-script)
-                       (let [script (resolve-main-script! project main-script)]
-                         (vec (concat pre [script "--"] post)))))))]
+        ;; runner/plan-run-args owns the pure decision: inject :main where a
+        ;; script is needed and drop the lgx/app `--` separator. The app reads
+        ;; its args from *command-line-args* (let-go >= 1.11.0), which is
+        ;; identical in dev and a bundled binary, so lgx emits no `--` marker.
+        plan (runner/plan-run-args forward-args main-script)]
+    (when (= :needs-main (:error plan))
+      (require-main-for-double-dash! main-script))
+    (when (:inject? plan)
+      (resolve-main-script! project main-script))
     ;; No status header for `run`: it is the dev-time stand-in for the built
     ;; binary, which prints none. Keeping run header-free makes dev output
     ;; mirror the shipped artifact. (A cold-cache run still prints the install
     ;; block below when deps are actually fetched.)
     (print-installs! results)
     ;; Advertise to the spawned program that it is running under `lgx run`
-    ;; (vs. as a bundled binary). Tools use this to strip runner args without
-    ;; relying on the injected `--` marker, which can collide with a user
-    ;; command that legitimately contains `--`. Inherited by the child via env.
+    ;; (vs. as a bundled binary). A tool can read LGX_RUN to enable dev-only
+    ;; behavior. Inherited by the child via env.
     (os/setenv "LGX_RUN" "1")
-    (runner/exec-lg-interactive! paths resource-paths args verbose?)))
+    (runner/exec-lg-interactive! paths resource-paths (:argv plan) verbose?)))
 
 (defn- cmd-nrepl [forward-args verbose? with]
   (let [{:keys [port]}
