@@ -81,7 +81,7 @@ Unchanged in observable behavior: a `--` with no `:main` still exits 1 with `lgx
 - Modify: `lgx/runner.lg`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `test/lgx/runner_test.lg`, add a `plan-run-args` section covering every rule:
   - empty args + `:main` → `{:argv ["main.lg"] :inject? true}`
   - `["--" "list"]` + `:main` → `{:argv ["main.lg" "list"] :inject? true}`
@@ -95,18 +95,18 @@ Unchanged in observable behavior: a `--` with no `:main` still exits 1 with `lgx
   - empty args + `:main` nil → `{:argv [] :inject? false}` (REPL pass-through)
   Use `lgx.runner/plan-run-args`; `:main` is passed as the bare string `"main.lg"` or `nil`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make test`
   Expected: FAIL — `plan-run-args` is unresolved.
 
-- [ ] **Step 3: Implement `plan-run-args` and move the helpers**
+- [x] **Step 3: Implement `plan-run-args` and move the helpers**
   In `lgx/runner.lg`: move `position`, `script-exts`, `script-arg?`, `has-script?` from `lgx.lg` (keep them `^:private`). Add public `plan-run-args [forward-args main-script]` implementing the cond in the design order: empty+`:main` → inject; no `--` (`position` returns -1) → pass-through; else split on the first `--`, and if the pre slice has a script pass `pre ++ post`, otherwise require `:main` (else `{:error :needs-main}`) and emit `pre ++ [main-script] ++ post`. Return maps as specified; the function performs no I/O.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add pure plan-run-args planner to runner"`
 
 ### Task 2: Rewire `cmd-run` to drop the injected `--`
@@ -114,17 +114,17 @@ Unchanged in observable behavior: a `--` with no `:main` still exits 1 with `lgx
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Replace the inline `args` cond**
+- [x] **Step 1: Replace the inline `args` cond**
   In `cmd-run`, replace the `dd`/`cond` block with: `(let [plan (runner/plan-run-args forward-args main-script)] ...)`. On `{:error :needs-main}` call `(require-main-for-double-dash! main-script)` (prints + exits). On `:inject?` call `(resolve-main-script! project main-script)` to validate existence. Exec `(:argv plan)` via `runner/exec-lg-interactive!`. Keep `(os/setenv "LGX_RUN" "1")` and `print-installs!` as they are.
 
-- [ ] **Step 2: Remove the now-moved private helpers**
+- [x] **Step 2: Remove the now-moved private helpers**
   Delete `position`, `script-exts`, `script-arg?`, `has-script?` from `lgx.lg` (now in `runner.lg`). Keep `resolve-main-script!` and `require-main-for-double-dash!` in `lgx.lg`.
 
-- [ ] **Step 3: Verify unit tests still pass**
+- [x] **Step 3: Verify unit tests still pass**
   Run: `make test`
   Expected: PASS (no `--` regression in unit scope; `cmd-run` is covered by e2e in Task 4).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Drop injected -- from cmd-run; use plan-run-args"`
 
 ### Task 3: Remove the dead `LG_SUPPRESS_SOURCE_PATHS_WARNING`
@@ -135,26 +135,26 @@ This task removes *every* trace of the env var — code, tests, and the two pros
 - Modify: `lgx/runner.lg`, `README.md`, `docs/ARCHITECTURE.md`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Update the env-trace test**
+- [x] **Step 1: Update the env-trace test**
   In `test/lgx/runner_test.lg`, change `env-trace-line-includes-suppress-warning`: with `LG_SUPPRESS_SOURCE_PATHS_WARNING` no longer in the allowlist, `env-trace-line` must skip it even when present in the lookup map. Assert the output is `"+ env LG_READ_CLJ=1 LGX_RUN=1\n"` for the same 3-key input map (rename the test to reflect that the suppress var is now ignored). Also update the `lg-args-builds-full-argv` test data to drop the trailing `"--"` (it is no longer representative of forwarded args).
 
-- [ ] **Step 2: Run tests to verify the env-trace test fails**
+- [x] **Step 2: Run tests to verify the env-trace test fails**
   Run: `make test`
   Expected: FAIL — `env-trace-line` still includes `LG_SUPPRESS_SOURCE_PATHS_WARNING`.
 
-- [ ] **Step 3: Remove the env var from code**
+- [x] **Step 3: Remove the env var from code**
   In `lgx/runner.lg`: drop `"LG_SUPPRESS_SOURCE_PATHS_WARNING"` from `lgx-set-env-names`; delete the `(os/setenv "LG_SUPPRESS_SOURCE_PATHS_WARNING" "1")` call and its comment in `lg-invocation!`; update the `lgx-set-env-names` docstring/comment to list only `LG_READ_CLJ` and `LGX_RUN`.
 
-- [ ] **Step 4: Remove the two stale prose mentions**
+- [x] **Step 4: Remove the two stale prose mentions**
   Use the /writing-clearly skill. In `README.md` (~line 106) drop the `LG_SUPPRESS_SOURCE_PATHS_WARNING=1 ... silences lg's source-paths transition notice` clause from the `--verbose` bullet, leaving the remaining env vars accurate. In `docs/ARCHITECTURE.md` (~line 562, "External dependencies") drop the sentence about exporting `LG_SUPPRESS_SOURCE_PATHS_WARNING=1` before every spawn.
 
-- [ ] **Step 5: Run tests + grep to verify**
+- [x] **Step 5: Run tests + grep to verify**
   Run: `make test`
   Expected: PASS.
   Run: `grep -rn 'LG_SUPPRESS_SOURCE_PATHS_WARNING' lgx.lg lgx/ README.md docs/ARCHITECTURE.md`
   Expected: no matches. (`test/lgx/runner_test.lg` intentionally keeps the name as an *ignored-input fixture* — a guard against re-adding it to the allowlist; `tests/e2e.sh` Scenario 88 is removed in Task 4; historical `docs/plans/` entries keep their mentions — all out of scope here.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Remove dead LG_SUPPRESS_SOURCE_PATHS_WARNING (let-go 1.11.0)"`
 
 ### Task 4: Rewrite e2e scenarios for `*command-line-args*`
@@ -162,7 +162,7 @@ This task removes *every* trace of the env var — code, tests, and the two pros
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Rewrite the arg-forwarding scenarios**
+- [x] **Step 1: Rewrite the arg-forwarding scenarios**
   Change the relevant fixture script in scenarios 21 and 31–38 to `(when-not *compiling-aot* (prn *command-line-args*))` and update assertions. Scenarios 21 and 31–35 drive `:main`, so edit each scenario's `main.lg`; scenarios 36/37/38 drive **explicit** scripts (`other.lg`, `other.lg`, `other.cljc` respectively), so edit those files — and keep their existing `:main`-not-injected checks (assert the `:main-ran` marker is absent for 36 and 38).
   - 21 bare run → output `nil`.
   - 31 `run -- list` → `("list")`.
@@ -174,17 +174,17 @@ This task removes *every* trace of the env var — code, tests, and the two pros
   - 37 `run other.lg -- bar` (no `:main` set) → `("bar")`.
   - 38 `run other.cljc -- baz` → `("baz")`, and `:main` not injected.
 
-- [ ] **Step 2: Add a second-`--` preservation scenario**
+- [x] **Step 2: Add a second-`--` preservation scenario**
   New scenario: `run -- a -- b` with `:main` set → `*command-line-args*` prints `("a" "--" "b")`.
 
-- [ ] **Step 3: Remove the suppress-warning scenario**
+- [x] **Step 3: Remove the suppress-warning scenario**
   Delete Scenario 88 (asserts lgx exports `LG_SUPPRESS_SOURCE_PATHS_WARNING` and that lg silences the notice). Grep `tests/e2e.sh` for any remaining `LG_SUPPRESS_SOURCE_PATHS_WARNING` references and remove them.
 
-- [ ] **Step 4: Run the e2e suite**
+- [x] **Step 4: Run the e2e suite**
   Run: `make test` (or the project's e2e entrypoint; requires `lg` ≥ 1.11.0 on PATH or `LGX_LG`).
   Expected: PASS, all scenarios green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Rewrite e2e scenarios to assert *command-line-args*"`
 
 ### Task 5: Update README and ARCHITECTURE
@@ -192,20 +192,20 @@ This task removes *every* trace of the env var — code, tests, and the two pros
 **Files:**
 - Modify: `README.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Rewrite README `### lgx run details`**
+- [x] **Step 1: Rewrite README `### lgx run details`**
   Use the /writing-clearly skill. Replace the "injects a trailing `--`" intro with `lg <paths> :main` (no `--`). Replace the `cli-argv`/`drop-while`/LGX_RUN-for-args block with guidance to read `*command-line-args*`, noting it is identical in `lgx run` and a bundled binary. Update each **Forms** line to drop `--` (e.g. `lgx run -- foo bar` → `lg <paths> :main foo bar`; `lgx run -r -- foo` → `lg <paths> -r :main foo`; `lgx run foo.lg -- bar` → `lg <paths> foo.lg bar`). Keep the `LGX_RUN` env-table row but reword it as a dev-vs-bundle signal, not an arg mechanism.
 
-- [ ] **Step 2: Bump lg version references**
+- [x] **Step 2: Bump lg version references**
   Change the README prerequisite, the `:lg-version` examples, and the `.mise.toml` dev/CI pin from `1.10.0` to `1.11.0`. Note that `*command-line-args*` requires `lg` ≥ 1.11.0 where the run convention is described. (Leave the `os/exec*` "(lg >= 1.10.0)" note in ARCHITECTURE — it is an accurate capability statement, not a floor.)
 
-- [ ] **Step 3: Rewrite the ARCHITECTURE `cmd-run` rules**
+- [x] **Step 3: Rewrite the ARCHITECTURE `cmd-run` rules**
   Use the /writing-clearly skill. Rewrite the four rules (lines ~149–174) to match the new behavior (no emitted `--`, separator dropped, `*command-line-args*` as the app's arg source, second `--` preserved as literal). Update the "(lg >= 1.10.0)" note (line ~188) to call out the 1.11.0 `*command-line-args*` requirement.
 
-- [ ] **Step 4: Sanity-check docs**
+- [x] **Step 4: Sanity-check docs**
   Run: `grep -n -- 'drop-while\|injecting\|trailing `--`' README.md docs/ARCHITECTURE.md`
   Expected: no stale references to the old `--` convention remain.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Document *command-line-args* convention; require lg 1.11.0"`
 
 ### Task 6: Record deferred follow-ups
@@ -215,14 +215,39 @@ The existing `docs/issues/nrepl-port-zero.md` is the upstream issue draft that l
 **Files:**
 - Modify: `docs/issues/nrepl-port-zero.md`
 
-- [ ] **Step 1: Mark the issue resolved upstream**
+- [x] **Step 1: Mark the issue resolved upstream**
   Use the /writing-clearly skill. In `docs/issues/nrepl-port-zero.md`, change **Status** from `draft` to `resolved upstream (let-go 1.11.0)`, and add a "Resolution" section: let-go 1.11.0 made `-p 0` report the OS-assigned port (#229) and added `os/free-port` (#209), so lgx can now request a free port instead of guessing.
 
-- [ ] **Step 2: Record the deferred lgx-side work and stale doc**
+- [x] **Step 2: Record the deferred lgx-side work and stale doc**
   In the same file, note the deferred lgx change (its own plan): `cmd-nrepl` can drop the random `(+ 49152 (rand-int 16384))` guess in favor of `-p 0` (reading the real port back) or `os/free-port`; and the rationale in `docs/ARCHITECTURE.md` (~207–209) is now stale and should be updated by that plan. Also record the external follow-up: bump `lgx-template-cli` / `lgx-template-base` to `:lg-version "1.11.0"` and migrate their `main.lg` off the `--` idiom to `*command-line-args*`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Mark nrepl port-zero issue resolved; record follow-ups"`
+
+### Task 7: Task `:run` steps — drop the app-level `--` (added during review)
+
+*Added in response to the codex review (P2): top-level `lgx run` dropped the
+`--`, but task `:run` steps still forwarded it verbatim, so they were
+inconsistent. Per the user's direction, `:run` stays a **bare `lg` runner** —
+no `:main` substitution, no script-required validation — but it drops the
+app-level `--` the same way `lgx run` does.*
+
+**Files:**
+- Modify: `lgx/runner.lg`, `lgx/tasks.lg`, `README.md`, `docs/ARCHITECTURE.md`
+- Test: `test/lgx/runner_test.lg`, `tests/e2e.sh`
+
+- [x] Add pure `runner/drop-arg-separator` (removes the first `--`, keeps a
+  second one) with unit tests.
+- [x] `tasks.lg run-run-step!` forwards `(drop-arg-separator (as-arg-vec value))`
+  — never injects `:main`.
+- [x] Document the `:run` semantics in README (`:tasks` prose) and ARCHITECTURE
+  (`:run` step description).
+- [x] e2e Scenario 67b: `{:run ["main.lg" "--" "world"]}` → app sees `("world")`.
+
+### Task 8: Codex review P3 — install surfaces (added during review)
+
+- [x] Bump `scripts/generate-formula.sh` and `landing/index.html` from
+  `lg >= 1.10.0` to `1.11.0` (kept in sync with the README/`.mise.toml` floor).
 
 ---
 
@@ -232,3 +257,42 @@ The existing `docs/issues/nrepl-port-zero.md` is the upstream issue draft that l
 - `lgx run` (bare, with `:main`) yields `*command-line-args*` = `nil`; `lgx run -- a b` yields `("a" "b")`; `lgx run -- a -- b` yields `("a" "--" "b")`.
 - No `LG_SUPPRESS_SOURCE_PATHS_WARNING` is *set* anywhere in source, the README, or ARCHITECTURE.md (the only remaining reference is the intentional ignored-input fixture in `test/lgx/runner_test.lg`; historical `docs/plans/` entries are out of scope).
 - README and ARCHITECTURE describe only the `*command-line-args*` convention; no `drop-while`/`--`-marker guidance survives.
+- Task `:run` steps drop the app-level `--` (e.g. `{:run ["main.lg" "--" "world"]}` → `("world")`) without injecting `:main`.
+
+---
+
+## Outcome
+
+Implemented and committed (branch `command-line-args`). Final state verified
+against a let-go 1.11.0 build: **436 unit tests / 591 assertions** and
+**278 e2e assertions**, 0 failures; `cljfmt` clean; `clj-kondo` 0 warnings.
+
+**What shipped**
+
+- `lgx run` no longer injects a `--` marker. The pure `runner/plan-run-args`
+  decides the argv: inject `:main` where a script is needed, drop the lgx/app
+  `--` separator, preserve a second `--`, error on `--` without `:main`. Apps
+  read `*command-line-args*` (same in dev and bundled binary).
+- Task `:run` steps drop the app-level `--` too (via `runner/drop-arg-separator`)
+  but never inject `:main` — a deliberately bare `lg` runner (codex P2 +
+  user direction).
+- Removed the dead `LG_SUPPRESS_SOURCE_PATHS_WARNING` (let-go 1.11.0 #230) from
+  code and docs. `LGX_RUN` stays as a dev-vs-bundle signal, no longer the arg
+  mechanism.
+- Bumped the lg floor to 1.11.0 across README, `:lg-version` examples,
+  `.mise.toml`, the Homebrew formula generator, and the landing page.
+- Recorded follow-ups in `docs/issues/nrepl-port-zero.md` (deferred `cmd-nrepl`
+  `os/free-port` / `-p 0` simplification; template-repo bumps).
+
+**Notable during execution**
+
+- The repo's checked-in `let-go/.tmp/lg` and `let-go/lg` binaries predate
+  let-go #230, so they still print the source-paths warning and report version
+  `dev`. I built a fresh `lg` from let-go HEAD with
+  `-ldflags "-X main.version=1.11.0"` to test against a true 1.11.0 runtime.
+- The environment's `mise` did not trust `.mise.toml` (so `lg`/`cljfmt`/
+  `clj-kondo` shims failed until `mise trust`); `make test`'s default
+  `LG=lg` therefore can't run here — build/test were driven with explicit
+  `LG=`/`LGX_LG=` paths. CI (mise-provisioned lg 1.11.0) is unaffected.
+- Plan deltas surfaced during execution and folded in: `.mise.toml` bump
+  (Task 5), and Tasks 7–8 from the codex review.
