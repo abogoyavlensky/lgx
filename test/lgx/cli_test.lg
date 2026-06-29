@@ -82,7 +82,7 @@
 ;; parse-nrepl-args
 ;; ---------------------------------------------------------------------------
 
-(deftest nrepl-no-args-means-random-port
+(deftest nrepl-no-args-means-auto-port
   (is (= {:port nil} (cli/parse-nrepl-args []))))
 
 (deftest nrepl-port-flag-parses-integer

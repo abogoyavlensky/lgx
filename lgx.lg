@@ -27,7 +27,7 @@
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context if defined)\n"
        "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
-       "                               (random port unless --port given; auto-applies :dev context if defined)\n"
+       "                               (free port unless --port given; auto-applies :dev context if defined)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
@@ -311,11 +311,14 @@
         _ (check-lg-version! cfg :warn)
         with (auto-with! cfg :dev with verbose?)
         {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
-        ;; lg writes the literal -p value to .nrepl-port, so "random port"
-        ;; means lgx picks the number itself (IANA ephemeral range). On a
-        ;; collision lg prints "failed to run nREPL server on port N" and
-        ;; still opens the terminal REPL; rerunning picks a fresh port.
-        port (or port (+ 49152 (rand-int 16384)))]
+        ;; No --port: ask lgx's own runtime (let-go >= 1.11.0) for a free
+        ;; port via os/free-port, then pass it as the literal -p value lg
+        ;; writes to .nrepl-port. The OS vets it as free, so unlike the old
+        ;; random guess it's almost never taken. os/free-port is still
+        ;; check-then-use, though: on a rare race lg prints "failed to run
+        ;; nREPL server on port N" and opens the terminal REPL without an
+        ;; nREPL; rerunning picks a fresh port.
+        port (or port (os/free-port))]
     (print-installs! results)
     ;; Unlike cmd-run, no LGX_RUN: that var advertises script-arg handling
     ;; to a spawned program, which doesn't apply to a REPL session.
