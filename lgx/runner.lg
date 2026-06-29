@@ -55,14 +55,74 @@
                (or (resource-paths-flag resource-paths) [])
                forward-args)))
 
+(defn- position
+  "Index of the first occurrence of x in v, or -1 if absent."
+  [v x]
+  (loop [i 0
+         xs (seq v)]
+    (cond
+      (nil? xs) -1
+      (= x (first xs)) i
+      :else (recur (inc i) (next xs)))))
+
+(def ^:private script-exts [".lg" ".cljc" ".clj"])
+
+(defn- script-arg? [s]
+  (and (string? s)
+       (some #(str/ends-with? s %) script-exts)))
+
+(defn- has-script? [args]
+  (some script-arg? args))
+
+(defn plan-run-args
+  "Pure. Decide the argv to hand `lg` for `lgx run`, given the user's
+   `forward-args` and the project's `:main` (nil when unset). Injects `:main`
+   where a script is needed, drops the lgx/app separator `--`, and never emits
+   a `--` of lgx's own. A second, user-authored `--` survives as a literal arg:
+   lg stops flag-parsing at the first positional, so post-script args are
+   shielded from lg and become the app's `*command-line-args*`. Returns one of:
+     {:argv [...] :inject? true}   ; `:main` injected — caller validates it exists
+     {:argv [...] :inject? false}  ; pass-through / explicit script
+     {:error :needs-main}          ; `--` given with no `:main`"
+  [forward-args main-script]
+  (let [dd (position forward-args "--")]
+    (cond
+      (and (empty? forward-args) main-script)
+      {:argv [main-script]
+       :inject? true}
+
+      (neg? dd)
+      {:argv (vec forward-args)
+       :inject? false}
+
+      :else
+      (let [pre (vec (take dd forward-args))
+            post (vec (drop (inc dd) forward-args))]
+        (if (has-script? pre)
+          {:argv (vec (concat pre post))
+           :inject? false}
+          (if (nil? main-script)
+            {:error :needs-main}
+            {:argv (vec (concat pre [main-script] post))
+             :inject? true}))))))
+
+(defn drop-arg-separator
+  "Remove the first `--` (the lgx/app arg separator) from an argv, leaving the
+   rest — including any later `--` — untouched. Task `:run` steps forward an
+   explicit argv to `lg` and, like `lgx run`, must not pass the user's
+   app-level `--` through to lg (where it would land in `*command-line-args*`).
+   Unlike `plan-run-args`, this never injects `:main`."
+  [argv]
+  (let [dd (position argv "--")]
+    (if (neg? dd)
+      (vec argv)
+      (vec (concat (take dd argv) (drop (inc dd) argv))))))
+
 ;; Env vars lgx writes into the environment, in display order:
-;; LG_READ_CLJ for the lg child (see run-lg!),
-;; LG_SUPPRESS_SOURCE_PATHS_WARNING silences lg's source-paths transition
-;; notice — lgx owns the search path and deliberately omits "." (see
-;; run-lg!) — and LGX_RUN is lgx's own run-marker (set by cmd-run / :run
-;; task steps before invoke-lg!).
+;; LG_READ_CLJ for the lg child (see run-lg!), and LGX_RUN is lgx's own
+;; run-marker (set by cmd-run / :run task steps before invoke-lg!).
 (def ^:private lgx-set-env-names
-  ["LG_READ_CLJ" "LG_SUPPRESS_SOURCE_PATHS_WARNING" "LGX_RUN"])
+  ["LG_READ_CLJ" "LGX_RUN"])
 
 (defn env-trace-line
   "Build the `+ env NAME=VALUE ...` trace line for the env vars lgx sets.
@@ -105,10 +165,6 @@
   ;; docs/issues/letgo-clj-support.md. Set before the verbose trace so the
   ;; env line reflects it.
   (os/setenv "LG_READ_CLJ" "1")
-  ;; lgx always passes an explicit -source-paths that omits ".", which makes
-  ;; lg print its source-paths transition notice (see lg.go warning). lgx is
-  ;; the tooling that warning anticipates, so silence it.
-  (os/setenv "LG_SUPPRESS_SOURCE_PATHS_WARNING" "1")
   (let [bin (lg-binary)
         args (lg-args lib-paths resource-paths forward-args)]
     (when verbose?
