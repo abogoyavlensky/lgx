@@ -75,7 +75,7 @@ class Lgx < Formula
 
   def caveats
     <<~EOS
-      lgx requires the let-go compiler (lg >= 1.10.0) on PATH.
+      lgx requires the let-go compiler (lg >= 1.11.0) on PATH.
       On macOS:
         brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go
       On Linux (and other options): https://github.com/abogoyavlensky/lgx#requirements

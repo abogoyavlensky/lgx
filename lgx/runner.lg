@@ -88,19 +88,23 @@
   (let [dd (position forward-args "--")]
     (cond
       (and (empty? forward-args) main-script)
-      {:argv [main-script] :inject? true}
+      {:argv [main-script]
+       :inject? true}
 
       (neg? dd)
-      {:argv (vec forward-args) :inject? false}
+      {:argv (vec forward-args)
+       :inject? false}
 
       :else
       (let [pre (vec (take dd forward-args))
             post (vec (drop (inc dd) forward-args))]
         (if (has-script? pre)
-          {:argv (vec (concat pre post)) :inject? false}
+          {:argv (vec (concat pre post))
+           :inject? false}
           (if (nil? main-script)
             {:error :needs-main}
-            {:argv (vec (concat pre [main-script] post)) :inject? true}))))))
+            {:argv (vec (concat pre [main-script] post))
+             :inject? true}))))))
 
 ;; Env vars lgx writes into the environment, in display order:
 ;; LG_READ_CLJ for the lg child (see run-lg!), and LGX_RUN is lgx's own

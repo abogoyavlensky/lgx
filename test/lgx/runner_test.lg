@@ -2,12 +2,13 @@
 ;; Run with: lgx test  (from project root)
 
 (ns lgx.runner-test
-  (:require [lgx.runner :as runner]
-            [clojure.test :refer [deftest is]]))
+  (:require [clojure.test :refer [deftest is]]
+            [lgx.runner :as runner]))
 
 (deftest env-trace-line-lists-set-vars-in-order
   (is (= "+ env LG_READ_CLJ=1 LGX_RUN=1\n"
-         (runner/env-trace-line {"LG_READ_CLJ" "1" "LGX_RUN" "1"}))))
+         (runner/env-trace-line {"LG_READ_CLJ" "1"
+                                 "LGX_RUN" "1"}))))
 
 (deftest env-trace-line-ignores-vars-outside-the-allowlist
   ;; LG_SUPPRESS_SOURCE_PATHS_WARNING is no longer set by lgx (let-go 1.11.0
@@ -23,10 +24,12 @@
 
 (deftest env-trace-line-omits-blank-vars
   (is (= "+ env LG_READ_CLJ=1\n"
-         (runner/env-trace-line {"LG_READ_CLJ" "1" "LGX_RUN" ""}))))
+         (runner/env-trace-line {"LG_READ_CLJ" "1"
+                                 "LGX_RUN" ""}))))
 
 (deftest env-trace-line-nil-when-none-set
-  (is (nil? (runner/env-trace-line {"LG_READ_CLJ" "" "LGX_RUN" ""}))))
+  (is (nil? (runner/env-trace-line {"LG_READ_CLJ" ""
+                                    "LGX_RUN" ""}))))
 
 ;; ---------------------------------------------------------------------------
 ;; binary-trace-line
@@ -86,41 +89,51 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest plan-run-args-empty-with-main-injects
-  (is (= {:argv ["main.lg"] :inject? true}
+  (is (= {:argv ["main.lg"]
+          :inject? true}
          (runner/plan-run-args [] "main.lg"))))
 
 (deftest plan-run-args-empty-without-main-is-repl-passthrough
-  (is (= {:argv [] :inject? false}
+  (is (= {:argv []
+          :inject? false}
          (runner/plan-run-args [] nil))))
 
 (deftest plan-run-args-double-dash-injects-main-before-args
-  (is (= {:argv ["main.lg" "list"] :inject? true}
+  (is (= {:argv ["main.lg" "list"]
+          :inject? true}
          (runner/plan-run-args ["--" "list"] "main.lg"))))
 
 (deftest plan-run-args-double-dash-shields-flag-looking-arg
-  (is (= {:argv ["main.lg" "-v"] :inject? true}
+  (is (= {:argv ["main.lg" "-v"]
+          :inject? true}
          (runner/plan-run-args ["--" "-v"] "main.lg"))))
 
 (deftest plan-run-args-lg-flag-before-separator-stays-before-main
-  (is (= {:argv ["-r" "main.lg" "foo"] :inject? true}
+  (is (= {:argv ["-r" "main.lg" "foo"]
+          :inject? true}
          (runner/plan-run-args ["-r" "--" "foo"] "main.lg"))))
 
 (deftest plan-run-args-second-double-dash-preserved-as-literal
-  (is (= {:argv ["main.lg" "a" "--" "b"] :inject? true}
+  (is (= {:argv ["main.lg" "a" "--" "b"]
+          :inject? true}
          (runner/plan-run-args ["--" "a" "--" "b"] "main.lg"))))
 
 (deftest plan-run-args-explicit-script-drops-separator
-  (is (= {:argv ["other.lg" "bar"] :inject? false}
+  (is (= {:argv ["other.lg" "bar"]
+          :inject? false}
          (runner/plan-run-args ["other.lg" "--" "bar"] "main.lg"))))
 
 (deftest plan-run-args-explicit-script-without-main-set
-  (is (= {:argv ["other.lg" "bar"] :inject? false}
+  (is (= {:argv ["other.lg" "bar"]
+          :inject? false}
          (runner/plan-run-args ["other.lg" "--" "bar"] nil))))
 
 (deftest plan-run-args-no-separator-passes-through
-  (is (= {:argv ["other.lg" "arg"] :inject? false}
+  (is (= {:argv ["other.lg" "arg"]
+          :inject? false}
          (runner/plan-run-args ["other.lg" "arg"] "main.lg")))
-  (is (= {:argv ["-e" "(prn 1)"] :inject? false}
+  (is (= {:argv ["-e" "(prn 1)"]
+          :inject? false}
          (runner/plan-run-args ["-e" "(prn 1)"] "main.lg"))))
 
 (deftest plan-run-args-double-dash-without-main-errors
