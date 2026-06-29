@@ -62,8 +62,12 @@
     (write! *err* (str "\n" (style/step-line (str "lgx run " (as-string value))) "\n"))
     (let [prev (os/getenv "LGX_RUN")]
       (os/setenv "LGX_RUN" "1")
+      ;; Like `lgx run`, drop the app-level `--` separator so it doesn't reach
+      ;; lg / *command-line-args*. A `:run` step never injects :main — it
+      ;; forwards an explicit argv (a bare `lg` runner).
       (let [exit (runner/invoke-lg! lib-paths resource-paths
-                                    (as-arg-vec value) verbose?)]
+                                    (runner/drop-arg-separator (as-arg-vec value))
+                                    verbose?)]
         (os/setenv "LGX_RUN" (or prev ""))
         exit))))
 

@@ -1616,6 +1616,22 @@ assert_contains "$out" "LGX_RUN=1" "task :run: LGX_RUN=1 is set in the spawned p
 rm -rf "$proj_trun" "$home_trun"
 
 # ---------------------------------------------------------------------------
+echo "==> Scenario 67b: task :run drops the app-level -- separator (no :main)"
+proj_tdd="$(mktemp -d)"
+home_tdd="$(mktemp -d)"
+# No :main — a :run step names its own script. Like `lgx run`, the first `--`
+# is dropped so it never reaches lg / *command-line-args*.
+cat > "$proj_tdd/lgx.edn" <<'EOF'
+{:tasks {show {:do [{:run ["main.lg" "--" "world"]}]}}}
+EOF
+cat > "$proj_tdd/main.lg" <<'EOF'
+(when-not *compiling-aot* (prn *command-line-args*))
+EOF
+out="$(cd "$proj_tdd" && LGX_HOME="$home_tdd" "$LGX" show)"
+assert_contains "$out" '("world")' "task :run: app-level -- dropped, app sees (\"world\")"
+rm -rf "$proj_tdd" "$home_tdd"
+
+# ---------------------------------------------------------------------------
 echo "==> Scenario 68: lgx test fails when a test file does not compile"
 if supports_source_paths; then
     proj_brk="$(mktemp -d)"

@@ -365,9 +365,13 @@ missing.
 
 Tasks replace ad-hoc Makefile or Taskfile recipes for let-go projects.
 A task is a sequence of steps; each step is either `:sh` (shell command)
-or `:run` (invoked like `lgx run ...` with the project basis). The first
-non-zero exit code stops the chain. The `lint`, `ci`, and `greet` tasks
-in the reference above show the common forms.
+or `:run` (forwards an explicit argv to `lg` with the project basis). A
+`:run` step names its own script — it never substitutes `:main` — but,
+like `lgx run`, it drops the first `--` so an app-level separator does not
+reach `lg` (`{:run ["main.lg" "--" "world"]}` runs `lg main.lg world`, so
+the app sees `("world")` in `*command-line-args*`). The first non-zero
+exit code stops the chain. The `lint`, `ci`, and `greet` tasks in the
+reference above show the common forms.
 
 Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
 tasks defined in the current project. Task names are symbols, matching

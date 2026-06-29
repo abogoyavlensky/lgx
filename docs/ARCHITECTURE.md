@@ -348,9 +348,13 @@ of:
 - `{:sh <string-or-vector>}` — joined with spaces and run via
   `sh -c <cmd>`. Captured stdout/stderr is replayed after the child
   exits.
-- `{:run <string-or-vector>}` — invoked through the same internal path
-  as `lgx run`, with the project's resolved `-source-paths` and
-  `-resource-paths`. String forms are whitespace-split into argv.
+- `{:run <string-or-vector>}` — forwards an explicit argv to `lg` with
+  the project's resolved `-source-paths` and `-resource-paths`. String
+  forms are whitespace-split into argv. Unlike `cmd-run` it never
+  substitutes `:main` (a `:run` step names its own script), but it does
+  apply `runner/drop-arg-separator` so the first `--` — the app-level
+  separator — is stripped before `lg` sees it, matching `lgx run`. A
+  second `--` survives as a literal arg.
 
 Step values may reference the bound args two ways, applied just before
 the step runs. Vector-form values may carry `:arg/<name>` placeholder

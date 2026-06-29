@@ -139,3 +139,27 @@
 (deftest plan-run-args-double-dash-without-main-errors
   (is (= {:error :needs-main}
          (runner/plan-run-args ["--" "foo"] nil))))
+
+;; ---------------------------------------------------------------------------
+;; drop-arg-separator — task :run forwards an explicit argv, dropping the first
+;; `--` (like `lgx run`) but never injecting :main.
+;; ---------------------------------------------------------------------------
+
+(deftest drop-arg-separator-no-separator-passes-through
+  (is (= ["main.lg" "world"]
+         (runner/drop-arg-separator ["main.lg" "world"]))))
+
+(deftest drop-arg-separator-drops-the-first-separator
+  (is (= ["main.lg" "world"]
+         (runner/drop-arg-separator ["main.lg" "--" "world"]))))
+
+(deftest drop-arg-separator-keeps-a-second-separator
+  (is (= ["main.lg" "a" "--" "b"]
+         (runner/drop-arg-separator ["main.lg" "--" "a" "--" "b"]))))
+
+(deftest drop-arg-separator-leading-separator
+  (is (= ["world"]
+         (runner/drop-arg-separator ["--" "world"]))))
+
+(deftest drop-arg-separator-empty
+  (is (= [] (runner/drop-arg-separator []))))

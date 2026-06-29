@@ -106,6 +106,18 @@
             {:argv (vec (concat pre [main-script] post))
              :inject? true}))))))
 
+(defn drop-arg-separator
+  "Remove the first `--` (the lgx/app arg separator) from an argv, leaving the
+   rest — including any later `--` — untouched. Task `:run` steps forward an
+   explicit argv to `lg` and, like `lgx run`, must not pass the user's
+   app-level `--` through to lg (where it would land in `*command-line-args*`).
+   Unlike `plan-run-args`, this never injects `:main`."
+  [argv]
+  (let [dd (position argv "--")]
+    (if (neg? dd)
+      (vec argv)
+      (vec (concat (take dd argv) (drop (inc dd) argv))))))
+
 ;; Env vars lgx writes into the environment, in display order:
 ;; LG_READ_CLJ for the lg child (see run-lg!), and LGX_RUN is lgx's own
 ;; run-marker (set by cmd-run / :run task steps before invoke-lg!).
