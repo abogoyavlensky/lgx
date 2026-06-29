@@ -147,31 +147,32 @@ these are project-only — dep dirs are never added. Missing entries warn but
 are still passed through.
 
 If `lgx.edn` sets top-level `:main`, lgx may substitute it as the
-script argument. Four rules apply to `cmd-run`; first match wins:
+script argument. The pure `runner/plan-run-args` decides the argv; four
+rules apply, first match wins. lgx never emits a `--` of its own — the
+app reads its arguments from let-go's `*command-line-args*` (the
+positionals after the script), which holds the same value under `lgx run`
+and in a bundled binary:
 
-1. **No forwarded args + `:main` set** → inject `:main` *and* append
-   a trailing `--`. Output: `lg <lg-flags> <main> --`. The trailing
-   `--` is what makes the script's `os/args` parsing idiom universal
-   across dev mode and a built binary (where `--` is naturally absent).
+1. **No forwarded args + `:main` set** → inject `:main`. Output:
+   `lg <lg-flags> <main>`. `*command-line-args*` is `nil`.
 2. **`--` present + pre-`--` slice contains a script** (suffix `.lg`,
-   `.cljc`, or `.clj`) → no inject; pass forward-args through verbatim
-   so the user's explicit script reaches `lg`. Output:
-   `lg <lg-flags> <pre> -- <post>`.
+   `.cljc`, or `.clj`) → no inject; drop the separator and pass the rest
+   through so the user's explicit script reaches `lg`. Output:
+   `lg <lg-flags> <pre> <post>`.
 3. **`--` present + pre-`--` slice contains no script** → inject
-   `:main` between the pre slice and the `--`. Output:
-   `lg <lg-flags> <pre> <main> -- <post>`. With `:main` unset, lgx
+   `:main` at the boundary and drop the separator. Output:
+   `lg <lg-flags> <pre> <main> <post>`. With `:main` unset, lgx
    exits with `lgx: -- requires :main to be set in lgx.edn`.
 4. **Anything else** → strict; pass forward-args through verbatim.
    (`lgx run foo.lg`, `lgx run -e '(...)'`, `lgx run -r` all
    pass through unchanged.)
 
-The `--` is preserved in the outgoing argv when present in the user's
-invocation, so it lands in the script's `os/args` as a stable marker.
-A user script slices `(rest (drop-while #(not= "--" %) os/args))` to
-find its own args; lg's own flags (e.g. `-source-paths`) live before
-`--` and never reach a POSIX-style CLI parser. Only the *first* `--`
-is treated as the separator; later `--` tokens are literal args
-(standard getopt convention).
+`lg` stops flag-parsing at the first positional (the script), so every
+arg after it is shielded from `lg` and becomes the app's
+`*command-line-args*` — that is why lgx needs no `--` marker. Only the
+*first* `--` is the lgx/app separator; later `--` tokens survive as
+literal args (standard getopt convention). `*command-line-args*` is the
+reason lgx requires `lg` >= 1.11.0.
 
 When `:main` is being injected and the file does not exist on disk,
 lgx exits non-zero with `lgx: :main script not found: <path>` before

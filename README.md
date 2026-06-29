@@ -17,8 +17,9 @@ lgx <task>           # run a custom task from lgx.edn
 
 ## Requirements
 
-- [`lg`](https://github.com/nooga/let-go) => `1.10.0` on `PATH` (or pointed to by
-  `LGX_LG`).
+- [`lg`](https://github.com/nooga/let-go) >= `1.11.0` on `PATH` (or pointed to by
+  `LGX_LG`). `lgx run` exposes a script's args through let-go's
+  `*command-line-args*`, added in 1.11.0.
   Install with `brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`.
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
 
@@ -139,34 +140,40 @@ hyphenated name (`my-app`) in contents.
 
 ### `lgx run` details
 
-With no arguments, `lgx run` execs `lg <paths> :main --`, injecting a
-trailing `--` marker so a script can find where its CLI args begin.
-`lgx run` also sets **`LGX_RUN=1`** in the spawned process, so a tool can
-tell it is running under `lgx run` (dev) vs. as a bundled binary.
-
-Prefer keying off `LGX_RUN` rather than sniffing for `--`. The `--`-only
-idiom is wrong for a bundled binary, where there is no injected marker and
-a `--` may legitimately appear inside the user's command (e.g.
-`myapp run wt git checkout -- file`):
+With no arguments, `lgx run` execs `lg <paths> :main`, running the project's
+`:main` script. A script reads its CLI arguments from let-go's
+`*command-line-args*` — the positionals after the script, as a seq of strings
+(`nil` when there are none). The same var holds the same value under `lgx run`
+and in a bundled binary, so argument parsing needs no special-casing:
 
 ```clojure
-(defn- cli-argv [argv]
-  "Application args, in both dev (lgx run) and bundled-binary modes."
-  (if (str/blank? (os/getenv "LGX_RUN"))
-    (rest argv)                                 ; ./bin/myapp <args>
-    (rest (drop-while #(not= "--" %) argv))))   ; lgx run -- <args>
+(when-not *compiling-aot*
+  (let [args *command-line-args*]   ; ("foo" "bar") under both `lgx run` and ./bin/myapp
+    (run args)))
 ```
+
+`lgx run` also sets **`LGX_RUN=1`** in the spawned process, so a tool can tell
+it is running under `lgx run` (dev) vs. as a bundled binary — handy for
+dev-only behavior. It is not needed for argument parsing.
+
+To forward arguments to your app, put them after `--`. lgx treats the first
+`--` as the boundary between its own flags and your app's args: it drops that
+`--` and injects `:main`, so the args land in `*command-line-args*`. A second
+`--` is preserved as a literal argument.
 
 Forms:
 
-- `lgx run` -> `lg <paths> :main --`.
-- `lgx run -- foo bar` -> `lg <paths> :main -- foo bar` (requires `:main`).
-- `lgx run -r -- foo` -> `lg <paths> -r :main -- foo` (lg flags before `--`).
+- `lgx run` -> `lg <paths> :main` (`*command-line-args*` is `nil`).
+- `lgx run -- foo bar` -> `lg <paths> :main foo bar` -> `("foo" "bar")` (requires `:main`).
+- `lgx run -r -- foo` -> `lg <paths> -r :main foo` (lg flags before `--`).
+- `lgx run -- a -- b` -> `("a" "--" "b")` (only the first `--` is the separator).
 - `lgx run foo.lg` -> `lg <paths> foo.lg` (explicit script, pass-through).
-- `lgx run foo.lg -- bar` -> `lg <paths> foo.lg -- bar`.
+- `lgx run foo.lg -- bar` -> `lg <paths> foo.lg bar` -> `("bar")`.
 - `lgx run -e '(...)'` -> pass-through.
 - `lgx run` with no `:main` -> `lg <paths>`: lg's interactive REPL with
   the project's deps on the source path.
+
+`*command-line-args*` requires `lg` >= 1.11.0.
 
 The spawned `lg` inherits lgx's stdin/stdout/stderr, so output streams
 live and interactive programs (REPL, prompts) work.
@@ -231,7 +238,7 @@ key's rules in detail.
  ;; The let-go version this project targets. When set, `lgx install` fetches the
  ;; matching let-go source for editor navigation, and run/build/test check it
  ;; against the lg on PATH. lgx does not install lg itself.
- :lg-version "1.10.0"
+ :lg-version "1.11.0"
 
  ;; Git or local deps. A dep's own :deps are resolved too (first-wins).
  :deps
@@ -298,7 +305,7 @@ key's rules in detail.
 ### `:lg-version`
 
 Optional. The let-go version this project targets (a published let-go release,
-e.g. `"1.10.0"`). lgx does **not** install or manage the `lg` binary — you get
+e.g. `"1.11.0"`). lgx does **not** install or manage the `lg` binary — you get
 that from mise/brew/etc. — but when `:lg-version` is set lgx does two things:
 
 - **`lgx install` fetches the matching let-go _source_** (not the binary) into
@@ -534,7 +541,7 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. |
-| `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev-vs-bundled mode (see [`lgx run` details](#lgx-run-details)). |
+| `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev (`lgx run`) vs. bundled-binary mode — e.g. to enable dev-only behavior. Not needed for argument parsing; read `*command-line-args*` for that (see [`lgx run` details](#lgx-run-details)). |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test-runner harness dir. |
 | `LGX_SKIP_VERSION_CHECK` | _(unset)_ | Set to any non-empty value to bypass the `:lg-version` compatibility check on `run`/`nrepl`/`build`/`test`. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |

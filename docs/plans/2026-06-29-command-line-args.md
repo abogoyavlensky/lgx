@@ -68,6 +68,7 @@ Unchanged in observable behavior: a `--` with no `:main` still exits 1 with `lgx
 - `tests/e2e.sh` — rewrite scenarios 21 and 31–38 to assert `*command-line-args*` (note 36/37/38 use explicit scripts `other.lg`/`other.cljc`, not `main.lg`); add a second-`--` scenario; remove Scenario 88 and any other `LG_SUPPRESS_SOURCE_PATHS_WARNING` assertion.
 - `README.md` — rewrite `### lgx run details`; reword the `LGX_RUN` env-table row; remove the stale `LG_SUPPRESS_SOURCE_PATHS_WARNING` mention in the `--verbose` bullet (line ~106); bump lg version references `1.10.0` → `1.11.0`.
 - `docs/ARCHITECTURE.md` — rewrite the four `cmd-run` rules; remove the stale `LG_SUPPRESS_SOURCE_PATHS_WARNING` mention in "External dependencies" (line ~562); update the lg version note.
+- `.mise.toml` — bump the repo's dev/CI `lg` pin `1.10.0` → `1.11.0` (the new e2e tests require it). *(Found during execution — the dev/CI lg pin is part of "make 1.11.0 the floor".)*
 - `docs/issues/nrepl-port-zero.md` — mark resolved upstream (let-go 1.11.0) and record the deferred lgx-side simplification, the now-stale ARCHITECTURE claim, and the template-repo follow-ups. (This file already exists — extend it; do **not** create a duplicate.)
 
 ---
@@ -194,8 +195,8 @@ This task removes *every* trace of the env var — code, tests, and the two pros
 - [ ] **Step 1: Rewrite README `### lgx run details`**
   Use the /writing-clearly skill. Replace the "injects a trailing `--`" intro with `lg <paths> :main` (no `--`). Replace the `cli-argv`/`drop-while`/LGX_RUN-for-args block with guidance to read `*command-line-args*`, noting it is identical in `lgx run` and a bundled binary. Update each **Forms** line to drop `--` (e.g. `lgx run -- foo bar` → `lg <paths> :main foo bar`; `lgx run -r -- foo` → `lg <paths> -r :main foo`; `lgx run foo.lg -- bar` → `lg <paths> foo.lg bar`). Keep the `LGX_RUN` env-table row but reword it as a dev-vs-bundle signal, not an arg mechanism.
 
-- [ ] **Step 2: Bump lg version references in README**
-  Change the prerequisite (line ~20) and the `:lg-version` examples (lines ~236 and ~303) from `1.10.0` to `1.11.0`. Note that `*command-line-args*` requires `lg` ≥ 1.11.0 where the run convention is described.
+- [ ] **Step 2: Bump lg version references**
+  Change the README prerequisite, the `:lg-version` examples, and the `.mise.toml` dev/CI pin from `1.10.0` to `1.11.0`. Note that `*command-line-args*` requires `lg` ≥ 1.11.0 where the run convention is described. (Leave the `os/exec*` "(lg >= 1.10.0)" note in ARCHITECTURE — it is an accurate capability statement, not a floor.)
 
 - [ ] **Step 3: Rewrite the ARCHITECTURE `cmd-run` rules**
   Use the /writing-clearly skill. Rewrite the four rules (lines ~149–174) to match the new behavior (no emitted `--`, separator dropped, `*command-line-args*` as the app's arg source, second `--` preserved as literal). Update the "(lg >= 1.10.0)" note (line ~188) to call out the 1.11.0 `*command-line-args*` requirement.
