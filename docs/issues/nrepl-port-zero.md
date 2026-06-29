@@ -2,7 +2,15 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** draft
+**Status:** resolved upstream (let-go 1.11.0)
+
+## Resolution
+
+let-go 1.11.0 fixed this: `lg -n -p 0` now reports the OS-assigned port
+(not the literal `0`) in `.nrepl-port` and the startup banner (#229), and
+let-go added `os/free-port` to obtain a free TCP port directly (#209). So
+lgx no longer needs to guess a port — it can pass `-p 0` and read the real
+port back, or call `os/free-port`.
 
 ## Summary
 
@@ -64,3 +72,27 @@ plus a `Port()` accessor so `lg.go`'s
 `port` the behavior is byte-identical, so existing users see no change;
 `-p 0` becomes "pick a free port and tell me which". Optionally the
 `-p` flag help could mention `0 = OS-assigned`.
+
+## Follow-ups for lgx (deferred)
+
+Now that the upstream fix has shipped, these lgx-side changes are worth
+making in their own plan — they are out of scope for the
+`*command-line-args*` work that bumped the floor to lg 1.11.0:
+
+- **Simplify `cmd-nrepl`.** Drop the random `(+ 49152 (rand-int 16384))`
+  guess in `lgx.lg`. Pass `-p 0` and read the real port back from lg's
+  output / `.nrepl-port`, or use `os/free-port`. This removes the
+  collision risk entirely.
+- **Refresh stale docs.** `docs/ARCHITECTURE.md` (the `lgx nrepl` section,
+  ~lines 207–209) still says lgx must pick the port itself because `-p 0`
+  records `0`. That rationale no longer holds — update it when the
+  simplification lands.
+
+## Unrelated follow-up: bump the template repos
+
+Separate from nrepl, the floor bump to lg 1.11.0 means the template
+repos need updating (they are their own repos, not editable from here):
+
+- `lgx-template-cli` / `lgx-template-base` — set `:lg-version "1.11.0"`
+  and migrate their `main.lg` off the old `(drop-while #(not= "--" %)
+  os/args)` / `LGX_RUN`-keyed arg idiom to `*command-line-args*`.
