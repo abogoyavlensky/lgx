@@ -11,3 +11,9 @@ lg = "github:nooga/let-go"
 lgx = "github:abogoyavlensky/lgx"
 cljfmt = "asdf:https://github.com/b-social/asdf-cljfmt"
 tailwindcss = "asdf:https://github.com/virtualstaticvoid/asdf-tailwindcss"
+
+[settings]
+# let-go 1.11.0+ ships GitHub artifact attestations whose TSA timestamp fails
+# Sigstore verification. Skip just that check; checksum and SLSA provenance still verify. 
+# Remove once nooga/let-go re-releases with a verifiable TSA.
+github_attestations = false
