@@ -296,3 +296,26 @@
     (is (= :threw (threw? #(cache/ensure-letgo-source! "9.9.9" url))))
     (os/sh "rm" "-rf" home repo)))
 
+;; ---------------------------------------------------------------------------
+;; letgo-source-fetch-enabled?
+;; ---------------------------------------------------------------------------
+
+(deftest letgo-source-fetch-disabled-when-unset
+  (os/setenv "LGX_FETCH_LET_GO_SOURCE" "")
+  (is (= false (cache/letgo-source-fetch-enabled?))))
+
+(deftest letgo-source-fetch-disabled-when-blank
+  (os/setenv "LGX_FETCH_LET_GO_SOURCE" "   ")
+  (is (= false (cache/letgo-source-fetch-enabled?)))
+  (os/setenv "LGX_FETCH_LET_GO_SOURCE" ""))
+
+(deftest letgo-source-fetch-enabled-when-1
+  (os/setenv "LGX_FETCH_LET_GO_SOURCE" "1")
+  (is (= true (cache/letgo-source-fetch-enabled?)))
+  (os/setenv "LGX_FETCH_LET_GO_SOURCE" ""))
+
+(deftest letgo-source-fetch-enabled-when-truthy-word
+  (os/setenv "LGX_FETCH_LET_GO_SOURCE" "true")
+  (is (= true (cache/letgo-source-fetch-enabled?)))
+  (os/setenv "LGX_FETCH_LET_GO_SOURCE" ""))
+

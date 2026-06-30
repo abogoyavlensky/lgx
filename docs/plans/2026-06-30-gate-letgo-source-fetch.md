@@ -87,29 +87,29 @@ drift there. README is the only doc to update.
 - Modify: `lgx/cache.lg`
 - Test: `test/lgx/cache_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `test/lgx/cache_test.lg`, add a small section for
   `letgo-source-fetch-enabled?`. Cover: unset → false; `""`/whitespace-only →
   false; `"1"` → true; `"true"` → true. Set the var with `os/setenv` and, after
   each assertion group, restore it to `""` so other tests are unaffected. Follow
   the file's existing `deftest`/`is` style.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `make build LG="$LGX_LG" >/dev/null && bin/lgx test`
   Expected: FAIL — `letgo-source-fetch-enabled?` is unresolved in `lgx.cache`.
 
-- [ ] **Step 3: Implement the predicate**
+- [x] **Step 3: Implement the predicate**
   In `lgx/cache.lg`, in the let-go-source section (near `letgo-repo-url`), add a
   public `letgo-source-fetch-enabled?` returning
   `(not (str/blank? (os/getenv "LGX_FETCH_LET_GO_SOURCE")))`. `str` is already
   required. Add a one-line docstring noting any non-blank value enables the
   source fetch.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `make build LG="$LGX_LG" >/dev/null && bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "feat: add letgo-source-fetch-enabled? env gate predicate"`
 
 ## Task 2: Gate the install-time fetch
