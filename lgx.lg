@@ -135,11 +135,14 @@
                  (os/exit 1))
                (throw e))))))
 
-;; Fetch the let-go source matching :lg-version (for editor navigation). Runs
-;; regardless of :deps so a deps-less pinned project still gets it; a fetch
+;; Fetch the let-go source matching :lg-version (for editor navigation). Opt-in
+;; via LGX_FETCH_LET_GO_SOURCE: off and silent by default, since the source only
+;; benefits editor tooling (an LSP) and most users don't run it. When enabled it
+;; runs regardless of :deps so a deps-less pinned project still gets it; a fetch
 ;; failure is its own warning and never fails the (already done) deps install.
 (defn- install-letgo-source! [cfg]
-  (when-let [version (config/lg-version cfg)]
+  (when-let [version (and (cache/letgo-source-fetch-enabled?)
+                          (config/lg-version cfg))]
     (try
       (let [r (cache/ensure-letgo-source! version)]
         (when (:installed? r)

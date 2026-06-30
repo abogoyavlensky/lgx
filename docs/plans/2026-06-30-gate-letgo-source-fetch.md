@@ -118,7 +118,7 @@ drift there. README is the only doc to update.
 - Modify: `lgx.lg`
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add the e2e default-off scenario**
+- [x] **Step 1: Add the e2e default-off scenario**
   In `tests/e2e.sh`, after Scenario 4b, add a scenario: write an `lgx.edn` with
   `{:paths ["."] :lg-version "9.9.9" :main "main.lg"}`, a trivial `main.lg`, and
   a fresh `LGX_HOME`. Run `lgx install` (flag unset) capturing stdout+stderr.
@@ -126,20 +126,20 @@ drift there. README is the only doc to update.
   **not** contain `failed to fetch`; and `$LGX_HOME/let-go/source` does **not**
   exist. Use the existing `assert_*` helpers and clean up the temp dirs.
 
-- [ ] **Step 2: Gate `install-letgo-source!`**
+- [x] **Step 2: Gate `install-letgo-source!`**
   In `lgx.lg`, change the gate to fetch only when the flag is on. Use the `and`
   short-circuit so `version` is still bound:
   `(when-let [version (and (cache/letgo-source-fetch-enabled?) (config/lg-version cfg))] …)`.
   Update the preceding comment (currently "Runs regardless of :deps…") to state
   the fetch is opt-in via `LGX_FETCH_LET_GO_SOURCE` and silent when off.
 
-- [ ] **Step 3: Run the full suite to verify pass**
+- [x] **Step 3: Run the full suite to verify pass**
   Run: `make test`
   Expected: PASS, including the new Scenario. (Skip a "verify it fails first"
   run here — on the unfixed code the flag-off path attempts a real network clone
   of v9.9.9 and would hang offline; the gate is what removes that.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "feat: fetch let-go source only when LGX_FETCH_LET_GO_SOURCE is set"`
 
 ## Task 3: README documentation
