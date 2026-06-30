@@ -27,7 +27,7 @@
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context if defined)\n"
        "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
-       "                               (free port unless --port given; auto-applies :dev context if defined)\n"
+       "                               (free port unless --port given; auto-applies :dev and :test contexts if defined)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
@@ -250,14 +250,16 @@
     (os/exit 1)))
 
 (defn- auto-with!
-  "Prepend the convention context `name` (when defined in cfg's :contexts) to
-   the CLI --with list `with`: run/nrepl auto-apply :dev, test auto-applies
-   :test. Prepending keeps explicit --with contexts higher-precedence
-   (last-wins). Silent by default; --verbose prints the auto-applied name."
-  [cfg name with verbose?]
-  (let [auto (config/auto-context cfg name)]
-    (when (and verbose? (seq auto))
-      (write! *err* (str "+ auto context " name "\n")))
+  "Prepend the convention contexts `names` (those defined in cfg's :contexts) to
+   the CLI --with list `with`: run auto-applies :dev, nrepl :dev and :test, test
+   :test. Names prepend left-to-right, so a later auto name wins over an earlier
+   one on a lib-name collision and an explicit --with context wins over all
+   (last-wins). Silent by default; --verbose prints each auto-applied name."
+  [cfg names with verbose?]
+  (let [auto (vec (mapcat #(config/auto-context cfg %) names))]
+    (when verbose?
+      (doseq [nm auto]
+        (write! *err* (str "+ auto context " nm "\n"))))
     (vec (concat auto with))))
 
 ;; Preflight: when :lg-version is pinned, compare it to the lg on PATH. Warn for
@@ -279,7 +281,7 @@
   (let [project (config/find-project!)
         cfg (config/load-config! project)
         _ (check-lg-version! cfg :warn)
-        with (auto-with! cfg :dev with verbose?)
+        with (auto-with! cfg [:dev] with verbose?)
         {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         main-script (config/main cfg)
         ;; runner/plan-run-args owns the pure decision: inject :main where a
@@ -312,7 +314,7 @@
         project (config/find-project!)
         cfg (config/load-config! project)
         _ (check-lg-version! cfg :warn)
-        with (auto-with! cfg :dev with verbose?)
+        with (auto-with! cfg [:dev :test] with verbose?)
         {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
         ;; No --port: ask lgx's own runtime (let-go >= 1.11.0) for a free
         ;; port via os/free-port, then pass it as the literal -p value lg
@@ -394,7 +396,7 @@
     (when (or (nil? stat) (not (:dir? stat)))
       (write! *err* "lgx: no test/ directory in project\n")
       (os/exit 1))
-    (let [with (auto-with! cfg :test with verbose?)
+    (let [with (auto-with! cfg [:test] with verbose?)
           {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
           single? (= 1 (count forward-args))
           entries (if single?

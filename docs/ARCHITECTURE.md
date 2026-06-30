@@ -198,9 +198,11 @@ resolved upstream by `os/exec*`.)
 
 ### `lgx nrepl [--port N]`
 
-Steps 1–4 match `install` (deps auto-installed, `--with` contexts and a
-defined `:dev` context apply, as in `run`), and `:paths`/`:resource-paths`
-resolve exactly as in `lgx run`. Then:
+Steps 1–4 match `install` (deps auto-installed, `--with` contexts apply), and
+`:paths`/`:resource-paths` resolve exactly as in `lgx run`. Unlike `run`, which
+auto-applies only `:dev`, `nrepl` auto-applies **both** `:dev` and `:test`
+(`auto-with!` with `[:dev :test]`) — a REPL is where you iterate on tests, so
+it gets the test helpers too. Then:
 
 5. Parse the command's own args with `cli/parse-nrepl-args`: `--port N`
    must be an integer in 1–65535; anything else exits 1 with a clear
@@ -257,7 +259,8 @@ Steps 1–2 (project root, config load) match `install`. Then:
    missing `test/` never fetches deps.
 4. Build the basis as in `install` steps 3–4, with a context named
    `:test`, when defined in `:contexts`, prepended to the CLI `--with`
-   list (`auto-with!`, as `run`/`nrepl` do with `:dev`).
+   list (`auto-with!`, as `run` does with `:dev` and `nrepl` with both
+   `:dev` and `:test`).
 5. Select the test files. If a positional `<file>` arg is provided,
    resolve it to an absolute path (project-root-relative inputs are
    joined against the project root), then `path/normalize` away any
@@ -398,12 +401,13 @@ A `:contexts` entry is a named overlay carrying only `:extra-deps`/
 `:extra-paths`/`:extra-resource-paths` — the per-task extras, lifted to the top
 level for reuse. They are applied by the CLI `--with a,b` flag (any command),
 a task's `:with` vector, and two name conventions: a context named `:dev`,
-when defined, auto-applies to `run`/`nrepl`, and `:test` to `test`
-(`config/auto-context` returns `[name]`-or-`[]`; `auto-with!` in `lgx.lg`
-prepends it to the CLI `--with` list and prints `+ auto context <name>` under
-`--verbose`). Auto-contexts touch only those three built-in commands — never
-`build`/`install`, never a task's `:run` steps — so dev/test deps cannot leak
-into artifacts. `config/context-overlay` resolves an ordered name
+when defined, auto-applies to `run`, `:test` to `test`, and `nrepl` to **both**
+(`config/auto-context` returns `[name]`-or-`[]`; `auto-with!` in `lgx.lg` takes
+an ordered name list — `[:dev]` for `run`, `[:test]` for `test`, `[:dev :test]`
+for `nrepl` — prepends the defined ones to the CLI `--with` list, and prints
+`+ auto context <name>` per name under `--verbose`). Auto-contexts touch only
+those three built-in commands — never `build`/`install`, never a task's `:run`
+steps — so dev/test deps cannot leak into artifacts. `config/context-overlay` resolves an ordered name
 list to a single `{:deps-pairs :paths :resource-paths}` overlay, folding
 overlap among the named contexts last-wins via `config/merge-coords` (and
 throwing on an unknown name; a task's `:with` is additionally validated against
