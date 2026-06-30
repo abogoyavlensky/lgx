@@ -44,7 +44,7 @@
 (defn parse-nrepl-args
   "Parse the `nrepl` command's rest-args. Returns {:port <int>} for
    `--port <n>` (n must be an integer in 1-65535) or {:port nil} when the
-   flag is absent (caller picks a random port). Throws ex-info on a
+   flag is absent (caller picks a free port). Throws ex-info on a
    missing/invalid port value or any other token."
   [args]
   (let [args (vec args)]

@@ -204,17 +204,19 @@ resolve exactly as in `lgx run`. Then:
 
 5. Parse the command's own args with `cli/parse-nrepl-args`: `--port N`
    must be an integer in 1–65535; anything else exits 1 with a clear
-   error. No flag → lgx picks a random port in the IANA ephemeral range
-   (49152–65535). lg writes the literal `-p` value to `.nrepl-port`, so
-   the random pick must happen in lgx — port 0 (OS-assigned) would
-   record `0`.
+   error. No flag → lgx asks its own runtime (let-go ≥ 1.11.0) for a
+   free port via `os/free-port` and passes it as the literal `-p` value,
+   which lg writes to `.nrepl-port`. The OS vets the port as free, so it
+   is almost never taken.
 6. Exec `lg <lg-flags> -n -p <port>` via `runner/exec-lg-interactive!`.
    With no script argument, lg starts the nREPL server (printing
    `nREPL server started on port N ...` and writing `.nrepl-port` in the
    cwd) and opens its terminal REPL in the same process.
 
-On a port collision lg prints `failed to run nREPL server on port N`
-and still opens the terminal REPL; rerunning picks a fresh random port.
+`os/free-port` is check-then-use, so a rare race can still leave the
+port taken before lg binds it: lg then prints `failed to run nREPL
+server on port N` and still opens the terminal REPL; rerunning picks a
+fresh free port.
 Unlike `cmd-run`, `cmd-nrepl` does not set `LGX_RUN` — that var
 advertises script-arg handling to a spawned program, which doesn't
 apply to a REPL session. `nrepl` is a reserved task name

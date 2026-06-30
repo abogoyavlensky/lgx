@@ -10,6 +10,13 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LGX="$ROOT/bin/lgx"
 
+# Pin lg to the repo's mise-resolved binary (absolute path) so this script's
+# throwaway-dir cd's don't drift to a different *global* mise lg version. Run
+# via tests/run.sh this is already exported; resolve it here too so a bare
+# `bash tests/e2e.sh` is just as deterministic. An explicit LGX_LG still wins.
+: "${LGX_LG:="$(cd "$ROOT" && { mise which lg 2>/dev/null || command -v lg; })"}"
+export LGX_LG
+
 # Git identity so seed commits work without global config (matters in CI).
 export GIT_AUTHOR_NAME=lgx-test
 export GIT_AUTHOR_EMAIL=lgx@test.invalid

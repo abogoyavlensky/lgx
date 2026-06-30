@@ -73,20 +73,20 @@ plus a `Port()` accessor so `lg.go`'s
 `-p 0` becomes "pick a free port and tell me which". Optionally the
 `-p` flag help could mention `0 = OS-assigned`.
 
-## Follow-ups for lgx (deferred)
+## Follow-ups for lgx (done)
 
-Now that the upstream fix has shipped, these lgx-side changes are worth
-making in their own plan — they are out of scope for the
+These lgx-side changes landed in the `nrepl-free-port` plan
+(`docs/plans/2026-06-29-nrepl-free-port.md`), separate from the
 `*command-line-args*` work that bumped the floor to lg 1.11.0:
 
-- **Simplify `cmd-nrepl`.** Drop the random `(+ 49152 (rand-int 16384))`
-  guess in `lgx.lg`. Pass `-p 0` and read the real port back from lg's
-  output / `.nrepl-port`, or use `os/free-port`. This removes the
-  collision risk entirely.
-- **Refresh stale docs.** `docs/ARCHITECTURE.md` (the `lgx nrepl` section,
-  ~lines 207–209) still says lgx must pick the port itself because `-p 0`
-  records `0`. That rationale no longer holds — update it when the
-  simplification lands.
+- **Simplify `cmd-nrepl`.** ✅ The random `(+ 49152 (rand-int 16384))`
+  guess in `lgx.lg` now uses `os/free-port`, which the OS vets as free —
+  removing the collision risk of a blind pick. (Chose `os/free-port` over
+  `-p 0`: it keeps lgx's "pick a number, pass `-p N`" flow without reading
+  the port back from an interactive process.)
+- **Refresh stale docs.** ✅ `docs/ARCHITECTURE.md` (the `lgx nrepl`
+  section) no longer claims lgx must guess the port because `-p 0` records
+  `0`; it now describes the `os/free-port` path.
 
 ## Unrelated follow-up: bump the template repos
 
