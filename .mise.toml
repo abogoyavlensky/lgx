@@ -13,7 +13,7 @@ cljfmt = "asdf:https://github.com/b-social/asdf-cljfmt"
 tailwindcss = "asdf:https://github.com/virtualstaticvoid/asdf-tailwindcss"
 
 [settings]
-# let-go 1.11.0+ ships GitHub artifact attestations whose TSA timestamp fails
-# Sigstore verification. Skip just that check; checksum and SLSA provenance still verify. 
-# Remove once nooga/let-go re-releases with a verifiable TSA.
+# mise can't verify lg 1.11.0+ GitHub attestations: GitHub rotated its TSA cert
+# (late June 2026) and mise's bundled trusted root predates it. Checksum + SLSA
+# still run. Drop when a newer mise ships the new TSA. See docs/issues/mise-attestation-tsa.md.
 github_attestations = false
