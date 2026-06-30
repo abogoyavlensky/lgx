@@ -167,3 +167,34 @@ drift there. README is the only doc to update.
 
 - [x] **Step 4: Commit**
   `git commit -am "docs: document LGX_FETCH_LET_GO_SOURCE opt-in source fetch"`
+
+---
+
+## Completion Summary
+
+**Status: complete.** All three tasks landed; full suite green (440 unit tests,
+281 e2e assertions).
+
+Commits on the branch:
+- `56f25fa` — `letgo-source-fetch-enabled?` predicate in `lgx/cache.lg` + 4 unit
+  tests in `test/lgx/cache_test.lg`.
+- `802013a` — gate `install-letgo-source!` in `lgx.lg` on the predicate (`and`
+  short-circuit, comment updated) + offline e2e Scenario 4c in `tests/e2e.sh`.
+- `7174674` — README: command-table row, `:lg-version` bullet, and a new
+  env-var row covering the LSP-diagnostics rationale.
+
+The fetch is now opt-in: it runs only when `LGX_FETCH_LET_GO_SOURCE` holds a
+non-blank value **and** `:lg-version` is set; otherwise `lgx install` is silent.
+
+**Second-opinion review (codex, branch vs `master`):**
+- *[P2] e2e not hermetic* — **fixed.** Scenario 4c now clears
+  `LGX_FETCH_LET_GO_SOURCE=` inline on the `install` invocation, so it tests the
+  default-off path even when the caller's environment has the flag set. Verified
+  by running the e2e with `LGX_FETCH_LET_GO_SOURCE=1` exported — Scenario 4c
+  still passes.
+- *[P3] env var undocumented* — **no change needed.** Codex reviewed a transient
+  state while the Task 3 README edits were mid-flight; the env-var table row was
+  already present in the final commit (`README.md` env table).
+
+No deviations from the plan. The ON fetch path stays covered offline by the
+existing `ensure-letgo-source!` fixture tests, so the suite needs no network.
