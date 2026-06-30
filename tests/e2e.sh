@@ -197,6 +197,22 @@ assert_contains "$out" "does not match :lg-version 9.9.9" "build fails on versio
 rm -rf "$proj" "$home"
 
 # ---------------------------------------------------------------------------
+echo "==> Scenario 4c: :lg-version install does not fetch let-go source by default"
+proj="$(mktemp -d)"
+echo '{:paths ["."] :lg-version "9.9.9" :main "main.lg"}' > "$proj/lgx.edn"
+echo '(println "ran")' > "$proj/main.lg"
+home="$(mktemp -d)"
+# Flag cleared: install must not attempt a fetch (no output, no warning, no dir).
+# Clear it explicitly so the scenario stays hermetic if the caller's env set it.
+out="$(cd "$proj" && LGX_HOME="$home" LGX_FETCH_LET_GO_SOURCE= "$LGX" install 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] || fail "install with :lg-version should exit 0 (got $rc)"
+assert_not_contains "$out" "Fetched let-go" "no source fetch without the flag"
+assert_not_contains "$out" "failed to fetch" "no fetch attempt without the flag"
+[[ -d "$home/let-go/source" ]] && fail "let-go source dir created without the flag"
+pass "no let-go source dir created without the flag"
+rm -rf "$proj" "$home"
+
+# ---------------------------------------------------------------------------
 echo "==> Scenario 5: local dep install and run"
 root_local="$(mktemp -d)"
 make_local_project "$root_local"
