@@ -2641,5 +2641,28 @@ out="$(cd "$proj_tpl" && LGX_HOME="$home_tpl" "$LGX" deploy prod)"
 assert_contains "$out" "tag=vlatest" "template: default fills the token"
 rm -rf "$proj_tpl" "$home_tpl"
 
+echo "==> Scenario 113: lgx nrepl auto-applies both :dev and :test contexts"
+# Empty contexts add no deps/paths, so this needs no -source-paths support:
+# it pins that nrepl resolves BOTH convention names. The same auto list drives
+# the verbose lines and the basis, so the stderr lines are a faithful proxy.
+proj_nrc="$(mktemp -d)"; home_nrc="$(mktemp -d)"
+cat > "$proj_nrc/lgx.edn" <<'EOF'
+{:contexts {:dev {} :test {}}}
+EOF
+set +e
+out="$(cd "$proj_nrc" && echo '' \
+        | LGX_HOME="$home_nrc" "$LGX" --verbose nrepl 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "nrepl auto :dev+:test: expected exit 0, got $rc (output: $out)"
+pass "nrepl auto :dev+:test: exits 0 on stdin EOF"
+assert_contains "$out" "nREPL server started" \
+    "nrepl auto :dev+:test: server starts"
+assert_contains "$out" "+ auto context :dev" \
+    "nrepl auto :dev+:test: applies :dev"
+assert_contains "$out" "+ auto context :test" \
+    "nrepl auto :dev+:test: applies :test"
+rm -f "$proj_nrc/.nrepl-port"
+rm -rf "$proj_nrc" "$home_nrc"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

@@ -126,20 +126,21 @@ trigger that error.
 - Modify: `lgx.lg`
 - Test: `tests/e2e.sh`
 
-- [ ] **Step 1: Write the failing e2e scenario**
-  Append **Scenario 103** after Scenario 102 in `tests/e2e.sh`, following the
+- [x] **Step 1: Write the failing e2e scenario**
+  Append **Scenario 113** (the file already had Scenarios up through 112; 103
+  was taken) after Scenario 112 in `tests/e2e.sh`, following the
   structure of Scenarios 90–91 (tmp project + `LGX_HOME`, pipe `echo ''` to
   feed stdin EOF). The project's `lgx.edn` defines
   `{:contexts {:dev {} :test {}}}`. Run
-  `lgx nrepl --verbose` capturing **both** streams (`2>&1`, as Scenario 73
-  does for stderr lines), then assert:
+  `lgx --verbose nrepl` (`--verbose` is a *leading* global option) capturing
+  **both** streams (`2>&1`), then assert:
   - exit 0,
   - output contains `nREPL server started`,
   - output contains `+ auto context :dev`,
   - output contains `+ auto context :test`.
   Clean up the tmp dirs and `.nrepl-port` as the sibling scenarios do.
 
-- [ ] **Step 2: Run e2e to verify the new scenario fails**
+- [x] **Step 2: Run e2e to verify the new scenario fails**
   Run: `bash tests/e2e.sh`
   Expected: Scenario 103 FAILS on the `+ auto context :test` assertion — nrepl
   applies only `:dev` today.
@@ -148,7 +149,7 @@ trigger that error.
   `docs/knowledge-base/shared-fs-bin-lgx-race`, don't run the suite
   concurrently from two machines sharing the checkout.)
 
-- [ ] **Step 3: Generalize `auto-with!`**
+- [x] **Step 3: Generalize `auto-with!`**
   In `lgx.lg`, change `auto-with!` from a single `name` to an ordered `names`
   vector:
   - resolve defined names: `(vec (mapcat #(config/auto-context cfg %) names))`,
@@ -159,24 +160,25 @@ trigger that error.
   later auto name wins over an earlier one and an explicit `--with` wins over
   all (last-wins).
 
-- [ ] **Step 4: Update the three call sites**
+- [x] **Step 4: Update the three call sites**
   In `lgx.lg`:
   - `cmd-run`: `(auto-with! cfg [:dev] with verbose?)`
   - `cmd-nrepl`: `(auto-with! cfg [:dev :test] with verbose?)`
   - `cmd-test`: `(auto-with! cfg [:test] with verbose?)`
 
-- [ ] **Step 5: Update the nrepl help sub-line**
+- [x] **Step 5: Update the nrepl help sub-line**
   In `command-rows` (`lgx.lg`), change the `nrepl` continuation line from
   `(free port unless --port given; auto-applies :dev context if defined)` to
   `(free port unless --port given; auto-applies :dev and :test contexts if defined)`.
   Keep the column alignment of the surrounding rows.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
   Run: `make test`
   Expected: unit tests and all e2e scenarios PASS, including the new
-  Scenario 103 and the unchanged Scenarios 98–102.
+  Scenario 113 and the unchanged Scenarios 98–102. (Result: all 282 e2e
+  assertions pass; unit tests pass.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git commit -m "Auto-apply :test context to lgx nrepl alongside :dev"`
 
 ### Task 2: Docs
