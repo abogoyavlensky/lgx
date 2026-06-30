@@ -86,7 +86,7 @@ lgx run
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
 | `lgx install` | Fetch deps from `:deps`, plus the let-go source for `:lg-version` (when set). Idempotent. |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. Without a script and `:main`, opens `lg`'s REPL. |
-| `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. |
+| `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
 | `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. |
@@ -254,7 +254,8 @@ key's rules in detail.
  :targets {:bin {:out "bin/myapp"}}
 
  ;; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
- ;; or a task's :with; :dev auto-applies to run/nrepl, :test to `lgx test`.
+ ;; or a task's :with; :dev auto-applies to run/nrepl, :test to nrepl and
+ ;; `lgx test`.
  :contexts
  {:dev  {:extra-paths          ["dev"]            ; appended after :paths
          :extra-resource-paths ["dev-resources"]  ; appended after :resource-paths
@@ -477,13 +478,15 @@ A context map may contain only `:extra-paths`, `:extra-resource-paths`, and
   A global `--with` on the same invocation is **unioned** on top.
 
 **Default contexts.** Two context names are conventions: when defined, `:dev`
-auto-applies to `lgx run` and `lgx nrepl`, and `:test` auto-applies to
-`lgx test` - no `--with` needed. That is the natural home for nREPL tooling
-and dev-only source dirs (`:dev`) and test helpers (`:test`), as in the
-reference above. `build` and `install` never auto-apply contexts, so dev and
-test deps stay out of built binaries; task `:run` steps don't inherit them
-either (use the task's `:with`). An explicit `--with` layers on top, and
-`--verbose` prints the applied name (`+ auto context :dev`).
+auto-applies to `lgx run`, `:test` auto-applies to `lgx test`, and `lgx nrepl`
+auto-applies **both** - no `--with` needed. A REPL session is where you iterate
+on tests, so it gets the dev tooling and dev-only source dirs (`:dev`) plus the
+test helpers (`:test`), as in the reference above. `build` and `install` never
+auto-apply contexts, so dev and test deps stay out of built binaries; task
+`:run` steps don't inherit them either (use the task's `:with`). An explicit
+`--with` layers on top, and `--verbose` prints each applied name
+(`+ auto context :dev`). When both `:dev` and `:test` apply, `:test` wins over
+`:dev` on a lib-name collision; an explicit `--with` wins over both.
 
 Referencing a context that isn't defined fails loudly: a task's `:with` is
 checked when `lgx.edn` loads; an unknown `--with` name errors at runtime,
@@ -494,7 +497,7 @@ specific layer wins (last-wins). Lowest → highest precedence:
 
 ```
 project :deps / :paths / :resource-paths
-  → auto context (:dev for run/nrepl, :test for test; built-in commands only)
+  → auto context (:dev for run, :test for test, both for nrepl; built-in commands only)
   → task :with contexts (in order)
   → CLI --with contexts (in order)
   → task inline :extra-deps / :extra-paths / :extra-resource-paths  (highest)

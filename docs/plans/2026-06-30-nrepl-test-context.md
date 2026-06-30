@@ -187,7 +187,7 @@ trigger that error.
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update README.md**
+- [x] **Step 1: Update README.md**
   - In the command table, the `lgx nrepl [--port N]` row: note it auto-applies
     `:dev` and `:test` (when defined), consistent with the "Default contexts"
     paragraph.
@@ -201,7 +201,7 @@ trigger that error.
     to lgx test.`) and update it to mention `:test` also auto-applies to
     `nrepl`.
 
-- [ ] **Step 2: Update docs/ARCHITECTURE.md**
+- [x] **Step 2: Update docs/ARCHITECTURE.md**
   - `### lgx nrepl [--port N]` walkthrough: it currently says "a defined `:dev`
     context applies, as in `run`" — change to "defined `:dev` and `:test`
     contexts apply (`auto-with!` with `[:dev :test]`)".
@@ -214,10 +214,40 @@ trigger that error.
   - Confirm the `Verify against:` footers of any touched knowledge-base file
     still hold — none are expected to change.
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
   Run: `make test`
   Expected: all PASS (docs don't affect tests, but the help-text e2e assertions
-  must still hold).
+  must still hold). (Result: 282 e2e assertions + unit tests pass.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Document :test auto-applying to nrepl in README and architecture"`
+
+---
+
+## Completion summary (2026-06-30)
+
+**Status: completed.** Both tasks implemented, full suite green (unit + 282
+e2e assertions). `lgx nrepl` now auto-applies both `:dev` and `:test`; `run`
+stays `:dev`-only and `test` stays `:test`-only.
+
+Commits:
+
+- `e77cae2` — generalize `auto-with!` to an ordered name vector; `cmd-run`
+  `[:dev]`, `cmd-nrepl` `[:dev :test]`, `cmd-test` `[:test]`; nrepl help
+  sub-line; e2e Scenario 113.
+- (docs commit) — README nrepl row + "Default contexts" paragraph +
+  layering line + example-config comment; ARCHITECTURE nrepl walkthrough,
+  Contexts section, and `test`-walkthrough parenthetical.
+
+Deviations from the plan, both minor:
+
+1. The new e2e scenario is **113** (appended after the existing Scenario 112),
+   not 103 — 103 was already taken when the plan was written.
+2. `--verbose` is a *leading* global option, so the scenario invokes
+   `lgx --verbose nrepl`, not `lgx nrepl --verbose` (the latter forwards
+   `--verbose` to nrepl's own arg parser, which rejects it).
+
+Review: `review-with-codex` ran on each task's uncommitted diff. The only
+finding (stale docs after the code change) was the planned Task 2, which
+resolved it; the doc review then came back clean. No code/test defects were
+found.
