@@ -84,7 +84,7 @@ lgx run
 | Command | What it does |
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
-| `lgx install` | Fetch deps from `:deps`, plus the let-go source for `:lg-version` (when set). Idempotent. |
+| `lgx install` | Fetch deps from `:deps`. Idempotent. Also fetches the let-go source for `:lg-version` when `LGX_FETCH_LET_GO_SOURCE` is set (off by default). |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. Without a script and `:main`, opens `lg`'s REPL. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
@@ -308,10 +308,12 @@ Optional. The let-go version this project targets (a published let-go release,
 e.g. `"1.11.0"`). lgx does **not** install or manage the `lg` binary — you get
 that from mise/brew/etc. — but when `:lg-version` is set lgx does two things:
 
-- **`lgx install` fetches the matching let-go _source_** (not the binary) into
+- **`lgx install` can fetch the matching let-go _source_** (not the binary) into
   `$LGX_HOME/let-go/source/<version>/`, so editor tooling (e.g. an LSP) can
-  navigate into let-go's `core`/stdlib. The fetch is idempotent and a network
-  failure is a warning, not a hard error.
+  navigate into let-go's `core`/stdlib. This is **off by default**; set
+  `LGX_FETCH_LET_GO_SOURCE` to opt in (see
+  [Environment variables](#environment-variables)). The
+  fetch is idempotent and a network failure is a warning, not a hard error.
 - **`run`/`nrepl`/`build`/`test` check it** against the `lg` on `PATH`: a
   mismatch **warns** on `run`/`nrepl` (so iteration isn't blocked) and **fails**
   on `build`/`test` (where a wrong-runtime artifact or test verdict matters).
@@ -548,6 +550,7 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 | `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev (`lgx run`) vs. bundled-binary mode — e.g. to enable dev-only behavior. Not needed for argument parsing; read `*command-line-args*` for that (see [`lgx run` details](#lgx-run-details)). |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test-runner harness dir. |
 | `LGX_SKIP_VERSION_CHECK` | _(unset)_ | Set to any non-empty value to bypass the `:lg-version` compatibility check on `run`/`nrepl`/`build`/`test`. |
+| `LGX_FETCH_LET_GO_SOURCE` | _(unset)_ | Set to any non-empty value to make `lgx install` fetch the let-go source matching `:lg-version` into `$LGX_HOME/let-go/source/<version>/`. The source feeds editor diagnostics — an LSP server navigating into let-go's `core`/stdlib. Off by default, since most users don't run such tooling and wouldn't expect the extra clone. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |
 | `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo of the built-in `base` template. |
 | `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the revision of the built-in `base` template. |

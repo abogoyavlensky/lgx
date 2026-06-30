@@ -147,16 +147,16 @@ drift there. README is the only doc to update.
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Update the command table**
+- [x] **Step 1: Update the command table**
   Line ~87 (`lgx install` row): note the let-go source fetch is opt-in via
   `LGX_FETCH_LET_GO_SOURCE`, not automatic when `:lg-version` is set.
 
-- [ ] **Step 2: Update the `:lg-version` section**
+- [x] **Step 2: Update the `:lg-version` section**
   The first bullet (~311–314): clarify the source fetch happens only when
   `LGX_FETCH_LET_GO_SOURCE` is set; without it, `:lg-version` only drives the
   `run`/`nrepl`/`build`/`test` compatibility check.
 
-- [ ] **Step 3: Add the env-var table row**
+- [x] **Step 3: Add the env-var table row**
   In the environment-variables table (~549), add `LGX_FETCH_LET_GO_SOURCE`,
   default _(unset)_. Describe it as: set to any non-empty value to make
   `lgx install` fetch the let-go source matching `:lg-version` into
@@ -165,5 +165,5 @@ drift there. README is the only doc to update.
   `core`/stdlib; off by default since most users don't run such tooling. Use
   /writing-clearly.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "docs: document LGX_FETCH_LET_GO_SOURCE opt-in source fetch"`
