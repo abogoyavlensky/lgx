@@ -19,9 +19,9 @@ lgx <task>           # run a custom task from lgx.edn
 
 - [`lg`](https://github.com/nooga/let-go) >= `1.11.0` on `PATH` (or pointed to by
   `LGX_LG`). `lgx run` exposes a script's args through let-go's
-  `*command-line-args*`, added in 1.11.0. Installing lgx with Homebrew pulls
-  let-go in automatically; otherwise install it with `brew install nooga/tap/let-go`,
-  [mise](https://mise.jdx.dev), or a [release binary](https://github.com/nooga/let-go/releases).
+  `*command-line-args*`, added in 1.11.0. Install it with
+  `brew install nooga/tap/let-go`, [mise](https://mise.jdx.dev), or a
+  [release binary](https://github.com/nooga/let-go/releases).
 - `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
 
 ## Installation
@@ -38,8 +38,8 @@ Works on macOS and Linux:
 brew install abogoyavlensky/tap/lgx
 ```
 
-This pulls in let-go (`lg`) automatically as a dependency — nothing else to
-install.
+This installs lgx only. Install let-go (`lg`) separately with
+`brew install nooga/tap/let-go` (see [Requirements](#requirements)).
 
 ### With [mise](https://mise.jdx.dev)
 
