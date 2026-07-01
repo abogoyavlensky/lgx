@@ -18,11 +18,8 @@ lgx <task>           # run a custom task from lgx.edn
 ## Requirements
 
 - [`lg`](https://github.com/nooga/let-go) >= `1.11.0` on `PATH` (or pointed to by
-  `LGX_LG`). `lgx run` exposes a script's args through let-go's
-  `*command-line-args*`, added in 1.11.0. Install it with
-  `brew install nooga/tap/let-go`, [mise](https://mise.jdx.dev), or a
-  [release binary](https://github.com/nooga/let-go/releases).
-- `git` on `PATH`. lgx uses it to clone, fetch, and check out deps.
+  `LGX_LG`). Install it with `brew install nooga/tap/let-go`.
+- `git` on `PATH`. (lgx uses it to clone, fetch, and check out deps)
 
 ## Installation
 
@@ -39,7 +36,7 @@ brew install abogoyavlensky/tap/lgx
 ```
 
 This installs lgx only. Install let-go (`lg`) separately with
-`brew install nooga/tap/let-go` (see [Requirements](#requirements)).
+`brew install nooga/tap/let-go`.
 
 ### With [mise](https://mise.jdx.dev)
 
@@ -85,28 +82,27 @@ lgx run
 | Command | What it does |
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
-| `lgx install` | Fetch deps from `:deps`. Idempotent. Also fetches the let-go source for `:lg-version` when `LGX_FETCH_LET_GO_SOURCE` is set (off by default). |
+| `lgx install` | Fetch deps from `:deps`. Idempotent. Also fetches the let-go source for `:lg-version` when `LGX_FETCH_LET_GO_SOURCE` is set (off by default). Can be used for navigation in editors. |
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
-| `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. No port, no `.nrepl-port` (unlike `nrepl`). |
+| `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
 | `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. |
-| `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
+| `lgx` or `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
 
 Options:
 
 - `--with <a,b,...>` applies one or more named [contexts](#contexts)
-  (reusable `:extra-deps`/`:extra-paths` overlays) to the command. Applies to
+  (reusable `:extra-deps`/`:extra-paths`/`:extra-resource-paths` overlays) to the command. Applies to
   `run`, `repl`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task
   it unions with the task's own `:with`.
 - `--verbose` prints the resolved `lg` invocation before running (applies to
   `run`, `repl`, `nrepl`, `build`, `test`, and user tasks). It first prints a
   `+ lg <version> (<path>)` line naming the `lg` it resolved — the version from
   `lg -v` and the full binary path, which reflects an `LGX_LG` override. It also
-  prints a `+ env …` line listing the env vars lgx sets: `LG_READ_CLJ=1` for
-  every `lg` invocation, plus `LGX_RUN=1` on `run` paths.
+  prints a `+ env …` line listing the env vars lgx sets.
 
 Both options go before the subcommand: `lgx --with dev,test run`.
 
@@ -142,42 +138,24 @@ hyphenated name (`my-app`) in contents.
 
 ### `lgx run` details
 
-With no arguments, `lgx run` execs `lg <paths> :main`, running the project's
-`:main` script. A script reads its CLI arguments from let-go's
-`*command-line-args*` — the positionals after the script, as a seq of strings
-(`nil` when there are none). The same var holds the same value under `lgx run`
-and in a bundled binary, so argument parsing needs no special-casing:
+With no arguments, `lgx run` execs `lg <paths> :main`, running the project's `:main` script.
 
-```clojure
-(when-not *compiling-aot*
-  (let [args *command-line-args*]   ; ("foo" "bar") under both `lgx run` and ./bin/myapp
-    (run args)))
-```
+`lgx run` runs `:main`; put anything before `--` and you drive `lg` yourself (name your own script — `:main` won't be
+added); your program's args go after `--`.
 
 `lgx run` also sets **`LGX_RUN=1`** in the spawned process, so a tool can tell
-it is running under `lgx run` (dev) vs. as a bundled binary — handy for
-dev-only behavior. It is not needed for argument parsing.
+it is running under `lgx run` (dev) vs. as a bundled binary.
 
-The rule is structural, in one sentence: **`lgx run` runs `:main`; put anything
-before `--` and you drive `lg` yourself (name your own script — `:main` won't be
-added); your program's args go after `--`.** lgx never emits a `--` of its own,
-and a second, user-authored `--` is preserved as a literal argument. There is no
-filename-suffix magic — the presence of any token before `--`, not its
-extension, is what suppresses `:main`.
-
-Forms (`pre` = tokens before the first `--`; `post` = tokens after it):
+Forms:
 
 - `lgx run` -> `lg <paths> <main>` (`*command-line-args*` is `nil`).
-- `lgx run -- foo bar` -> `lg <paths> <main> foo bar` -> `("foo" "bar")`.
+- `lgx run -- foo bar` -> `lg <paths> <main> foo bar` -> `*command-line-args*` is `("foo" "bar")`.
 - `lgx run other.lg` -> `lg <paths> other.lg` (explicit script, no `:main`).
-- `lgx run other.lg -- bar` -> `lg <paths> other.lg bar` -> `("bar")`.
-- `lgx run -e '(...)'` -> `lg <paths> -e '(...)'` (pre-`--` token, no `:main`).
-- `lgx run -r -- foo` -> `lg <paths> -r foo` (a flag before `--` drives lg — to
-  run `:main` under a flag, name it: `lgx run -r <main> -- foo`).
-- `lgx run -- a -- b` -> `("a" "--" "b")` (only the first `--` is the separator).
+- `lgx run other.lg -- bar` -> `lg <paths> other.lg bar` -> `*command-line-args*` is `("bar")`.
+- `lgx run -e '(...)'` -> `lg <paths> -e '(...)'` (no `:main`).
+- `lgx run -- a -- b` -> `*command-line-args*` is `("a" "--" "b")` (only the first `--` is the separator).
 - `lgx run` with no `:main` -> error: set `:main`, name a script, or start a
   REPL with [`lgx repl`](#lgx-repl-details).
-- `lgx run -- foo` with no `:main` -> error: the args have no `:main` to reach.
 
 `*command-line-args*` requires `lg` >= 1.11.0.
 
@@ -227,10 +205,6 @@ A test file may contain `deftest` forms, fixtures and some helpers.
     (is (= "(empty)" (fmt/render-list [])))))
 ```
 
-The path-to-namespace rule mirrors let-go's resolver:
-`test/myapp/config_test.lg` resolves to `myapp.config-test`. Underscores
-become hyphens; `/` becomes `.`.
-
 ## Configuration: `lgx.edn`
 
 `lgx.edn` lives at the project root. The smallest valid file:
@@ -244,23 +218,22 @@ with their possible values; the sections that follow spell out each
 key's rules in detail.
 
 ```edn
-{;; Source dirs, relative to the project root. Prepended to dependency
- ;; paths, so project namespaces shadow lib namespaces.
+{; Source dirs, relative to the project root. Prepended to dependency paths.
  :paths ["src"]
 
- ;; Resource roots for (io/resource "..."): on the path for run/test,
- ;; embedded into the binary by build.
+ ; Resource roots for (io/resource "..."): on the path for run/test,
+ ; embedded into the binary by build.
  :resource-paths ["resources"]
 
- ;; Default entrypoint: `lgx run` runs it, `lgx build` bundles it. Does not have to be in the `:paths`
+ ; Default entrypoint: `lgx run` runs it, `lgx build` bundles it. Does not have to be in the `:paths`
  :main "main.lg"
 
- ;; The let-go version this project targets. When set, `lgx install` fetches the
- ;; matching let-go source for editor navigation, and run/build/test check it
- ;; against the lg on PATH. lgx does not install lg itself.
+ ; The let-go version this project targets. When set, `lgx install` fetches the
+ ; matching let-go source for editor navigation, and run/build/test check it
+ ; against the lg on PATH. lgx does not install lg itself.
  :lg-version "1.11.0"
 
- ;; Git or local deps. A dep's own :deps are resolved too (first-wins).
+ ; Git or local deps. A dep's own :deps are resolved too (first-wins).
  :deps
  {some-user/let-go-async {:git/url "https://github.com/some-user/let-go-async"
                           :git/tag "v0.2.0"}      ; pin by tag...
@@ -269,13 +242,13 @@ key's rules in detail.
                           :deps/root "src/main/clojure"} ; source subdir (default "src")
   my/lib                 {:local/root "../my-lib"}}      ; local dir, no gitlibs cache
 
- ;; Build output for `lgx build`. :bin is the only target; :out is
- ;; relative to the project root.
+ ; Build output for `lgx build`. :bin is the only target; :out is
+ ; relative to the project root.
  :targets {:bin {:out "bin/myapp"}}
 
- ;; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
- ;; or a task's :with; :dev auto-applies to run/nrepl, :test to nrepl and
- ;; `lgx test`.
+ ; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
+ ; or a task's :with; :dev auto-applies to run/nrepl, :test to nrepl and
+ ; `lgx test`.
  :contexts
  {:dev  {:extra-paths          ["dev"]            ; appended after :paths
          :extra-resource-paths ["dev-resources"]  ; appended after :resource-paths
@@ -283,8 +256,8 @@ key's rules in detail.
                                        :git/tag "v1"}}} ; same grammar as :deps
   :test {:extra-paths ["test-support"]}}
 
- ;; Custom commands: `lgx <task> [args...]`. A step is {:sh ...} (shell)
- ;; or {:run ...} (like `lgx run ...`); a string value splits on whitespace.
+ ; Custom commands: `lgx <task> [args...]`. A step is {:sh ...} (shell)
+ ; or {:run ...} (like `lgx run ...`); a string value splits on whitespace.
  :tasks
  {fmt   {:doc "Lint the project"                   ; :doc shows up in `lgx help`
          :do  {:sh "cljfmt fix"}}                  ; single step: bare map
