@@ -232,7 +232,7 @@ This task changes no existing behavior, so the full suite stays green.
 - Test: `test/lgx/runner_test.lg`, `tests/e2e.sh`
 - Docs: `README.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Update the unit tests**
+- [x] **Step 1: Update the unit tests**
   In `test/lgx/runner_test.lg`, adjust `plan-run-args` coverage for the new
   grammar:
   - `plan-run-args-empty-without-main-is-repl-passthrough`: rename/rewrite —
@@ -247,12 +247,12 @@ This task changes no existing behavior, so the full suite stays green.
   - Leave the unchanged cases (empty+main, `-- args`+main, `-- -v`, second `--`,
     explicit-script cases, no-separator passthrough) as-is.
 
-- [ ] **Step 2: Run unit tests to confirm they fail**
+- [x] **Step 2: Run unit tests to confirm they fail**
   Run: `make build LG="$(mise which lg)" && bin/lgx test test/lgx/runner_test.lg`.
   Expected: FAIL on the rewritten cases (old `plan-run-args` still injects on
   the `-r -- foo` case and returns passthrough for `[] nil`).
 
-- [ ] **Step 3: Rewrite `plan-run-args`**
+- [x] **Step 3: Rewrite `plan-run-args`**
   In `lgx/runner.lg`, replace the body with the 4-branch structural rule:
   split at the first `--` into `pre`/`post`; `(seq pre)` → `{:argv (concat pre
   post) :inject? false}`; else `main-script` → `{:argv (cons main-script post)
@@ -261,7 +261,7 @@ This task changes no existing behavior, so the full suite stays green.
   `script-arg?`, and `script-exts` (confirm with grep they have no other
   callers). Keep `position` and `drop-arg-separator`.
 
-- [ ] **Step 4: Update `cmd-run` error handling**
+- [x] **Step 4: Update `cmd-run` error handling**
   In `lgx.lg`, replace `require-main-for-double-dash!` handling: when
   `(:error plan)` is `:needs-main`, print
   `lgx run: -- forwards args to :main, but no :main is set in lgx.edn`;
@@ -272,11 +272,11 @@ This task changes no existing behavior, so the full suite stays green.
   `:inject?`/`resolve-main-script!`/exec path is otherwise unchanged. (`cmd-run`
   no longer produces an empty argv, so it never opens a REPL.)
 
-- [ ] **Step 5: Run unit tests to confirm they pass**
+- [x] **Step 5: Run unit tests to confirm they pass**
   Run: `bin/lgx test test/lgx/runner_test.lg` (rebuild if needed).
   Expected: PASS, 0 failures.
 
-- [ ] **Step 6: Update the e2e scenarios**
+- [x] **Step 6: Update the e2e scenarios**
   In `tests/e2e.sh`:
   - Scenario 33 (`-r -- foo`): the trace now reads `-r foo` with **no**
     injected `main.lg`. Rewrite the assertion to expect `-r` followed by `foo`
@@ -293,7 +293,7 @@ This task changes no existing behavior, so the full suite stays green.
     non-zero and its stderr contains `lgx repl` (proves the `:no-target`
     pointer). Guard is not needed (no deps/paths).
 
-- [ ] **Step 7: Update the docs**
+- [x] **Step 7: Update the docs**
   - README `### lgx run details`: replace the Forms list and the four-rule prose
     with the new grammar + forms table from this plan's Design; drop the
     extension-sniffing bullet; change the "no `:main` → REPL" line to "no
@@ -303,9 +303,46 @@ This task changes no existing behavior, so the full suite stays green.
     note that says bare `lgx run` without `:main` "lands in lg's REPL" → it now
     errors and points to `lgx repl`. Use /writing-clearly.
 
-- [ ] **Step 8: Run the full suite**
+- [x] **Step 8: Run the full suite**
   Run: `make test`. Expected: all PASS (unit + e2e, including the updated run
   scenarios and the Task 1 repl scenario).
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
   `git commit -m "Simplify lgx run to a heuristic-free :main/-- grammar"`
+
+---
+
+## Completion summary (2026-07-01)
+
+**Status: completed.** Both tasks implemented, full suite green (441 unit tests
+/ 597 assertions + 296 e2e assertions), fmt-check and lint clean.
+
+`lgx run` is now heuristic-free — it runs `:main`; any token before `--`
+means the user drives `lg` (no `:main` injected); program args go after `--`.
+The `.lg`/`.cljc`/`.clj` extension-sniffing (`has-script?`/`script-arg?`/
+`script-exts`) is gone. `lgx run` with no runnable target now errors (pointing
+at `lgx repl`) instead of opening a REPL. New `lgx repl` opens lg's plain
+built-in REPL with deps on the path and auto-applies `:dev`+`:test`.
+
+Commits:
+
+- `ede8a01` — Task 1: `lgx repl` command (cmd-repl, dispatch, reserved name,
+  completion, help row, docs, e2e Scenario 114).
+- (Task 2 commit) — `plan-run-args` rewrite + `cmd-run` two-reason errors +
+  unit-test updates + e2e (33/35/38/89 updated, 35b/35c added) + README/
+  ARCHITECTURE.
+
+Deviations / notes:
+
+1. **Reserving `repl`** broke 7 unit tests that used `repl` as an incidental
+   fixture/command-list name (5 config tests, 2 completion tests) and one
+   README example task named `repl`; all renamed (`repl` → `deploy`/`console`)
+   or updated. Not anticipated in the plan.
+2. **Scenario numbering:** the repl e2e is 114 (103–113 already existed); the
+   run-error e2e are 35b/35c; the old Scenario 89 (bare-`run`-no-`:main` → REPL)
+   was repurposed to test `lgx repl` driving an interactive REPL.
+3. **Codex review finding (P2), fixed in Task 2:** the no-target error was
+   checked *after* `overlay-basis`, so a bare `lgx run` in a project with deps
+   fetched them before erroring. `cmd-run` now decides `plan-run-args` and
+   errors *before* building the basis (mirroring `cmd-test`); Scenario 35c pins
+   the no-fetch behavior via the cache side-effect.

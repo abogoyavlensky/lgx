@@ -146,33 +146,33 @@ project-root-relative dirs to absolute paths and passes them to `lg` as
 these are project-only — dep dirs are never added. Missing entries warn but
 are still passed through.
 
-If `lgx.edn` sets top-level `:main`, lgx may substitute it as the
-script argument. The pure `runner/plan-run-args` decides the argv; four
-rules apply, first match wins. lgx never emits a `--` of its own — the
-app reads its arguments from let-go's `*command-line-args*` (the
-positionals after the script), which holds the same value under `lgx run`
-and in a bundled binary:
+The pure `runner/plan-run-args` decides the argv. It is **structural, not
+suffix-based**: split `forward-args` at the first `--` into `pre` (before) and
+`post` (after; empty when there is no `--`), then, first match wins:
 
-1. **No forwarded args + `:main` set** → inject `:main`. Output:
-   `lg <lg-flags> <main>`. `*command-line-args*` is `nil`.
-2. **`--` present + pre-`--` slice contains a script** (suffix `.lg`,
-   `.cljc`, or `.clj`) → no inject; drop the separator and pass the rest
-   through so the user's explicit script reaches `lg`. Output:
-   `lg <lg-flags> <pre> <post>`.
-3. **`--` present + pre-`--` slice contains no script** → inject
-   `:main` at the boundary and drop the separator. Output:
-   `lg <lg-flags> <pre> <main> <post>`. With `:main` unset, lgx
-   exits with `lgx: -- requires :main to be set in lgx.edn`.
-4. **Anything else** → strict; pass forward-args through verbatim.
-   (`lgx run foo.lg`, `lgx run -e '(...)'`, `lgx run -r` all
-   pass through unchanged.)
+1. **`pre` non-empty** → the user is driving `lg`; pass `pre ++ post` through
+   verbatim, never inject `:main`. Output: `lg <lg-flags> <pre> <post>`.
+   (`lgx run other.lg`, `lgx run -e '(...)'`, `lgx run -r -- foo` all take this
+   branch — a lone flag or explicit script before `--` suppresses `:main`.)
+2. **`pre` empty + `:main` set** → inject `:main`, then `post`. Output:
+   `lg <lg-flags> <main> <post>`. `*command-line-args*` is `nil` when `post` is
+   empty.
+3. **`pre` empty + no `:main` + `post` non-empty** → `{:error :needs-main}`;
+   `cmd-run` exits with `lgx run: -- forwards args to :main, but no :main is
+   set …`.
+4. **`pre` empty + no `:main` + `post` empty** (bare `lgx run`) →
+   `{:error :no-target}`; `cmd-run` exits with `lgx run: nothing to run …`,
+   naming `:main`, an explicit script, or `lgx repl`.
 
-`lg` stops flag-parsing at the first positional (the script), so every
-arg after it is shielded from `lg` and becomes the app's
-`*command-line-args*` — that is why lgx needs no `--` marker. Only the
-*first* `--` is the lgx/app separator; later `--` tokens survive as
-literal args (standard getopt convention). `*command-line-args*` is the
-reason lgx requires `lg` >= 1.11.0.
+lgx never emits a `--` of its own — the app reads its arguments from let-go's
+`*command-line-args*` (the positionals after the script), identical under
+`lgx run` and in a bundled binary. `lg` stops flag-parsing at the first
+positional (`<main>` or the explicit script), so every arg after it is shielded
+from `lg` and becomes the app's `*command-line-args*`. Only the *first* `--` is
+the lgx/app separator; later `--` tokens survive inside `post` as literal args
+(standard getopt convention). `*command-line-args*` is the reason lgx requires
+`lg` >= 1.11.0. This decision drops the old `.lg`/`.cljc`/`.clj` extension
+heuristic (`has-script?`) entirely.
 
 When `:main` is being injected and the file does not exist on disk,
 lgx exits non-zero with `lgx: :main script not found: <path>` before
@@ -187,9 +187,10 @@ exec.
 
 The exec call uses `runner/exec-lg-interactive!`, built on let-go's
 `os/exec*` (lg >= 1.10.0): the child inherits lgx's stdin/stdout/stderr,
-so output streams live and interactive children work — bare `lgx run`
-without `:main` lands in `lg`'s REPL, and `lgx run -r <script>` can
-drive it. `lgx test`, `lgx build`, and task `:run` steps still use the
+so output streams live and interactive children work — `lgx repl` lands in
+`lg`'s REPL, and `lgx run -r <script>` can drive it. (Bare `lgx run` without
+`:main` now errors and points at `lgx repl`, rather than opening a REPL
+itself.) `lgx test`, `lgx build`, and task `:run` steps still use the
 captured `os/sh` path (`runner/run-lg!`/`invoke-lg!`): `test` must
 inspect lg's output to strip its harness marker, and the others keep
 buffered-and-replayed output. (History: the inherited-stdio runner was

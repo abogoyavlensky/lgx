@@ -65,46 +65,33 @@
       (= x (first xs)) i
       :else (recur (inc i) (next xs)))))
 
-(def ^:private script-exts [".lg" ".cljc" ".clj"])
-
-(defn- script-arg? [s]
-  (and (string? s)
-       (some #(str/ends-with? s %) script-exts)))
-
-(defn- has-script? [args]
-  (some script-arg? args))
-
 (defn plan-run-args
   "Pure. Decide the argv to hand `lg` for `lgx run`, given the user's
-   `forward-args` and the project's `:main` (nil when unset). Injects `:main`
-   where a script is needed, drops the lgx/app separator `--`, and never emits
-   a `--` of lgx's own. A second, user-authored `--` survives as a literal arg:
-   lg stops flag-parsing at the first positional, so post-script args are
-   shielded from lg and become the app's `*command-line-args*`. Returns one of:
+   `forward-args` and the project's `:main` (nil when unset).
+
+   Structural, heuristic-free: split `forward-args` at the first `--` into
+   `pre` (before) and `post` (after; empty when there is no `--`). Any token in
+   `pre` means the user is driving `lg` themselves — pass `pre ++ post` through
+   and never inject `:main`. An empty `pre` injects `:main` and treats `post` as
+   the app's args. lgx never emits a `--` of its own; a second, user-authored
+   `--` survives inside `post` as a literal arg (lg stops flag-parsing at the
+   first positional, so post-`:main` args become `*command-line-args*`).
+   Returns one of:
      {:argv [...] :inject? true}   ; `:main` injected — caller validates it exists
-     {:argv [...] :inject? false}  ; pass-through / explicit script
-     {:error :needs-main}          ; `--` given with no `:main`"
+     {:argv [...] :inject? false}  ; pass-through (explicit script / lg flags)
+     {:error :needs-main}          ; `-- <args>` given but no `:main` to receive them
+     {:error :no-target}           ; bare `lgx run` with no `:main` and nothing to run"
   [forward-args main-script]
-  (let [dd (position forward-args "--")]
+  (let [dd (position forward-args "--")
+        pre (if (neg? dd) (vec forward-args) (vec (take dd forward-args)))
+        post (if (neg? dd) [] (vec (drop (inc dd) forward-args)))]
     (cond
-      (and (empty? forward-args) main-script)
-      {:argv [main-script]
-       :inject? true}
-
-      (neg? dd)
-      {:argv (vec forward-args)
-       :inject? false}
-
-      :else
-      (let [pre (vec (take dd forward-args))
-            post (vec (drop (inc dd) forward-args))]
-        (if (has-script? pre)
-          {:argv (vec (concat pre post))
-           :inject? false}
-          (if (nil? main-script)
-            {:error :needs-main}
-            {:argv (vec (concat pre [main-script] post))
-             :inject? true}))))))
+      (seq pre) {:argv (vec (concat pre post))
+                 :inject? false}
+      main-script {:argv (vec (cons main-script post))
+                   :inject? true}
+      (seq post) {:error :needs-main}
+      :else {:error :no-target})))
 
 (defn drop-arg-separator
   "Remove the first `--` (the lgx/app arg separator) from an argv, leaving the
