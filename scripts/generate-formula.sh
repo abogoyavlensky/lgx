@@ -47,6 +47,8 @@ class Lgx < Formula
     skip "Formula is updated by lgx release CI"
   end
 
+  depends_on "nooga/tap/let-go"
+
   on_macos do
     on_intel do
       url "https://github.com/abogoyavlensky/lgx/releases/download/v${version}/lgx_${version}_darwin_amd64.tar.gz"
@@ -71,15 +73,6 @@ class Lgx < Formula
 
   def install
     bin.install "lgx"
-  end
-
-  def caveats
-    <<~EOS
-      lgx requires the let-go compiler (lg >= 1.11.0) on PATH.
-      On macOS:
-        brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go
-      On Linux (and other options): https://github.com/abogoyavlensky/lgx#requirements
-    EOS
   end
 
   test do
