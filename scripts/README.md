@@ -21,8 +21,7 @@ before piping if you'd rather see what runs.
 
 `lgx run` also needs `lg` on `PATH`. Install it via
 [mise](https://mise.jdx.dev) (`mise use github:nooga/let-go`), Homebrew
-(`brew tap nooga/let-go https://github.com/nooga/let-go && brew install let-go`),
-or grab a binary from
+(`brew install nooga/tap/let-go`), or grab a binary from
 [let-go releases](https://github.com/nooga/let-go/releases).
 
 ## Homebrew formula generator
