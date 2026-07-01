@@ -25,7 +25,7 @@ lgx <task>           # run a custom task from lgx.edn
 
 Prebuilt binaries for `linux_amd64`, `linux_arm64`, `darwin_amd64`, and
 `darwin_arm64` are attached to each [GitHub Release](https://github.com/abogoyavlensky/lgx/releases).
-There are few options to install `lgx`.
+There are a few ways to install `lgx`.
 
 ### Homebrew
 
@@ -82,7 +82,7 @@ lgx run
 | Command | What it does |
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
-| `lgx install` | Fetch deps from `:deps`. Idempotent. Also fetches the let-go source for `:lg-version` when `LGX_FETCH_LET_GO_SOURCE` is set (off by default). Can be used for navigation in editors. |
+| `lgx install` | Fetch deps from `:deps` into the gitlibs cache. Idempotent. Useful for editor navigation. |
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
@@ -94,13 +94,12 @@ lgx run
 
 Options:
 
-- `--with <a,b,...>` applies one or more named [contexts](#contexts)
-  (reusable `:extra-deps`/`:extra-paths`/`:extra-resource-paths` overlays) to the command. Applies to
-  `run`, `repl`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task
-  it unions with the task's own `:with`.
+- `--with <a,b,...>` applies one or more named [contexts](#contexts) to the
+  command. Works with `run`, `repl`, `nrepl`, `build`, `test`, `install`, and
+  user tasks; on a task it unions with the task's own `:with`.
 - `--verbose` prints the resolved `lg` invocation before running (applies to
   `run`, `repl`, `nrepl`, `build`, `test`, and user tasks). It first prints a
-  `+ lg <version> (<path>)` line naming the `lg` it resolved — the version from
+  `+ lg <version> (<path>)` line naming the `lg` it resolved - the version from
   `lg -v` and the full binary path, which reflects an `LGX_LG` override. It also
   prints a `+ env …` line listing the env vars lgx sets.
 
@@ -138,15 +137,18 @@ hyphenated name (`my-app`) in contents.
 
 ### `lgx run` details
 
-With no arguments, `lgx run` execs `lg <paths> :main`, running the project's `:main` script.
+`lgx run` runs `:main`. Put a script or `lg` flags before `--` and you drive
+`lg` yourself (`:main` isn't added); your program's args go after `--` and
+arrive in `*command-line-args*` (requires `lg` >= 1.11.0). With no `:main` and
+no script it errors: set `:main`, name a script, or start
+[`lgx repl`](#lgx-repl-details).
 
-`lgx run` runs `:main`; put anything before `--` and you drive `lg` yourself (name your own script — `:main` won't be
-added); your program's args go after `--`.
+It also sets `LGX_RUN=1` in the spawned process, so a tool can tell it runs
+under `lgx run` (dev) vs. as a bundled binary. The spawned `lg` inherits lgx's
+stdio, so live output and interactive programs (REPL, prompts) work.
 
-`lgx run` also sets **`LGX_RUN=1`** in the spawned process, so a tool can tell
-it is running under `lgx run` (dev) vs. as a bundled binary.
-
-Forms:
+<details>
+<summary>Argument forms</summary>
 
 - `lgx run` -> `lg <paths> <main>` (`*command-line-args*` is `nil`).
 - `lgx run -- foo bar` -> `lg <paths> <main> foo bar` -> `*command-line-args*` is `("foo" "bar")`.
@@ -154,27 +156,20 @@ Forms:
 - `lgx run other.lg -- bar` -> `lg <paths> other.lg bar` -> `*command-line-args*` is `("bar")`.
 - `lgx run -e '(...)'` -> `lg <paths> -e '(...)'` (no `:main`).
 - `lgx run -- a -- b` -> `*command-line-args*` is `("a" "--" "b")` (only the first `--` is the separator).
-- `lgx run` with no `:main` -> error: set `:main`, name a script, or start a
-  REPL with [`lgx repl`](#lgx-repl-details).
 
-`*command-line-args*` requires `lg` >= 1.11.0.
-
-The spawned `lg` inherits lgx's stdin/stdout/stderr, so output streams
-live and interactive programs (REPL, prompts) work.
+</details>
 
 ### `lgx repl` details
 
 `lgx repl` opens `lg`'s built-in REPL with the project's deps and `:paths` on
-the source path — the plain interactive session, with no script and no `:main`.
-It auto-applies the `:dev` and `:test` contexts when defined, exactly like
-`lgx nrepl`; the only difference between the two is the socket. `repl` binds no
-port and writes no `.nrepl-port`, so it is the zero-footprint choice for a quick
-session or a sandbox where you can't (or don't want to) open a socket. Reach for
-`lgx nrepl` instead when an editor needs to connect.
+the source path, no script and no `:main`. It auto-applies the `:dev` and
+`:test` contexts, exactly like `lgx nrepl`; the difference is that `repl` binds
+no port and writes no `.nrepl-port`, so it is the zero-footprint choice for a
+quick session. Reach for `lgx nrepl` when an editor needs to connect.
 
-`lgx repl` takes no arguments of its own — `--with`/`--verbose` are the usual
-leading options. To run a scratch script or pass `lg` flags with your deps on
-the path, use `lgx run <script>` / `lgx run -e '(...)'`.
+It takes no arguments of its own (`--with`/`--verbose` are the usual leading
+options). For a scratch script or `lg` flags with your deps on the path, use
+`lgx run <script>` or `lgx run -e '(...)'`.
 
 ### `lgx build` details
 
@@ -231,8 +226,8 @@ key's rules in detail.
                           :deps/root "src/main/clojure"} ; source subdir (default "src")
   my/lib                 {:local/root "../my-lib"}}      ; local dir, no gitlibs cache
 
- ; Build output for `lgx build`. :bin is the only target; :out is
- ; relative to the project root.
+ ; Build output for `lgx build`. :bin is the only target; :out is relative to
+ ; the project root (lgx creates the parent dir if missing).
  :targets {:bin {:out "bin/myapp"}}
 
  ; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
@@ -277,222 +272,116 @@ key's rules in detail.
            :do                   [{:run "dev/repl.lg"}]}}}
 ```
 
-### `:paths` and `:main`
+### `:paths`, `:main`, `:resource-paths`
 
-- `:paths` lists project source paths relative to the project root.
-  `lgx run` prepends them to dependency paths so project namespaces
-  shadow lib namespaces. Missing entries print a warning.
-- `:main` names the default entrypoint script. `lgx run` substitutes it
-  when no script is given; `lgx build` bundles it.
+- `:paths` prepends project source dirs to dependency paths, so project
+  namespaces shadow lib namespaces of the same name.
+- `:main` is substituted by `lgx run` when no script is given, and bundled by
+  `lgx build`. It need not live under `:paths`.
+- `:resource-paths` are passed to `lg` as `-resource-paths` for run/test and
+  **embedded into the binary** by `lgx build`, so `(io/resource "…")` keeps
+  working with no files beside the executable. Unlike source paths, resource
+  roots come only from your project, never from dependencies.
+- Missing `:paths`/`:resource-paths` entries print a warning.
 
 ### `:lg-version`
 
-Optional. The let-go version this project targets (a published let-go release,
-e.g. `"1.11.0"`). lgx does **not** install or manage the `lg` binary — you get
-that from mise/brew/etc. — but when `:lg-version` is set lgx does two things:
-
-- **`run`/`nrepl`/`build`/`test` check it** against the `lg` on `PATH`: a
-  mismatch **warns** on `run`/`nrepl` (so iteration isn't blocked) and **fails**
-  on `build`/`test` (where a wrong-runtime artifact or test verdict matters).
-  A dev/unparseable installed version is skipped, not warned. Set
-  `LGX_SKIP_VERSION_CHECK` to a non-empty value to bypass the check.
-- **`lgx install` can fetch the matching let-go _source_** (not the binary) into
-  `$LGX_HOME/let-go/source/<version>/`, so editor tooling (e.g. an LSP) can
-  navigate into let-go's `core`/stdlib. This is **off by default**; set
-  `LGX_FETCH_LET_GO_SOURCE` to opt in (see
-  [Environment variables](#environment-variables)). The
-  fetch is idempotent and a network failure is a warning, not a hard error.
-
-### `:resource-paths`
-
-- `:resource-paths` lists project-relative directories that hold resources
-  (templates, data files, static assets) reachable from `(io/resource "…")`.
-  lgx passes them to `lg` as `-resource-paths`.
-- `lgx run` and `lgx test` make the resources resolvable at runtime; `lgx
-  build` **embeds** every resource under these roots into the bundled binary,
-  so `io/resource` keeps working with no files alongside the executable.
-- Missing entries print a warning, same as `:paths`. Unlike source paths,
-  resource roots come only from your project (its top level plus any applied
-  contexts/tasks) - dependencies never contribute resource roots.
+lgx never installs or manages `lg` (use mise/brew for that), but when
+`:lg-version` is set it checks the `lg` on `PATH`: a mismatch **warns** on
+`run`/`nrepl` and **fails** on `build`/`test`, where a wrong-runtime artifact or
+test verdict matters. A dev or unparseable installed version is skipped, and
+`LGX_SKIP_VERSION_CHECK` bypasses the check. With `LGX_FETCH_LET_GO_SOURCE` set,
+`lgx install` also fetches the matching let-go _source_ (not the binary) into
+`$LGX_HOME/let-go/source/<version>/` for editor navigation.
 
 ### `:deps`
 
-Each coord uses either a git source or `:local/root`, never both.
+Each coord is either a git source (`:git/url` plus one of `:git/sha`/`:git/tag`,
+HTTPS only) or a `:local/root` dir - never both. Local deps bypass the gitlibs
+cache. `:deps/root` names the source subdir inside the dep (defaults to `src` if
+present, else the repo root; matches tools.deps).
 
-- **Git coord.** `:git/url` plus one of `:git/sha` or `:git/tag`.
-  Tag-pinned coords cache under the tag name itself. HTTPS URLs only
-  (no SSH).
-- **Local coord.** `:local/root` points at a directory on disk, relative
-  to the project root or absolute. Local deps bypass the gitlibs cache.
-- **`:deps/root`** (optional). The subdirectory inside the dep that holds
-  the source. Defaults to `src` if that directory exists, else the repo
-  root. Matches tools.deps' `:deps/root`.
-
-**Transitive dependencies.** lgx follows transitive deps: after
-fetching a dep, it reads that dep's own
-`lgx.edn` (if it ships one) and resolves its `:deps` too, recursively. Only
-a dep's `:deps` is consulted - its `:paths`, `:main`, `:tasks`, and
-`:targets` describe how to build *that* project, not how to consume it.
-
-Resolution is breadth-first from your project, and conflicts are
-**first-wins**: the first coord seen for a given lib name is kept, and a
-later, differing coord for the same lib is skipped with a warning on
-stderr. A coord you list directly therefore overrides the same lib pulled
-in transitively.
-
-### `:targets`
-
-Currently, supports the `:bin` target only. `:out` is the output path
-relative to the project root; lgx creates the parent directory if
-missing.
+**Transitive deps.** After fetching a dep, lgx reads that dep's own `lgx.edn`
+(if any) and resolves its `:deps` recursively - only `:deps`, never a dep's
+`:paths`/`:main`/`:tasks`. Resolution is breadth-first and **first-wins**: the
+first coord seen for a lib name is kept, and a later differing coord is skipped
+with a warning. A coord you list directly overrides the same lib pulled in
+transitively.
 
 ### `:tasks`
 
-Tasks replace ad-hoc Makefile or Taskfile recipes for let-go projects.
-A task is a sequence of steps; each step is either `:sh` (shell command)
-or `:run` (forwards an explicit argv to `lg` with the project basis). A
-`:run` step names its own script — it never substitutes `:main` — but,
-like `lgx run`, it drops the first `--` so an app-level separator does not
-reach `lg` (`{:run ["main.lg" "--" "world"]}` runs `lg main.lg world`, so
-the app sees `("world")` in `*command-line-args*`). The first non-zero
-exit code stops the chain. The `lint`, `ci`, and `greet` tasks in the
-reference above show the common forms.
+Tasks replace ad-hoc Makefile/Taskfile recipes. A task is a step or a vector of
+steps; each step is `:sh` (shell) or `:run` (an explicit argv to `lg` with the
+project basis). A `:run` step names its own script - it never substitutes
+`:main` - but, like `lgx run`, drops the first `--`. The first non-zero exit
+stops the chain; output is buffered and replayed after each step. A single-step
+`:do` may be a step map instead of a vector.
 
-Run a task with `lgx <name>` (for example, `lgx ci`). `lgx help` lists
-tasks defined in the current project. Task names are symbols, matching
-how they are typed on the command line (context names stay keywords -
-see [Contexts](#contexts)); they cannot shadow built-in
-commands (`install`, `run`, `nrepl`, `build`, `test`, `new`, `help`,
-`version`, plus reserved `add`, `update`, `tasks`).
-
-When a task has a single step, `:do` may be written as a step map
-instead of a vector. Multi-step tasks use a vector. Step values may be
-a string (split on whitespace) or a vector of strings and
-`:arg/<name>` placeholders (see [Positional args](#positional-args-args)).
-Output is buffered and replayed after each step completes.
-
-A task may contain only `:doc`, `:args`, `:do`, `:extra-paths`,
-`:extra-resource-paths`, `:extra-deps`, and `:with`; any other key is
+Run a task with `lgx <name>`; `lgx help` lists the project's tasks. Names are
+symbols (context names stay keywords) and can't shadow built-ins (`install`,
+`run`, `nrepl`, `build`, `test`, `new`, `help`, `version`, plus reserved `add`,
+`update`, `tasks`). A task accepts only `:doc`, `:args`, `:do`, `:with`,
+`:extra-paths`, `:extra-resource-paths`, and `:extra-deps`; any other key is
 rejected (so a typo like `:extra-dep` fails loudly).
 
 #### Positional args (`:args`)
 
-A task may declare typed positional CLI args and reference them in
-vector-form step values as `:arg/<name>` keywords or embed them in step
-strings as `{{<name>}}` templates, like the `deploy` task in the
-reference above. `lgx deploy prod` runs `./deploy.sh 'prod' 'latest'`,
-then `lgx run notify.lg prod`, then `echo deploying vlatest`.
+A task may declare typed positional args and reference them in steps, like the
+`deploy` task above. Each arg is a map:
 
-Each arg is a map:
+- `:name` - required, an unqualified keyword; the placeholder is `:arg/<name>`.
+- `:type` - `:string` (default), `:int`, or `[:enum "v1" "v2" ...]`.
+- `:default` - optional; must match the type. Args without a default are
+  required and come first; once one arg has a default, every later arg needs
+  one too (CLI values fill positions left to right).
 
-- `:name` - required; an unqualified keyword. The placeholder is the
-  matching `:arg/<name>` keyword.
-- `:type` - optional, defaults to `:string`. One of `:int`, `:string`,
-  or `[:enum "v1" "v2" ...]` (at least two distinct non-blank strings;
-  CLI values arrive as strings, so enums are string-only).
-- `:default` - optional; its value must match the type. Args without
-  `:default` are required and must come first; once an arg has
-  `:default`, every later arg needs one too (CLI values fill positions
-  left to right, so only trailing args can be omitted).
+Arity is strict: a missing required arg, a wrong type, or a surplus arg prints a
+usage line and exits 1. Reference args two ways: as **`:arg/<name>` keyword
+items** in vector-form steps (single-quoted in `:sh` so shell-safe, verbatim in
+`:run`), or as **`{{name}}` templates** in any step string (spliced raw - quote
+it yourself when it may contain spaces). Unknown tokens are left untouched, and a
+bound value is never re-expanded.
 
-Arity is strict: a missing required arg, a value that fails its type,
-or a surplus arg prints the error plus a usage line
-(`usage: lgx deploy <env> [version]`) and exits 1. A task that declares
-no `:args` rejects any CLI args the same way. `lgx help` shows each
-task's signature after its name.
+#### Per-task `:extra-paths`, `:extra-resource-paths`, `:extra-deps`
 
-Args can be referenced two ways:
-
-- **`:arg/<name>` keyword items** in vector-form step values. Each must
-  name a declared arg (checked when `lgx.edn` loads). In `:sh` steps the
-  substituted value is single-quoted, so it always reaches the shell as
-  one word and is never interpreted (`lgx greet 'a; echo pwned'` echoes
-  the literal text). In `:run` steps each vector item is already one
-  argument, so values pass through verbatim.
-- **`{{<name>}}` templates** inside any step string - a whole-string
-  command or a string item in a vector. The value is spliced in raw with
-  no quoting added; quote it yourself when it may contain spaces or
-  shell syntax (`{:sh "git tag 'v{{version}}'"}`). A token that does not
-  name a declared arg is left untouched (which also lets a command carry
-  literal `{{...}}` text), and a bound value is never re-expanded. A
-  string-form `:run` value is expanded first and then whitespace-split,
-  so a value with spaces becomes several arguments - use the vector form
-  (`{:run ["notify.lg" "{{env}}"]}`) when it must stay one.
-
-#### Per-task `:extra-paths`, `:extra-resource-paths`, and `:extra-deps`
-
-A task may declare extra source paths, resource roots, and dependencies
-that apply to *that task's* `:run` steps only, like the `repl` task in
-the reference above:
-
-- `:extra-paths` - extra project-root-relative source dirs, same rules as
-  top-level `:paths`. Appended after the project's `:paths`.
-- `:extra-resource-paths` - extra project-root-relative resource roots, same
-  rules as top-level `:resource-paths`. Appended after the project's
-  `:resource-paths`.
-- `:extra-deps` - extra coords, same grammar as top-level `:deps` (git,
-  `:local/root`, `:deps/root`). Fetched on first run like any dep.
-
-These augment the `-source-paths` and `-resource-paths` for the task's `:run`
-steps. `:sh` steps are plain shell and are unaffected. When an `:extra-deps`
-coord names a lib already in the project's top-level `:deps`, the extra coord
-wins for that task only (a silent override) - other commands still use the
-project coord.
-
-These per-task extras are the task-private, anonymous form of a
-[context](#contexts): use them for one-off extras, and named
-`:contexts` + `:with` when an overlay is shared across tasks or commands.
+A task may carry its own extras (same rules and grammar as the top-level
+`:paths`/`:resource-paths`/`:deps`), appended after the project's and applied to
+that task's `:run` steps only - `:sh` steps are plain shell and unaffected, like
+the `console` task above. An `:extra-deps` coord that names a project dep wins
+for that task only. These are the anonymous form of a [context](#contexts); use
+named `:contexts` + `:with` when an overlay is shared across tasks.
 
 ### `:contexts`
 
 A **context** is a named, reusable overlay of `:extra-paths`,
-`:extra-resource-paths`, and `:extra-deps` - the same shape as per-task extras,
-lifted to the project top level so it can be applied to any command or shared
-across tasks (the `:dev` and `:test` contexts in the reference above,
-applied by the `repl` task's `:with`).
+`:extra-resource-paths`, and `:extra-deps` - the per-task extras lifted to the
+project top level so any command or task can apply them (the `:dev`/`:test`
+contexts applied by the `console` task's `:with` above). Apply two ways:
 
-A context map may contain only `:extra-paths`, `:extra-resource-paths`, and
-`:extra-deps`, validated by the same rules as the top-level
-`:paths`/`:resource-paths`/`:deps`. Apply contexts two ways:
+- **`lgx --with dev,test <command>`** - a global flag applied to `run`, `build`,
+  `test`, `install`, or a task (`install` pre-fetches the contexts' deps).
+- **`:with [:dev]`** on a task - always applied; a global `--with` unions on top.
 
-- **`lgx --with dev,test <command>`** - a global, comma-separated flag that
-  applies the named contexts to `run`, `build`, `test`, `install`, or a task.
-  `install` pre-fetches the contexts' deps.
-- **`:with [:dev]`** on a task - that task always runs with the named contexts.
-  A global `--with` on the same invocation is **unioned** on top.
+**Default contexts.** By convention `:dev` auto-applies to `lgx run`, `:test` to
+`lgx test`, and `lgx nrepl` applies **both** - no `--with` needed. `build` and
+`install` never auto-apply, so dev/test deps stay out of binaries; task `:run`
+steps don't inherit them either (use the task's `:with`). On a lib-name
+collision the more specific layer wins. Referencing an undefined context fails
+loudly (a `:with` at load time, an unknown `--with` at runtime).
 
-**Default contexts.** Two context names are conventions: when defined, `:dev`
-auto-applies to `lgx run`, `:test` auto-applies to `lgx test`, and `lgx nrepl`
-auto-applies **both** - no `--with` needed. A REPL session is where you iterate
-on tests, so it gets the dev tooling and dev-only source dirs (`:dev`) plus the
-test helpers (`:test`), as in the reference above. `build` and `install` never
-auto-apply contexts, so dev and test deps stay out of built binaries; task
-`:run` steps don't inherit them either (use the task's `:with`). An explicit
-`--with` layers on top, and `--verbose` prints each applied name
-(`+ auto context :dev`). When both `:dev` and `:test` apply, `:test` wins over
-`:dev` on a lib-name collision; an explicit `--with` wins over both.
-
-Referencing a context that isn't defined fails loudly: a task's `:with` is
-checked when `lgx.edn` loads; an unknown `--with` name errors at runtime,
-listing the defined contexts.
-
-**Layering.** When the same lib name appears in more than one place, the more
-specific layer wins (last-wins). Lowest → highest precedence:
+**Layering.** When a lib name appears in more than one layer, the most specific
+wins (lowest to highest):
 
 ```
 project :deps / :paths / :resource-paths
-  → auto context (:dev for run, :test for test, both for nrepl; built-in commands only)
+  → auto context (:dev for run, :test for test, both for nrepl)
   → task :with contexts (in order)
   → CLI --with contexts (in order)
   → task inline :extra-deps / :extra-paths / :extra-resource-paths  (highest)
 ```
 
-Source and resource paths concatenate in the same order with the project's own
-first (so project namespaces still shadow lib namespaces) and are
-de-duplicated. Resource paths layer identically but, unlike source paths, never
-pick up dependency dirs. Like per-task extras, contexts augment only the
-`-source-paths`/`-resource-paths` for `:run` steps and the basis commands;
-`:sh` steps are unaffected.
+Source and resource paths concatenate project-first (so project namespaces still
+shadow libs) and de-duplicate; resource paths never pick up dependency dirs.
 
 ## Shell completions
 
@@ -532,10 +421,10 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. |
-| `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev (`lgx run`) vs. bundled-binary mode — e.g. to enable dev-only behavior. Not needed for argument parsing; read `*command-line-args*` for that (see [`lgx run` details](#lgx-run-details)). |
+| `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev (`lgx run`) vs. bundled-binary mode - e.g. to enable dev-only behavior. Not needed for argument parsing; read `*command-line-args*` for that (see [`lgx run` details](#lgx-run-details)). |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test-runner harness dir. |
 | `LGX_SKIP_VERSION_CHECK` | _(unset)_ | Set to any non-empty value to bypass the `:lg-version` compatibility check on `run`/`nrepl`/`build`/`test`. |
-| `LGX_FETCH_LET_GO_SOURCE` | _(unset)_ | Set to any non-empty value to make `lgx install` fetch the let-go source matching `:lg-version` into `$LGX_HOME/let-go/source/<version>/`. The source feeds editor diagnostics — an LSP server navigating into let-go's `core`/stdlib. Off by default, since most users don't run such tooling and wouldn't expect the extra clone. |
+| `LGX_FETCH_LET_GO_SOURCE` | _(unset)_ | Set to any non-empty value to make `lgx install` fetch the let-go source matching `:lg-version` into `$LGX_HOME/let-go/source/<version>/`. The source feeds editor diagnostics - an LSP server navigating into let-go's `core`/stdlib. Off by default, since most users don't run such tooling and wouldn't expect the extra clone. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |
 | `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo of the built-in `base` template. |
 | `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the revision of the built-in `base` template. |
@@ -579,27 +468,13 @@ clone.
 
 ## Roadmap (draft)
 
-In no particular order:
+Shipped so far: source paths, per-coord `:deps/root`/`:local/root`, `:tasks`,
+`lgx build`/`test`/`new`, transitive deps, `lgx repl`/`nrepl`, `:contexts` with
+`--with`/`:with`, and let-go-side resources. Next:
 
-- [x] `:paths` source paths.
-- [x] Per-coord `:deps/root`.
-- [x] Per-coord `:local/root`.
-- [x] `:tasks` - named command shortcuts.
-- [x] `lgx build` - build project binary.
-- [x] `lgx test` - test runner.
-- [x] `lgx new` - project scaffolding.
-- [x] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
-  libs and resolve the union, with first-wins on conflicts.
-- [x] REPL: `lgx repl` opens `lg`'s built-in REPL; `lgx nrepl` adds an nREPL
-  server on a free or `--port`-chosen port.
-- [x] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
-- [x] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
-- [x] `--with`/`:with` - ability to extend tasks with contexts.
-- [x] Non-source resources (let-go-side). `lg`'s resolver finds `.lg`
-  and `.cljc` only; libs that ship templates, JSON, or other assets
-  have no resolution story. Likely needs an upstream change.
-- [ ] `lgx deps` - print dependency tree.
-- [ ] `lgx update`/`lgx update --check` - check and update outdated deps.
+- [ ] `lgx install --all` - fetch deps from all contexts and tasks in lgx.edn.
+- [ ] `lgx deps` - print the dependency tree.
+- [ ] `lgx update` / `lgx update --check` - check and update outdated deps.
 
 ## Development
 
