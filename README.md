@@ -638,8 +638,6 @@ In no particular order:
   have no resolution story. Likely needs an upstream change.
 - [ ] `lgx deps` - print dependency tree.
 - [ ] `lgx update`/`lgx update --check` - check and update outdated deps.
-- [ ] `lgx clean` - clean build artifacts from `:targets`.
-- [ ] `lgx fmt` / `lgx lint`.
 
 ## Development
 
