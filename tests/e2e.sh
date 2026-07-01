@@ -2680,5 +2680,32 @@ assert_contains "$out" "+ auto context :test" \
 rm -f "$proj_nrc/.nrepl-port"
 rm -rf "$proj_nrc" "$home_nrc"
 
+echo "==> Scenario 114: lgx repl opens the plain built-in REPL (no nREPL, no .nrepl-port)"
+# repl mirrors nrepl minus the socket: it opens lg's terminal REPL with the
+# project's deps on the path and auto-applies :dev + :test. Empty contexts add
+# no deps/paths, so no -source-paths support is needed.
+proj_rp="$(mktemp -d)"; home_rp="$(mktemp -d)"
+cat > "$proj_rp/lgx.edn" <<'EOF'
+{:contexts {:dev {} :test {}}}
+EOF
+set +e
+out="$(cd "$proj_rp" && echo '' \
+        | LGX_HOME="$home_rp" "$LGX" --verbose repl 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "repl: expected exit 0, got $rc (output: $out)"
+pass "repl: exits 0 on stdin EOF"
+assert_contains "$out" "Ctrl-C to quit" \
+    "repl: lg's built-in REPL banner is shown"
+assert_not_contains "$out" "nREPL server started" \
+    "repl: no nREPL server (plain REPL, unlike nrepl)"
+[[ ! -e "$proj_rp/.nrepl-port" ]] \
+    || fail "repl: wrote .nrepl-port (should not — that's nrepl's job)"
+pass "repl: does not write .nrepl-port"
+assert_contains "$out" "+ auto context :dev" \
+    "repl: auto-applies :dev"
+assert_contains "$out" "+ auto context :test" \
+    "repl: auto-applies :test"
+rm -rf "$proj_rp" "$home_rp"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

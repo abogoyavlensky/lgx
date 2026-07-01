@@ -86,6 +86,7 @@ lgx run
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
 | `lgx install` | Fetch deps from `:deps`. Idempotent. Also fetches the let-go source for `:lg-version` when `LGX_FETCH_LET_GO_SOURCE` is set (off by default). |
 | `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. Without a script and `:main`, opens `lg`'s REPL. |
+| `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. No port, no `.nrepl-port` (unlike `nrepl`). |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
 | `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
@@ -97,10 +98,10 @@ Options:
 
 - `--with <a,b,...>` applies one or more named [contexts](#contexts)
   (reusable `:extra-deps`/`:extra-paths` overlays) to the command. Applies to
-  `run`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task it
-  unions with the task's own `:with`.
+  `run`, `repl`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task
+  it unions with the task's own `:with`.
 - `--verbose` prints the resolved `lg` invocation before running (applies to
-  `run`, `nrepl`, `build`, `test`, and user tasks). It first prints a
+  `run`, `repl`, `nrepl`, `build`, `test`, and user tasks). It first prints a
   `+ lg <version> (<path>)` line naming the `lg` it resolved — the version from
   `lg -v` and the full binary path, which reflects an `LGX_LG` override. It also
   prints a `+ env …` line listing the env vars lgx sets: `LG_READ_CLJ=1` for
@@ -108,8 +109,8 @@ Options:
 
 Both options go before the subcommand: `lgx --with dev,test run`.
 
-`lgx run`, `nrepl`, `build`, `test`, and tasks find the nearest `lgx.edn`
-by walking up from the current directory.
+`lgx run`, `repl`, `nrepl`, `build`, `test`, and tasks find the nearest
+`lgx.edn` by walking up from the current directory.
 
 ### `lgx new` templates
 
@@ -177,6 +178,20 @@ Forms:
 
 The spawned `lg` inherits lgx's stdin/stdout/stderr, so output streams
 live and interactive programs (REPL, prompts) work.
+
+### `lgx repl` details
+
+`lgx repl` opens `lg`'s built-in REPL with the project's deps and `:paths` on
+the source path — the plain interactive session, with no script and no `:main`.
+It auto-applies the `:dev` and `:test` contexts when defined, exactly like
+`lgx nrepl`; the only difference between the two is the socket. `repl` binds no
+port and writes no `.nrepl-port`, so it is the zero-footprint choice for a quick
+session or a sandbox where you can't (or don't want to) open a socket. Reach for
+`lgx nrepl` instead when an editor needs to connect.
+
+`lgx repl` takes no arguments of its own — `--with`/`--verbose` are the usual
+leading options. To run a scratch script or pass `lg` flags with your deps on
+the path, use `lgx run <script>` / `lgx run -e '(...)'`.
 
 ### `lgx build` details
 

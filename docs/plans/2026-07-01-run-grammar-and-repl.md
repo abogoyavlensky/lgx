@@ -168,7 +168,7 @@ This task changes no existing behavior, so the full suite stays green.
 - Test: `tests/e2e.sh`
 - Docs: `README.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: Write the failing e2e scenario**
+- [x] **Step 1: Write the failing e2e scenario**
   Append a new scenario (next free number — the file currently ends at
   Scenario 113; use 114) after the last scenario, modeled on Scenario 91
   (`nrepl` without `--port`): tmp project with
@@ -182,13 +182,13 @@ This task changes no existing behavior, so the full suite stays green.
   - output contains `+ auto context :dev` and `+ auto context :test`.
   Clean up tmp dirs.
 
-- [ ] **Step 2: Run e2e to confirm it fails**
+- [x] **Step 2: Run e2e to confirm it fails**
   Build first: `make build LG="$(mise which lg)"` (see
   `docs/knowledge-base/lgx-dev-workflow.md`). Run `bash tests/e2e.sh`.
   Expected: the new scenario FAILS — `repl` is not yet a command, so
   `lgx repl` errors with `'repl' is not a lgx command`.
 
-- [ ] **Step 3: Implement `cmd-repl` and wire it up**
+- [x] **Step 3: Implement `cmd-repl` and wire it up**
   In `lgx.lg`, add `cmd-repl` next to `cmd-nrepl`, mirroring it but without the
   port logic: reject any positional args
   (`lgx: repl does not take arguments`), `find-project!` → `load-config!` →
@@ -200,14 +200,14 @@ This task changes no existing behavior, so the full suite stays green.
   `lgx/completion.lg`, add `"repl"` to `builtin-commands` (keep the vector
   sorted: `... "nrepl" "repl" "run" ...`).
 
-- [ ] **Step 4: Add the help row**
+- [x] **Step 4: Add the help row**
   In `command-rows` (`lgx.lg`), insert a `lgx repl` row between the `run` and
   `nrepl` rows, column-aligned with the rest:
   `  lgx repl                     Start lg's built-in REPL with project deps on the source path`
   plus a continuation line:
   `                               (auto-applies :dev and :test contexts if defined)`.
 
-- [ ] **Step 5: Document `repl`**
+- [x] **Step 5: Document `repl`**
   - README: add a `lgx repl` row to the command table (after `run`); add `repl`
     to the `--with` and `--verbose` scope lists and to the "find the nearest
     `lgx.edn`" line; add a short `### lgx repl details` note (plain REPL, deps on
@@ -217,12 +217,12 @@ This task changes no existing behavior, so the full suite stays green.
     `:dev`+`:test`, like `nrepl`) and in the `reserved-task-names` note. Use
     /writing-clearly.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
   Run: `make test`. Expected: all PASS, including the new repl scenario.
   (Per `docs/knowledge-base/shared-fs-bin-lgx-race`, don't run `make test`
   concurrently from two machines sharing the checkout.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git commit -m "Add lgx repl command for the plain built-in REPL"`
 
 ### Task 2: Simplify the `lgx run` grammar (heuristic-free)

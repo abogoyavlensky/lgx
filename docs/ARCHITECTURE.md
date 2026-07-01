@@ -43,7 +43,7 @@ lgx/style.lg        colored status headers (green built-ins, purple tasks), LGX_
 Leading global options (`--verbose`, `--with a,b`) are parsed by `lgx/cli.lg`
 before the subcommand and removed from the argv `lgx.main` dispatches on.
 `--with` names contexts (see [Contexts](#contexts)) and applies to
-`run`/`nrepl`/`build`/`test`/`install`/tasks.
+`run`/`repl`/`nrepl`/`build`/`test`/`install`/tasks.
 
 `lgx.main` holds the entry point; the other namespaces are stateless helper
 namespaces it requires.
@@ -98,8 +98,8 @@ of failing or silently dropping tasks.
    path-prefixed line per error (e.g.
    `:tasks lint :do [0] — unknown key :shh (allowed: :sh, :run)`) — then
    exits 1, with no stack trace. The config is loaded once per invocation;
-   every basis command (`install`/`run`/`nrepl`/`build`/`test`/tasks) and the
-   task-name fallback in dispatch go through `load-config!`.
+   every basis command (`install`/`run`/`repl`/`nrepl`/`build`/`test`/tasks) and
+   the task-name fallback in dispatch go through `load-config!`.
 3. Resolve coords breadth-first. For each unseen lib name, call
    `cache/ensure-lib!`. Git coords compute a cache ref first: the sha
    for `:git/sha`, or the tag with `/` replaced by `_` for `:git/tag`.
@@ -196,6 +196,20 @@ buffered-and-replayed output. (History: the inherited-stdio runner was
 tracked in [`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md),
 resolved upstream by `os/exec*`.)
 
+### `lgx repl`
+
+`cmd-repl` opens lg's plain built-in REPL — `nrepl` minus the socket. Steps 1–4
+match `install` (deps auto-installed, `--with` contexts apply) and
+`:paths`/`:resource-paths` resolve as in `lgx run`; like `nrepl`, it
+auto-applies **both** `:dev` and `:test` (`auto-with!` with `[:dev :test]`).
+It takes no args of its own — a positional exits 1 with
+`lgx: repl does not take arguments`; `lg` flags and scratch scripts are
+`lgx run`'s job. Then it execs `lg <paths>` via `runner/exec-lg-interactive!`
+with an **empty** forward-arg list: with no script, no `-e`, and no `-n`, lg
+drops into its terminal REPL. No port and no `.nrepl-port` are involved, and —
+like `cmd-nrepl` — no `LGX_RUN` is set. `repl` is a reserved task name
+(`config/reserved-task-names`), so a project task can't shadow it.
+
 ### `lgx nrepl [--port N]`
 
 Steps 1–4 match `install` (deps auto-installed, `--with` contexts apply), and
@@ -259,8 +273,8 @@ Steps 1–2 (project root, config load) match `install`. Then:
    missing `test/` never fetches deps.
 4. Build the basis as in `install` steps 3–4, with a context named
    `:test`, when defined in `:contexts`, prepended to the CLI `--with`
-   list (`auto-with!`, as `run` does with `:dev` and `nrepl` with both
-   `:dev` and `:test`).
+   list (`auto-with!`, as `run` does with `:dev` and `repl`/`nrepl` with
+   both `:dev` and `:test`).
 5. Select the test files. If a positional `<file>` arg is provided,
    resolve it to an absolute path (project-root-relative inputs are
    joined against the project root), then `path/normalize` away any
@@ -401,13 +415,13 @@ A `:contexts` entry is a named overlay carrying only `:extra-deps`/
 `:extra-paths`/`:extra-resource-paths` — the per-task extras, lifted to the top
 level for reuse. They are applied by the CLI `--with a,b` flag (any command),
 a task's `:with` vector, and two name conventions: a context named `:dev`,
-when defined, auto-applies to `run`, `:test` to `test`, and `nrepl` to **both**
-(`config/auto-context` returns `[name]`-or-`[]`; `auto-with!` in `lgx.lg` takes
-an ordered name list — `[:dev]` for `run`, `[:test]` for `test`, `[:dev :test]`
-for `nrepl` — prepends the defined ones to the CLI `--with` list, and prints
-`+ auto context <name>` per name under `--verbose`). Auto-contexts touch only
-those three built-in commands — never `build`/`install`, never a task's `:run`
-steps — so dev/test deps cannot leak into artifacts. `config/context-overlay` resolves an ordered name
+when defined, auto-applies to `run`, `:test` to `test`, and `repl`/`nrepl` to
+**both** (`config/auto-context` returns `[name]`-or-`[]`; `auto-with!` in
+`lgx.lg` takes an ordered name list — `[:dev]` for `run`, `[:test]` for `test`,
+`[:dev :test]` for `repl` and `nrepl` — prepends the defined ones to the CLI
+`--with` list, and prints `+ auto context <name>` per name under `--verbose`).
+Auto-contexts touch only those four built-in commands — never `build`/`install`,
+never a task's `:run` steps — so dev/test deps cannot leak into artifacts. `config/context-overlay` resolves an ordered name
 list to a single `{:deps-pairs :paths :resource-paths}` overlay, folding
 overlap among the named contexts last-wins via `config/merge-coords` (and
 throwing on an unknown name; a task's `:with` is additionally validated against
@@ -428,7 +442,7 @@ resolution is first-match-wins along the path order — an earlier layer's dir
 shadows a later one's for a same-named namespace, exactly as project paths
 shadow everything. Resource paths layer identically but never pick up dep
 dirs (project-only). For the built-in commands there is no task, so the
-layers are: project + auto-context + CLI `--with` for `run`/`nrepl`/`test`,
+layers are: project + auto-context + CLI `--with` for `run`/`repl`/`nrepl`/`test`,
 and project + CLI `--with` only for `build`/`install` (no auto layer —
 `cmd-build`/`cmd-install` never call `auto-with!`). `install` resolves the
 same overlay so it pre-fetches a context's deps (auto names included only

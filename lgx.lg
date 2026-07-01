@@ -26,6 +26,8 @@
   (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context if defined)\n"
+       "  lgx repl                     Start lg's built-in REPL with project deps on the source path\n"
+       "                               (auto-applies :dev and :test contexts if defined)\n"
        "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
        "                               (free port unless --port given; auto-applies :dev and :test contexts if defined)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
@@ -330,6 +332,24 @@
     (runner/exec-lg-interactive! paths resource-paths
                                  ["-n" "-p" (str port)] verbose?)))
 
+(defn- cmd-repl [forward-args verbose? with]
+  ;; The plain built-in REPL: `lg <paths>` with no script and no nREPL. It is
+  ;; nrepl minus the socket — same deps/paths and same auto contexts, but no
+  ;; port and no .nrepl-port. It takes no args of its own (lg flags/scripts are
+  ;; `lgx run`'s job).
+  (when (seq forward-args)
+    (write! *err* "lgx: repl does not take arguments\n")
+    (os/exit 1))
+  (let [project (config/find-project!)
+        cfg (config/load-config! project)
+        _ (check-lg-version! cfg :warn)
+        with (auto-with! cfg [:dev :test] with verbose?)
+        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
+    (print-installs! results)
+    ;; Empty forward-args: with no script, no -e, and no -n, lg drops into its
+    ;; terminal REPL. Like cmd-nrepl, no LGX_RUN for a REPL session.
+    (runner/exec-lg-interactive! paths resource-paths [] verbose?)))
+
 (defn- ensure-out-dir! [project rel-out]
   (let [abs (path/join project rel-out)
         parent (path/parent abs)]
@@ -526,6 +546,7 @@
   (case cmd
     "install" (cmd-install with)
     "run" (cmd-run (vec rest-args) verbose? with)
+    "repl" (cmd-repl (vec rest-args) verbose? with)
     "nrepl" (cmd-nrepl (vec rest-args) verbose? with)
     "build" (cmd-build (vec rest-args) verbose? with)
     "test" (cmd-test (vec rest-args) verbose? with)
