@@ -16,7 +16,7 @@
 ;; the source of truth; keep this list in sync with it. `completion` and
 ;; `__complete` are deliberately absent: both are hidden (setup/internal).
 (def builtin-commands
-  ["build" "help" "install" "new" "nrepl" "run" "test" "version"])
+  ["build" "help" "install" "new" "nrepl" "repl" "run" "test" "version"])
 
 (defn- prompt-state
   "Classify the words typed before the cursor against lgx's grammar

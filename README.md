@@ -85,7 +85,8 @@ lgx run
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`) or a git URL. |
 | `lgx install` | Fetch deps from `:deps`. Idempotent. Also fetches the let-go source for `:lg-version` when `LGX_FETCH_LET_GO_SOURCE` is set (off by default). |
-| `lgx run [args...]` | Run `:main` (or an explicit script) through `lg` with deps on the source path. Without a script and `:main`, opens `lg`'s REPL. |
+| `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
+| `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. No port, no `.nrepl-port` (unlike `nrepl`). |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
 | `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
@@ -97,10 +98,10 @@ Options:
 
 - `--with <a,b,...>` applies one or more named [contexts](#contexts)
   (reusable `:extra-deps`/`:extra-paths` overlays) to the command. Applies to
-  `run`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task it
-  unions with the task's own `:with`.
+  `run`, `repl`, `nrepl`, `build`, `test`, `install`, and user tasks; on a task
+  it unions with the task's own `:with`.
 - `--verbose` prints the resolved `lg` invocation before running (applies to
-  `run`, `nrepl`, `build`, `test`, and user tasks). It first prints a
+  `run`, `repl`, `nrepl`, `build`, `test`, and user tasks). It first prints a
   `+ lg <version> (<path>)` line naming the `lg` it resolved — the version from
   `lg -v` and the full binary path, which reflects an `LGX_LG` override. It also
   prints a `+ env …` line listing the env vars lgx sets: `LG_READ_CLJ=1` for
@@ -108,8 +109,8 @@ Options:
 
 Both options go before the subcommand: `lgx --with dev,test run`.
 
-`lgx run`, `nrepl`, `build`, `test`, and tasks find the nearest `lgx.edn`
-by walking up from the current directory.
+`lgx run`, `repl`, `nrepl`, `build`, `test`, and tasks find the nearest
+`lgx.edn` by walking up from the current directory.
 
 ### `lgx new` templates
 
@@ -156,27 +157,45 @@ and in a bundled binary, so argument parsing needs no special-casing:
 it is running under `lgx run` (dev) vs. as a bundled binary — handy for
 dev-only behavior. It is not needed for argument parsing.
 
-To forward arguments to your app, put them after `--`. lgx treats the first
-`--` as the boundary between its own flags and your app's args: it drops that
-`--` and injects `:main`, so the args land in `*command-line-args*`. A second
-`--` is preserved as a literal argument.
+The rule is structural, in one sentence: **`lgx run` runs `:main`; put anything
+before `--` and you drive `lg` yourself (name your own script — `:main` won't be
+added); your program's args go after `--`.** lgx never emits a `--` of its own,
+and a second, user-authored `--` is preserved as a literal argument. There is no
+filename-suffix magic — the presence of any token before `--`, not its
+extension, is what suppresses `:main`.
 
-Forms:
+Forms (`pre` = tokens before the first `--`; `post` = tokens after it):
 
-- `lgx run` -> `lg <paths> :main` (`*command-line-args*` is `nil`).
-- `lgx run -- foo bar` -> `lg <paths> :main foo bar` -> `("foo" "bar")` (requires `:main`).
-- `lgx run -r -- foo` -> `lg <paths> -r :main foo` (lg flags before `--`).
+- `lgx run` -> `lg <paths> <main>` (`*command-line-args*` is `nil`).
+- `lgx run -- foo bar` -> `lg <paths> <main> foo bar` -> `("foo" "bar")`.
+- `lgx run other.lg` -> `lg <paths> other.lg` (explicit script, no `:main`).
+- `lgx run other.lg -- bar` -> `lg <paths> other.lg bar` -> `("bar")`.
+- `lgx run -e '(...)'` -> `lg <paths> -e '(...)'` (pre-`--` token, no `:main`).
+- `lgx run -r -- foo` -> `lg <paths> -r foo` (a flag before `--` drives lg — to
+  run `:main` under a flag, name it: `lgx run -r <main> -- foo`).
 - `lgx run -- a -- b` -> `("a" "--" "b")` (only the first `--` is the separator).
-- `lgx run foo.lg` -> `lg <paths> foo.lg` (explicit script, pass-through).
-- `lgx run foo.lg -- bar` -> `lg <paths> foo.lg bar` -> `("bar")`.
-- `lgx run -e '(...)'` -> pass-through.
-- `lgx run` with no `:main` -> `lg <paths>`: lg's interactive REPL with
-  the project's deps on the source path.
+- `lgx run` with no `:main` -> error: set `:main`, name a script, or start a
+  REPL with [`lgx repl`](#lgx-repl-details).
+- `lgx run -- foo` with no `:main` -> error: the args have no `:main` to reach.
 
 `*command-line-args*` requires `lg` >= 1.11.0.
 
 The spawned `lg` inherits lgx's stdin/stdout/stderr, so output streams
 live and interactive programs (REPL, prompts) work.
+
+### `lgx repl` details
+
+`lgx repl` opens `lg`'s built-in REPL with the project's deps and `:paths` on
+the source path — the plain interactive session, with no script and no `:main`.
+It auto-applies the `:dev` and `:test` contexts when defined, exactly like
+`lgx nrepl`; the only difference between the two is the socket. `repl` binds no
+port and writes no `.nrepl-port`, so it is the zero-footprint choice for a quick
+session or a sandbox where you can't (or don't want to) open a socket. Reach for
+`lgx nrepl` instead when an editor needs to connect.
+
+`lgx repl` takes no arguments of its own — `--with`/`--verbose` are the usual
+leading options. To run a scratch script or pass `lg` flags with your deps on
+the path, use `lgx run <script>` / `lgx run -e '(...)'`.
 
 ### `lgx build` details
 
@@ -286,13 +305,13 @@ key's rules in detail.
                  {:run ["notify.lg" :arg/env]}     ; in declared args
                  {:sh  "echo deploying v{{version}}"}]} ; {{name}} expands in strings
 
-  repl   {:doc                  "REPL with dev tooling"
-          :with                 [:dev]             ; always apply these contexts
-          :extra-paths          ["repl"]           ; task-private extras:
-          :extra-resource-paths ["repl-resources"] ; same shape as a context,
-          :extra-deps           {seme-extra-dep {:git/url "https://github.com/some-extra/dep"
-                                                 :git/tag "v1"}}
-          :do                   [{:run "dev/repl.lg"}]}}}
+  console {:doc                  "Custom REPL entrypoint with dev tooling"
+           :with                 [:dev]             ; always apply these contexts
+           :extra-paths          ["repl"]           ; task-private extras:
+           :extra-resource-paths ["repl-resources"] ; same shape as a context,
+           :extra-deps           {seme-extra-dep {:git/url "https://github.com/some-extra/dep"
+                                                  :git/tag "v1"}}
+           :do                   [{:run "dev/repl.lg"}]}}}
 ```
 
 ### `:paths` and `:main`
@@ -608,8 +627,8 @@ In no particular order:
 - [x] `lgx new` - project scaffolding.
 - [x] **Transitive dependencies.** Follow `lgx.edn` files inside fetched
   libs and resolve the union, with first-wins on conflicts.
-- [x] REPL: bare `lgx run` opens `lg`'s REPL; `lgx nrepl` adds an nREPL
-  server on a random or `--port`-chosen port.
+- [x] REPL: `lgx repl` opens `lg`'s built-in REPL; `lgx nrepl` adds an nREPL
+  server on a free or `--port`-chosen port.
 - [x] `:extra-deps`/`:extra-paths` - ad-hoc overrides for custom tasks. 
 - [x] `:contexts` - environment-specific `:extra-paths` and `:extra-deps` configurations.
 - [x] `--with`/`:with` - ability to extend tasks with contexts.

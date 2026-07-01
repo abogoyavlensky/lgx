@@ -28,7 +28,7 @@
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
 ;; so the namespace is available for future use.
 (def reserved-task-names
-  #{"run" "nrepl" "install" "new" "add" "update" "tasks" "help" "version"
+  #{"run" "repl" "nrepl" "install" "new" "add" "update" "tasks" "help" "version"
     "build" "test" "completion" "__complete"})
 
 ;; ---------------------------------------------------------------------------

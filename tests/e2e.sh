@@ -665,10 +665,11 @@ rm -rf "$proj_b6" "$home_b6"
 
 # ---------------------------------------------------------------------------
 # Scenarios 31-38 cover `--` as the lgx/app arg separator for `lgx run`.
-# lgx drops the separator and injects :main where needed; the app reads its
-# args from *command-line-args* (let-go >= 1.11.0). lgx emits no `--` of its
-# own, but a second, user-authored `--` survives as a literal arg. Pre-`--`
-# script suffixes (.lg/.cljc/.clj) skip the :main injection. No
+# The rule is structural, not suffix-based: an empty pre-`--` slice injects
+# :main and treats post-`--` tokens as the app's args (read from
+# *command-line-args*, let-go >= 1.11.0); ANY token before `--` means the user
+# drives lg (pass through, no :main). lgx emits no `--` of its own, but a
+# second, user-authored `--` survives as a literal arg. No
 # `supports_source_paths` gating needed — minimal projects have no deps/paths.
 echo "==> Scenario 31: lgx run -- <arg> forwards arg to :main"
 proj_dd="$(mktemp -d)"
@@ -693,19 +694,21 @@ out="$(cd "$proj_dd" && LGX_HOME="$home_dd" "$LGX" run -- -v)"
 assert_contains "$out" '("-v")' "run -- -v: -v lands in *command-line-args*, not consumed by lg"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 33: lgx --verbose run -r -- foo trace shows -r main.lg foo"
+echo "==> Scenario 33: lgx --verbose run -r -- foo drives lg, no :main injected"
+# A pre-`--` token (here the lg flag -r) means the user drives lg: :main is
+# NOT injected, and the separator is dropped so the trace reads '-r foo'.
 # Stub LGX_LG to /usr/bin/true so the trace fires but no real lg runs
 # (avoids the -r REPL hanging without a TTY).
 set +e
 err="$(cd "$proj_dd" && LGX_HOME="$home_dd" LGX_LG=/usr/bin/true \
     "$LGX" --verbose run -r -- foo 2>&1 >/dev/null)"
 set -e
-if echo "$err" | grep -qE '\-r .*main\.lg foo' && ! echo "$err" | grep -qE 'main\.lg -- foo'; then
-    pass "run -r -- foo: trace reads '-r ... main.lg foo' (-r before main, no injected --)"
+if echo "$err" | grep -qE '\-r .*foo' && ! echo "$err" | grep -qE 'main\.lg'; then
+    pass "run -r -- foo: trace reads '-r ... foo' with no injected main.lg"
 else
     echo "---- stderr ----" >&2
     echo "$err" >&2
-    fail "run -r -- foo: did not find '-r ... main.lg foo' (without --) in trace"
+    fail "run -r -- foo: expected '-r ... foo' without main.lg in trace"
 fi
 
 # ---------------------------------------------------------------------------
@@ -731,9 +734,52 @@ set +e
 out="$(cd "$proj_dd2" && LGX_HOME="$home_dd2" "$LGX" run -- foo 2>&1)"; rc=$?
 set -e
 [[ $rc -ne 0 ]] || fail "run -- without :main: expected non-zero exit"
-assert_contains "$out" "lgx: -- requires :main to be set in lgx.edn" \
-    "run -- without :main: clear error"
+assert_contains "$out" "no :main is set" \
+    "run -- without :main: clear :needs-main error"
 rm -rf "$proj_dd2" "$home_dd2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 35b: bare lgx run without :main errors and points to lgx repl"
+proj_dd2b="$(mktemp -d)"
+home_dd2b="$(mktemp -d)"
+cat > "$proj_dd2b/lgx.edn" <<'EOF'
+{}
+EOF
+set +e
+out="$(cd "$proj_dd2b" && LGX_HOME="$home_dd2b" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "bare run without :main: expected non-zero exit"
+pass "bare run without :main: exits non-zero"
+assert_contains "$out" "nothing to run" \
+    "bare run without :main: clear :no-target error"
+assert_contains "$out" "lgx repl" \
+    "bare run without :main: points to lgx repl"
+rm -rf "$proj_dd2b" "$home_dd2b"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 35c: no-target run errors before resolving deps (no fetch)"
+# The :no-target check runs before overlay-basis, so a bare `lgx run` in a
+# project with deps but no :main must NOT clone the dep (mirrors Scenario 102's
+# cache-side-effect assertion — output alone can't prove the ordering).
+home_dd2c="$(mktemp -d)"
+bare_dd2c="$home_dd2c/_fixtures/test-repo.git"
+mkdir -p "$(dirname "$bare_dd2c")"
+sha_dd2c="$(make_bare_repo "$bare_dd2c")"
+proj_dd2c="$(mktemp -d)"
+cat > "$proj_dd2c/lgx.edn" <<EOF
+{:deps {test/lib {:git/url "file://$bare_dd2c"
+                  :git/sha "$sha_dd2c"}}}
+EOF
+set +e
+out="$(cd "$proj_dd2c" && LGX_HOME="$home_dd2c" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "no-target run with deps: expected non-zero exit"
+pass "no-target run with deps: exits non-zero"
+fetched="$(find "$home_dd2c/gitlibs" -type d -name "$sha_dd2c" 2>/dev/null || true)"
+[[ -z "$fetched" ]] \
+    || fail "no-target run with deps: dep was fetched into cache: $fetched"
+pass "no-target run with deps: the dep is not fetched into the cache"
+rm -rf "$proj_dd2c" "$home_dd2c"
 
 # ---------------------------------------------------------------------------
 echo "==> Scenario 36: explicit foo.lg -- bar skips :main injection"
@@ -770,7 +816,9 @@ assert_contains "$out" '("bar")' "explicit script + -- (no :main): args are (\"b
 rm -rf "$proj_dd4" "$home_dd4"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 38: .cljc suffix is recognized as an explicit script"
+echo "==> Scenario 38: an explicit token before -- suppresses :main (any suffix)"
+# Position, not suffix, decides: other.cljc before `--` passes through and
+# :main is not injected — the same as a .lg script (Scenario 36).
 proj_dd5="$(mktemp -d)"
 home_dd5="$(mktemp -d)"
 cat > "$proj_dd5/lgx.edn" <<'EOF'
@@ -2176,22 +2224,23 @@ else
     skip "task :run step requires lg with -source-paths support"
 fi
 
-echo "==> Scenario 89: bare lgx run without :main drops into an interactive REPL"
-# No :main, no :paths/:deps — lgx forwards an empty argv and lg starts its
-# REPL. The child inherits lgx's stdin (the pipe here), so the expression is
-# evaluated and the REPL exits on EOF. Under the old captured runner (os/sh)
-# the REPL had no stdin and this hung/banner-only.
+echo "==> Scenario 89: lgx repl drives an interactive REPL that evaluates stdin"
+# lgx forwards an empty argv and lg starts its REPL. The child inherits lgx's
+# stdin (the pipe here), so the expression is evaluated and the REPL exits on
+# EOF. Under the old captured runner (os/sh) the REPL had no stdin and this
+# hung/banner-only. (Scenario 114 covers the banner + auto contexts; this one
+# proves the REPL actually reads and evaluates input.)
 proj_repl="$(mktemp -d)"; home_repl="$(mktemp -d)"
 cat > "$proj_repl/lgx.edn" <<'EOF'
 {}
 EOF
 set +e
 out="$(cd "$proj_repl" && echo '(println (+ 1 2))' \
-        | LGX_HOME="$home_repl" "$LGX" run 2>/dev/null)"; rc=$?
+        | LGX_HOME="$home_repl" "$LGX" repl 2>/dev/null)"; rc=$?
 set -e
-[[ $rc -eq 0 ]] || fail "run repl: expected exit 0, got $rc (output: $out)"
-pass "run repl: exits 0 on stdin EOF"
-assert_contains "$out" "3" "run repl: evaluates piped expression"
+[[ $rc -eq 0 ]] || fail "repl: expected exit 0, got $rc (output: $out)"
+pass "repl: exits 0 on stdin EOF"
+assert_contains "$out" "3" "repl: evaluates piped expression"
 rm -rf "$proj_repl" "$home_repl"
 
 echo "==> Scenario 90: lgx nrepl --port starts nREPL on the given port"
@@ -2679,6 +2728,33 @@ assert_contains "$out" "+ auto context :test" \
     "nrepl auto :dev+:test: applies :test"
 rm -f "$proj_nrc/.nrepl-port"
 rm -rf "$proj_nrc" "$home_nrc"
+
+echo "==> Scenario 114: lgx repl opens the plain built-in REPL (no nREPL, no .nrepl-port)"
+# repl mirrors nrepl minus the socket: it opens lg's terminal REPL with the
+# project's deps on the path and auto-applies :dev + :test. Empty contexts add
+# no deps/paths, so no -source-paths support is needed.
+proj_rp="$(mktemp -d)"; home_rp="$(mktemp -d)"
+cat > "$proj_rp/lgx.edn" <<'EOF'
+{:contexts {:dev {} :test {}}}
+EOF
+set +e
+out="$(cd "$proj_rp" && echo '' \
+        | LGX_HOME="$home_rp" "$LGX" --verbose repl 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "repl: expected exit 0, got $rc (output: $out)"
+pass "repl: exits 0 on stdin EOF"
+assert_contains "$out" "Ctrl-C to quit" \
+    "repl: lg's built-in REPL banner is shown"
+assert_not_contains "$out" "nREPL server started" \
+    "repl: no nREPL server (plain REPL, unlike nrepl)"
+[[ ! -e "$proj_rp/.nrepl-port" ]] \
+    || fail "repl: wrote .nrepl-port (should not — that's nrepl's job)"
+pass "repl: does not write .nrepl-port"
+assert_contains "$out" "+ auto context :dev" \
+    "repl: auto-applies :dev"
+assert_contains "$out" "+ auto context :test" \
+    "repl: auto-applies :test"
+rm -rf "$proj_rp" "$home_rp"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

@@ -26,6 +26,8 @@
   (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context if defined)\n"
+       "  lgx repl                     Start lg's built-in REPL with project deps on the source path\n"
+       "                               (auto-applies :dev and :test contexts if defined)\n"
        "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
        "                               (free port unless --port given; auto-applies :dev and :test contexts if defined)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
@@ -244,10 +246,19 @@
       (os/exit 1))
     main-script))
 
-(defn- require-main-for-double-dash! [main-script]
-  (when (nil? main-script)
-    (write! *err* "lgx: -- requires :main to be set in lgx.edn\n")
-    (os/exit 1)))
+(defn- run-target-error! [reason]
+  ;; plan-run-args returns these only when there is no runnable target. Each
+  ;; gets a message that teaches the alternatives (name a script, or lgx repl).
+  (case reason
+    :needs-main
+    (write! *err*
+            (str "lgx run: -- forwards args to :main, but no :main is set "
+                 "in lgx.edn\n"))
+    :no-target
+    (write! *err*
+            (str "lgx run: nothing to run — set :main in lgx.edn, run a script "
+                 "(lgx run <script>), or start a REPL (lgx repl)\n")))
+  (os/exit 1))
 
 (defn- auto-with!
   "Prepend the convention contexts `names` (those defined in cfg's :contexts) to
@@ -280,17 +291,20 @@
 (defn- cmd-run [forward-args verbose? with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
+        main-script (config/main cfg)
+        ;; runner/plan-run-args owns the pure decision: a pre-`--` token means
+        ;; the user drives lg (pass through); an empty pre injects :main and
+        ;; treats post-`--` tokens as the app's args. The app reads those from
+        ;; *command-line-args* (let-go >= 1.11.0), identical in dev and a bundled
+        ;; binary, so lgx emits no `--` marker. Decide it before building the
+        ;; basis so a no-target error never fetches deps for a run that cannot
+        ;; happen (mirrors cmd-test's test-dir check).
+        plan (runner/plan-run-args forward-args main-script)
+        _ (when-let [reason (:error plan)]
+            (run-target-error! reason))
         _ (check-lg-version! cfg :warn)
         with (auto-with! cfg [:dev] with verbose?)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
-        main-script (config/main cfg)
-        ;; runner/plan-run-args owns the pure decision: inject :main where a
-        ;; script is needed and drop the lgx/app `--` separator. The app reads
-        ;; its args from *command-line-args* (let-go >= 1.11.0), which is
-        ;; identical in dev and a bundled binary, so lgx emits no `--` marker.
-        plan (runner/plan-run-args forward-args main-script)]
-    (when (= :needs-main (:error plan))
-      (require-main-for-double-dash! main-script))
+        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
     (when (:inject? plan)
       (resolve-main-script! project main-script))
     ;; No status header for `run`: it is the dev-time stand-in for the built
@@ -329,6 +343,24 @@
     ;; to a spawned program, which doesn't apply to a REPL session.
     (runner/exec-lg-interactive! paths resource-paths
                                  ["-n" "-p" (str port)] verbose?)))
+
+(defn- cmd-repl [forward-args verbose? with]
+  ;; The plain built-in REPL: `lg <paths>` with no script and no nREPL. It is
+  ;; nrepl minus the socket — same deps/paths and same auto contexts, but no
+  ;; port and no .nrepl-port. It takes no args of its own (lg flags/scripts are
+  ;; `lgx run`'s job).
+  (when (seq forward-args)
+    (write! *err* "lgx: repl does not take arguments\n")
+    (os/exit 1))
+  (let [project (config/find-project!)
+        cfg (config/load-config! project)
+        _ (check-lg-version! cfg :warn)
+        with (auto-with! cfg [:dev :test] with verbose?)
+        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
+    (print-installs! results)
+    ;; Empty forward-args: with no script, no -e, and no -n, lg drops into its
+    ;; terminal REPL. Like cmd-nrepl, no LGX_RUN for a REPL session.
+    (runner/exec-lg-interactive! paths resource-paths [] verbose?)))
 
 (defn- ensure-out-dir! [project rel-out]
   (let [abs (path/join project rel-out)
@@ -526,6 +558,7 @@
   (case cmd
     "install" (cmd-install with)
     "run" (cmd-run (vec rest-args) verbose? with)
+    "repl" (cmd-repl (vec rest-args) verbose? with)
     "nrepl" (cmd-nrepl (vec rest-args) verbose? with)
     "build" (cmd-build (vec rest-args) verbose? with)
     "test" (cmd-test (vec rest-args) verbose? with)

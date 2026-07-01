@@ -590,35 +590,35 @@
 
 (deftest load-accepts-task-with-defined-context
   (let [cfg {:contexts {:dev {:extra-paths ["dev"]}}
-             :tasks {'repl {:with [:dev]
+             :tasks {'deploy {:with [:dev]
                             :do [{:sh "echo hi"}]}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
 
 (deftest load-rejects-task-with-unknown-context
-  (is (= {:errors [{:path [:tasks 'repl :with]
+  (is (= {:errors [{:path [:tasks 'deploy :with]
                     :msg "references unknown context :typo (defined: :dev)"}]}
          (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
-                    :tasks {'repl {:with [:typo]
+                    :tasks {'deploy {:with [:typo]
                                    :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-task-with-when-no-contexts-defined
-  (is (= {:errors [{:path [:tasks 'repl :with]
+  (is (= {:errors [{:path [:tasks 'deploy :with]
                     :msg "references unknown context :dev (no contexts defined)"}]}
-         (load-cfg {:tasks {'repl {:with [:dev]
+         (load-cfg {:tasks {'deploy {:with [:dev]
                                    :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-with-not-a-vector
-  (is (= {:errors [{:path [:tasks 'repl :with]
+  (is (= {:errors [{:path [:tasks 'deploy :with]
                     :msg "must be a vector, got \"dev\""}]}
          (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
-                    :tasks {'repl {:with "dev"
+                    :tasks {'deploy {:with "dev"
                                    :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-with-non-keyword-element
-  (is (= {:errors [{:path [:tasks 'repl :with 0]
+  (is (= {:errors [{:path [:tasks 'deploy :with 0]
                     :msg "must be a keyword, got \"dev\""}]}
          (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
-                    :tasks {'repl {:with ["dev"]
+                    :tasks {'deploy {:with ["dev"]
                                    :do [{:sh "echo hi"}]}}}))))
 
 ;; ---------------------------------------------------------------------------

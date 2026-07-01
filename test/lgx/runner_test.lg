@@ -83,8 +83,10 @@
 ;; ---------------------------------------------------------------------------
 ;; plan-run-args
 ;;
-;; Pure decision for cmd-run's lg argv: inject :main where needed, drop the
-;; lgx/app separator `--`, and never emit a `--` of lgx's own. A second,
+;; Pure decision for cmd-run's lg argv. Structural, no extension-sniffing: split
+;; at the first `--` into pre/post. Any pre-`--` token means the user drives lg
+;; (pass through, never inject :main); an empty pre injects :main (or errors
+;; when there's no :main). lgx never emits a `--` of its own; a second,
 ;; user-authored `--` is preserved as a literal arg.
 ;; ---------------------------------------------------------------------------
 
@@ -93,9 +95,8 @@
           :inject? true}
          (runner/plan-run-args [] "main.lg"))))
 
-(deftest plan-run-args-empty-without-main-is-repl-passthrough
-  (is (= {:argv []
-          :inject? false}
+(deftest plan-run-args-empty-without-main-errors
+  (is (= {:error :no-target}
          (runner/plan-run-args [] nil))))
 
 (deftest plan-run-args-double-dash-injects-main-before-args
@@ -108,10 +109,17 @@
           :inject? true}
          (runner/plan-run-args ["--" "-v"] "main.lg"))))
 
-(deftest plan-run-args-lg-flag-before-separator-stays-before-main
-  (is (= {:argv ["-r" "main.lg" "foo"]
-          :inject? true}
+(deftest plan-run-args-flag-before-separator-suppresses-main
+  ;; A pre-`--` token (here an lg flag) means the user drives lg: :main is not
+  ;; injected, and pre ++ post pass through.
+  (is (= {:argv ["-r" "foo"]
+          :inject? false}
          (runner/plan-run-args ["-r" "--" "foo"] "main.lg"))))
+
+(deftest plan-run-args-lone-flag-suppresses-main
+  (is (= {:argv ["-r"]
+          :inject? false}
+         (runner/plan-run-args ["-r"] "main.lg"))))
 
 (deftest plan-run-args-second-double-dash-preserved-as-literal
   (is (= {:argv ["main.lg" "a" "--" "b"]
