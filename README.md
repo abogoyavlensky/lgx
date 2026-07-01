@@ -193,18 +193,6 @@ Both `:main` and `:targets/:bin` are required.
 a one-shot harness under `$LGX_HOME/test-runner/`, and runs every `deftest`
 against the project's resolved `-source-paths`. Prints summary results.
 
-A test file may contain `deftest` forms, fixtures and some helpers.
-
-```clojure
-(ns myapp.list-test
-  (:require [test :refer [deftest is testing]]
-            [myapp.format :as fmt]))
-
-(deftest render-list-empty
-  (testing "empty list"
-    (is (= "(empty)" (fmt/render-list [])))))
-```
-
 ## Configuration: `lgx.edn`
 
 `lgx.edn` lives at the project root. The smallest valid file:
@@ -228,9 +216,10 @@ key's rules in detail.
  ; Default entrypoint: `lgx run` runs it, `lgx build` bundles it. Does not have to be in the `:paths`
  :main "main.lg"
 
- ; The let-go version this project targets. When set, `lgx install` fetches the
- ; matching let-go source for editor navigation, and run/build/test check it
- ; against the lg on PATH. lgx does not install lg itself.
+ ; The let-go version this project targets. When set, run/build/test check it
+ ; against the lg on PATH and warn. lgx does not install lg itself.
+ ; If `LGX_FETCH_LET_GO_SOURCE=1` env var set, `lgx install` fetches 
+ ; the matching let-go source for editor navigation.
  :lg-version "1.11.0"
 
  ; Git or local deps. A dep's own :deps are resolved too (first-wins).
@@ -302,17 +291,17 @@ Optional. The let-go version this project targets (a published let-go release,
 e.g. `"1.11.0"`). lgx does **not** install or manage the `lg` binary — you get
 that from mise/brew/etc. — but when `:lg-version` is set lgx does two things:
 
+- **`run`/`nrepl`/`build`/`test` check it** against the `lg` on `PATH`: a
+  mismatch **warns** on `run`/`nrepl` (so iteration isn't blocked) and **fails**
+  on `build`/`test` (where a wrong-runtime artifact or test verdict matters).
+  A dev/unparseable installed version is skipped, not warned. Set
+  `LGX_SKIP_VERSION_CHECK` to a non-empty value to bypass the check.
 - **`lgx install` can fetch the matching let-go _source_** (not the binary) into
   `$LGX_HOME/let-go/source/<version>/`, so editor tooling (e.g. an LSP) can
   navigate into let-go's `core`/stdlib. This is **off by default**; set
   `LGX_FETCH_LET_GO_SOURCE` to opt in (see
   [Environment variables](#environment-variables)). The
   fetch is idempotent and a network failure is a warning, not a hard error.
-- **`run`/`nrepl`/`build`/`test` check it** against the `lg` on `PATH`: a
-  mismatch **warns** on `run`/`nrepl` (so iteration isn't blocked) and **fails**
-  on `build`/`test` (where a wrong-runtime artifact or test verdict matters).
-  A dev/unparseable installed version is skipped, not warned. Set
-  `LGX_SKIP_VERSION_CHECK` to a non-empty value to bypass the check.
 
 ### `:resource-paths`
 
@@ -569,8 +558,7 @@ clone.
 ## Examples
 
 - [`examples/hello/`](./examples/hello) - no-deps script.
-- [`examples/with-lib/`](./examples/with-lib) - fetch-and-require flow
-  using let-go's own repo as the dep.
+- [`examples/server/`](./examples/server) - simple HTTP server with a ruuter lib.
 - [`examples/local-dep/`](./examples/local-dep) - project plus sibling
   library using `:local/root`.
 - [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real
@@ -583,8 +571,9 @@ clone.
 - [wtr](https://github.com/abogoyavlensky/wtr) - a git worktree CLI
   built with let-go and lgx, using tiny-cli for argument parsing.
 
-## Clojure libs compatible with let-go
+## Libraries compatible with let-go
 
+- [tiny-cli](https://github.com/abogoyavlensky/tiny-cli)
 - [ruuter](https://git.nmm.ee/asko/ruuter)
 - [medley](https://github.com/weavejester/medley)
 
