@@ -25,16 +25,16 @@
 (def ^:private command-rows
   (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
-       "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context if defined)\n"
+       "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context)\n"
        "  lgx repl                     Start lg's built-in REPL with project deps on the source path\n"
-       "                               (auto-applies :dev and :test contexts if defined)\n"
+       "                               (auto-applies :dev and :test contexts)\n"
        "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
-       "                               (free port unless --port given; auto-applies :dev and :test contexts if defined)\n"
+       "                               (free port unless --port given; auto-applies :dev and :test contexts)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (extra args forwarded to `lg` before -b)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
-       "                               (one file if given, else walk test/; auto-applies :test context if defined)\n"
-       "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in name `cli` or git URL)\n"
+       "                               (one file if given, else walk test/; auto-applies :test context)\n"
+       "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli` or git URL)\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"))
 
