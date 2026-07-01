@@ -460,7 +460,7 @@ clone.
 - [wtr](https://github.com/abogoyavlensky/wtr) - a git worktree CLI
   built with let-go and lgx, using tiny-cli for argument parsing.
 
-## Libraries compatible with let-go
+## Supported libraries
 
 - [tiny-cli](https://github.com/abogoyavlensky/tiny-cli)
 - [ruuter](https://git.nmm.ee/asko/ruuter)
