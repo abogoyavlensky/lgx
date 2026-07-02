@@ -465,6 +465,9 @@ clone.
 - [tiny-cli](https://github.com/abogoyavlensky/tiny-cli)
 - [ruuter](https://git.nmm.ee/asko/ruuter)
 - [medley](https://github.com/weavejester/medley)
+- [bond](https://github.com/circleci/bond) - spying/stubbing (core
+  `spy`/`calls`/`with-spy`/`with-stub`; the `*-ns` helpers are unsupported,
+  see [`docs/issues/clojure-lib-compat.md`](./docs/issues/clojure-lib-compat.md))
 
 ## Roadmap (draft)
 

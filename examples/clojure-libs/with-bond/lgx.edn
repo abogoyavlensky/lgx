@@ -1,0 +1,4 @@
+{:main "main.lg"
+ :targets {:bin {:out "bin/with-lib"}}
+ :deps {circleci/bond {:git/url "https://github.com/circleci/bond"
+                       :git/tag "0.6.0"}}}
