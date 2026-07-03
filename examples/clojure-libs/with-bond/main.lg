@@ -1,0 +1,36 @@
+(ns main
+  (:require [bond.james :as bond]))
+
+;; bond.james running under let-go. Bond wraps a fn so you can later ask
+;; how it was called — call count, arguments, return value — without
+;; changing what it does (with-spy), or swap its behavior outright while
+;; still recording every call (with-stub).
+
+(defn demo [label value]
+  (println (str label ":")) (prn value))
+
+;; The functions under observation.
+(defn greet [name] (str "Hello, " name "!"))
+(defn add [a b] (+ a b))
+
+;; --- with-spy: watch a fn, leave its behavior intact ---
+(bond/with-spy [greet]
+  (greet "Ada")
+  (greet "Grace")
+  (demo "spy return is real"   (greet "Alan"))
+  (demo "call count"           (-> greet bond/calls count))
+  (demo "first call :args"     (-> greet bond/calls first :args))
+  (demo "first call :return"   (-> greet bond/calls first :return))
+  (demo "all return values"    (map :return (bond/calls greet))))
+
+;; --- with-stub: replace behavior, still track every call ---
+(bond/with-stub [[add (fn [a b] 0)]]
+  (demo "stubbed add returns"  (add 2 3))
+  (demo "add called with"      (-> add bond/calls first :args))
+  (demo "add call count"       (-> add bond/calls count)))
+
+;; A bare var stubs to (constantly nil) — handy for silencing a
+;; side-effecting fn while asserting it ran.
+(bond/with-stub [greet]
+  (demo "nil-stubbed greet"    (greet "anyone"))
+  (demo "still recorded"       (-> greet bond/calls count)))

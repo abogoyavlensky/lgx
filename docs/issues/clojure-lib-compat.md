@@ -84,6 +84,51 @@ and would unblock libs that didn't migrate to `.cljc`. Risk: `.clj` files
 typically have heavier JVM coupling than `.cljc` files, so they'd still
 fail at later stages - but at least the resolver wouldn't be the blocker.
 
+## 3. Runtime: functions carry no metadata; `ns-publics` missing
+
+> **Resolved for bond (2026-07-03).** With both fixes below, circleci/bond
+> 0.6.0's `bond.james` loads under let-go and its core spying API — `spy`,
+> `calls`, `with-spy`, `with-stub` — works. See
+> [`examples/clojure-libs/with-bond/`](../../examples/clojure-libs/with-bond).
+
+**Repro:** [circleci/bond@0.6.0](https://github.com/circleci/bond/blob/0.6.0/src/bond/james.clj)
+
+Two independent let-go gaps, both surfaced by the same tiny library:
+
+- **`ns-publics` unresolved.** `bond.james` defines a top-level
+  `ns->fn-symbols` (used only by `with-spy-ns`/`with-stub-ns`) built on
+  `ns-publics`, which let-go lacked. One unresolved symbol in a top-level
+  form fails the *whole* namespace compile, so even `with-spy` became
+  unresolvable:
+
+  ```
+  CompileError: Can't resolve ns-publics in this context
+  ```
+
+  Fixed by adding a `ns-publics` core fn (`pkg/rt/lang.go`) backed by a new
+  `Namespace.PublicVars()` accessor (`pkg/vm/namespace.go`): returns a
+  `symbol -> var` map of the namespace's non-private interned vars, accepting
+  either a namespace or a symbol naming one.
+
+- **Functions dropped metadata.** Bond's `spy` returns
+  `(with-meta (fn [& args] ...) {::calls <atom>})` and `calls` reads that
+  `::calls` atom back via `(meta f)`. let-go's function types did not
+  implement `IMeta`, so `with-meta` passed the fn through unchanged (the
+  load-bearing scalar-hint fallback) and `(meta f)` returned `nil` — every
+  `calls` fell into bond's "not a spied function" throw. Fixed by making
+  `*Func`, `*Closure`, and `*MultiArityFn` implement `IMeta`
+  (`pkg/vm/func.go`) with copy-on-write `WithMeta` — a capture-free fn is a
+  shared `OP_LOAD_CONST` constant, so mutating in place would leak metadata
+  into every evaluation of the fn literal.
+
+**Still degraded (by design, out of scope for the demo):**
+`with-spy-ns`/`with-stub-ns`. `ns->fn-symbols` rebuilds each fn's symbol from
+`(:ns (meta v))` / `(:name (meta v))`, but let-go vars do not auto-populate
+`:ns`/`:name` metadata (a plain `(defn f …)` has `(meta (var f))` => `nil`),
+so the namespace-wide helpers resolve to bogus symbols and spy nothing. The
+per-var API (`with-spy`/`with-stub`) is unaffected and is what the example
+demonstrates.
+
 ## Reproducing
 
 Each lib has a working repro in `lgx`:
@@ -95,4 +140,5 @@ make build
 LGX_LG=/path/to/lg ./bin/lgx run examples/clojure-libs/<lib>/main.lg
 ```
 
-(Replace `<lib>` with `medley` or `hiccup`.)
+(Replace `<lib>` with `medley` or `bond`. `hiccup` and `aero` still fail to
+load — they document open gaps 1 and 2 above.)
