@@ -18,9 +18,9 @@
   "Built-in template registry: name -> pinned git coord. \"base\" is the
    default when `lgx new` gets no -t/--template flag."
   {"base" {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
-           :git/sha "cbcd711a90f26efd6376086d1eec96b96083ba6c"}
+           :git/sha "697a15be2b91f4476a698b643a123d17ce8393de"}
    "cli" {:git/url "https://github.com/abogoyavlensky/lgx-template-cli"
-          :git/sha "ec6fa8eed4b4d99fb155eb5e61063e7b9507ec33"}})
+          :git/sha "cc71e33e7d9127d2dfa24d2f90bd87d318405843"}})
 
 ;; ---------------------------------------------------------------------------
 ;; Validation
