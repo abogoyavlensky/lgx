@@ -20,7 +20,7 @@
   {"base" {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
            :git/sha "cbcd711a90f26efd6376086d1eec96b96083ba6c"}
    "cli" {:git/url "https://github.com/abogoyavlensky/lgx-template-cli"
-          :git/sha "3ebb6b241272da7cab60c61a49c8939c1f558444"}})
+          :git/sha "ec6fa8eed4b4d99fb155eb5e61063e7b9507ec33"}})
 
 ;; ---------------------------------------------------------------------------
 ;; Validation
