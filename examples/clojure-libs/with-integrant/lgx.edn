@@ -1,0 +1,8 @@
+{:main "main.lg"
+ :targets {:bin {:out "bin/with-lib"}}
+ ;; integrant depends on weavejester/dependency. lgx does not yet resolve
+ ;; transitive deps of a plain Clojure lib, so both are listed directly.
+ :deps {dev.weavejester/dependency {:git/url "https://github.com/weavejester/dependency"
+                                    :git/tag "1.0.1"}
+        dev.weavejester/integrant  {:git/url "https://github.com/weavejester/integrant"
+                                    :git/tag "1.0.1"}}}
