@@ -174,67 +174,73 @@ Degraded-by-design surfaces fail **loudly** (throw) rather than returning plausi
   `git add -A && git commit -m "feat(vm): real clojure.lang.PersistentQueue (conj/peek/pop/seq)"`
   (New files `persistent_queue.go` + `persistent_queue_test.go` must be staged with `git add -A`.)
 
-### Task 3: Phase 1 verification via lgx + docs
+### Task 3: Phase 1 verification via lgx + docs ✅ complete (`7ccf1cb`)
 
 **Files:**
 - Verify: `examples/clojure-libs/with-dependency/{lgx.edn,main.lg}` (this repo)
 - Modify: `docs/knowledge-base/let-go-stdlib-quick-ref.md`, `docs/issues/clojure-lib-compat.md`
 
-- [ ] **Step 1: Run `with-dependency` through lgx (faithful path).**
+- [x] **Step 1: Run `with-dependency` through lgx (faithful path).**
   Build lgx if needed: `cd /Users/andrew/Projects/worktrees/lgx/integrant-compat && make build`
   Run: `cd examples/clojure-libs/with-dependency && LGX_LG=/Users/andrew/Projects/let-go/lg /Users/andrew/Projects/worktrees/lgx/integrant-compat/bin/lgx run main.lg`
   Expected: identical full output (lgx sets `LG_READ_CLJ` itself). If the example reads awkwardly, tighten comments only — no behavior change.
 
-- [ ] **Step 2: Update docs.**
+- [x] **Step 2: Update docs.**
   In `let-go-stdlib-quick-ref.md` note the real `clojure.lang.PersistentQueue` (conj/peek/pop/into/seq). In `clojure-lib-compat.md` §1, mark the PersistentQueue degradation resolved and point at the queue work. Keep each doc's `Verify against:` footer accurate.
 
-- [ ] **Step 3: Commit** (this repo)
+- [x] **Step 3: Commit** (this repo)
   `git add -A && git commit -m "docs: dependency runs under let-go; real PersistentQueue"`
 
 ## Phase 2 — `integrant`
 
-### Task 4: G3/G4/G5 — `find-var`, `get-method`, classpath-scan stubs
+### Task 4: G3/G4/G5 — `find-var`, `get-method`, classpath-scan stubs ✅ complete (`2ed9c6c`, `a0452ce`)
+
+> Deviations:
+> - **New gap G6 (empty catch body).** Loading integrant surfaced `Can't resolve _` — its `try-require` uses `(catch java.io.FileNotFoundException _)` with no body, which the compiler misparsed (the class became the binding). Fixed in `pkg/compiler/compiler.go`: a binding is always a simple symbol, so a qualified/dotted first token is the class even with an empty body. Test in `test/catch_class_test.lg`. Commit `a0452ce`. (The plan anticipated new sub-gaps here.)
+> - `get-method` needed a new `vm.MultiFn.GetMethod` accessor (`pkg/vm/multifn.go`) — let-go multimethods dispatch on exact value + default (no isa? hierarchy), which is what integrant needs.
+> - Split find-var/get-method runtime coverage into a `.lg` test (real namespace) plus the Go compile-resolution test.
+> - Verified integrant loads AND runs (init in dependency order, `#ig/ref` resolution, halt in reverse) via a smoke test before committing.
 
 **Files:**
-- Modify: `/Users/andrew/Projects/let-go/pkg/rt/lang.go`
-- Create: `/Users/andrew/Projects/let-go/test/integrant_compat_test.go`
+- Modify: `/Users/andrew/Projects/let-go/pkg/rt/lang.go`, `pkg/vm/multifn.go`, `pkg/compiler/compiler.go`
+- Create: `/Users/andrew/Projects/let-go/test/integrant_compat_test.go`, `test/integrant_compat_test.lg`; Modify `test/catch_class_test.lg`
 
-- [ ] **Step 1: Write failing Go expression tests.**
+- [x] **Step 1: Write failing Go expression tests.**
   In `integrant_compat_test.go` (mirror `medley_compat_test.go`'s `eval…` helper against the core NS): (a) `(def x 5)` then `(var-get (find-var 'user/x))` → `5` and `(find-var 'user/nope)` → `nil`; (b) a `defmulti`/`defmethod` then `(get-method mm :some)` returns a non-nil fn and `(get-method mm :absent)` returns the default (or nil per Clojure); (c) `(defn f [] (clojure.lang.RT/baseLoader))` and `(defn g [e] (enumeration-seq e))` both **compile** without error.
 
-- [ ] **Step 2: Run to verify failure.**
+- [x] **Step 2: Run to verify failure.**
   Run: `cd /Users/andrew/Projects/let-go && go test ./test/... -run Integrant -count=1`
   Expected: FAIL — `Can't resolve find-var / get-method / enumeration-seq / clojure.lang.RT/baseLoader`.
 
-- [ ] **Step 3: Implement `find-var` (G3).**
+- [x] **Step 3: Implement `find-var` (G3).**
   Add a native `find-var`: takes a namespace-qualified symbol, looks up the namespace in the registry and returns the interned `*Var` (not its value), or `nil` if the ns or name is absent. Pair with the existing `var-get`.
 
-- [ ] **Step 4: Implement `get-method` (G5).**
+- [x] **Step 4: Implement `get-method` (G5).**
   Add a native `get-method`: given a multifn value and a dispatch value, return the method fn registered for that value (honoring the hierarchy the same way dispatch does), else the `:default` method, else `nil`. Follow the existing `vm.MultiFn` method-table structure used by `defmulti`/`defmethod`.
 
-- [ ] **Step 5: Implement the classpath-scan stubs (G4).**
+- [x] **Step 5: Implement the classpath-scan stubs (G4).**
   Add a compile-only `enumeration-seq` (throws with a clear "not supported under let-go" message if called; resolves at compile). Add a `clojure.lang.RT` bare-ns with a `baseLoader` that resolves and returns a marker/throws if invoked — mirror the medley `java.util.ArrayList` load-only stub precedent and comment it the same way.
 
-- [ ] **Step 6: Run to verify passes.**
+- [x] **Step 6: Run to verify passes.**
   Run: `cd /Users/andrew/Projects/let-go && go test ./test/... -run Integrant -count=1`
   Expected: PASS.
 
-- [ ] **Step 7: Confirm integrant loads.**
+- [x] **Step 7: Confirm integrant loads.**
   Rebuild: `make build`. Then load integrant with both source paths (dependency is already cached; integrant will be cached by lgx in Task 5 — for this check, clone integrant 1.0.1 to a temp `src` or point at the lgx cache once present):
   Run: `LG_READ_CLJ=1 /Users/andrew/Projects/let-go/lg -source-paths "<dependency-src>:<integrant-src>" -e "(require 'integrant.core) (println :loaded)"`
   Expected: prints `:loaded` with no `Can't resolve` errors. Fix any newly-surfaced unresolved symbol before proceeding.
 
-- [ ] **Step 8: Commit** (in let-go repo)
+- [x] **Step 8: Commit** (in let-go repo)
   `git add -A && git commit -m "feat(rt): find-var, get-method, and integrant classpath-scan stubs"`
   (New file `integrant_compat_test.go` must be staged with `git add -A`.)
 
-### Task 5: `with-integrant` example
+### Task 5: `with-integrant` example ✅ complete (`e474aaa`)
 
 **Files:**
 - Create: `examples/clojure-libs/with-integrant/lgx.edn`
 - Create: `examples/clojure-libs/with-integrant/main.lg`
 
-- [ ] **Step 1: Write `lgx.edn`.**
+- [x] **Step 1: Write `lgx.edn`.**
   Both deps pinned directly (lgx has no transitive resolution for Clojure libs):
   ```clojure
   {:main "main.lg"
@@ -243,40 +249,40 @@ Degraded-by-design surfaces fail **loudly** (throw) rather than returning plausi
           dev.weavejester/integrant  {:git/url "https://github.com/weavejester/integrant"  :git/tag "1.0.1"}}}
   ```
 
-- [ ] **Step 2: Write `main.lg` — init/halt/assert-key lifecycle.**
+- [x] **Step 2: Write `main.lg` — init/halt/assert-key lifecycle.**
   `(ns main (:require [integrant.core :as ig]))`. Define a small system with a dependency edge via `#ig/ref` (e.g. `::db` and a `::server` that refs `::db`). Provide `defmethod ig/init-key ::db`, `ig/init-key ::server` (returns a map echoing its resolved `::db` ref), `defmethod ig/halt-key! ::db`/`::server` (print a stop line), and a `defmethod ig/assert-key ::server` that throws via `ig/ex-info`-style check when a required config value is missing. Build config either with `ig/read-string` (`#ig/ref` tag) or a literal map using `(ig/ref ::db)`. Call `(ig/init config)` (printing init order), then `(ig/halt! system)` (printing reverse order), and demonstrate `assert-key` catching a bad value in a `try`. Guard the entry with `(when-not *compiling-aot* (-main))` per the AOT gotcha if a `-main` is used; a top-level script body is also fine.
 
-- [ ] **Step 3: Run directly (fast loop).**
+- [x] **Step 3: Run directly (fast loop).**
   Ensure integrant is cached: `cd examples/clojure-libs/with-integrant && LGX_LG=/Users/andrew/Projects/let-go/lg /Users/andrew/Projects/worktrees/lgx/integrant-compat/bin/lgx install`
   Run: `LG_READ_CLJ=1 /Users/andrew/Projects/let-go/lg -source-paths "<dependency-cache-src>:<integrant-cache-src>" main.lg`
   Expected: init prints `::db` before `::server` (dependency order); halt prints reverse; assert-key demo reports the caught assertion.
 
-- [ ] **Step 4: Run through lgx (faithful path).**
+- [x] **Step 4: Run through lgx (faithful path).**
   Run: `cd examples/clojure-libs/with-integrant && LGX_LG=/Users/andrew/Projects/let-go/lg /Users/andrew/Projects/worktrees/lgx/integrant-compat/bin/lgx run main.lg`
   Expected: identical output. Debug any runtime gap (e.g. hierarchy/`derive`/`isa?` or `sorted-set-by` comparator path) here; add the corresponding let-go fix + test back in Task 4 if a new gap appears, then re-run.
 
-- [ ] **Step 5: Commit** (this repo)
+- [x] **Step 5: Commit** (this repo)
   `git add -A && git commit -m "feat(examples): integrant init/halt/assert-key under let-go"`
   (New example dir `examples/clojure-libs/with-integrant/` must be staged with `git add -A`.)
 
-### Task 6: Phase 2 docs + full green
+### Task 6: Phase 2 docs + full green ✅ complete
 
 **Files:**
 - Create: `docs/issues/integrant-dependency-compat.md`
 - Modify: `docs/knowledge-base/let-go-stdlib-quick-ref.md`, `docs/issues/clojure-lib-compat.md`, `docs/issues/README.md`
 
-- [ ] **Step 1: Write the upstream issue note.**
+- [x] **Step 1: Write the upstream issue note.**
   `docs/issues/integrant-dependency-compat.md`: summarize G1–G5, each with repro, the let-go change, and the resolved/degraded status — matching the style of `letgo-clj-support.md` and `clojure-lib-compat.md`. List it in `docs/issues/README.md`.
 
-- [ ] **Step 2: Refresh stdlib/knowledge-base docs.**
+- [x] **Step 2: Refresh stdlib/knowledge-base docs.**
   Add `find-var`, `get-method`, and the real queue to `let-go-stdlib-quick-ref.md`; note the defrecord field-scope behavior where relevant. Keep `Verify against:` footers accurate.
 
-- [ ] **Step 3: Full test runs, both repos.**
+- [x] **Step 3: Full test runs, both repos.**
   Run: `cd /Users/andrew/Projects/let-go && set -o pipefail && make test 2>&1 | tail -15`
   Run: `cd /Users/andrew/Projects/worktrees/lgx/integrant-compat && set -o pipefail && make test 2>&1 | tail -15`
   Expected: both exit 0 and green (`set -o pipefail` so a failure isn't masked by `tail`).
 
-- [ ] **Step 4: Commit** (this repo)
+- [x] **Step 4: Commit** (this repo)
   `git add -A && git commit -m "docs: integrant + dependency let-go compatibility"`
 
 ---
@@ -288,3 +294,54 @@ Degraded-by-design surfaces fail **loudly** (throw) rather than returning plausi
 - **Fast inner loop:** `LG_READ_CLJ=1 lg -source-paths <src> <file>` (dependency/integrant sources live under `~/.lgx/gitlibs/github.com/weavejester/<lib>/1.0.1/src`). Use lgx only for the faithful end-to-end check.
 - **DRY/YAGNI:** G1 must reuse the existing `-dt-rewrite*` traversal (don't duplicate the shadowing logic); G2's `conj`/`into`/`seq`/`count` must come from interface conformance, not new type-switch cases.
 - If loading integrant surfaces an unresolved symbol not in G1–G5, treat it as a new sub-gap: add the smallest let-go fix + a `.lg`/Go test, then continue — don't work around it in the example.
+
+---
+
+## Completion summary
+
+**Status: ✅ complete.** `weavejester/dependency` 1.0.1 and `weavejester/integrant`
+1.0.1 both load and run under let-go, driven through lgx.
+
+### What was implemented
+
+Six let-go changes (branch `integrant-compat`), each with tests; `make test`
+green in both repos:
+
+- **G1** (`pkg/rt/core/core.lg`, `f67251a`+`da878ad`) — `defrecord` now scopes
+  record fields in protocol-method bodies (reuses `deftype`'s rewrite, keyword
+  access); `case` test-constants stay literal.
+- **G2** (`pkg/vm/persistent_queue.go` + wiring, `3e3133a`+`f37bcda`) — a real
+  `clojure.lang.PersistentQueue` (conj/peek/pop/seq/count, sequential `=`,
+  `QueueType`); un-degrades medley's queue.
+- **G3/G4/G5** (`pkg/rt/lang.go`, `pkg/vm/multifn.go`, `2ed9c6c`) — `find-var`,
+  `get-method` (+ `MultiFn.GetMethod`), and compile-only `enumeration-seq` /
+  `clojure.lang.RT/baseLoader` stubs.
+- **G6** (`pkg/compiler/compiler.go`, `a0452ce`) — an empty catch body with a
+  qualified class now compiles (`(catch java.io.FileNotFoundException _)`).
+
+lgx (this repo): `examples/clojure-libs/with-dependency` verified end-to-end
+(incl. `topo-sort`); new `examples/clojure-libs/with-integrant` demonstrates
+init/halt in dependency order, `#ig/ref` resolution, and `assert-key`. Docs
+updated: `docs/issues/integrant-dependency-compat.md` (new), `README.md`,
+`clojure-lib-compat.md`, `let-go-stdlib-quick-ref.md`.
+
+### Deviations (gathered)
+
+- Test function is `TestRunner`, not `TestLanguage`; editing `core.lg` requires
+  regenerating `core_compiled.lgb` via `go run -tags bootstrap ./cmd/lgbgen`.
+- **G6 was discovered during execution** (empty catch body) — a new compiler gap
+  the plan didn't foresee but explicitly allowed for.
+- Codex review caught three real issues that were fixed as fixups: the `case`
+  test-constant rewrite (G1), and the queue's sequential-`=` + type resolution
+  (G2). Task 4 review was clean.
+- Gitignored a pre-existing stray `.clj-pulse/` artifact in the let-go repo.
+
+### What the plan could have specified better
+
+The plan assumed integrant's compile blockers were fully enumerated by static
+analysis (G3/G4/G5), but loading it live surfaced G6 (empty catch body) — a
+runtime/compiler gap invisible to symbol-presence greps. A plan touching a
+compiler should budget for "load it and iterate on the first real error" rather
+than trusting the static gap list to be complete; the two verification commands
+(`TestLanguage` vs `TestRunner`) and the `lgbgen` regen step were also stale/
+missing and cost a round-trip each.

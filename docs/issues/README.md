@@ -9,6 +9,7 @@ Issues filed (or to be filed) against
 | [inherit-stdio-runner.md](./inherit-stdio-runner.md) | `os/run` so `lgx run -r` REPL can work | resolved (`os/exec*` in 1.10.0) |
 | [letgo-clj-support.md](./letgo-clj-support.md) | Native `.clj` library support — three small diffs | draft |
 | [clojure-lib-compat.md](./clojure-lib-compat.md) | Reader/compiler/resolver gaps blocking real Clojure libs | draft |
+| [integrant-dependency-compat.md](./integrant-dependency-compat.md) | Run weavejester/dependency + integrant under let-go (defrecord field scope, real PersistentQueue, find-var/get-method, empty catch body) | implemented on `integrant-compat` |
 | [error-color-missing-esc.md](./error-color-missing-esc.md) | Error formatter emits ANSI codes without `\x1b` ESC byte | draft (fix on `fix-colored-output`) |
 | [load-failure-silent.md](./load-failure-silent.md) | `(:require)` of a file with a compile error returns nil and prints to stderr only — exit 0, missing tests hidden | draft |
 | [nrepl-port-zero.md](./nrepl-port-zero.md) | `-p 0` should bind an OS-assigned nREPL port and report the real one | draft |

@@ -17,6 +17,14 @@ full surface. Use this as a starting point.
   `try`/`catch`.
 - Errors: `ex-info`, `throw`.
 
+## Vars / multimethods
+
+- `find-var` — a namespace-qualified symbol → the interned var (`nil` if the
+  namespace or name is absent). Pair with `var-get`.
+- `get-method` — `(get-method multifn dispatch-val)` → the method fn that value
+  selects (exact match, else the `:default` method, else `nil`). let-go
+  multimethods dispatch on exact value + default, not the `isa?` hierarchy.
+
 ## Records / protocols / queues
 
 - `defrecord` with inline protocol methods: bare field references in method
