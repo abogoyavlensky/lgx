@@ -17,6 +17,18 @@ full surface. Use this as a starting point.
   `try`/`catch`.
 - Errors: `ex-info`, `throw`.
 
+## Records / protocols / queues
+
+- `defrecord` with inline protocol methods: bare field references in method
+  bodies resolve to the field (like `deftype`). `case` test-constants that
+  share a field name stay literal — only field *reads* are rewritten.
+- `clojure.lang.PersistentQueue` is a real immutable FIFO queue:
+  `conj`/`into` (enqueue), `peek` (front), `pop` (dequeue), `seq`, `count`,
+  `empty?`. `clojure.lang.PersistentQueue/EMPTY` is the empty queue; `(type q)`
+  and `(instance? clojure.lang.PersistentQueue q)` both resolve through
+  `QueueType`, and a queue is `=` to any sequential collection with the same
+  elements.
+
 ## `os`
 
 - Process: `os/sh` (buffered — see gotchas), `os/exec*` (child inherits

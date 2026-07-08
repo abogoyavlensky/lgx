@@ -89,40 +89,50 @@ Degraded-by-design surfaces fail **loudly** (throw) rather than returning plausi
 
 ## Phase 1 — `dependency`
 
-### Task 1: G1 — `defrecord` field scope in protocol methods
+### Task 1: G1 — `defrecord` field scope in protocol methods ✅ complete (`f67251a`, `da878ad`)
+
+> Deviations:
+> - Test function is `TestRunner` (not `TestLanguage`); subtest = `.lg` filename. All Task verification commands use `-run 'TestRunner/<file>'`.
+> - Editing `pkg/rt/core/core.lg` requires regenerating the embedded bundle: `go run -tags bootstrap ./cmd/lgbgen` (writes `core_compiled.lgb` + `generated.sums`). Plan omitted this; needed before every `go test`/`make build`.
+> - Codex review (P2) flagged that a `case` test-constant sharing a field name was wrongly rewritten to a field read. Added `case`-aware handling to `-dt-rewrite` (`-dt-rewrite-case`) — rewrites dispatch/result exprs, leaves test-constants literal; improves `deftype` too. Fixup commit `da878ad`.
+> - Gitignored a pre-existing stray `.clj-pulse/` artifact in the let-go repo so `git add -A` stays clean.
 
 **Files:**
-- Modify: `/Users/andrew/Projects/let-go/pkg/rt/core/core.lg`
+- Modify: `/Users/andrew/Projects/let-go/pkg/rt/core/core.lg` (+ regenerated `core_compiled.lgb`, `generated.sums`)
 - Test: `/Users/andrew/Projects/let-go/test/defrecord_field_scope_test.lg`
 
-- [ ] **Step 1: Write the failing test.**
+- [x] **Step 1: Write the failing test.**
   In `defrecord_field_scope_test.lg`: `(ns defrecord-field-scope-test (:require [test]))`. Define a protocol `(defprotocol P (m1 [g n]) (m2 [g]))` and `(defrecord R [a b] P (m1 [g n] (get a n :none)) (m2 [g] (+ (count a) (count b))))`. `deftest` asserting `(m1 (->R {:x 1} {}) :x)` → `1`, `(m1 (->R {:x 1} {}) :z)` → `:none`, and `(m2 (->R {:x 1} {:y 2 :z 3}))` → `3`. Also assert an interop-ctor form `(R. {:x 1} {})` works and a `let` inside a method that **shadows** a field name (e.g. `(let [a 99] a)`) returns the local, not the field.
 
-- [ ] **Step 2: Run test to verify it fails.**
+- [x] **Step 2: Run test to verify it fails.**
   Run: `cd /Users/andrew/Projects/let-go && go test ./test/... -run 'TestLanguage/defrecord_field_scope' -v -count=1`
   Expected: `--- FAIL: TestLanguage/defrecord_field_scope_test.lg` with a compile error `Can't resolve a in this context` (bare field ref not rewritten). (Subtests are named by `.lg` filename; targeting one keeps the go-test exit code meaningful — don't pipe through `grep`.)
 
-- [ ] **Step 3: Implement the fix.**
+- [x] **Step 3: Implement the fix.**
   In `core.lg`, generalize the field-rewrite family (`-dt-rewrite`, `-dt-rewrite-let`, `-dt-rewrite-fn`, `-dt-rewrite-method`, `-dt-rewrite-impls`) so the leaf field-read form is produced by an injected emitter rather than hard-coded to `(.field recv)`. The emitter has shape `(fn [recv field-sym] → read-form)`. `deftype` passes the dot emitter `(fn [recv f] (list (symbol (str "." (name f))) recv))` (unchanged behavior). In `defrecord`, when `protocol-impls` is non-empty, rewrite them with the **keyword** emitter `(fn [recv f] (list (keyword f) recv))` and empty `muts` (records have no mutable fields) **before** handing them to `extend-type`. Keep computing `protocol-parents`/`parent-forms` and the positional/map constructors as today; use `-dt-field-name` on fields for robustness, mirroring `deftype`. Thread the emitter explicitly through the helper signatures, or bind it via a dynamic var around the rewrite call — either is acceptable; keep `deftype`'s output byte-for-byte unchanged.
 
-- [ ] **Step 4: Run test to verify it passes.**
+- [x] **Step 4: Run test to verify it passes.**
   Run: `cd /Users/andrew/Projects/let-go && go test ./test/... -run 'TestLanguage/defrecord_field_scope' -v -count=1`
   Expected: `--- PASS: TestLanguage/defrecord_field_scope_test.lg`.
 
-- [ ] **Step 5: Guard against deftype regressions.**
+- [x] **Step 5: Guard against deftype regressions.**
   Run: `cd /Users/andrew/Projects/let-go && go test ./test/... -run 'TestLanguage|Deftype' -count=1`
   Expected: exit 0 with no `--- FAIL` — existing `deftype_capture_test.lg` / `deftype_reify_hygiene_test.lg` still pass.
 
-- [ ] **Step 6: Confirm `dependency` loads past the record.**
+- [x] **Step 6: Confirm `dependency` loads past the record.**
   Rebuild: `cd /Users/andrew/Projects/let-go && make build`
   Run: `LG_READ_CLJ=1 /Users/andrew/Projects/let-go/lg -source-paths ~/.lgx/gitlibs/github.com/weavejester/dependency/1.0.1/src /Users/andrew/Projects/worktrees/lgx/integrant-compat/examples/clojure-libs/with-dependency/main.lg 2>&1 | head`
   Expected: all demos print **except** the final `topo-sort`, which now fails on `PersistentQueue` (fixed in Task 2) — the record/protocol error is gone.
 
-- [ ] **Step 7: Commit** (in let-go repo)
+- [x] **Step 7: Commit** (in let-go repo)
   `git add -A && git commit -m "fix(core): scope record fields in defrecord protocol-method bodies"`
   (Use `git add -A`, not `commit -am` — this task creates a new test file, which `-a` would not stage.)
 
-### Task 2: G2 — real `clojure.lang.PersistentQueue`
+### Task 2: G2 — real `clojure.lang.PersistentQueue` ✅ complete (`3e3133a`, `f37bcda`)
+
+> Deviations:
+> - Codex review (2× P2) flagged that the new queue diverged from let-go's own equality/type conventions: `(= queue seq)` was false, and `clojure.lang.PersistentQueue` resolved to a symbol marker rather than a type. Fixup `f37bcda`: added `*vm.PersistentQueue` to `isSequentialType` (cross-type sequential `=` via the rt path, exactly like vectors) and bound `clojure.lang.PersistentQueue` → `vm.QueueType` (so `(type q)` and `instance?` agree); dropped the now-redundant self-marker in `directTypeParents`.
+> - Ancestry wiring lives in `pkg/rt/hierarchy.go` (`directTypeParents`), not only `lang.go` as the plan implied.
 
 **Files:**
 - Create: `/Users/andrew/Projects/let-go/pkg/vm/persistent_queue.go`
@@ -131,36 +141,36 @@ Degraded-by-design surfaces fail **loudly** (throw) rather than returning plausi
 - Test: `/Users/andrew/Projects/let-go/test/persistent_queue_test.lg`
 - Test: `/Users/andrew/Projects/let-go/pkg/vm/persistent_queue_test.go`
 
-- [ ] **Step 1: Write the failing `.lg` test.**
+- [x] **Step 1: Write the failing `.lg` test.**
   In `persistent_queue_test.lg`: build `(def q (into clojure.lang.PersistentQueue/EMPTY [1 2 3]))`. Assert `(peek q)` → `1` (FIFO front), `(peek (pop q))` → `2`, `(count q)` → `3`, `(seq q)` → `(1 2 3)`, `(peek (conj q 4))` → `1`, `(empty? clojure.lang.PersistentQueue/EMPTY)` → `true`, and a drain loop (peek/pop until empty) yields `[1 2 3]` in order.
 
-- [ ] **Step 2: Run to verify it fails.**
+- [x] **Step 2: Run to verify it fails.**
   Run: `cd /Users/andrew/Projects/let-go && go test ./test/... -run 'TestLanguage/persistent_queue' -v -count=1`
   Expected: `--- FAIL: TestLanguage/persistent_queue_test.lg` — `into` on the marker stub errors.
 
-- [ ] **Step 3: Implement the queue type.**
+- [x] **Step 3: Implement the queue type.**
   In `persistent_queue.go` define a `PersistentQueue` (Okasaki two-list form: a front `Seq` + a rear `[]Value` + `count`, plus optional `meta`). Implement the `vm.Value` methods (`Type`/`Unbox`/`String`/`Hash`/`Equals`), `Counted` (`RawCount`/`Count`), `Collection` (`Empty` → the empty queue, `Conj` → append to rear/front per Clojure semantics), and `Sequable` (`Seq` → front concatenated with reversed rear, `EmptyList` when empty). Add exported `Peek()` (front element or `NIL`) and `Pop()` (drop front; when front empties, promote reversed rear). Create a package-level `EmptyPersistentQueue` singleton. Register a `PersistentQueueType` `ValueType` for `instance?`/ancestry.
 
-- [ ] **Step 4: Wire it in `lang.go`.**
+- [x] **Step 4: Wire it in `lang.go`.**
   Add `case *vm.PersistentQueue:` to the `peek` and `pop` native fns (peek → `Peek()`; pop → `Pop()`, erroring on empty like the other pop cases). Replace the `PersistentQueue/EMPTY` marker binding with `vm.EmptyPersistentQueue`. Wire the `clojure.lang.PersistentQueue` marker so it reports queue instances as ancestors (so `(instance? clojure.lang.PersistentQueue q)` is true and medley's `queue?` works). Confirm `into`/`conj`/`seq`/`count`/`empty?` need no extra cases (they dispatch through the `Collection`/`Sequable`/`Counted` interfaces) and that `transientable?` returns false for the queue so `into` uses `reduce conj`.
 
-- [ ] **Step 5: Add Go-level unit tests.**
+- [x] **Step 5: Add Go-level unit tests.**
   In `pkg/vm/persistent_queue_test.go`: table tests for conj/peek/pop/seq/count/Equals/Empty and FIFO ordering over a few hundred elements (front/rear rebalancing).
   Run: `cd /Users/andrew/Projects/let-go && go test ./pkg/vm/... -run PersistentQueue -count=1`
   Expected: PASS.
 
-- [ ] **Step 6: Update the medley regression.**
+- [x] **Step 6: Update the medley regression.**
   In `test/medley_compat_test.go`, change the `PersistentQueue/EMPTY fails loudly when conj'd` case: `(into clojure.lang.PersistentQueue/EMPTY [1 2 3])` now returns a real queue — assert **no error** and that `(peek …)` is `1`. Update the test name and comment to reflect that the queue is real. Leave the `(instance? clojure.lang.PersistentQueue [1 2])` → false case (a vector is not a queue).
 
-- [ ] **Step 7: Run the full let-go suite.**
+- [x] **Step 7: Run the full let-go suite.**
   Run: `cd /Users/andrew/Projects/let-go && make build && set -o pipefail && go test ./... -count=1 2>&1 | tail -25`
   Expected: exit 0, all packages `ok`, no `--- FAIL` (persistent-queue `.lg`, `pkg/vm` queue, medley compat, everything green). `set -o pipefail` ensures the pipe reflects a test failure rather than `tail`'s exit code.
 
-- [ ] **Step 8: Verify `with-dependency` end-to-end.**
+- [x] **Step 8: Verify `with-dependency` end-to-end.**
   Run: `LG_READ_CLJ=1 /Users/andrew/Projects/let-go/lg -source-paths ~/.lgx/gitlibs/github.com/weavejester/dependency/1.0.1/src /Users/andrew/Projects/worktrees/lgx/integrant-compat/examples/clojure-libs/with-dependency/main.lg`
   Expected: **all** demos print, including `topo-sort` → a valid build order (deps before dependents, e.g. `[:core :ui :db :app]` or an equivalent valid topo order).
 
-- [ ] **Step 9: Commit** (in let-go repo)
+- [x] **Step 9: Commit** (in let-go repo)
   `git add -A && git commit -m "feat(vm): real clojure.lang.PersistentQueue (conj/peek/pop/seq)"`
   (New files `persistent_queue.go` + `persistent_queue_test.go` must be staged with `git add -A`.)
 
