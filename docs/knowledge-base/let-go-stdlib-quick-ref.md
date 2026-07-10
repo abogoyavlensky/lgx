@@ -12,6 +12,13 @@ full surface. Use this as a starting point.
   metadata, line comments).
 - Numbers: `parse-int`, `parse-long`, `parse-double`, `parse-boolean`.
 - Regex: `re-find`, `re-pattern`, `re-matches`, `re-seq`, `re-groups`.
+  `re-seq` returns `nil` when nothing matches. In `re-find` and `re-seq`, an
+  optional group that did not participate is `nil`; a participating group
+  that matched zero characters is `""`.
+- Functions: `fn` and `defn` support Clojure `:pre` and `:post` condition
+  maps, including the `%` result binding in postconditions.
+- Sequences: `partition` supports `(partition n coll)`,
+  `(partition n step coll)`, and `(partition n step pad coll)`.
 - Macros: `case`, `cond`, `cond->`, `cond->>`, `when`, `when-not`,
   `when-let`, `loop`/`recur`, `doseq`, `binding` (dynamic Vars only),
   `try`/`catch`.
@@ -62,6 +69,9 @@ in core, not `io`.
 > **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**
 > [`pkg/rt/lang.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/lang.go)
 > (core fns, regex, parse-*, slurp/spit),
+> [`pkg/rt/core/core.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/core.lg)
+> (core macros and sequence fns, including `fn`/`defn` conditions and
+> `partition`),
 > [`pkg/rt/iort.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/iort.go)
 > (mkdir, file-exists?, write!, IOHandle),
 > [`pkg/rt/os.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/os.go)
