@@ -62,6 +62,11 @@ Two Go-to-Clojure result conversions affected option parsing:
 Fixed in let-go commits `f0c78ce` and `6f27f51`. Regression coverage lives in
 `test/builtins_test.lg` and `test/shuffle_reseq_test.lg`.
 
+`re-matches` and `re-groups` had the same absent-vs-empty capture gap. Not
+on the tools.cli path, but fixed for consistency in let-go commit `f705490`
+with regression coverage in `test/builtins_test.lg` and
+`test/core_tier3_test.lg`.
+
 ### Four-argument `partition`
 
 tools.cli groups validation predicates and messages with

@@ -12,9 +12,11 @@ full surface. Use this as a starting point.
   metadata, line comments).
 - Numbers: `parse-int`, `parse-long`, `parse-double`, `parse-boolean`.
 - Regex: `re-find`, `re-pattern`, `re-matches`, `re-seq`, `re-groups`.
-  `re-seq` returns `nil` when nothing matches. In `re-find` and `re-seq`, an
+  `re-seq` returns `nil` when nothing matches. In all four matching fns, an
   optional group that did not participate is `nil`; a participating group
-  that matched zero characters is `""`.
+  that matched zero characters is `""`. Note `re-groups` takes
+  `(re-groups regex str)` and returns all matches — not Clojure's
+  matcher-based signature.
 - Functions: `fn` and `defn` support Clojure `:pre` and `:post` condition
   maps, including the `%` result binding in postconditions.
 - Sequences: `partition` supports `(partition n coll)`,
@@ -23,6 +25,16 @@ full surface. Use this as a starting point.
   `when-let`, `loop`/`recur`, `doseq`, `binding` (dynamic Vars only),
   `try`/`catch`.
 - Errors: `ex-info`, `throw`.
+- Exceptions (let-go branches `clojure-exception-classes`,
+  `fix-finally-abnormal-exit`, `typed-catch-dispatch`; pending upstream
+  merge): java.lang.* class hierarchy rooted at `Throwable` with real
+  constructors (`(Exception. msg)`, `(IllegalArgumentException. msg cause)`,
+  ...); typed catch clauses dispatch by class in source order and rethrow on
+  no match; `(catch Throwable e ...)` catches anything thrown, including
+  plain values; an unmodeled JVM class in a catch never matches instead of
+  failing compilation; `finally` runs on all abnormal exits; `assert` throws
+  `AssertionError`; VM runtime errors are `java.lang.Exception`, no longer
+  `ExceptionInfo`. Not yet in a released `lg`.
 
 ## `os`
 
