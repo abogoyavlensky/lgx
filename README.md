@@ -480,6 +480,7 @@ Shipped so far: source paths, per-coord `:deps/root`/`:local/root`, `:tasks`,
 `lgx build`/`test`/`new`, transitive deps, `lgx repl`/`nrepl`, `:contexts` with
 `--with`/`:with`, and let-go-side resources. Next:
 
+- [ ] Install transitive dependencies from Clojure libs that use `deps.edn` or `project.clj`
 - [ ] `lgx install --all` - fetch deps from all contexts and tasks in lgx.edn.
 - [ ] `lgx deps` - print the dependency tree.
 - [ ] `lgx update` / `lgx update --check` - check and update outdated deps.
