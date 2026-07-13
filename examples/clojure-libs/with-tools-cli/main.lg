@@ -1,0 +1,27 @@
+(ns main
+  (:require [clojure.tools.cli :as cli]))
+
+;; clojure.tools.cli running under let-go. Define a required integer option,
+;; a boolean flag, and leave one positional input for the application.
+
+(defn demo [label value]
+  (println (str label ":")) (prn value))
+
+(def option-specs
+  [["-p" "--port PORT" "Port to listen on"
+    :default 80
+    :parse-fn parse-long
+    :validate [pos? "must be positive"]]
+   ["-v" "--verbose" "Enable verbose output"]])
+
+(def parsed
+  (cli/parse-opts ["--port" "8080" "-v" "input.txt"] option-specs))
+
+(demo "options"   (:options parsed))
+(demo "arguments" (:arguments parsed))
+(demo "errors"    (:errors parsed))
+(demo "summary"   (:summary parsed))
+
+;; Invalid parsed values become user-facing errors instead of options.
+(demo "invalid port errors"
+      (:errors (cli/parse-opts ["--port" "0"] option-specs)))

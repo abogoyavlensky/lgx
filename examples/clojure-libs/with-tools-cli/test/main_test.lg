@@ -1,0 +1,35 @@
+;; Tests for the tools.cli example. Run from this directory: lgx test
+
+(ns main-test
+  (:require [clojure.tools.cli :as cli]
+            [clojure.test :refer [deftest is]]))
+
+(def option-specs
+  [["-p" "--port PORT" "Port to listen on"
+    :default 80
+    :parse-fn parse-long
+    :validate [pos? "must be positive"]]
+   ["-v" "--verbose" "Enable verbose output"]])
+
+(deftest parse-valid-options
+  (let [parsed (cli/parse-opts ["--port" "8080" "-v" "input.txt"] option-specs)]
+    (is (= {:port 8080 :verbose true} (:options parsed)))
+    (is (= ["input.txt"] (:arguments parsed)))
+    (is (nil? (:errors parsed)))))
+
+(deftest defaults-apply-without-flags
+  (let [parsed (cli/parse-opts [] option-specs)]
+    (is (= {:port 80} (:options parsed)))
+    (is (nil? (:errors parsed)))))
+
+(deftest invalid-value-becomes-error
+  (let [parsed (cli/parse-opts ["--port" "0"] option-specs)]
+    (is (= ["Failed to validate \"--port 0\": must be positive"]
+           (:errors parsed)))
+    ;; the failed option falls back to its default
+    (is (= {:port 80} (:options parsed)))))
+
+(deftest summary-lists-options
+  (let [parsed (cli/parse-opts [] option-specs)]
+    (is (re-find #"--port PORT" (:summary parsed)))
+    (is (re-find #"--verbose" (:summary parsed)))))
