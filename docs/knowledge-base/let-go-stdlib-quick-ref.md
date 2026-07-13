@@ -36,6 +36,26 @@ full surface. Use this as a starting point.
   `AssertionError`; VM runtime errors are `java.lang.Exception`, no longer
   `ExceptionInfo`. Not yet in a released `lg`.
 
+## Vars / multimethods
+
+- `find-var` — a namespace-qualified symbol → the interned var (`nil` if the
+  namespace or name is absent). Pair with `var-get`.
+- `get-method` — `(get-method multifn dispatch-val)` → the method fn that value
+  selects (exact match, else the `:default` method, else `nil`). let-go
+  multimethods dispatch on exact value + default, not the `isa?` hierarchy.
+
+## Records / protocols / queues
+
+- `defrecord` with inline protocol methods: bare field references in method
+  bodies resolve to the field (like `deftype`). `case` test-constants that
+  share a field name stay literal — only field *reads* are rewritten.
+- `clojure.lang.PersistentQueue` is a real immutable FIFO queue:
+  `conj`/`into` (enqueue), `peek` (front), `pop` (dequeue), `seq`, `count`,
+  `empty?`. `clojure.lang.PersistentQueue/EMPTY` is the empty queue; `(type q)`
+  and `(instance? clojure.lang.PersistentQueue q)` both resolve through
+  `QueueType`, and a queue is `=` to any sequential collection with the same
+  elements.
+
 ## `os`
 
 - Process: `os/sh` (buffered — see gotchas), `os/exec*` (child inherits

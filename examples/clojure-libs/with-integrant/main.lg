@@ -1,0 +1,58 @@
+(ns main
+  (:require [integrant.core :as ig]))
+
+;; weavejester/integrant running under let-go. A tiny system with two
+;; components wired by a reference: a server that depends on a database.
+;; Integrant builds the system in dependency order and tears it down in
+;; reverse — and runs an assert-key check on each value before it starts.
+
+;; --- Lifecycle: init-key turns config into a running component ---------------
+
+(defmethod ig/init-key ::db [_ {:keys [url]}]
+  (println "init  ::db     ->" url)
+  {:connection url})
+
+(defmethod ig/init-key ::server [_ {:keys [port db]}]
+  (println "init  ::server -> port" port "on" (:connection db))
+  {:port port :db db})
+
+;; --- Lifecycle: halt-key! stops a running component --------------------------
+
+(defmethod ig/halt-key! ::db [_ _]
+  (println "halt  ::db"))
+
+(defmethod ig/halt-key! ::server [_ _]
+  (println "halt  ::server"))
+
+;; --- assert-key: validate a value just before its key is initialized ---------
+
+(defmethod ig/assert-key ::server [_ {:keys [port]}]
+  (when-not (and (integer? port) (< 0 port 65536))
+    (throw (ex-info (str "::server needs a valid :port, got " (pr-str port))
+                    {:reason ::bad-port, :port port}))))
+
+;; --- Config: ::server references ::db via #ig/ref ----------------------------
+
+(def config
+  {::db     {:url "postgres://localhost/app"}
+   ::server {:port 8080
+             :db   (ig/ref ::db)}})
+
+;; Start it. ::db initializes before ::server (dependency order), and the ref
+;; is resolved to ::db's initialized value.
+(println "=== ig/init ===")
+(def system (ig/init config))
+(println "resolved ::server :db ->" (-> system ::server :db))
+
+;; Stop it. ::server halts before ::db (reverse dependency order).
+(println "\n=== ig/halt! ===")
+(ig/halt! system)
+
+;; assert-key rejects an invalid value before any component starts.
+(println "\n=== assert-key rejects a bad :port ===")
+(try
+  (ig/init (assoc-in config [::server :port] -1))
+  (println "ERROR: expected the assertion to fail")
+  (catch e
+    ;; integrant wraps the assertion failure; the original is the cause.
+    (println "rejected:" (ex-message (ex-cause e)))))

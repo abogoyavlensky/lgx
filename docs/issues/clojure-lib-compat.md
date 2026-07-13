@@ -29,8 +29,11 @@ Other gaps from the same investigation now have dedicated tickets:
 > / `docs/plans/2026-05-31-medley-compat.md`):
 > - `clojure.lang.IEditableCollection` marker + ancestry on editable colls;
 >   `clojure.lang.MapEntry.` constructor sugar.
-> - `clojure.lang.PersistentQueue` marker + load-only `EMPTY` stub (fails loudly
->   if conj'd, rather than returning a wrong reversed list).
+> - `clojure.lang.PersistentQueue`: **now a real FIFO queue** (`vm.PersistentQueue`,
+>   as of the integrant/dependency work — see
+>   [`integrant-dependency-compat.md`](./integrant-dependency-compat.md)). Was a
+>   load-only `EMPTY` marker stub; `conj`/`into`/`peek`/`pop`/`seq`/`count` and
+>   sequential `=` all work now, so medley's `queue`/`queue?` are no longer degraded.
 > - `java.util.ArrayList` load-only constructor stub.
 > - `Throwable` made **real**: `ExInfoType` reports it as an ancestor and
 >   `ExInfo` implements `Receiver` (`getMessage`/`getCause`) + `IMeta`, so
@@ -42,8 +45,8 @@ Other gaps from the same investigation now have dedicated tickets:
 > - `compare-and-set!` added as a real Atom primitive (was missing) — unblocks
 >   `m/deref-swap!`/`m/deref-reset!`.
 >
-> Remaining degraded (load-only, by design): `queue`/`queue?` and
-> `partition-between`/`sliding`.
+> Remaining degraded (load-only, by design): `partition-between`/`sliding`
+> (they build a mutable `java.util.ArrayList`). `queue`/`queue?` now work.
 
 **Repro:** [weavejester/medley@1.10.0](https://github.com/weavejester/medley/blob/1.10.0/src/medley/core.cljc#L41-L43)
 
