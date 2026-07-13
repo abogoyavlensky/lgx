@@ -457,12 +457,17 @@ clone.
 
 - [tiny-cli](https://github.com/abogoyavlensky/tiny-cli) - a CLI parser
   library for let-go, distributed as a git dep.
+- [tiny-tui](https://github.com/abogoyavlensky/tiny-tui) - a minimal TUI lib for let-go
 - [wtr](https://github.com/abogoyavlensky/wtr) - a git worktree CLI
-  built with let-go and lgx, using tiny-cli for argument parsing.
+  built with let-go and lgx, using tiny-cli for argument parsing
+- [skl](https://github.com/abogoyavlensky/skl) - a minimal interactive agent skills installer
+- [rite](https://github.com/abogoyavlensky/rite) - a project task runner with built-in let-go
+- [frame](https://github.com/abogoyavlensky/frame) - a declarative project templater
 
 ## Supported libraries
 
 - [tiny-cli](https://github.com/abogoyavlensky/tiny-cli)
+- [tiny-tui](https://github.com/abogoyavlensky/tiny-cli)
 - [ruuter](https://git.nmm.ee/asko/ruuter)
 - [medley](https://github.com/weavejester/medley)
 - [bond](https://github.com/circleci/bond) - spying/stubbing (core
