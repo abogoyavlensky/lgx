@@ -1,4 +1,4 @@
 (ns main
-  (:require [aero.core :refer [read-config]]))
+  (:require [aero.core :as aero]))
 
-(prn (str (read-config "config.edn")))
+(prn (str (aero/read-config "config.edn")))
