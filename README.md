@@ -474,6 +474,7 @@ clone.
 - [integrant](https://github.com/weavejester/integrant) - micro-framework for data-driven architecture
 - [dev.weavejester/dependency](https://github.com/weavejester/dependency) - A data structure for graphs
 - [org.clojure/tools.cli](https://github.com/clojure/tools.cli) - cli parsing
+- [metosin/malli](https://github.com/metosin/malli) - data-driven schema validation and coercion
 
 ## Roadmap (draft)
 
