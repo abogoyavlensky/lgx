@@ -466,13 +466,14 @@ clone.
 
 ## Supported libraries
 
-- [tiny-cli](https://github.com/abogoyavlensky/tiny-cli)
-- [tiny-tui](https://github.com/abogoyavlensky/tiny-cli)
-- [ruuter](https://git.nmm.ee/asko/ruuter)
-- [medley](https://github.com/weavejester/medley)
-- [bond](https://github.com/circleci/bond) - spying/stubbing (core
-  `spy`/`calls`/`with-spy`/`with-stub`; the `*-ns` helpers are unsupported,
-  see [`docs/issues/clojure-lib-compat.md`](./docs/issues/clojure-lib-compat.md))
+- [tiny-cli](https://github.com/abogoyavlensky/tiny-cli) - cli parsing
+- [tiny-tui](https://github.com/abogoyavlensky/tiny-cli) - TUI widgets
+- [ruuter](https://git.nmm.ee/asko/ruuter) - simple router
+- [medley](https://github.com/weavejester/medley) - various useful helpers
+- [bond](https://github.com/circleci/bond) - spying/stubbing for tests
+- [integrant](https://github.com/weavejester/integrant) - micro-framework for data-driven architecture
+- [dev.weavejester/dependency](https://github.com/weavejester/dependency) - A data structure for graphs
+- [org.clojure/tools.cli](https://github.com/clojure/tools.cli) - cli parsing
 
 ## Roadmap (draft)
 
