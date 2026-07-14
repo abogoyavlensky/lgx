@@ -1,1 +1,39 @@
-{:port #or [#env PORT 8080]}
+;; A single aero config that exercises aero's headline reader tags. Read with
+;; (aero/read-config "config.edn" {:profile <p>}) — every #tag below is resolved
+;; by aero at read time. See main.lg for the driver.
+{;; --- #env / #or: environment with a fallback -----------------------------
+ ;; #env reads an environment variable (nil when unset); #or takes the first
+ ;; truthy value, so this is "PORT from the env, else 8080". #long coerces the
+ ;; resulting string to an integer.
+ :http/port    #long #or [#env PORT 8080]
+ :http/host    #or [#env HOST "0.0.0.0"]
+
+ ;; --- #profile: pick a value by the profile passed to read-config ----------
+ :env          #profile {:default :dev
+                         :prod    :prod
+                         :test    :test}
+
+ ;; --- scalar coercions: #long #double #boolean #keyword --------------------
+ :timeout-ms   #long "30000"
+ :sample-rate  #double "0.25"
+ :debug?       #boolean #or [#env DEBUG "false"]
+ :log-level    #keyword #or [#env LOG_LEVEL "info"]
+
+ ;; --- #join: concatenate a sequence into one string ------------------------
+ :db/url       #join ["postgres://"
+                      #or [#env DB_HOST "localhost"] ":"
+                      #or [#env DB_PORT "5432"] "/app"]
+
+ ;; --- #ref: reference another (already resolved) key in this config --------
+ :db/pool      {:jdbc-url #ref [:db/url]
+                :max-size #long #or [#env DB_POOL "10"]}
+
+ ;; --- #merge: merge a sequence of maps (later wins), profile-aware ---------
+ :features     #merge [{:metrics true :tracing false}
+                       #profile {:prod {:tracing true} :default {}}]
+
+ ;; --- #read-edn: parse an EDN string (e.g. delivered via an env var) -------
+ :extra        #read-edn #or [#env EXTRA_EDN "{:source :default}"]
+
+ ;; --- #envf: printf-style formatting with environment variables ------------
+ :greeting     #envf ["service up on %s:%s" HOST PORT]}

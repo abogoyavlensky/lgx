@@ -1,4 +1,45 @@
 (ns main
   (:require [aero.core :as aero]))
 
-(prn (str (aero/read-config "config.edn")))
+;; juxt/aero running under let-go. aero is a small EDN configuration reader:
+;; it reads config.edn and resolves the #tag literals in it (environment
+;; lookups, profiles, references, coercions, merges) into a plain data map.
+;;
+;; Unlike a "data in, data out" library, aero is a reader + expansion engine —
+;; every #tag is dispatched through aero's multimethods at read time. See
+;; config.edn for the tags this exercises, and docs/issues/aero-compat.md for
+;; the let-go work that makes it run.
+
+(defn demo [label value]
+  (println (str label ":")) (prn value))
+
+;; --- Read the config under the :dev profile ----------------------------------
+;; The second arg selects the #profile branch. With PORT/HOST/etc. unset, the
+;; #or fallbacks apply, so this is fully reproducible.
+(def dev (aero/read-config "config.edn" {:profile :default}))
+
+(println "=== config.edn resolved under {:profile :default} ===")
+(demo "whole config" dev)
+
+(println)
+(println "=== individual tags ===")
+(demo "#env/#or/#long :http/port" (:http/port dev))   ; env PORT else 8080, as int
+(demo "#profile       :env"       (:env dev))          ; :dev under :default
+(demo "#double        :sample-rate" (:sample-rate dev))
+(demo "#boolean       :debug?"    (:debug? dev))
+(demo "#keyword       :log-level" (:log-level dev))
+(demo "#join          :db/url"    (:db/url dev))        ; one concatenated string
+(demo "#ref           :db/pool"   (:db/pool dev))       ; :jdbc-url points at :db/url
+(demo "#merge         :features"  (:features dev))      ; merged maps
+(demo "#read-edn      :extra"     (:extra dev))         ; parsed from an EDN string
+(demo "#envf          :greeting"  (:greeting dev))
+
+;; --- Same file, :prod profile ------------------------------------------------
+;; #profile now takes the :prod branch, and the profile-aware #merge turns
+;; tracing on — one config file, environment-specific results.
+(def prod (aero/read-config "config.edn" {:profile :prod}))
+
+(println)
+(println "=== {:profile :prod} differences ===")
+(demo "#profile :env"      (:env prod))                 ; :prod
+(demo "#merge   :features" (:features prod))            ; :tracing now true
