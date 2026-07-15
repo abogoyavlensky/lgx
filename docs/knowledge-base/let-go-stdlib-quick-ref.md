@@ -56,6 +56,29 @@ full surface. Use this as a starting point.
   `QueueType`, and a queue is `=` to any sequential collection with the same
   elements.
 
+## JVM interop shims (Clojure-lib compat)
+
+Motivated by metosin/malli; general and available to any library.
+
+- Predicates/fns: `indexed?` (positional collections), `class` (alias of `type`),
+  `uri?` (always `false` — no `java.net.URI`). `monitor-enter`/`monitor-exit` are
+  no-ops (no object monitors).
+- JVM collection-interface `.`-methods dispatch on the value's let-go interface,
+  so they work on any collection: `.valAt` (ILookup), `.iterator` +
+  `.hasNext`/`.next` (Iterable/Iterator), `.assoc`, `.cons` (append/prepend per
+  type), `.nth`, `.count`, `.hashCode`, `.longValue`.
+- Mutable shims: `(java.util.HashMap.)` (`.putAll`/`.get`) and
+  `(java.util.ArrayDeque.)` (`.push`/`.pop`/`.peek`/`.isEmpty`) — real mutable
+  types for libs that use JVM mutable collections internally.
+- `(instance? Class x)` markers: `java.util.Map`, `CharSequence`, bare `Pattern`.
+- Static factories: `LazilyPersistentVector/createOwning`,
+  `PersistentArrayMap/createWithCheck`, `System/arraycopy`, `Array/newInstance`,
+  `Util/hash`/`hashCombine`, `Murmur3/hashLong`; number parses
+  `Long/parseLong`/`Integer/parseInt`/`Float/parseFloat`/`Double/parseDouble`;
+  bare `UUID/fromString`.
+- Degraded (loud stubs / pass-through): java.time date coercion,
+  `BigDecimal.`/`URI.` coercion, the `FutureTask.`/`Thread.` timeout path.
+
 ## `os`
 
 - Process: `os/sh` (buffered — see gotchas), `os/exec*` (child inherits
@@ -113,4 +136,7 @@ in core, not `io`.
 > [`pkg/rt/core/edn.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/edn.lg)
 > (edn ns),
 > [`pkg/rt/core/io.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/io.lg)
-> (io ns).
+> (io ns),
+> and the JVM interop shims in `pkg/rt/host_hashmap.go`, `host_arraydeque.go`,
+> `host_iterator.go`, `host_malli_compat.go`, plus `invokeMethodFallback` in
+> `lang.go` and `System/arraycopy` in `pkg/rt/system.go`.

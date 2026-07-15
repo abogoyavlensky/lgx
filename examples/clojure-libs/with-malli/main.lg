@@ -1,0 +1,58 @@
+(ns main
+  (:require [malli.core :as m]
+            [malli.error :as me]
+            [malli.util :as mu]
+            [malli.transform :as mt]))
+
+;; metosin/malli running under let-go. malli is a data-driven schema library:
+;; schemas are plain data, and the same schema validates, explains, humanizes
+;; errors, coerces input, and can be transformed like any other value.
+
+(defn demo [label value]
+  (println (str label ":")) (prn value))
+
+;; A schema for a user. Schemas are just vectors/keywords — data, not macros.
+(def User
+  [:map
+   [:name :string]
+   [:age [:int {:min 0}]]
+   [:roles [:set :keyword]]])
+
+;; --- Validation: does a value conform to a schema? ---
+(demo "validate ok"  (m/validate User {:name "Ada" :age 36 :roles #{:admin}}))
+(demo "validate bad" (m/validate User {:name "Ada" :age -1 :roles #{:admin}}))
+
+;; --- Explain + humanize: turn a failure into human-readable messages ---
+(demo "explain->humanize"
+      (me/humanize (m/explain User {:name 42 :age -1 :roles [:admin]})))
+
+;; --- The schema zoo: every kind of schema is just data ---
+(demo "scalar :int"       (m/validate :int 7))
+(demo "[:enum ...]"       (m/validate [:enum "S" "M" "L"] "M"))
+(demo "[:maybe ...]"      (m/validate [:maybe :int] nil))
+(demo "[:and int? pos]"   (m/validate [:and :int [:> 0]] 5))
+(demo "[:or int string]"  (m/validate [:or :int :string] "hi"))
+(demo "[:map-of ...]"     (m/validate [:map-of :string :int] {"a" 1 "b" 2}))
+(demo "[:re #\"\\d+\"]"   (m/validate [:re #"\d+"] "2026"))
+(demo "closed map reject" (m/validate [:map {:closed true} [:x :int]] {:x 1 :y 2}))
+
+;; --- Sequence schemas: a regex engine over sequences (:cat/:*/:+/:?/:repeat) ---
+(demo "[:cat int kw]"     (m/validate [:cat :int :keyword] [1 :a]))
+(demo "[:* int]"          (m/validate [:* :int] [1 2 3]))
+(demo "[:+ string]"       (m/validate [:+ :string] ["a" "b"]))
+(demo "[:repeat 2 int]"   (m/validate [:repeat {:min 2} :int] [1 2 3]))
+(demo "parse [:cat ...]"  (m/parse [:cat :int [:? :keyword]] [1 :a]))
+
+;; --- malli.util: schemas are transformable data ---
+(demo "mu/merge"          (m/form (mu/merge [:map [:x :int]] [:map [:y :string]])))
+(demo "mu/select-keys"    (m/form (mu/select-keys User [:name])))
+(demo "mu/optional-keys"  (m/form (mu/optional-keys [:map [:x :int] [:y :int]])))
+
+;; --- Coercion: decode string input into typed values (string-transformer) ---
+(def string->
+  (mt/string-transformer))
+(demo "decode :int"       (m/decode :int "42" string->))
+(demo "decode :keyword"   (m/decode :keyword "admin" string->))
+(demo "decode a map"      (m/decode [:map [:age :int] [:role :keyword]]
+                                    {:age "36" :role "admin"} string->))
+(demo "decode a vector"   (m/decode [:vector :int] ["1" "2" "3"] string->))
