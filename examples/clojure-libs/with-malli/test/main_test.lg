@@ -1,0 +1,66 @@
+;; Tests for the malli example. Run from the example directory: lgx test
+
+(ns main-test
+  (:require [malli.core :as m]
+            [malli.error :as me]
+            [malli.util :as mu]
+            [malli.transform :as mt]
+            [clojure.test :refer [deftest is testing]]))
+
+(def User
+  [:map
+   [:name :string]
+   [:age [:int {:min 0}]]
+   [:roles [:set :keyword]]])
+
+(deftest validation
+  (is (true?  (m/validate User {:name "Ada" :age 36 :roles #{:admin}})))
+  (is (false? (m/validate User {:name "Ada" :age -1 :roles #{:admin}})))
+  (is (true?  (m/validate :int 7)))
+  (is (false? (m/validate :int "7"))))
+
+(deftest explain-and-humanize
+  (testing "explain returns a structured error map"
+    (let [{:keys [errors]} (m/explain User {:name "Ada" :age -1 :roles #{:admin}})]
+      (is (= 1 (count errors)))
+      (is (= [:age] (:in (first errors))))))
+  (testing "humanize turns errors into human messages"
+    (is (= {:name ["should be a string"]
+            :age  ["should be at least 0"]
+            :roles ["invalid type"]}
+           (me/humanize (m/explain User {:name 42 :age -1 :roles [:admin]}))))))
+
+(deftest schema-zoo
+  (is (true?  (m/validate [:enum "S" "M" "L"] "M")))
+  (is (true?  (m/validate [:maybe :int] nil)))
+  (is (true?  (m/validate [:and :int [:> 0]] 5)))
+  (is (true?  (m/validate [:or :int :string] "hi")))
+  (is (true?  (m/validate [:map-of :string :int] {"a" 1 "b" 2})))
+  (is (true?  (m/validate [:re #"\d+"] "2026")))
+  (is (false? (m/validate [:map {:closed true} [:x :int]] {:x 1 :y 2}))))
+
+(deftest sequence-schemas
+  (is (true?  (m/validate [:cat :int :keyword] [1 :a])))
+  (is (false? (m/validate [:cat :int :keyword] [1 2])))
+  (is (true?  (m/validate [:* :int] [1 2 3])))
+  (is (true?  (m/validate [:+ :string] ["a" "b"])))
+  (is (true?  (m/validate [:? :int] [1])))
+  (is (true?  (m/validate [:repeat {:min 2} :int] [1 2 3])))
+  (is (= [1 :a] (m/parse [:cat :int [:? :keyword]] [1 :a]))))
+
+(deftest schema-util
+  (is (= [:map [:x :int] [:y :string]]
+         (m/form (mu/merge [:map [:x :int]] [:map [:y :string]]))))
+  (is (= [:map [:name :string]]
+         (m/form (mu/select-keys User [:name]))))
+  (is (= [:map [:x {:optional true} :int] [:y {:optional true} :int]]
+         (m/form (mu/optional-keys [:map [:x :int] [:y :int]])))))
+
+(deftest string-coercion
+  (let [string-> (mt/string-transformer)]
+    (is (= 42 (m/decode :int "42" string->)))
+    (is (= :admin (m/decode :keyword "admin" string->)))
+    (is (= {:age 36 :role :admin}
+           (m/decode [:map [:age :int] [:role :keyword]]
+                     {:age "36" :role "admin"} string->)))
+    (is (= [1 2 3] (m/decode [:vector :int] ["1" "2" "3"] string->)))))
