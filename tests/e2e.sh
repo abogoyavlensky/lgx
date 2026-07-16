@@ -1324,7 +1324,7 @@ out="$(cd "$work_s106" \
        "$LGX" new demo -t nope 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "new -t unknown: expected exit 1, got $rc"
-assert_contains "$out" "lgx: unknown template: nope (built-in: base, cli)" \
+assert_contains "$out" "lgx: unknown template: nope (built-in: base, cli, lib)" \
     "new -t unknown: clear error with names list"
 rm -rf "$work_s106" "$home_s106"
 

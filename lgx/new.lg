@@ -1,6 +1,7 @@
 (ns lgx.new
   (:require [lgx.cache :as cache]
             [lgx.cli :as cli]
+            [lgx.config :as config]
             [lgx.home :as home]
             [lgx.path :as path]
             [lgx.style :as style]
@@ -20,7 +21,9 @@
   {"base" {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
            :git/sha "697a15be2b91f4476a698b643a123d17ce8393de"}
    "cli" {:git/url "https://github.com/abogoyavlensky/lgx-template-cli"
-          :git/sha "cc71e33e7d9127d2dfa24d2f90bd87d318405843"}})
+          :git/sha "cc71e33e7d9127d2dfa24d2f90bd87d318405843"}
+   "lib" {:git/url "https://github.com/abogoyavlensky/lgx-template-lib"
+          :git/sha "9206700b76e0729c5539ec70faacb3fc8e031431"}})
 
 ;; ---------------------------------------------------------------------------
 ;; Validation
@@ -203,6 +206,17 @@
 ;; Command entry
 ;; ---------------------------------------------------------------------------
 
+(defn next-step-command
+  "Return the post-scaffold command to suggest for a loaded config map:
+   `lgx run` when the project declares a :main entrypoint, else `lgx test`.
+   A library scaffold (no :main) has nothing to run, and its first payoff is a
+   passing test. Keys off the same :main signal `lgx run` itself uses, so the
+   suggestion can't contradict the tool's behavior. nil cfg falls back to test."
+  [cfg]
+  (if (:main cfg)
+    "lgx run"
+    "lgx test"))
+
 (defn- die! [line]
   (write! *err* (str "lgx: " line "\n"))
   (os/exit 1))
@@ -256,4 +270,4 @@
         (println)
         (println "Next steps:")
         (println (str "  cd " name))
-        (println "  lgx run")))))
+        (println (str "  " (next-step-command (:cfg (config/load-config target)))))))))

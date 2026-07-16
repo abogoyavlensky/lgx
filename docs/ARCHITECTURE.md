@@ -452,7 +452,7 @@ via an explicit `--with dev,test`).
 ### `lgx new <name> [-t <tpl>]`
 
 Scaffolds a new project directory from a template: a built-in name from
-the registry in `lgx/new.lg` (`base`, `cli`; sha-pinned) or a custom git
+the registry in `lgx/new.lg` (`base`, `cli`, `lib`; sha-pinned) or a custom git
 URL. The command never touches an existing project's `lgx.edn`.
 
 1. Parse rest-args with `cli/parse-new-args` (pure): `-t`/`--template
@@ -481,7 +481,7 @@ URL. The command never touches an existing project's `lgx.edn`.
      latest HEAD at the cost of one `ls-remote` round-trip per run.
      Failure → `lgx: failed to resolve template <url>: <stderr>`, exit 1.
    - Any other value → registry lookup. Unknown name →
-     `lgx: unknown template: <value> (built-in: base, cli)`, exit 1.
+     `lgx: unknown template: <value> (built-in: base, cli, lib)`, exit 1.
 5. Ensure the template is cached under
    `$LGX_HOME/templates/<host>/<owner>/<repo>/<sha>/`. If the leaf
    exists, reuse it. Otherwise clone via `cache/clone-sha!` (same
@@ -496,7 +496,9 @@ URL. The command never touches an existing project's `lgx.edn`.
    with the hyphenated form of the project name (verbatim user input,
    `-` preserved), and `spit` to the destination.
 7. Print `Created <name> at <abs>` followed by a two-line next-steps
-   block (`cd <name>` / `lgx run`).
+   block: `cd <name>`, then a command chosen from the rendered project's
+   `lgx.edn` — `lgx run` when it declares a `:main`, else `lgx test` (a
+   library scaffold has no `:main`, so its first payoff is a passing test).
 
 The unified `projectname` token splits along the natural axis: path
 segments need `_` per let-go's resolver, while file contents (ns

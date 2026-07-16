@@ -226,11 +226,20 @@
   (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
   (is (= (get new/templates "cli") (new/resolve-template-coord "cli"))))
 
+(deftest resolve-template-coord-lib-returns-pinned
+  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
+  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
+  (is (= (get new/templates "lib") (new/resolve-template-coord "lib")))
+  ;; Assert the literal pin so a mistyped url/sha can't pass self-comparison.
+  (is (= {:git/url "https://github.com/abogoyavlensky/lgx-template-lib"
+          :git/sha "9206700b76e0729c5539ec70faacb3fc8e031431"}
+         (new/resolve-template-coord "lib"))))
+
 (deftest resolve-template-coord-unknown-name-throws
   (let [msg (try (new/resolve-template-coord "nope") nil
                  (catch e (ex-message e)))]
     (is (= true (str/includes? (str msg) "unknown template: nope")))
-    (is (= true (str/includes? (str msg) "base, cli")))))
+    (is (= true (str/includes? (str msg) "base, cli, lib")))))
 
 ;; ---------------------------------------------------------------------------
 ;; ensure-template!
@@ -324,3 +333,14 @@
     (is (= "bin/myapp" (slurp (str tgt "/lgx.edn"))))
     (rm-rf! src)
     (rm-rf! tgt)))
+
+;; ---------------------------------------------------------------------------
+;; next-step-command
+;; ---------------------------------------------------------------------------
+
+(deftest next-step-command-runnable-suggests-run
+  (is (= "lgx run" (new/next-step-command {:main "main.lg"}))))
+
+(deftest next-step-command-library-suggests-test
+  (is (= "lgx test" (new/next-step-command {:paths ["src"]})))
+  (is (= "lgx test" (new/next-step-command nil))))
