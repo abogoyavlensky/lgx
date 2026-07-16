@@ -239,7 +239,7 @@
   (let [msg (try (new/resolve-template-coord "nope") nil
                  (catch e (ex-message e)))]
     (is (= true (str/includes? (str msg) "unknown template: nope")))
-    (is (= true (str/includes? (str msg) "base, cli")))))
+    (is (= true (str/includes? (str msg) "base, cli, lib")))))
 
 ;; ---------------------------------------------------------------------------
 ;; ensure-template!
