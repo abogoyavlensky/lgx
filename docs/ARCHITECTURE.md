@@ -496,7 +496,9 @@ URL. The command never touches an existing project's `lgx.edn`.
    with the hyphenated form of the project name (verbatim user input,
    `-` preserved), and `spit` to the destination.
 7. Print `Created <name> at <abs>` followed by a two-line next-steps
-   block (`cd <name>` / `lgx run`).
+   block: `cd <name>`, then a command chosen from the rendered project's
+   `lgx.edn` — `lgx run` when it declares a `:main`, else `lgx test` (a
+   library scaffold has no `:main`, so its first payoff is a passing test).
 
 The unified `projectname` token splits along the natural axis: path
 segments need `_` per let-go's resolver, while file contents (ns
