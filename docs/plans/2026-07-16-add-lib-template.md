@@ -262,6 +262,10 @@ text sweep, then verify.
   implementation diff after Tasks 1–3, then the Task 5 commit) rather than one
   per task — proportionate to a change that is largely one registry entry plus
   synchronized doc/assertion edits.
+- The Task 5 codex review caught that `docs/ARCHITECTURE.md`'s "next-steps"
+  description (line ~498) still said the scaffold always prints `lgx run` —
+  stale after the `:main`-aware change. Fixed in a follow-up commit per the
+  repo's same-PR doc rule.
 
 **What the plan could have specified better**
 
