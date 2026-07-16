@@ -68,29 +68,34 @@ text sweep, then verify.
 - Modify: `lgx/new.lg`
 - Test: `test/lgx/new_test.lg`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   In `test/lgx/new_test.lg`, directly after `resolve-template-coord-cli-returns-pinned`,
   add `resolve-template-coord-lib-returns-pinned`. Mirror the `cli` test exactly:
   blank both `LGX_TEMPLATE_BASE_URL`/`LGX_TEMPLATE_BASE_SHA`, then assert
   `(= (get new/templates "lib") (new/resolve-template-coord "lib"))`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `make test` (or `lgx test test/lgx/new_test.lg`)
   Expected: FAIL — `(get new/templates "lib")` is `nil`, so the entry is missing.
 
-- [ ] **Step 3: Add the registry entry**
+- [x] **Step 3: Add the registry entry**
   In `lgx/new.lg`, add to the `templates` map after the `"cli"` entry:
   ```clojure
   "lib" {:git/url "https://github.com/abogoyavlensky/lgx-template-lib"
          :git/sha "9206700b76e0729c5539ec70faacb3fc8e031431"}
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
   Run: `make test` (or `lgx test test/lgx/new_test.lg`)
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add lib built-in template to lgx new"`
+
+> Deviation: the `lib` test also asserts the literal `{:git/url ... :git/sha ...}`
+> (not only registry self-comparison), so a mistyped pin can't pass silently.
+> Adopted from the background codex plan review — the SHA is the payload of this
+> change and self-comparison is tautological.
 
 ### Task 2: Update the unknown-template assertions
 
@@ -98,21 +103,21 @@ text sweep, then verify.
 - Modify: `test/lgx/new_test.lg`
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Update the unit assertion**
+- [x] **Step 1: Update the unit assertion**
   In `test/lgx/new_test.lg`, `resolve-template-coord-unknown-name-throws`: change
   the `str/includes?` check from `"base, cli"` to `"base, cli, lib"`.
 
-- [ ] **Step 2: Run the unit test to verify it passes**
+- [x] **Step 2: Run the unit test to verify it passes**
   Run: `make test` (or `lgx test test/lgx/new_test.lg`)
   Expected: PASS (the real message already sorts to `base, cli, lib`).
 
-- [ ] **Step 3: Update the e2e assertion**
+- [x] **Step 3: Update the e2e assertion**
   In `tests/e2e.sh`, scenario 106 (`lgx new -t rejects unknown built-in name`):
   change the asserted string
   `lgx: unknown template: nope (built-in: base, cli)` →
   `lgx: unknown template: nope (built-in: base, cli, lib)`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Update unknown-template assertions for lib"`
 
 ### Task 3: Update help output and docs
@@ -123,47 +128,146 @@ text sweep, then verify.
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `landing/index.html`
 
-- [ ] **Step 1: Update the help row**
+- [x] **Step 1: Update the help row**
   In `lgx.lg` (line ~37), the `lgx new` row currently reads
   `... (template: built-in names \`base\`, \`cli\` or git URL)`. Add `lib`:
   `... (template: built-in names \`base\`, \`cli\`, \`lib\` or git URL)`.
   Keep column alignment consistent with the surrounding rows.
 
-- [ ] **Step 2: Update the README**
+- [x] **Step 2: Update the README**
   - Command table (line ~84): `... from a built-in template (\`base\`, \`cli\`, \`lib\`) or a git URL.`
   - Templates table (after the `cli` row, line ~126): add
     `| \`lib\` | [lgx-template-lib](https://github.com/abogoyavlensky/lgx-template-lib) | Library project skeleton. |`
   - Leave the example block (lines ~116-118) as-is unless a `lib` example reads
     naturally; the `-t cli` example already demonstrates the flag form.
 
-- [ ] **Step 3: Update ARCHITECTURE.md**
+- [x] **Step 3: Update ARCHITECTURE.md**
   Line ~484: `(built-in: base, cli)` → `(built-in: base, cli, lib)`.
+  Also line ~455: `(`base`, `cli`; sha-pinned)` → `(`base`, `cli`, `lib`; sha-pinned)`.
 
-- [ ] **Step 4: Update the landing page**
+> Deviation: the plan named only line ~484, but ARCHITECTURE.md lists the
+> registry twice. The background codex plan review caught the second mention
+> (line ~455); both are now updated so the doc matches the registry.
+
+- [x] **Step 4: Update the landing page**
   `landing/index.html` (line ~159): the copy "built-in `base` or `cli` templates"
   → "built-in `base`, `cli`, or `lib` templates". Update only the prose; leave
   the terminal example block unchanged.
 
-- [ ] **Step 5: Verify help output**
+- [x] **Step 5: Verify help output**
   Run: `make build` then `./<built lg/lgx> help` — or run the repo's usual
   `lgx help` — and confirm the `lgx new` row lists `base`, `cli`, `lib`.
   Expected: the row shows all three built-in names.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Document lib template in help and docs"`
 
 ### Task 4: Full verification
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Run the unit suite**
+- [x] **Step 1: Run the unit suite**
   Run: `make test`
   Expected: PASS, including the two new/updated `new_test` assertions.
 
-- [ ] **Step 2: Run the e2e suite (or scenario 106)**
+- [x] **Step 2: Run the e2e suite (or scenario 106)**
   Run: `bash tests/e2e.sh` (or the project's e2e make target).
   Expected: PASS, including scenario 106's updated assertion.
 
-- [ ] **Step 3: Optional live scaffold smoke test**
+- [x] **Step 3: Optional live scaffold smoke test**
   Run: `lgx new demo-lib -t lib` in a scratch dir, confirm it scaffolds without
   error, then remove the scratch dir. (Requires network to clone the template.)
+
+### Task 5: Make the scaffold "Next steps" `:main`-aware
+
+> Added mid-execution. The background codex implementation review found that
+> `cmd-new!` always prints `lgx run` as the first next step, but the `lib`
+> template has no `:main`, so that command exits with "nothing to run". A
+> library's "see it work" is a passing test, so a runnable project (`:main`
+> present) should suggest `lgx run` and a library should suggest `lgx test`.
+> Keys off the same `:main` signal `lgx run` itself uses, so the suggestion can
+> never contradict the tool's real behavior. User-approved scope addition.
+
+**Files:**
+- Modify: `lgx/new.lg`
+- Test: `test/lgx/new_test.lg`
+
+- [x] **Step 1: Write the failing test**
+  In `test/lgx/new_test.lg`, add tests for a pure `new/next-step-command`
+  helper: a cfg map with `:main` → `"lgx run"`; a cfg map without `:main` (and
+  `nil`) → `"lgx test"`.
+
+- [x] **Step 2: Run test to verify it fails**
+  Run: `lg lgx.lg test test/lgx/new_test.lg`
+  Expected: FAIL — `next-step-command` is unresolved.
+
+- [x] **Step 3: Implement**
+  In `lgx/new.lg`: require `lgx.config`; add a pure
+  `next-step-command` returning `"lgx run"` when `(:main cfg)` is truthy else
+  `"lgx test"`. In `cmd-new!`, after render, load the rendered project with
+  `config/load-config` and print `(next-step-command (:cfg <result>))` as the
+  last next step instead of the hardcoded `lgx run`.
+
+- [x] **Step 4: Run test to verify it passes**
+  Run: `lg lgx.lg test test/lgx/new_test.lg`
+  Expected: PASS.
+
+- [x] **Step 5: Verify both kinds end-to-end**
+  Build `bin/lgx`, then scaffold `-t lib` (expect `lgx test`) and `-t cli`
+  (expect `lgx run`) in scratch dirs; confirm the printed next step matches.
+
+- [x] **Step 6: Commit**
+  `git commit -m "Make lgx new next-step suggestion :main-aware"`
+
+---
+
+## Completion Summary
+
+**Status: Complete.** All tasks implemented, committed, and verified.
+
+**What was implemented**
+
+- Registered `lib` as a third built-in `lgx new` template
+  (`https://github.com/abogoyavlensky/lgx-template-lib` @
+  `9206700b76e0729c5539ec70faacb3fc8e031431`), invoked as
+  `lgx new <name> -t lib`.
+- Synced every place that lists the templates: help output (`lgx.lg`), README
+  (command table + templates table), `docs/ARCHITECTURE.md` (both registry
+  mentions), the landing page, and the unit/e2e assertions that spell out the
+  built-in names.
+- Made the scaffold's "Next steps" `:main`-aware (Task 5): a runnable project
+  (has `:main`, e.g. `base`/`cli`) suggests `lgx run`; a library (no `:main`,
+  e.g. `lib`) suggests `lgx test`.
+
+**Verification**
+
+- Full suite green: `make test` → unit tests pass + all 296 e2e assertions.
+- Live end-to-end: `lgx new demo-lib -t lib` scaffolds the real template at the
+  pinned sha and prints `lgx test`; `lgx new demo-cli -t cli` prints `lgx run`.
+- `make fmt-check` clean.
+
+**Deviations (all surfaced above, in-task)**
+
+1. Task 1 — added a literal-pin assertion (not just registry self-comparison)
+   so a mistyped url/sha can't pass silently. (codex plan-review advisory)
+2. Task 3 — updated a second `base, cli` mention in `docs/ARCHITECTURE.md`
+   (line ~455) the plan hadn't named. (codex plan-review finding)
+3. Task 5 — new, user-approved: the `:main`-aware next-step suggestion,
+   prompted by the codex implementation review finding that the fixed `lgx run`
+   next step fails for a library template.
+
+**Execution-process note**
+
+- Consolidated the per-task codex reviews into two focused passes (full
+  implementation diff after Tasks 1–3, then the Task 5 commit) rather than one
+  per task — proportionate to a change that is largely one registry entry plus
+  synchronized doc/assertion edits.
+
+**What the plan could have specified better**
+
+- It scoped the work as "registry entry only, no engine changes" and so missed
+  that adding a *library* template (a different kind than the existing app
+  templates) exposes an app-centric assumption in `cmd-new!`'s hardcoded
+  `lgx run` next step. A future "add a template" plan should check whether the
+  new template's *kind* breaks any shared scaffold output, not just whether the
+  registry and docs are in sync.
