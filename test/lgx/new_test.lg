@@ -333,3 +333,14 @@
     (is (= "bin/myapp" (slurp (str tgt "/lgx.edn"))))
     (rm-rf! src)
     (rm-rf! tgt)))
+
+;; ---------------------------------------------------------------------------
+;; next-step-command
+;; ---------------------------------------------------------------------------
+
+(deftest next-step-command-runnable-suggests-run
+  (is (= "lgx run" (new/next-step-command {:main "main.lg"}))))
+
+(deftest next-step-command-library-suggests-test
+  (is (= "lgx test" (new/next-step-command {:paths ["src"]})))
+  (is (= "lgx test" (new/next-step-command nil))))
