@@ -1,5 +1,5 @@
 [tools]
-lg = "1.11.1"
+lg = "1.12.2"
 lgx = "0.1.0-rc2"
 cljfmt = "0.16.4"
 clj-kondo = "2026.05.25"
@@ -13,7 +13,7 @@ cljfmt = "asdf:https://github.com/b-social/asdf-cljfmt"
 tailwindcss = "asdf:https://github.com/virtualstaticvoid/asdf-tailwindcss"
 
 [settings]
-# mise can't verify lg 1.11.0+ GitHub attestations: GitHub rotated its TSA cert
+# mise can't verify lg 1.12.2+ GitHub attestations: GitHub rotated its TSA cert
 # (late June 2026) and mise's bundled trusted root predates it. Checksum + SLSA
 # still run. Drop when a newer mise ships the new TSA. See docs/issues/mise-attestation-tsa.md.
 github_attestations = false
