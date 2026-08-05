@@ -419,7 +419,9 @@ Branch `feat-hash-sha`:
   arity/type rejection.
 - Regenerated `core_compiled.lgb` + `generated.sums`.
 
-**`feat-os-unzip`** (3 commits, `5fb02b6` + 2 fixups, off the same base)
+**`feat-os-unzip`** (1 commit, `5cf0553`, off the same base — squashed from
+`5fb02b6` + 2 review fixups at the user's request; tree verified identical
+to the pre-squash tip)
 - `pkg/rt/os.go` — `os/unzip`, extraction confined by `os.Root`.
 - `pkg/rt/os_unzip_test.go` — 17 Go tests, archives built programmatically.
 - `test/os_unzip_test.lg` — 6-assertion smoke test, fixture embedded as
