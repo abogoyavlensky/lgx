@@ -358,7 +358,7 @@ would resolve to the declaring dep's own directory. Fixed in `77c3872`
 - Create: `lgx/registry.lg`
 - Test: `test/lgx/registry_test.lg`
 
-- [ ] **Step 1: Verify the seed mappings**
+- [x] **Step 1: Verify the seed mappings**
   For each lib in `examples/clojure-libs/` and its transitives, confirm
   URL and tag format against the live repo:
   `git ls-remote <url> "refs/tags/*"` and check how the example's pinned
@@ -368,25 +368,47 @@ would resolve to the declaring dep's own directory. Fixed in `77c3872`
   (+ `:deps/root "src/main/clojure"`), dependency — each under BOTH its
   old and new Clojars groups where both exist.
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
   `lookup`: known lib → entry; unknown → nil; old-group alias and
   new-group alias hit the same URL. `entry->coord`: applies
   `:tag-format` to a version (`"0.2.1"` + `"v%s"` → `:git/tag "v0.2.1"`),
   carries `:deps/root` through.
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
   Run: `bin/lgx test`
   Expected: FAIL.
 
-- [ ] **Step 4: Implement `lgx/registry.lg`**
+- [x] **Step 4: Implement `lgx/registry.lg`**
   Data literal + the two fns. Pure; no I/O in this namespace.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
   Run: `bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Add curated registry of known Clojure lib git mappings"`
+
+> Deviation: the plan's alias list was partly wrong, and following it would
+> have put guesses in a table whose whole point is verified fact. Checked
+> against the Clojars API: `dev.weavejester/integrant`,
+> `dev.weavejester/hiccup`, and `dev.weavejester/dependency` return 404 —
+> those three publish under one group only (`integrant/integrant`,
+> `hiccup/hiccup`, `weavejester/dependency`), so no alias rows were added
+> for them. `medley/medley` + `dev.weavejester/medley` and `bond/bond` +
+> `circleci/bond` do both exist and are both listed. The
+> `examples/clojure-libs/` lgx.edn files use `dev.weavejester/…` as local
+> lib *labels*, which is what the plan appears to have read as Clojars
+> groups; registry keys must match what deps.edn files actually declare.
+>
+> Deviation: added a third fn, `coord-for` (lookup + translate), so
+> `ensure-all!` has one call rather than two.
+>
+> All 11 rows were live-verified with `git ls-remote --tags`. 10 resolve for
+> their current Clojars version; `bond/bond 0.2.6` misses because the old
+> group's releases predate any tag in circleci/bond. Documented in the
+> registry header — it degrades to a warning, never a wrong checkout.
+
+Codex review: no findings.
 
 ### Task 5: Tag probe helper
 

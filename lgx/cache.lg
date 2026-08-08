@@ -72,6 +72,28 @@
       (throw (ex-info (str "no HEAD found at " url) {:url url})))
     sha))
 
+(defn tag-exists?
+  "Whether `url` has a tag named exactly `tag`, asked with `git ls-remote`
+   (no clone, no cache write). Answers false rather than throwing on an
+   unreachable or malformed URL: this probes third-party metadata, where the
+   only sane response to a dead end is a warning, not a failed command.
+
+   Run through `env GIT_TERMINAL_PROMPT=0` because the URLs reaching here are
+   inferred from a lib name rather than given by the user. A guess that lands
+   on a private or nonexistent repo makes an https git answer 401, and a git
+   that can reach a terminal would then sit waiting for a username — turning
+   a probe into a hung install. Answering false is the whole point."
+  [url tag]
+  (if (str/blank? tag)
+    false
+    (let [r (try
+              (os/sh "env" "GIT_TERMINAL_PROMPT=0"
+                     "git" "ls-remote" url (str "refs/tags/" tag))
+              (catch _ nil))]
+      (and (some? r)
+           (zero? (:exit r))
+           (not (str/blank? (:out r)))))))
+
 (defn finalize-worktree! [tmp dest]
   ;; Drop the .git dir - we don't need history once the ref is checked out.
   (let [r (os/sh "rm" "-rf" (path/join tmp ".git"))]
