@@ -416,26 +416,43 @@ Codex review: no findings.
 - Modify: `lgx/cache.lg`
 - Test: `test/lgx/cache_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `tag-exists?`: against a `file://` fixture repo (existing cache_test
   pattern) with a known tag — present tag → true, absent → false,
   unreachable url → false (no throw; this feeds the warn-not-error
   ladder).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `bin/lgx test`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   `git ls-remote <url> refs/tags/<tag>` via the existing `git!` style
   but returning false on failure instead of throwing.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add tag existence probe"`
+
+> Deviation: the probe does not reuse `git!` — `git!` throws on non-zero
+> exit, which is the opposite of what this fn promises. It shells out
+> directly and converts every failure to false. It also runs under
+> `env GIT_TERMINAL_PROMPT=0`: the URLs it probes are inferred from lib
+> names, and a guess landing on a private/nonexistent https repo would
+> otherwise leave git waiting for a username.
+>
+> Test reused the existing `setup-tagged-repo!` helper (a real local repo)
+> rather than the `ensure-lib!` tests' pre-created-cache-dir trick, since a
+> probe needs an actual remote to answer.
+
+Codex review: one P2 — no deadline, so a remote that accepts the connection
+then stalls could hang `lgx install`. Fixed in `b2562a4` with git's own
+`http.lowSpeedLimit`/`http.lowSpeedTime` (portable; macOS ships no
+`timeout`). Verified against a socket server that accepts and never
+responds: returns false after ~10s instead of hanging.
 
 ### Task 6: ensure-all! integration
 

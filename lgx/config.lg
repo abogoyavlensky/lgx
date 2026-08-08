@@ -626,9 +626,11 @@
 ;; URL is a fact rather than a guess. tools.deps reads them the same way.
 (def ^:private github-group-prefixes ["io.github." "com.github."])
 
-(defn- inferred-git-url
+(defn inferred-git-url
   "The github.com URL implied by an `io.github.X/Y` or `com.github.X/Y` lib
-   name, or nil for any other name."
+   name, or nil for any other name. These groups name their owner in the
+   coordinate itself, so the URL is certain rather than guessed — which is
+   what makes it safe to probe for tags."
   [lib]
   (let [group (namespace lib)]
     (when group
