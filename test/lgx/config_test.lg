@@ -1116,6 +1116,14 @@
     (is (= :warn (:action (config/classify-declared 'foo/bar coord)))
         (pr-str coord))))
 
+(deftest classify-warns-on-blank-local-root
+  ;; A blank root would resolve to the declaring dep's own directory, quietly
+  ;; passing that dep off as its child. lgx's own schema rejects blank roots;
+  ;; third-party metadata gets the same treatment.
+  (doseq [coord [{:local/root ""} {:local/root "   "} {:local/root 5}]]
+    (is (= :warn (:action (config/classify-declared 'foo/bar coord)))
+        (pr-str coord))))
+
 ;; ---------------------------------------------------------------------------
 ;; without-exclusions (drop what the consuming coord excluded)
 ;; ---------------------------------------------------------------------------

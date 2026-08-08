@@ -675,7 +675,10 @@
       (not (map? coord))
       {:action :warn}
 
-      (string? (:local/root coord))
+      ;; Blank is not merely useless: it resolves to the declaring dep's own
+      ;; directory, which would pass that dep off as its own child.
+      (and (string? (:local/root coord))
+           (not (str/blank? (:local/root coord))))
       {:action :resolve
        :coord coord}
 
