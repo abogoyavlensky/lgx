@@ -1045,6 +1045,168 @@
   (is (= [] (with-dir {"project.clj" "(defproject foo \"1.0\" :url \"u\")"}
               config/project-clj-deps-at))))
 
+;; ---------------------------------------------------------------------------
+;; classify-declared (what one declared transitive dep means to lgx)
+;; ---------------------------------------------------------------------------
+
+(deftest classify-well-formed-git-coord-resolves-as-is
+  (let [coord {:git/url "https://github.com/foo/bar" :git/sha "abc"}]
+    (is (= {:action :resolve :coord coord}
+           (config/classify-declared 'foo/bar coord)))))
+
+(deftest classify-git-tag-coord-resolves
+  (let [coord {:git/url "https://github.com/foo/bar" :git/tag "v1.0"}]
+    (is (= {:action :resolve :coord coord}
+           (config/classify-declared 'foo/bar coord)))))
+
+(deftest classify-normalizes-bare-sha-key
+  ;; Real deps.edn files use both :sha and :git/sha for the same thing.
+  (is (= {:action :resolve
+          :coord {:git/url "https://github.com/foo/bar" :git/sha "abc"}}
+         (config/classify-declared 'foo/bar
+                                   {:git/url "https://github.com/foo/bar"
+                                    :sha "abc"}))))
+
+(deftest classify-infers-github-url-from-io-github-group
+  (is (= {:action :resolve
+          :coord {:git/sha "abc"
+                  :git/url "https://github.com/cognitect-labs/test-runner"}}
+         (config/classify-declared 'io.github.cognitect-labs/test-runner
+                                   {:git/sha "abc"}))))
+
+(deftest classify-infers-github-url-from-com-github-group
+  (is (= {:action :resolve
+          :coord {:git/tag "v1.0" :git/url "https://github.com/owner/repo"}}
+         (config/classify-declared 'com.github.owner/repo {:git/tag "v1.0"}))))
+
+(deftest classify-does-not-infer-url-without-a-ref
+  ;; No sha and no tag means nothing to pin to — inference alone is not enough.
+  (is (= :warn (:action (config/classify-declared 'io.github.owner/repo {})))))
+
+(deftest classify-keeps-explicit-url-over-inferred-one
+  (let [coord {:git/url "https://example.com/mirror/repo" :git/sha "abc"}]
+    (is (= {:action :resolve :coord coord}
+           (config/classify-declared 'io.github.owner/repo coord)))))
+
+(deftest classify-mvn-version-reports-the-version
+  (is (= {:action :mvn :version "0.2.1"}
+         (config/classify-declared 'weavejester/dependency
+                                   {:mvn/version "0.2.1"}))))
+
+(deftest classify-local-root-resolves
+  (let [coord {:local/root "../sibling"}]
+    (is (= {:action :resolve :coord coord}
+           (config/classify-declared 'my/lib coord)))))
+
+(deftest classify-skips-clojure-itself
+  (doseq [lib ['org.clojure/clojure
+               'org.clojure/spec.alpha
+               'org.clojure/core.specs.alpha]]
+    (is (= {:action :skip}
+           (config/classify-declared lib {:mvn/version "1.11.4"})))))
+
+(deftest classify-skip-wins-over-every-other-shape
+  (is (= {:action :skip}
+         (config/classify-declared 'org.clojure/clojure
+                                   {:git/url "u" :git/sha "s"}))))
+
+(deftest classify-warns-on-malformed-coords
+  (doseq [coord [{} nil "not-a-map" {:git/url "u"} {:git/sha "abc"}
+                 {:mvn/version 5}]]
+    (is (= :warn (:action (config/classify-declared 'foo/bar coord)))
+        (pr-str coord))))
+
+;; ---------------------------------------------------------------------------
+;; without-exclusions (drop what the consuming coord excluded)
+;; ---------------------------------------------------------------------------
+
+(deftest without-exclusions-drops-exact-symbol-matches
+  (is (= ['keep/me]
+         (mapv first (config/without-exclusions
+                       ['drop/me]
+                       [['drop/me {:mvn/version "1"}]
+                        ['keep/me {:mvn/version "2"}]])))))
+
+(deftest without-exclusions-is-exact-not-fuzzy
+  ;; Exclusions name what the dep declares, verbatim — no group inference.
+  (is (= ['dev.weavejester/dependency]
+         (mapv first (config/without-exclusions
+                       ['weavejester/dependency]
+                       [['dev.weavejester/dependency {:mvn/version "1"}]])))))
+
+(deftest without-exclusions-with-no-exclusions-is-identity
+  (let [declared [['a/b {:mvn/version "1"}]]]
+    (is (= declared (config/without-exclusions nil declared)))
+    (is (= declared (config/without-exclusions [] declared)))))
+
+;; ---------------------------------------------------------------------------
+;; unresolved-declared (suppression: is this declared dep already resolved?)
+;; ---------------------------------------------------------------------------
+
+(defn- pending [lib coord]
+  {:declaring 'some/dep :declared [lib coord]})
+
+(deftest unresolved-declared-suppresses-on-normalized-url-match
+  ;; Trailing .git and trailing slash are noise, not identity.
+  (doseq [resolved-url ["https://github.com/foo/bar"
+                        "https://github.com/foo/bar.git"
+                        "https://github.com/foo/bar/"]]
+    (is (= []
+           (config/unresolved-declared
+             {'other/name {:git/url resolved-url :git/sha "s"}}
+             [(pending 'foo/bar {:git/url "https://github.com/foo/bar"
+                                 :git/sha "abc"})])))))
+
+(deftest unresolved-declared-suppresses-on-inferred-url-match
+  (is (= []
+         (config/unresolved-declared
+           {'anything/atall {:git/url "https://github.com/owner/repo"
+                             :git/tag "v1"}}
+           [(pending 'io.github.owner/repo {:git/sha "abc"})]))))
+
+(deftest unresolved-declared-keeps-entry-when-url-differs
+  (is (= 1
+         (count (config/unresolved-declared
+                  {'foo/bar {:git/url "https://github.com/other/repo"
+                             :git/sha "s"}}
+                  [(pending 'foo/bar {:git/url "https://github.com/foo/bar"
+                                      :git/sha "abc"})])))))
+
+(deftest unresolved-declared-suppresses-on-exact-lib-match
+  (is (= []
+         (config/unresolved-declared
+           {'weavejester/dependency {:git/url "https://github.com/w/d"
+                                     :git/tag "1.0.1"}}
+           [(pending 'weavejester/dependency {:mvn/version "0.2.1"})]))))
+
+(deftest unresolved-declared-suppresses-on-artifact-segment-match
+  ;; The user pinned the lib under its new Clojars group; the dep declares the
+  ;; old one. Same artifact, so stay quiet.
+  (is (= []
+         (config/unresolved-declared
+           {'dev.weavejester/dependency {:git/url "https://github.com/w/d"
+                                         :git/tag "1.0.1"}}
+           [(pending 'weavejester/dependency {:mvn/version "0.2.1"})]))))
+
+(deftest unresolved-declared-keeps-genuinely-missing-dep
+  (let [p (pending 'unknown/lib {:mvn/version "1.2.3"})]
+    (is (= [p]
+           (config/unresolved-declared
+             {'dev.weavejester/dependency {:git/url "u" :git/tag "t"}}
+             [p])))))
+
+(deftest unresolved-declared-ignores-local-coords-when-url-matching
+  ;; A resolved :local/root coord has no URL; it must not blow up the match.
+  (is (= 1
+         (count (config/unresolved-declared
+                  {'my/lib {:local/root "/abs/path"}}
+                  [(pending 'foo/bar {:git/url "https://github.com/foo/bar"
+                                      :git/sha "abc"})])))))
+
+(deftest unresolved-declared-empty-inputs
+  (is (= [] (config/unresolved-declared {} [])))
+  (is (= [] (config/unresolved-declared {'a/b {:git/url "u" :git/sha "s"}} []))))
+
 (deftest project-clj-deps-at-skips-malformed-entries
   ;; A bare symbol, an empty vector, and a non-string version are dropped;
   ;; well-formed neighbours still come through.

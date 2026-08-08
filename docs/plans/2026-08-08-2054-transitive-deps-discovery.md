@@ -257,7 +257,7 @@ Codex review: no findings.
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `declared-deps-at`: missing deps.edn → `[]`; unparsable → `[]` (no
   throw, no output); valid → `[lib coord]` pairs; non-map `:deps` → `[]`.
   `project-clj-deps-at`: missing → `[]`; a normal `(defproject foo "1.0"
@@ -266,22 +266,42 @@ Codex review: no findings.
   symbol as written); a project.clj with reader-unfriendly content
   (`~unquote`) → `[]` silently.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `bin/lgx test`
   Expected: FAIL (fns unresolved).
 
-- [ ] **Step 3: Implement both readers**
+- [x] **Step 3: Implement both readers**
   Next to `coords-at`. Unlike `coords-at`, these NEVER throw — any
   parse or shape surprise returns `[]`. Wrap `edn/read-string` in
   try/catch; for project.clj walk the defproject list for the keyword
   `:dependencies` followed by a vector.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Read declared deps from deps.edn and project.clj leniently"`
+
+> Deviation: `~unquote` and `#"regex"` do NOT defeat let-go's reader (it
+> reads them as `(unquote …)` / `(re-pattern …)`), so the planned
+> "reader-unfriendly → []" test was rewritten to assert the opposite —
+> such a project.clj still yields its `:dependencies`. Unparsable input is
+> still covered (empty file, truncated form, non-list top level).
+>
+> Deviation: Leiningen entries carry trailing options
+> (`[org.clojure/clojure "1.7.0" :scope "provided"]`); the reader takes the
+> first two elements and ignores the rest. Also drops non-symbol lib keys
+> from a deps.edn `:deps` map.
+
+Codex review: no findings.
+
+> Finding (upstream let-go, recorded for Task 8): let-go's `edn/read-string`
+> throws on `#_` in a map **value** position — `{:a #_:x 1}` fails while
+> `{:a 1 #_:x :b 2}` parses. malli's real `deps.edn` uses the former, so it
+> reads as `[]`. Correct per the lenient contract and no regression (malli's
+> transitives are listed explicitly today), but it silently costs
+> auto-resolution for such files.
 
 ### Task 3: Classification and suppression matching
 

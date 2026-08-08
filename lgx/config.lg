@@ -611,6 +611,140 @@
           []
           (vec (keep lein-dep->pair deps)))))))
 
+;; ---------------------------------------------------------------------------
+;; Classifying one declared transitive dep
+;; ---------------------------------------------------------------------------
+
+;; Declared by nearly every Clojure lib and supplied by let-go itself, so
+;; resolving these would be wrong, not merely wasteful.
+(def ^:private skip-libs
+  #{'org.clojure/clojure
+    'org.clojure/spec.alpha
+    'org.clojure/core.specs.alpha})
+
+;; Lib-name groups whose owner is part of the coordinate itself, so the repo
+;; URL is a fact rather than a guess. tools.deps reads them the same way.
+(def ^:private github-group-prefixes ["io.github." "com.github."])
+
+(defn- inferred-git-url
+  "The github.com URL implied by an `io.github.X/Y` or `com.github.X/Y` lib
+   name, or nil for any other name."
+  [lib]
+  (let [group (namespace lib)]
+    (when group
+      (first (keep (fn [prefix]
+                     (when (and (str/starts-with? group prefix)
+                                (> (count group) (count prefix)))
+                       (str "https://github.com/"
+                            (subs group (count prefix)) "/" (name lib))))
+                   github-group-prefixes)))))
+
+(defn- git-ref
+  "The pinned ref in a declared coord. Accepts :sha alongside :git/sha —
+   both spellings appear in real deps.edn files."
+  [coord]
+  (let [sha (or (:git/sha coord) (:sha coord))]
+    (cond
+      (string? sha) {:git/sha sha}
+      (string? (:git/tag coord)) {:git/tag (:git/tag coord)}
+      :else nil)))
+
+(defn classify-declared
+  "Decide what one declared transitive dep `[lib coord]` means to lgx.
+   Returns a map whose :action is one of:
+
+     :skip     — org.clojure/clojure and friends; let-go supplies these
+     :resolve  — fully pinned; :coord is an lgx coord ready for the cache
+     :mvn      — Maven-style; :version is the declared version string. The
+                 registry lookup and tag probe are the caller's job, since
+                 both need I/O
+     :warn     — nothing usable here
+
+   Pure. `coord` arrives verbatim from third-party metadata, so it may be any
+   value at all, including nil."
+  [lib coord]
+  (let [ref (when (map? coord) (git-ref coord))
+        url (when (map? coord)
+              (if (string? (:git/url coord))
+                (:git/url coord)
+                (when ref (inferred-git-url lib))))]
+    (cond
+      (contains? skip-libs lib)
+      {:action :skip}
+
+      (not (map? coord))
+      {:action :warn}
+
+      (string? (:local/root coord))
+      {:action :resolve
+       :coord coord}
+
+      (and url ref)
+      {:action :resolve
+       :coord (merge (dissoc coord :sha) {:git/url url} ref)}
+
+      (string? (:mvn/version coord))
+      {:action :mvn
+       :version (:mvn/version coord)}
+
+      :else
+      {:action :warn})))
+
+(defn without-exclusions
+  "Drop the `declared` pairs whose lib symbol appears in `exclusions`. Matching
+   is exact: an exclusion names a symbol as the dep writes it, so excluding
+   `weavejester/dependency` says nothing about `dev.weavejester/dependency`."
+  [exclusions declared]
+  (if (empty? exclusions)
+    (vec declared)
+    (let [excluded (set exclusions)]
+      (vec (filter (fn [[lib _]] (not (contains? excluded lib))) declared)))))
+
+;; ---------------------------------------------------------------------------
+;; Suppression: does a declared dep look like something already resolved?
+;; ---------------------------------------------------------------------------
+
+(defn- normalize-git-url
+  "Strip the parts of a git URL that carry no identity — a trailing slash and
+   a trailing .git — so the same repo written two ways compares equal."
+  [url]
+  (loop [u (str/trim url)]
+    (cond
+      (str/ends-with? u "/") (recur (subs u 0 (dec (count u))))
+      (str/ends-with? u ".git") (recur (subs u 0 (- (count u) 4)))
+      :else u)))
+
+(defn unresolved-declared
+  "Return the subset of `pending` warning entries whose declared dep does not
+   already look resolved. `resolved` maps lib symbol → coord (ensure-all!'s
+   seen map); each pending entry carries `:declared [lib coord]`.
+
+   Matching is tiered by the identity a declaration actually carries:
+   a git URL (explicit or inferred from the lib name) compares by normalized
+   URL, which is exact; everything else compares by lib symbol, then by
+   artifact segment, so a dep declaring `weavejester/dependency` stays quiet
+   when the user pinned `dev.weavejester/dependency`.
+
+   This is a heuristic, and deliberately only ever silences a warning — it
+   never decides whether something gets resolved."
+  [resolved pending]
+  (let [urls (set (keep (fn [[_ c]]
+                          (when (string? (:git/url c))
+                            (normalize-git-url (:git/url c))))
+                        resolved))
+        libs (set (keys resolved))
+        artifacts (set (map name (keys resolved)))]
+    (vec (filter
+           (fn [entry]
+             (let [[lib coord] (:declared entry)
+                   url (when (map? coord)
+                         (or (:git/url coord) (inferred-git-url lib)))]
+               (if (string? url)
+                 (not (contains? urls (normalize-git-url url)))
+                 (not (or (contains? libs lib)
+                          (contains? artifacts (name lib)))))))
+           pending))))
+
 (defn tasks
   "Return the :tasks map from a loaded cfg map, or {} if absent."
   [cfg]
