@@ -488,13 +488,87 @@ responds: returns false after ~10s instead of hanging.
   to append `  (via <lib> deps.edn)` / `(via <lib> project.clj)` /
   `(via <lib> registry)` for rows that have it.
 
-- [ ] **Step 3: Sanity-run the suite**
+- [x] **Step 3: Sanity-run the suite**
   Run: `bash tests/run.sh`
   Expected: PASS (all existing tests unaffected — no fixture in the
   current suite has a deps.edn, so behavior is unchanged for them).
+  **Result: unit tests PASS (512 tests, 745 assertions). e2e FAILS on
+  three pre-existing scenarios — see the blocker below.** Task 6's own
+  behavior was verified manually end-to-end instead: auto-resolve with
+  `(via test/liba deps.edn)` provenance and the child usable at runtime;
+  warning in the exact planned format; `org.clojure/clojure` skipped;
+  `lgx install` re-showing the warning on a warm cache; `lgx run` silent
+  on a warm cache; `:exclusions` silencing it permanently.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "Auto-resolve and warn on transitive deps from deps.edn/project.clj"`
+
+> Deviation: queue entries became maps (`{:lib :coord :base :via
+> :via-source :via-installed?}`) instead of `[lib coord base]` vectors —
+> provenance needs more fields than a positional vector carries well.
+>
+> Deviation: added a fourth `:via-source`, `:probe`, printing as
+> `(via <lib> tag probe)`. The plan listed only
+> `:deps-edn`/`:project-clj`/`:registry`, but a probe-resolved coord came
+> from neither the registry nor the declaring file verbatim, and labelling
+> it as either would misreport where the pin came from.
+>
+> Deviation: rung selection uses `file-exists?` on the dep's *lgx.edn* too,
+> not just deps.edn — `coords-at` returns `[]` for both "absent" and "no
+> :deps", and an lgx.edn declaring zero deps must not fall through to
+> deps.edn.
+
+---
+
+## BLOCKER (needs a decision before Tasks 7-8 can be verified)
+
+`bash tests/run.sh` is red on this branch. Three e2e scenarios fail:
+
+- **65** (relative local conflicts compare resolved dirs): expects `:A` to
+  win a top-level sibling conflict, gets `:B`.
+- **68** (`lgx test` fails when a test file does not compile) and
+  **70** (same for a reader/syntax error): `lgx: a test file failed to
+  load` is not emitted; lg raises a hard compile error with a stack trace
+  instead of the swallowed `error: failed to load` that the test runner's
+  detection keys off.
+
+**None of this is caused by the plan's logic.** Traced with verified
+commit/blob/binary hashes:
+
+| build | `lgx/config.lg` blob | `:deps` enumeration order | e2e |
+|---|---|---|---|
+| `master` | `7bc359f7` | `libA libB` | 296 assertions pass |
+| `b2eddaf` (Task 1) | `a49d9e88` | `libB libA` | 65, 68, 70 fail |
+
+Task 1 only added `:exclusions` validation and the `:mvn/version` message.
+That is enough to flip the order in which let-go enumerates the project's
+`:deps` map — stable per build, and stable across rebuilds of identical
+source, but not insertion order and not preserved across unrelated edits.
+The plausible mechanism is that keyword/symbol hashing depends on the
+bundle's intern layout, so adding keyword literals reshuffles it. (A
+control experiment adding *inert* defs with the same keywords to master did
+not reproduce it, so it is the specific intern layout, not code volume.)
+
+lgx leans on that order in two user-visible places: which of two
+conflicting top-level coords wins (and therefore source-path shadowing
+precedence), and the order test files load in. Both were only accidentally
+stable. `master` being green was luck, not a guarantee.
+
+Task 6's own feature is unaffected and verified working (Step 3 above), and
+top-level-beats-transitive still holds regardless of order, since every
+top-level coord is enqueued before any child.
+
+Every available fix reaches outside this plan's approved scope, so it needs
+a call:
+
+- **A (recommended): make lgx order-independent where it matters.** Give
+  `config/coords` a deterministic order and sort test-file discovery. This
+  removes a latent trap that any future commit can trip, but it changes
+  source-path precedence semantics and the documented "first-wins by
+  declaration order" wording, so it is a design decision.
+- **B: adjust scenarios 65/68/70** not to depend on iteration order, and
+  file the instability upstream against let-go.
+- **C: stop and re-plan**, reverting Tasks 1-6.
 
 ### Task 7: e2e scenarios
 
