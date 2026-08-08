@@ -1,0 +1,101 @@
+(ns lgx.registry
+  (:require [string :as str]))
+
+;; ---------------------------------------------------------------------------
+;; Curated Maven-coordinate → git-repository mappings.
+;;
+;; lgx resolves everything from git, so a dep declaring a Maven coordinate is
+;; a dead end unless someone knows which repository holds that artifact. The
+;; mapping is rarely guessable: the coordinate group usually does not match
+;; the GitHub owner (integrant/integrant lives at weavejester/integrant,
+;; aero/aero at juxt/aero, org.clojure/* at clojure/*), and the tag naming is
+;; per-project (1.0.1 here, v1.4.256 there).
+;;
+;; So this table is verified fact, not inference. Every row below was checked
+;; against the live repository with `git ls-remote --tags`, and every group
+;; name against the Clojars API. A miss is never an error — it falls through
+;; to a warning naming the coordinate, and the escape hatch is an explicit
+;; top-level git coord in lgx.edn, which wins over anything a dep declares.
+;;
+;; Entry shape:
+;;   :git/url    (required) the repository holding the source
+;;   :tag-format (required) format string applied to the declared version;
+;;               "%s" for bare tags, "v%s" for v-prefixed ones
+;;   :deps/root  (optional) source root when it is not the repo root or src/
+;;
+;; :tag-format is one string per repository, so it describes how that project
+;; tags *now*. A few projects renamed their scheme partway through their
+;; history (aero tagged v1.1.4 and v1.1.5 bare-tag neighbours; weavejester's
+;; older releases used a `dependency-0.2.0` prefix; bond has no tag at all
+;; for the versions published under the old bond/bond group). Declared
+;; versions that predate the current scheme resolve to a tag that does not
+;; exist, which surfaces as a warning rather than a wrong checkout.
+;;
+;; Seeded from examples/clojure-libs/ — the set already verified to run under
+;; let-go — plus the transitive deps those libs declare. Old and new Clojars
+;; group names are both listed where both genuinely exist (medley and bond);
+;; integrant, hiccup, and dependency were checked and publish under one group
+;; only, so inventing a `dev.weavejester/…` alias for them would be exactly
+;; the guessing this table exists to avoid.
+;; ---------------------------------------------------------------------------
+
+(def entries
+  {'integrant/integrant {:git/url "https://github.com/weavejester/integrant"
+                         :tag-format "%s"}
+
+   'weavejester/dependency {:git/url "https://github.com/weavejester/dependency"
+                            :tag-format "%s"}
+
+   'aero/aero {:git/url "https://github.com/juxt/aero"
+               :tag-format "%s"}
+
+   'hiccup/hiccup {:git/url "https://github.com/weavejester/hiccup"
+                   :tag-format "%s"}
+
+   'medley/medley {:git/url "https://github.com/weavejester/medley"
+                   :tag-format "%s"}
+   'dev.weavejester/medley {:git/url "https://github.com/weavejester/medley"
+                            :tag-format "%s"}
+
+   'bond/bond {:git/url "https://github.com/circleci/bond"
+               :tag-format "%s"}
+   'circleci/bond {:git/url "https://github.com/circleci/bond"
+                   :tag-format "%s"}
+
+   'metosin/malli {:git/url "https://github.com/metosin/malli"
+                   :tag-format "%s"}
+
+   'borkdude/dynaload {:git/url "https://github.com/borkdude/dynaload"
+                       :tag-format "v%s"}
+
+   'org.clojure/tools.cli {:git/url "https://github.com/clojure/tools.cli"
+                           :tag-format "v%s"
+                           :deps/root "src/main/clojure"}})
+
+(defn lookup
+  "Return the registry entry for `lib`, or nil when the coordinate is not
+   mapped. A nil result is ordinary: the caller warns rather than fails."
+  [lib]
+  (get entries lib))
+
+(defn entry->coord
+  "Translate a registry `entry` plus a declared `version` into an lgx coord,
+   applying the entry's :tag-format to the version. Returns nil when the entry
+   is missing or the version is not a usable string."
+  [entry version]
+  (when (and (map? entry)
+             (string? (:git/url entry))
+             (string? (:tag-format entry))
+             (string? version)
+             (not (str/blank? version)))
+    (let [coord {:git/url (:git/url entry)
+                 :git/tag (format (:tag-format entry) version)}]
+      (if (:deps/root entry)
+        (assoc coord :deps/root (:deps/root entry))
+        coord))))
+
+(defn coord-for
+  "Resolve a declared `[lib version]` Maven coordinate to an lgx coord via the
+   registry, or nil when the lib is unmapped."
+  [lib version]
+  (entry->coord (lookup lib) version))

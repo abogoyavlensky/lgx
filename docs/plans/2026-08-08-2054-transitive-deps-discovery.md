@@ -309,7 +309,7 @@ Codex review: no findings.
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `classify-declared` — a pure fn `[lib coord] -> {:action … :coord …}`
   covering the ladder table: well-formed git → `{:action :resolve}` with
   the coord as-is; inferred `io.github.X/Y`+sha → `:resolve` with
@@ -324,20 +324,33 @@ Codex review: no findings.
   `:exclusions` filtering: exact declared-symbol match removes the entry
   before classification.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `bin/lgx test`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement the pure fns**
+- [x] **Step 3: Implement the pure fns**
   All in `lgx/config.lg`, no I/O. Inferred-URL rule: lib groups
   `io.github.X` / `com.github.X` → `https://github.com/X/<name>`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Classify declared transitive deps and match resolved libs"`
+
+> Deviation: `classify-declared` also accepts `:sha` as a spelling of
+> `:git/sha` (normalizing it away in the returned coord). Real deps.edn
+> files use both — malli, dynaload, and tools.cli all declare git coords
+> with plain `:sha`, and without this they would all fall to `:warn`.
+>
+> Deviation: the exclusions filter landed as its own exported pure fn
+> `without-exclusions`, rather than being folded into the caller, so it is
+> directly testable.
+
+Codex review: one P2 — `{:local/root ""}` classified as resolvable, which
+would resolve to the declaring dep's own directory. Fixed in `77c3872`
+(blank roots now `:warn`, matching lgx's own schema) with a test.
 
 ### Task 4: Registry
 

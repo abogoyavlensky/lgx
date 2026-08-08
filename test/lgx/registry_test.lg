@@ -1,0 +1,97 @@
+;; Unit tests for lgx.registry — curated mvn-lib → git-repo mappings.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.registry-test
+  (:require [lgx.registry :as registry]
+            [clojure.test :refer [deftest is]]))
+
+;; ---------------------------------------------------------------------------
+;; lookup
+;; ---------------------------------------------------------------------------
+
+(deftest lookup-finds-a-known-lib
+  (let [e (registry/lookup 'integrant/integrant)]
+    (is (= "https://github.com/weavejester/integrant" (:git/url e)))
+    (is (= "%s" (:tag-format e)))))
+
+(deftest lookup-returns-nil-for-unknown-lib
+  (is (nil? (registry/lookup 'totally/unknown)))
+  (is (nil? (registry/lookup 'org.clojure/clojure))))
+
+(deftest lookup-old-and-new-group-aliases-share-a-repo
+  ;; medley and bond are each published under two groups; both must land on
+  ;; the one repo that actually holds the source.
+  (is (= (:git/url (registry/lookup 'medley/medley))
+         (:git/url (registry/lookup 'dev.weavejester/medley))
+         "https://github.com/weavejester/medley"))
+  (is (= (:git/url (registry/lookup 'bond/bond))
+         (:git/url (registry/lookup 'circleci/bond))
+         "https://github.com/circleci/bond")))
+
+(deftest lookup-carries-deps-root-where-the-repo-needs-one
+  (is (= "src/main/clojure" (:deps/root (registry/lookup 'org.clojure/tools.cli)))))
+
+(deftest every-entry-is-well-formed
+  ;; The registry is hand-maintained data; this guards the shape of new rows.
+  (doseq [[lib entry] registry/entries]
+    (is (symbol? lib) (str "lib key: " (pr-str lib)))
+    (is (namespace lib) (str "lib key needs a group: " lib))
+    (is (string? (:git/url entry)) (str lib " :git/url"))
+    (is (or (= "%s" (:tag-format entry)) (= "v%s" (:tag-format entry)))
+        (str lib " :tag-format: " (pr-str (:tag-format entry))))))
+
+;; ---------------------------------------------------------------------------
+;; entry->coord
+;; ---------------------------------------------------------------------------
+
+(deftest entry->coord-applies-a-bare-tag-format
+  (is (= {:git/url "https://github.com/weavejester/dependency"
+          :git/tag "1.0.1"}
+         (registry/entry->coord {:git/url "https://github.com/weavejester/dependency"
+                                 :tag-format "%s"}
+                                "1.0.1"))))
+
+(deftest entry->coord-applies-a-v-prefixed-tag-format
+  (is (= {:git/url "https://github.com/borkdude/dynaload"
+          :git/tag "v0.3.5"}
+         (registry/entry->coord {:git/url "https://github.com/borkdude/dynaload"
+                                 :tag-format "v%s"}
+                                "0.3.5"))))
+
+(deftest entry->coord-carries-deps-root-through
+  (is (= {:git/url "https://github.com/clojure/tools.cli"
+          :git/tag "v1.4.256"
+          :deps/root "src/main/clojure"}
+         (registry/entry->coord (registry/lookup 'org.clojure/tools.cli)
+                                "1.4.256"))))
+
+(deftest entry->coord-omits-deps-root-when-the-entry-has-none
+  (is (= #{:git/url :git/tag}
+         (set (keys (registry/entry->coord
+                     (registry/lookup 'integrant/integrant)
+                     "1.0.1"))))))
+
+(deftest entry->coord-drops-the-tag-format-key
+  (is (nil? (:tag-format (registry/entry->coord (registry/lookup 'aero/aero)
+                                                "1.1.6")))))
+
+(deftest entry->coord-returns-nil-without-a-usable-version
+  (doseq [v [nil "" "   " 5]]
+    (is (nil? (registry/entry->coord (registry/lookup 'aero/aero) v))
+        (pr-str v))))
+
+(deftest entry->coord-returns-nil-for-a-missing-entry
+  (is (nil? (registry/entry->coord nil "1.0.0")))
+  (is (nil? (registry/entry->coord (registry/lookup 'nope/nope) "1.0.0"))))
+
+;; ---------------------------------------------------------------------------
+;; coord-for (lookup + translate in one step, as ensure-all! uses it)
+;; ---------------------------------------------------------------------------
+
+(deftest coord-for-resolves-a-known-lib-and-version
+  (is (= {:git/url "https://github.com/weavejester/integrant"
+          :git/tag "1.0.1"}
+         (registry/coord-for 'integrant/integrant "1.0.1"))))
+
+(deftest coord-for-returns-nil-for-an-unknown-lib
+  (is (nil? (registry/coord-for 'totally/unknown "1.0.0"))))
