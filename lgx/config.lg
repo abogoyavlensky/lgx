@@ -56,36 +56,79 @@
     :else []))
 
 (defn- at-key
-  "Anchor plain message strings at sub-path [k]."
-  [k msgs]
-  (mapv (fn [m] {:path [k]
-                 :msg m}) msgs))
+  "Anchor errors at sub-path [k]. Accepts plain message strings and
+   {:path :msg} maps, whose own relative path is nested under k."
+  [k errs]
+  (mapv (fn [e]
+          (if (string? e)
+            {:path [k]
+             :msg e}
+            {:path (vec (cons k (:path e)))
+             :msg (:msg e)}))
+        errs))
+
+(defn- exclusions-errors
+  "A coord's :exclusions — a vector of lib symbols. Scope is the consuming
+   dep: each symbol is matched verbatim against the names that dep declares
+   in its own deps.edn/project.clj (tools.deps vocabulary)."
+  [v]
+  (if-not (vector? v)
+    [(str "must be a vector of symbols, got " (pr-str v))]
+    (loop [i 0
+           acc []]
+      (if (>= i (count v))
+        acc
+        (recur (inc i)
+               (if (symbol? (nth v i))
+                 acc
+                 (conj acc {:path [i]
+                            :msg (str "must be a symbol, got "
+                                      (pr-str (nth v i)))})))))))
+
+;; Rejected with a dedicated message rather than left to the generic
+;; missing-:git/url checks: a :mvn/version coord is almost always pasted from
+;; a library README, and the useful reply names the substitution. The key
+;; itself stays unoccupied — no API commitment.
+(def ^:private mvn-version-msg
+  (str ":mvn/version is not supported - let-go runs Clojure libs from source; "
+       "use :git/url + :git/tag (or :git/sha) pointing at the lib's repo "
+       "(see examples/clojure-libs/)"))
 
 (defn- coord-errors
   "Coord rule: :local/root or :git/url + (:git/sha | :git/tag), optional
-   :deps/root. Coord maps are open — unknown keys are tools.deps
-   forward-compat, not errors."
+   :deps/root and :exclusions. Coord maps are open — unknown keys are
+   tools.deps forward-compat, not errors."
   [c]
   (let [has-local? (contains? c :local/root)
         has-git? (some #(contains? c %) git-keys)
         deps-root (if (contains? c :deps/root)
                     (at-key :deps/root (rel-path-errors (:deps/root c)))
-                    [])]
+                    [])
+        exclusions (if (contains? c :exclusions)
+                     (at-key :exclusions (exclusions-errors (:exclusions c)))
+                     [])]
     (cond
+      ;; First and short-circuiting: the teaching message is the whole answer,
+      ;; and the shape checks below would only bury it.
+      (contains? c :mvn/version)
+      mvn-version-msg
+
       (and has-local? has-git?)
       "cannot mix :local/root with :git/* keys"
 
       has-local?
       (vec (concat (at-key :local/root
                            (non-blank-string-errors (:local/root c)))
-                   deps-root))
+                   deps-root
+                   exclusions))
 
       :else
       (vec (concat
              (when-not (string? (:git/url c)) ["missing :git/url"])
              (when-not (or (string? (:git/sha c)) (string? (:git/tag c)))
                ["must specify :git/sha or :git/tag"])
-             deps-root)))))
+             deps-root
+             exclusions)))))
 
 (def ^:private coord-schema [:and :map [:fn coord-errors]])
 

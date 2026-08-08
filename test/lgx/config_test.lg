@@ -60,6 +60,21 @@
                               :git/branch "main"}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
 
+(deftest load-accepts-exclusions-on-git-coord
+  (let [cfg {:deps {'foo/bar {:git/url "https://github.com/foo/bar"
+                              :git/tag "v1.0"
+                              :exclusions ['a/b 'c/d]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-exclusions-on-local-coord
+  (let [cfg {:deps {'my/lib {:local/root "../mylib"
+                             :exclusions ['a/b]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-empty-exclusions
+  (let [cfg {:deps {'foo/bar {:git/url "u" :git/sha "s" :exclusions []}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
 (deftest load-accepts-paths
   (let [cfg {:paths ["src" "resources"] :deps {}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
@@ -216,6 +231,50 @@
     (is (= {:errors [{:path [:deps 'foo/bar :deps/root]
                       :msg "must not contain .. segments"}]}
            (load-cfg {:deps {'foo/bar (assoc base :deps/root "src/../etc")}})))))
+
+(deftest load-rejects-non-vector-exclusions
+  (is (= {:errors [{:path [:deps 'foo/bar :exclusions]
+                    :msg "must be a vector of symbols, got :nope"}]}
+         (load-cfg {:deps {'foo/bar {:git/url "u"
+                                     :git/sha "s"
+                                     :exclusions :nope}}}))))
+
+(deftest load-rejects-non-symbol-exclusion-entry
+  (is (= {:errors [{:path [:deps 'foo/bar :exclusions 1]
+                    :msg "must be a symbol, got \"c/d\""}]}
+         (load-cfg {:deps {'foo/bar {:git/url "u"
+                                     :git/sha "s"
+                                     :exclusions ['a/b "c/d"]}}}))))
+
+(deftest load-rejects-exclusions-on-local-coord
+  (is (= {:errors [{:path [:deps 'my/lib :exclusions]
+                    :msg "must be a vector of symbols, got \"a/b\""}]}
+         (load-cfg {:deps {'my/lib {:local/root "../mylib"
+                                    :exclusions "a/b"}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :mvn/version teaching error
+;; ---------------------------------------------------------------------------
+
+(deftest load-rejects-mvn-version-with-one-teaching-error
+  ;; Someone pasting a deps.edn coord from a README gets taught, not buried in
+  ;; generic missing-:git/url noise: exactly one error, and it explains why.
+  (let [errors (:errors (load-cfg {:deps {'foo/bar {:mvn/version "1.0"}}}))
+        msg (:msg (first errors))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'foo/bar] (:path (first errors))))
+    (is (str/includes? msg ":mvn/version is not supported"))
+    (is (str/includes? msg ":git/url"))
+    (is (str/includes? msg "see examples/clojure-libs/"))
+    (is (not (str/includes? msg "missing :git/url")))))
+
+(deftest load-rejects-mvn-version-even-alongside-git-keys
+  (let [errors (:errors (load-cfg {:deps {'foo/bar {:git/url "u"
+                                                    :git/sha "s"
+                                                    :mvn/version "1.0"}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors))
+                       ":mvn/version is not supported"))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :targets errors
