@@ -78,17 +78,28 @@
    unreachable or malformed URL: this probes third-party metadata, where the
    only sane response to a dead end is a warning, not a failed command.
 
-   Run through `env GIT_TERMINAL_PROMPT=0` because the URLs reaching here are
-   inferred from a lib name rather than given by the user. A guess that lands
-   on a private or nonexistent repo makes an https git answer 401, and a git
-   that can reach a terminal would then sit waiting for a username — turning
-   a probe into a hung install. Answering false is the whole point."
+   The URLs reaching here are inferred from a lib name rather than given by
+   the user, so a probe must not be able to block the command it is helping.
+   Two ways it could:
+
+   - a guess landing on a private or nonexistent repo makes an https git
+     answer 401, and a git that can reach a terminal then waits for a
+     username. `GIT_TERMINAL_PROMPT=0` makes it fail instead;
+   - a remote that accepts the connection and then stops responding has no
+     deadline of its own. The http low-speed settings give it one, aborting a
+     transfer that stays under 1000 B/s for 10s. They are git's own knobs
+     rather than `timeout`, which macOS does not ship.
+
+   Neither affects `file://` probes, where both are ignored."
   [url tag]
   (if (str/blank? tag)
     false
     (let [r (try
               (os/sh "env" "GIT_TERMINAL_PROMPT=0"
-                     "git" "ls-remote" url (str "refs/tags/" tag))
+                     "git"
+                     "-c" "http.lowSpeedLimit=1000"
+                     "-c" "http.lowSpeedTime=10"
+                     "ls-remote" url (str "refs/tags/" tag))
               (catch _ nil))]
       (and (some? r)
            (zero? (:exit r))
