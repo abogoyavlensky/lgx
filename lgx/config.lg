@@ -543,6 +543,74 @@
                           {:lgx/invalid-dep-config dir}))
           (vec (or (:deps (:value parsed)) [])))))))
 
+;; ---------------------------------------------------------------------------
+;; Declared deps from a dependency's own tools.deps / Leiningen metadata
+;;
+;; These files belong to third parties and were never written for lgx, so both
+;; readers are best-effort and total: any missing file, parse failure, or
+;; unexpected shape yields [] rather than an error. The alternative — failing a
+;; user's build over a stranger's project.clj — is never the right trade. The
+;; coord values come back verbatim and unvalidated; classify-declared decides
+;; what each one means.
+;; ---------------------------------------------------------------------------
+
+(def deps-edn-name "deps.edn")
+(def project-clj-name "project.clj")
+
+(defn- read-first-form
+  "Read the first form of the file at `p`, or nil if it is absent or the
+   reader gives up."
+  [p]
+  (when (file-exists? p)
+    (try
+      (edn/read-string (slurp p))
+      (catch _ nil))))
+
+(defn declared-deps-at
+  "Return [lib coord] pairs from a deps.edn in `dir` — its top-level :deps
+   only. :aliases are ignored: an alias describes how to develop the dep, not
+   what consuming it requires. Entries whose lib name is not a symbol are
+   dropped. Returns [] for anything unexpected."
+  [dir]
+  (let [form (read-first-form (path/join dir deps-edn-name))
+        deps (when (map? form) (:deps form))]
+    (if-not (map? deps)
+      []
+      (vec (filter (fn [[lib _]] (symbol? lib)) deps)))))
+
+(defn- lein-dep->pair
+  "Translate one Leiningen :dependencies entry into a [lib coord] pair, or nil
+   when it does not match `[lib \"version\" & opts]`. Trailing options
+   (:scope, :exclusions, …) are ignored — lgx has no use for them."
+  [entry]
+  (when (and (vector? entry)
+             (>= (count entry) 2)
+             (symbol? (nth entry 0))
+             (string? (nth entry 1)))
+    [(nth entry 0) {:mvn/version (nth entry 1)}]))
+
+(defn project-clj-deps-at
+  "Return [lib coord] pairs from a project.clj in `dir`, translating Leiningen
+   `[lib \"1.2.3\"]` entries into `{:mvn/version \"1.2.3\"}` coords. Lib
+   symbols are kept exactly as written — a bare `medley` stays `medley`, since
+   guessing a group would only produce a name that matches nothing.
+
+   Only the top-level :dependencies vector of a `(defproject …)` form is read,
+   which is also what keeps :profiles dependencies out. Returns [] otherwise."
+  [dir]
+  (let [form (read-first-form (path/join dir project-clj-name))]
+    (if-not (and (seq? form) (= 'defproject (first form)))
+      []
+      (let [items (vec form)
+            deps (loop [i 0]
+                   (cond
+                     (>= i (count items)) nil
+                     (= :dependencies (nth items i)) (nth items (inc i) nil)
+                     :else (recur (inc i))))]
+        (if-not (vector? deps)
+          []
+          (vec (keep lein-dep->pair deps)))))))
+
 (defn tasks
   "Return the :tasks map from a loaded cfg map, or {} if absent."
   [cfg]

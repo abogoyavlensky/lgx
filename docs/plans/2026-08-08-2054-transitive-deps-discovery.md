@@ -222,7 +222,7 @@ answer — this plan deliberately keeps that door open.
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Valid: `:exclusions ['a/b 'c/d]` on a git coord and on a local coord.
   Invalid: `:exclusions` not a vector / containing non-symbols → error
   naming the key. A coord `{:mvn/version "1.0"}` → single error whose
@@ -230,20 +230,26 @@ answer — this plan deliberately keeps that door open.
   examples/clojure-libs/" (and does NOT also emit the generic
   "missing :git/url" noise).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `bin/lgx test` (after `make build`)
   Expected: FAIL on the new assertions.
 
-- [ ] **Step 3: Implement in `coord-errors`**
+- [x] **Step 3: Implement in `coord-errors`**
   The `:mvn/version` check comes first and short-circuits; `:exclusions`
   validation applies to all coord shapes. Coord maps stay open.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add :exclusions to coords; teach :mvn/version rejection"`
+
+> Deviation: extended the existing `at-key` helper to nest `{:path :msg}`
+> maps (not just plain strings) so `:exclusions` entry errors get an index
+> in their path; needed because per-item errors carry a relative path.
+
+Codex review: no findings.
 
 ### Task 2: Lenient declared-deps readers
 

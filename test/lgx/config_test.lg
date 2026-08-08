@@ -941,3 +941,115 @@
       (is (str/includes? (:msg r) (str "invalid lgx.edn in " dir " (1 error)")))
       (is (str/includes? (:msg r) "must specify :git/sha or :git/tag")))
     (os/sh "rm" "-rf" dir)))
+
+;; ---------------------------------------------------------------------------
+;; declared-deps-at / project-clj-deps-at (third-party metadata, best-effort)
+;; ---------------------------------------------------------------------------
+
+;; Write `files` ({name content}) into a throwaway dir and call f with it.
+(defn- with-dir [files f]
+  (let [dir (str "/tmp/lgx-declared-deps-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (doseq [[nm content] files]
+      (spit (str dir "/" nm) content))
+    (let [r (f dir)]
+      (os/sh "rm" "-rf" dir)
+      r)))
+
+(deftest declared-deps-at-returns-empty-when-no-deps-edn
+  (is (= [] (with-dir {} config/declared-deps-at))))
+
+(deftest declared-deps-at-reads-top-level-deps
+  (is (= {'a/b {:mvn/version "1.2"}
+          'c/d {:git/url "u" :git/sha "s"}}
+         (with-dir {"deps.edn" (str "{:paths [\"src\"]"
+                                    " :deps {a/b {:mvn/version \"1.2\"}"
+                                    "        c/d {:git/url \"u\" :git/sha \"s\"}}}")}
+           (fn [dir] (into {} (config/declared-deps-at dir)))))))
+
+(deftest declared-deps-at-ignores-aliases
+  (is (= ['a/b]
+         (with-dir {"deps.edn" (str "{:deps {a/b {:mvn/version \"1\"}}"
+                                    " :aliases {:test {:extra-deps"
+                                    " {only/in-alias {:mvn/version \"2\"}}}}}")}
+           (fn [dir] (mapv first (config/declared-deps-at dir)))))))
+
+(deftest declared-deps-at-returns-empty-on-unparsable-file
+  ;; Third-party metadata: a parse failure is not this project's problem.
+  (is (= [] (with-dir {"deps.edn" "{:deps {a/b "} config/declared-deps-at))))
+
+(deftest declared-deps-at-returns-empty-on-non-map-top-level
+  (is (= [] (with-dir {"deps.edn" "[:not :a :map]"} config/declared-deps-at))))
+
+(deftest declared-deps-at-returns-empty-on-non-map-deps
+  (doseq [form ["{:deps []}" "{:deps \"nope\"}" "{:paths [\"src\"]}"]]
+    (is (= [] (with-dir {"deps.edn" form} config/declared-deps-at)))))
+
+(deftest declared-deps-at-drops-non-symbol-lib-names
+  (is (= ['a/b]
+         (with-dir {"deps.edn" "{:deps {a/b {:mvn/version \"1\"} :kw {} \"s\" {}}}"}
+           (fn [dir] (mapv first (config/declared-deps-at dir)))))))
+
+(deftest project-clj-deps-at-returns-empty-when-absent
+  (is (= [] (with-dir {} config/project-clj-deps-at))))
+
+(deftest project-clj-deps-at-translates-dependencies-to-mvn-coords
+  (is (= {'a/b {:mvn/version "1.2"}
+          'c {:mvn/version "3.4"}}
+         (with-dir {"project.clj" (str "(defproject foo \"1.0\""
+                                       " :dependencies [[a/b \"1.2\"] [c \"3.4\"]])")}
+           (fn [dir] (into {} (config/project-clj-deps-at dir)))))))
+
+(deftest project-clj-deps-at-keeps-bare-symbol-as-written
+  ;; No group inference: `c` stays `c`, not `c/c`. Matching is the
+  ;; suppression heuristic's job, not the reader's.
+  (is (= ['c]
+         (with-dir {"project.clj" "(defproject foo \"1.0\" :dependencies [[c \"3.4\"]])"}
+           (fn [dir] (mapv first (config/project-clj-deps-at dir)))))))
+
+(deftest project-clj-deps-at-ignores-trailing-entry-options
+  ;; Leiningen entries may carry :scope/:exclusions after the version.
+  (is (= {'org.clojure/clojure {:mvn/version "1.7.0"}}
+         (with-dir {"project.clj"
+                    (str "(defproject foo \"1.0\" :dependencies"
+                         " [[org.clojure/clojure \"1.7.0\" :scope \"provided\"]])")}
+           (fn [dir] (into {} (config/project-clj-deps-at dir)))))))
+
+(deftest project-clj-deps-at-ignores-profile-dependencies
+  ;; Only the top-level :dependencies vector counts; profiles are out of scope.
+  (is (= ['a/b]
+         (with-dir {"project.clj"
+                    (str "(defproject foo \"1.0\" :dependencies [[a/b \"1.2\"]]"
+                         " :profiles {:dev {:dependencies [[only/dev \"9\"]]}})")}
+           (fn [dir] (mapv first (config/project-clj-deps-at dir)))))))
+
+(deftest project-clj-deps-at-tolerates-reader-unfriendly-content
+  ;; ~unquote, @deref, and #"regex" appear in real project.clj files; whatever
+  ;; the reader makes of them, the :dependencies vector must still come out.
+  (is (= ['a/b]
+         (with-dir {"project.clj"
+                    (str ";; a comment\n(defproject foo \"1.0\""
+                         " :username ~(System/getenv \"U\")"
+                         " :ns [#\"^a\\.b\"]"
+                         " :dependencies [[a/b \"1.2\"]])\n(println :extra)")}
+           (fn [dir] (mapv first (config/project-clj-deps-at dir)))))))
+
+(deftest project-clj-deps-at-returns-empty-on-unparsable-file
+  (doseq [content ["" "(defproject foo" "not-a-list"]]
+    (is (= [] (with-dir {"project.clj" content} config/project-clj-deps-at)))))
+
+(deftest project-clj-deps-at-returns-empty-when-not-defproject
+  (is (= [] (with-dir {"project.clj" "(ns foo.bar)"} config/project-clj-deps-at))))
+
+(deftest project-clj-deps-at-returns-empty-without-dependencies-key
+  (is (= [] (with-dir {"project.clj" "(defproject foo \"1.0\" :url \"u\")"}
+              config/project-clj-deps-at))))
+
+(deftest project-clj-deps-at-skips-malformed-entries
+  ;; A bare symbol, an empty vector, and a non-string version are dropped;
+  ;; well-formed neighbours still come through.
+  (is (= ['a/b]
+         (with-dir {"project.clj"
+                    (str "(defproject foo \"1.0\" :dependencies"
+                         " [bare [] [no/version] [x/y 5] [a/b \"1.2\"]])")}
+           (fn [dir] (mapv first (config/project-clj-deps-at dir)))))))
