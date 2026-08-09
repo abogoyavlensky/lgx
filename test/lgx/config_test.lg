@@ -1046,6 +1046,47 @@
               config/project-clj-deps-at))))
 
 ;; ---------------------------------------------------------------------------
+;; Deterministic coord ordering
+;;
+;; let-go's map iteration order follows the bundle's intern layout, so it is
+;; neither insertion order nor stable across unrelated edits. Resolution order
+;; is observable (first-wins conflicts, dep source-path precedence), so every
+;; coord map is ordered by lib name on the way in.
+;; ---------------------------------------------------------------------------
+
+(deftest dep-pairs-orders-by-lib-name
+  (is (= ['a/z 'b/a 'c/m]
+         (mapv first (config/dep-pairs {'c/m {} 'a/z {} 'b/a {}}))))
+  (is (= [] (config/dep-pairs {})))
+  (is (= [] (config/dep-pairs nil))))
+
+(deftest dep-pairs-orders-by-full-name-not-just-group
+  (is (= ['dev.weavejester/dependency 'dev.weavejester/medley]
+         (mapv first (config/dep-pairs {'dev.weavejester/medley {}
+                                        'dev.weavejester/dependency {}})))))
+
+(deftest coords-are-ordered-by-lib-name
+  (let [cfg (:cfg (load-cfg {:deps {'z/last {:git/url "u" :git/sha "s"}
+                                    'a/first {:git/url "u" :git/sha "s"}
+                                    'm/mid {:git/url "u" :git/sha "s"}}}))]
+    (is (= ['a/first 'm/mid 'z/last] (mapv first (config/coords cfg))))))
+
+(deftest coords-at-is-ordered-by-lib-name
+  (let [dir (str "/tmp/lgx-coord-order-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn")
+          (str "{:deps {z/last {:git/url \"u\" :git/sha \"s\"}"
+               "        a/first {:git/url \"u\" :git/sha \"s\"}}}"))
+    (is (= ['a/first 'z/last] (mapv first (config/coords-at dir))))
+    (os/sh "rm" "-rf" dir)))
+
+(deftest declared-deps-at-is-ordered-by-lib-name
+  (is (= ['a/first 'z/last]
+         (with-dir {"deps.edn" (str "{:deps {z/last {:mvn/version \"1\"}"
+                                    "        a/first {:mvn/version \"1\"}}}")}
+           (fn [dir] (mapv first (config/declared-deps-at dir)))))))
+
+;; ---------------------------------------------------------------------------
 ;; classify-declared (what one declared transitive dep means to lgx)
 ;; ---------------------------------------------------------------------------
 

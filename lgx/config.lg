@@ -443,10 +443,27 @@
           (os/exit 1))
       (:cfg r))))
 
+;; Coord pairs come out of a map, and let-go's map iteration order is neither
+;; insertion order nor stable across unrelated edits — it follows the bundle's
+;; intern layout, so adding a keyword literal anywhere can reshuffle it. That
+;; order is observable: it decides which of two conflicting sibling coords
+;; first-wins keeps, and the precedence of dep source paths when two deps ship
+;; the same namespace. Sorting by lib name makes both reproducible, at the cost
+;; of not being the order written in lgx.edn (which the reader discards anyway).
+(defn dep-pairs
+  "Turn a lib→coord map into [lib coord] pairs ordered by lib name. Every
+   coord map in lgx reaches the resolver through here, so ordering is one
+   decision in one place."
+  [m]
+  (vec (sort-by (fn [[lib _]] (str lib)) m)))
+
+(def ^:private sorted-pairs dep-pairs)
+
 (defn coords
-  "Return a vector of [lib coord] pairs from a loaded cfg map."
+  "Return a vector of [lib coord] pairs from a loaded cfg map, ordered by lib
+   name so resolution is reproducible (see sorted-pairs)."
   [cfg]
-  (vec (:deps cfg)))
+  (sorted-pairs (:deps cfg)))
 
 (defn merge-coords
   "Merge a task's `extra-pairs` over `project-pairs` (both vectors of
@@ -490,7 +507,7 @@
                                            {:lgx/unknown-context nm
                                             :defined (vec (keys contexts-map))}))))
                        names)
-        dep-lists (mapv (fn [o] (vec (:extra-deps o))) overlays)
+        dep-lists (mapv (fn [o] (sorted-pairs (:extra-deps o))) overlays)
         deps-pairs (reduce merge-coords [] dep-lists)
         paths (vec (mapcat (fn [o] (or (:extra-paths o) [])) overlays))
         resource-paths (vec (mapcat (fn [o] (or (:extra-resource-paths o) []))
@@ -541,7 +558,7 @@
         (if (seq errors)
           (throw (ex-info (errors-report (str "lgx.edn in " dir) errors)
                           {:lgx/invalid-dep-config dir}))
-          (vec (or (:deps (:value parsed)) [])))))))
+          (sorted-pairs (or (:deps (:value parsed)) {})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Declared deps from a dependency's own tools.deps / Leiningen metadata
@@ -576,7 +593,7 @@
         deps (when (map? form) (:deps form))]
     (if-not (map? deps)
       []
-      (vec (filter (fn [[lib _]] (symbol? lib)) deps)))))
+      (sorted-pairs (filter (fn [[lib _]] (symbol? lib)) deps)))))
 
 (defn- lein-dep->pair
   "Translate one Leiningen :dependencies entry into a [lib coord] pair, or nil

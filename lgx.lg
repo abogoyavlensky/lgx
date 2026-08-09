@@ -389,7 +389,7 @@
   [project cfg cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
         overlay (with->overlay! cfg names)
-        inline-deps (vec (or (:extra-deps task) {}))
+        inline-deps (config/dep-pairs (or (:extra-deps task) {}))
         coords (reduce config/merge-coords
                        (config/coords cfg)
                        [(:deps-pairs overlay) inline-deps])
