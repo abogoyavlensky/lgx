@@ -520,55 +520,42 @@ responds: returns false after ~10s instead of hanging.
 
 ---
 
-## BLOCKER (needs a decision before Tasks 7-8 can be verified)
+## Suite status on this branch (diagnosed)
 
-`bash tests/run.sh` is red on this branch. Three e2e scenarios fail:
+`bash tests/run.sh` was already red at the branch point (`d2c0476`, before
+any code commit from this plan). Both failures trace to one thing this
+branch changed before the plan started: `.mise.toml` pins **lg 1.12.2**
+where `master` pins **lg 1.11.1**.
 
-- **65** (relative local conflicts compare resolved dirs): expects `:A` to
-  win a top-level sibling conflict, gets `:B`.
-- **68** (`lgx test` fails when a test file does not compile) and
-  **70** (same for a reader/syntax error): `lgx: a test file failed to
-  load` is not emitted; lg raises a hard compile error with a stack trace
-  instead of the swallowed `error: failed to load` that the test runner's
-  detection keys off.
+Proven by holding the lgx binary fixed and varying only `LGX_LG`:
 
-**None of this is caused by the plan's logic.** Traced with verified
-commit/blob/binary hashes:
+| | lg 1.11.1 | lg 1.12.2 |
+|---|---|---|
+| `:deps` enumeration order | `libA libB` | `libB libA` (before the fix below) |
+| require-time compile error | swallowed, `error: failed to load` on stderr | thrown, hard compile error |
 
-| build | `lgx/config.lg` blob | `:deps` enumeration order | e2e |
-|---|---|---|---|
-| `master` | `7bc359f7` | `libA libB` | 296 assertions pass |
-| `b2eddaf` (Task 1) | `a49d9e88` | `libB libA` | 65, 68, 70 fail |
+- **Scenario 65** (relative local conflicts) failed because 1.12.2
+  enumerates the project's `:deps` map in a different order, and lgx let
+  that order decide which of two conflicting sibling coords first-wins
+  keeps. **Fixed** in `6101f0b` per the approved option A: every coord map
+  now reaches the resolver through `config/dep-pairs`, ordered by lib name,
+  so resolution no longer depends on let-go's map iteration at all. Both lg
+  versions now give `libA libB`.
+- **Scenarios 68 and 70** (`lgx test` on a file that fails to compile /
+  has a syntax error) fail because 1.12.2 **throws** instead of swallowing
+  — which is precisely the upstream fix asked for in
+  `docs/issues/load-failure-silent.md`. So `lgx: a test file failed to
+  load` never prints: the test runner's stderr-scanning detection exists
+  only to catch the swallow that no longer happens. Pre-existing, unrelated
+  to transitive deps, and addressed in Task 9 below so the suite can be
+  verified green.
 
-Task 1 only added `:exclusions` validation and the `:mvn/version` message.
-That is enough to flip the order in which let-go enumerates the project's
-`:deps` map — stable per build, and stable across rebuilds of identical
-source, but not insertion order and not preserved across unrelated edits.
-The plausible mechanism is that keyword/symbol hashing depends on the
-bundle's intern layout, so adding keyword literals reshuffles it. (A
-control experiment adding *inert* defs with the same keywords to master did
-not reproduce it, so it is the specific intern layout, not code volume.)
-
-lgx leans on that order in two user-visible places: which of two
-conflicting top-level coords wins (and therefore source-path shadowing
-precedence), and the order test files load in. Both were only accidentally
-stable. `master` being green was luck, not a guarantee.
-
-Task 6's own feature is unaffected and verified working (Step 3 above), and
-top-level-beats-transitive still holds regardless of order, since every
-top-level coord is enqueued before any child.
-
-Every available fix reaches outside this plan's approved scope, so it needs
-a call:
-
-- **A (recommended): make lgx order-independent where it matters.** Give
-  `config/coords` a deterministic order and sort test-file discovery. This
-  removes a latent trap that any future commit can trip, but it changes
-  source-path precedence semantics and the documented "first-wins by
-  declaration order" wording, so it is a design decision.
-- **B: adjust scenarios 65/68/70** not to depend on iteration order, and
-  file the instability upstream against let-go.
-- **C: stop and re-plan**, reverting Tasks 1-6.
+**Correction to an earlier note in this file:** the ordering flip was first
+attributed to Task 1's `config.lg` edit, "verified" by blob and binary
+hashes. That was wrong — the confound was `.mise.toml`, since
+`mise which lg` resolves a different binary per branch, so every
+master-vs-branch comparison silently swapped the lg version too. Task 1's
+content is not implicated.
 
 ### Task 7: e2e scenarios
 
