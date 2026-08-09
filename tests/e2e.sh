@@ -2756,5 +2756,176 @@ assert_contains "$out" "+ auto context :test" \
     "repl: auto-applies :test"
 rm -rf "$proj_rp" "$home_rp"
 
+# ---------------------------------------------------------------------------
+# Transitive deps declared in a dependency's own deps.edn / project.clj.
+#
+# Hermetic: every coord points at a file:// bare repo seeded here. The
+# registry and tag-probe rungs of the ladder reach real GitHub URLs, so they
+# are covered by unit tests instead (see test/lgx/registry_test.lg and the
+# tag-exists? tests in test/lgx/cache_test.lg).
+# ---------------------------------------------------------------------------
+
+# Seed a bare repo whose tree holds src/<name>/core.lg plus any extra files
+# given as "relative/path=content". Echoes the resolved sha.
+make_declaring_repo() {
+    local bare="$1"; local name="$2"; shift 2
+    local work
+    work="$(mktemp -d)"
+    git init --quiet --bare "$bare"
+    git clone --quiet "$bare" "$work" 2>/dev/null
+    mkdir -p "$work/src/$name"
+    printf '(ns %s.core)\n(defn hi [] :%s)\n' "$name" "$name" \
+        > "$work/src/$name/core.lg"
+    local spec
+    for spec in "$@"; do
+        mkdir -p "$(dirname "$work/${spec%%=*}")"
+        printf '%s' "${spec#*=}" > "$work/${spec%%=*}"
+    done
+    git -C "$work" add -A
+    git -C "$work" commit --quiet -m "seed"
+    git -C "$work" push --quiet origin master 2>/dev/null \
+        || git -C "$work" push --quiet origin main
+    local sha
+    sha="$(git -C "$work" rev-parse HEAD)"
+    rm -rf "$work"
+    echo "$sha"
+}
+
+if supports_source_paths; then
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 115: a dep's deps.edn git coord is auto-installed"
+home_td="$(mktemp -d)"
+fix_td="$home_td/_fixtures"
+mkdir -p "$fix_td"
+sha_b="$(make_declaring_repo "$fix_td/lib-b.git" libb)"
+sha_a="$(make_declaring_repo "$fix_td/lib-a.git" liba \
+    "deps.edn={:deps {test/lib-b {:git/url \"file://$fix_td/lib-b.git\" :git/sha \"$sha_b\"}}}")"
+proj_td="$(mktemp -d)"
+cat > "$proj_td/lgx.edn" <<EOF
+{:deps {test/lib-a {:git/url "file://$fix_td/lib-a.git"
+                    :git/sha "$sha_a"}}}
+EOF
+printf '(require (quote libb.core))\n(println (libb.core/hi))\n' > "$proj_td/main.lg"
+
+out="$(cd "$proj_td" && LGX_HOME="$home_td" "$LGX" install 2>&1)"
+assert_contains "$out" "installing 2 dep(s)..." \
+    "transitive deps.edn: both deps installed"
+assert_contains "$out" "(via test/lib-a deps.edn)" \
+    "transitive deps.edn: provenance is annotated"
+assert_not_contains "$out" "not resolved by lgx" \
+    "transitive deps.edn: a fully pinned git coord resolves without warning"
+out="$(cd "$proj_td" && LGX_HOME="$home_td" "$LGX" run main.lg 2>&1)"
+assert_contains "$out" ":libb" \
+    "transitive deps.edn: auto-resolved dep is usable at runtime"
+rm -rf "$proj_td" "$home_td"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 116: an unresolvable mvn-style declaration warns, gated by command"
+home_w="$(mktemp -d)"
+fix_w="$home_w/_fixtures"
+mkdir -p "$fix_w"
+sha_w="$(make_declaring_repo "$fix_w/lib-a.git" liba \
+    'deps.edn={:deps {unknown/lib {:mvn/version "1.2.3"} org.clojure/clojure {:mvn/version "1.11.4"}}}')"
+proj_w="$(mktemp -d)"
+cat > "$proj_w/lgx.edn" <<EOF
+{:paths ["."]
+ :deps {test/lib-a {:git/url "file://$fix_w/lib-a.git"
+                    :git/sha "$sha_w"}}}
+EOF
+printf '(println :ran)\n' > "$proj_w/main.lg"
+
+out="$(cd "$proj_w" && LGX_HOME="$home_w" "$LGX" install 2>&1)"
+assert_contains "$out" 'declares unknown/lib {:mvn/version "1.2.3"} - not resolved' \
+    "warn: unresolved mvn coord is reported with the declared coord verbatim"
+assert_contains "$out" "see examples/clojure-libs/" \
+    "warn: message points at the worked examples"
+assert_not_contains "$out" "org.clojure/clojure" \
+    "warn: clojure itself is skipped, not warned about"
+
+# Warm cache: install always re-shows, run stays quiet.
+out="$(cd "$proj_w" && LGX_HOME="$home_w" "$LGX" install 2>&1)"
+assert_contains "$out" "declares unknown/lib" \
+    "warn: explicit install re-shows the warning on a warm cache"
+out="$(cd "$proj_w" && LGX_HOME="$home_w" "$LGX" run main.lg 2>&1)"
+assert_not_contains "$out" "declares unknown/lib" \
+    "warn: run on a warm cache does not nag"
+assert_contains "$out" ":ran" "warn: run still works"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 117: :exclusions silences a declared dep permanently"
+cat > "$proj_w/lgx.edn" <<EOF
+{:paths ["."]
+ :deps {test/lib-a {:git/url "file://$fix_w/lib-a.git"
+                    :git/sha "$sha_w"
+                    :exclusions [unknown/lib]}}}
+EOF
+out="$(cd "$proj_w" && LGX_HOME="$home_w" "$LGX" install 2>&1)"
+assert_not_contains "$out" "declares unknown/lib" \
+    "exclusions: no warning even on explicit install"
+rm -rf "$proj_w" "$home_w"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 118: project.clj is read only when deps.edn is absent"
+home_pc="$(mktemp -d)"
+fix_pc="$home_pc/_fixtures"
+mkdir -p "$fix_pc"
+sha_pc="$(make_declaring_repo "$fix_pc/lib-p.git" libp \
+    'project.clj=(defproject libp "1.0" :dependencies [[unknown/from-lein "3.2.1"]])')"
+# deps.edn wins when present, even declaring nothing: a stale project.clj
+# beside it must not resurrect old deps.
+sha_both="$(make_declaring_repo "$fix_pc/lib-both.git" libboth \
+    'deps.edn={:paths ["src"]}' \
+    'project.clj=(defproject libboth "1.0" :dependencies [[unknown/stale "9.9.9"]])')"
+proj_pc="$(mktemp -d)"
+cat > "$proj_pc/lgx.edn" <<EOF
+{:deps {test/lib-p {:git/url "file://$fix_pc/lib-p.git"
+                    :git/sha "$sha_pc"}}}
+EOF
+out="$(cd "$proj_pc" && LGX_HOME="$home_pc" "$LGX" install 2>&1)"
+assert_contains "$out" 'declares unknown/from-lein {:mvn/version "3.2.1"} - not resolved' \
+    "project.clj: lein dep is translated to an mvn coord and warned about"
+
+cat > "$proj_pc/lgx.edn" <<EOF
+{:deps {test/lib-both {:git/url "file://$fix_pc/lib-both.git"
+                       :git/sha "$sha_both"}}}
+EOF
+out="$(cd "$proj_pc" && LGX_HOME="$home_pc" "$LGX" install 2>&1)"
+assert_not_contains "$out" "unknown/stale" \
+    "project.clj: a present deps.edn is authoritative even when it declares nothing"
+rm -rf "$proj_pc" "$home_pc"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 119: a declared coord that fails to fetch warns, never aborts"
+home_sf="$(mktemp -d)"
+fix_sf="$home_sf/_fixtures"
+mkdir -p "$fix_sf"
+sha_sf="$(make_declaring_repo "$fix_sf/lib-a.git" liba \
+    "deps.edn={:deps {test/ghost {:git/url \"file://$fix_sf/does-not-exist.git\" :git/sha \"0000000000000000000000000000000000000000\"}}}")"
+proj_sf="$(mktemp -d)"
+cat > "$proj_sf/lgx.edn" <<EOF
+{:paths ["."]
+ :deps {test/lib-a {:git/url "file://$fix_sf/lib-a.git"
+                    :git/sha "$sha_sf"}}}
+EOF
+printf '(require (quote liba.core))\n(println (liba.core/hi))\n' > "$proj_sf/main.lg"
+
+set +e
+out="$(cd "$proj_sf" && LGX_HOME="$home_sf" "$LGX" install 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "soft failure: expected exit 0, got $rc (output: $out)"
+pass "soft failure: install still exits 0"
+assert_contains "$out" "test/lib-a ->" \
+    "soft failure: the declaring dep is still installed"
+assert_contains "$out" "declares test/ghost" \
+    "soft failure: the failed child is warned about"
+out="$(cd "$proj_sf" && LGX_HOME="$home_sf" "$LGX" run main.lg 2>&1)"
+assert_contains "$out" ":liba" "soft failure: the project still runs"
+rm -rf "$proj_sf" "$home_sf"
+
+else
+    skip "transitive declared deps require lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
