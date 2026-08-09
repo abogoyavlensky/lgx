@@ -302,12 +302,29 @@ HTTPS only) or a `:local/root` dir - never both. Local deps bypass the gitlibs
 cache. `:deps/root` names the source subdir inside the dep (defaults to `src` if
 present, else the repo root; matches tools.deps).
 
-**Transitive deps.** After fetching a dep, lgx reads that dep's own `lgx.edn`
-(if any) and resolves its `:deps` recursively - only `:deps`, never a dep's
-`:paths`/`:main`/`:tasks`. Resolution is breadth-first and **first-wins**: the
-first coord seen for a lib name is kept, and a later differing coord is skipped
-with a warning. A coord you list directly overrides the same lib pulled in
-transitively.
+**Transitive deps.** After fetching a dep, lgx resolves what that dep
+declares: its own `lgx.edn` `:deps` if it has one, otherwise the `deps.edn` or
+`project.clj` it ships for other tools. Git coords there are already pinned and
+resolve directly; well-known Maven coordinates resolve through a curated
+registry of verified repo+tag mappings. Anything lgx cannot pin gets one
+warning naming the declaration, so you know exactly what to add:
+
+```
+warning: integrant/integrant declares weavejester/dependency {:mvn/version "0.2.1"} - not resolved by lgx; add a :git coord to lgx.edn :deps or exclude it (see examples/clojure-libs/)
+```
+
+`lgx install` always shows these; `run`/`build`/`test` only mention deps
+freshly installed in that run, so a warm cache stays quiet. Silence one for
+good with `:exclusions [lib-sym ...]` on the coord that pulls it in. A failure
+while acting on a dep's metadata is always a warning, never an aborted command.
+
+Resolution is breadth-first and **first-wins**: the first coord seen for a lib
+name is kept, and a later differing coord is skipped with a warning. Top-level
+coords are resolved before anything transitive, so a coord you list directly
+always overrides the same lib pulled in by a dep.
+
+`:mvn/version` is not a coord lgx accepts - let-go runs libraries from source,
+so coords are git or local. Writing one tells you what to use instead.
 
 ### `:tasks`
 
