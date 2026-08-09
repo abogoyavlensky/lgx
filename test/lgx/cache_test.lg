@@ -319,3 +319,35 @@
   (is (= true (cache/letgo-source-fetch-enabled?)))
   (os/setenv "LGX_FETCH_LET_GO_SOURCE" ""))
 
+;; ---------------------------------------------------------------------------
+;; tag-exists? (probe used before guessing a tag for an mvn-style coord)
+;; ---------------------------------------------------------------------------
+
+(deftest tag-exists-true-for-a-present-tag
+  (let [repo (setup-tagged-repo! "v1.2.3")]
+    (is (= true (cache/tag-exists? (str "file://" repo) "v1.2.3")))
+    (os/sh "rm" "-rf" repo)))
+
+(deftest tag-exists-false-for-an-absent-tag
+  (let [repo (setup-tagged-repo! "v1.2.3")]
+    (is (= false (cache/tag-exists? (str "file://" repo) "1.2.3")))
+    (is (= false (cache/tag-exists? (str "file://" repo) "v9.9.9")))
+    (os/sh "rm" "-rf" repo)))
+
+(deftest tag-exists-false-for-an-unreachable-repo
+  ;; This feeds the warn-never-fail ladder, so a bad URL must answer false
+  ;; rather than throw.
+  (is (= false (cache/tag-exists? "file:///tmp/lgx-no-such-repo-at-all" "v1.0.0")))
+  (is (= false (cache/tag-exists? "not-even-a-url" "v1.0.0"))))
+
+(deftest tag-exists-false-for-a-blank-tag
+  (let [repo (setup-tagged-repo! "v1.2.3")]
+    (is (= false (cache/tag-exists? (str "file://" repo) "")))
+    (os/sh "rm" "-rf" repo)))
+
+(deftest tag-exists-does-not-match-a-tag-prefix
+  ;; refs/tags/<tag> is exact: a v1.2 probe must not be satisfied by v1.2.3.
+  (let [repo (setup-tagged-repo! "v1.2.3")]
+    (is (= false (cache/tag-exists? (str "file://" repo) "v1.2")))
+    (os/sh "rm" "-rf" repo)))
+

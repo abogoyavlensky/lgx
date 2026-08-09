@@ -6,6 +6,7 @@
             [lgx.config :as config]
             [lgx.new :as new]
             [lgx.path :as path]
+            [lgx.registry :as registry]
             [lgx.runner :as runner]
             [lgx.style :as style]
             [lgx.tasks :as tasks]
@@ -68,50 +69,243 @@
                  (os/exit 1))
              (throw e)))))
 
+;; ---------------------------------------------------------------------------
+;; Transitive deps declared by a dependency that ships no lgx.edn
+;;
+;; Coords come from the first available source: the dep's own lgx.edn, else its
+;; deps.edn, else its project.clj. The choice is made on file existence, not on
+;; whether the file yielded anything — a present deps.edn is authoritative even
+;; when empty, or a stale project.clj beside it would resurrect old deps.
+;;
+;; Everything below acts on metadata a third party wrote for a different tool,
+;; so nothing here may abort the command. A registry tag that moved, an
+;; inferred URL that 404s, a clone that fails: each becomes a warning and the
+;; walk continues. The status quo without this feature is "not resolved at
+;; all", so failing soft is strictly better. Coords from the user's own lgx.edn
+;; keep their hard errors.
+;; ---------------------------------------------------------------------------
+
+(defn- declared-source
+  "The best available source of `dir`'s declared deps as
+   [:deps-edn|:project-clj declared-pairs], or [nil []] when it has neither."
+  [dir]
+  (cond
+    (file-exists? (path/join dir config/deps-edn-name))
+    [:deps-edn (config/declared-deps-at dir)]
+
+    (file-exists? (path/join dir config/project-clj-name))
+    [:project-clj (config/project-clj-deps-at dir)]
+
+    :else [nil []]))
+
+(defn- probe-coord
+  "Try to pin an mvn-style coord whose lib name certifies its repo
+   (io.github.X/Y, com.github.X/Y) by asking the remote which of the two
+   conventional tag spellings exists. Returns a coord or nil."
+  [lib version]
+  (when-let [url (config/inferred-git-url lib)]
+    (let [v-tag (str "v" version)]
+      (cond
+        (cache/tag-exists? url version) {:git/url url
+                                         :git/tag version}
+        (cache/tag-exists? url v-tag) {:git/url url
+                                       :git/tag v-tag}
+        :else nil))))
+
+(defn- pending-warning [declaring installed? declared reason]
+  {:declaring declaring
+   :declared declared
+   :installed? installed?
+   :reason reason})
+
+(defn- classify-child
+  "Decide what one dep declared by `declaring` becomes: a queue entry under
+   :child, a deferred warning under :pending, or nil to ignore it outright.
+   `dir` is the declaring dep's own directory — the base a relative
+   :local/root resolves against."
+  [declaring installed? source dir declared]
+  (let [[dlib dcoord] declared
+        {:keys [action coord version]} (config/classify-declared dlib dcoord)
+        ;; :exclusions ride along when a coord is synthesized from a Maven
+        ;; declaration: they are tools.deps vocabulary that a deps.edn may
+        ;; carry, and they scope to what *this* dep pulls in, so dropping them
+        ;; would silently resolve something the declaration ruled out. (The
+        ;; :resolve path keeps them already — the coord passes through whole.)
+        carry-exclusions (fn [c]
+                           (if (and (map? dcoord) (contains? dcoord :exclusions))
+                             (assoc c :exclusions (:exclusions dcoord))
+                             c))
+        child (fn [c via-source]
+                {:child {:lib dlib
+                         :coord (carry-exclusions c)
+                         :base dir
+                         :via declaring
+                         :via-source via-source
+                         :via-installed? installed?
+                         ;; Kept verbatim so a later fetch failure warns about
+                         ;; what the dep actually wrote, not about the coord we
+                         ;; synthesized from it.
+                         :declared declared}})]
+    (cond
+      (= :skip action) nil
+      (= :resolve action) (child coord source)
+
+      (= :mvn action)
+      (if-let [from-registry (registry/coord-for dlib version)]
+        (child from-registry :registry)
+        (if-let [probed (probe-coord dlib version)]
+          (child probed :probe)
+          {:pending (pending-warning declaring installed? declared nil)}))
+
+      :else {:pending (pending-warning declaring installed? declared nil)})))
+
+(defn- declared-children
+  "Split the deps `lib` declares in its deps.edn/project.clj into queue entries
+   and deferred warnings: {:children [...] :pending [...]}. Deps named by the
+   consuming coord's :exclusions are dropped before classification, so they
+   neither resolve nor warn."
+  [lib coord dir installed?]
+  (let [[source declared] (declared-source dir)
+        kept (config/without-exclusions (:exclusions coord) declared)
+        outcomes (keep (fn [d] (classify-child lib installed? source dir d))
+                       kept)]
+    {:children (vec (keep :child outcomes))
+     :pending (vec (keep :pending outcomes))}))
+
+(defn- warning-line [{:keys [declaring declared reason]}]
+  (let [[dlib dcoord] declared]
+    (str "warning: " declaring " declares " dlib " " (pr-str dcoord)
+         " - not resolved by lgx" (when reason (str ": " reason))
+         "; add a :git coord to lgx.edn :deps or exclude it"
+         " (see examples/clojure-libs/)\n")))
+
+(defn- emit-warnings!
+  "Print one line per declared dep the walk could not resolve.
+
+   Emitted only after the whole walk, so a dep resolved later in BFS order
+   never falsely warns, and filtered twice. First by resolution: a declared dep
+   that matches something already resolved is silent. Then by moment, unless
+   `warn-all?`: only deps whose declaring lib was freshly installed in this
+   walk are reported, so a warm cache stays quiet in the day-to-day run/build/
+   test loop. `lgx install` passes warn-all?, being both the deliberate
+   dependency-management moment and the way to re-read these warnings."
+  [seen pending warn-all?]
+  (let [unresolved (config/unresolved-declared seen pending)
+        shown (if warn-all? unresolved (filter :installed? unresolved))]
+    (doseq [entry shown]
+      (write! *err* (warning-line entry)))))
+
 (defn- ensure-all!
   "Resolve the project's coords and, transitively, the coords each fetched dep
-   declares in its own lgx.edn. Breadth-first from the project root, so a coord
-   listed closer to the root wins on conflicts (first-wins): the first coord
-   seen for a lib name is kept, and a later, differing coord for the same lib is
-   skipped with a warning. The `seen` set also terminates cycles. Returns the
-   install results in resolution order.
+   declares — in its own lgx.edn, else in the deps.edn or project.clj it ships
+   for other tools. Breadth-first from the project root, so a coord listed
+   closer to the root wins on conflicts (first-wins): the first coord seen for
+   a lib name is kept, and a later, differing coord for the same lib is skipped
+   with a warning. That also means a top-level coord always overrides whatever
+   a dep declares. The `seen` map terminates cycles. Returns the install
+   results in resolution order.
 
    Each queue entry carries its resolution base — the directory a relative
    :local/root is resolved against. Top-level coords use the project root;
    a dep's transitive coords use that dep's own directory, so a relative
-   local path in a dep means \"relative to the dep\", not to the consumer."
-  [project coords]
-  (loop [queue (mapv (fn [[lib c]] [lib c project]) coords)
+   local path in a dep means \"relative to the dep\", not to the consumer.
+   Entries discovered through third-party metadata also carry :via provenance,
+   which reaches the install output and marks them as fail-soft.
+
+   `warn-all?` shows every unresolved declared dep instead of only those
+   surfacing from a fresh install (see emit-warnings!)."
+  [project coords warn-all?]
+  (loop [queue (mapv (fn [[lib c]] {:lib lib
+                                    :coord c
+                                    :base project}) coords)
          seen {}
-         out []]
+         out []
+         pending []]
     (if (empty? queue)
-      out
-      (let [[lib c base] (first queue)
-            id (coord-id base c)
-            rest-q (vec (rest queue))]
-        (if (contains? seen lib)
-          (do
-            (when (not= (get seen lib) id)
-              (write! *err*
-                      (str "warning: " lib " already resolved as "
-                           (coord-label (get seen lib)) "; ignoring "
-                           (coord-label id) "\n")))
-            (recur rest-q seen out))
-          (let [{:keys [path dir installed?]} (cache/ensure-lib! c base)
-                children (mapv (fn [[clib cc]] [clib cc dir])
-                               (coords-at! dir))]
-            (recur (vec (concat rest-q children))
-                   (assoc seen lib id)
-                   (conj out {:lib lib
-                              :path path
-                              :installed? installed?}))))))))
+      (do (emit-warnings! seen pending warn-all?)
+          out)
+      (let [{:keys [lib coord base via via-source via-installed? declared]}
+            (first queue)
+            rest-q (vec (rest queue))
+            ;; Everything that can throw on a coord reached through a dep's
+            ;; metadata sits inside this boundary, normalization included:
+            ;; coord-id resolves a relative :local/root, and third-party
+            ;; metadata can hold a value that is truthy but not a path.
+            soft? (some? via)
+            ;; A warning names what the dep wrote, not the coord synthesized
+            ;; from it, so a registry tag miss still shows the :mvn/version.
+            warn-about (or declared [lib coord])
+            attempt (fn [f]
+                      (if soft?
+                        (try {:ok (f)} (catch e {:error (ex-message e)}))
+                        {:ok (f)}))
+            normalized (attempt (fn [] (coord-id base coord)))]
+        (if (:error normalized)
+          (recur rest-q seen out
+                 (conj pending (pending-warning via via-installed? warn-about
+                                                (:error normalized))))
+          (let [id (:ok normalized)]
+            (if (contains? seen lib)
+              (do
+                (when (not= (get seen lib) id)
+                  (write! *err*
+                          (str "warning: " lib " already resolved as "
+                               (coord-label (get seen lib)) "; ignoring "
+                               (coord-label id) "\n")))
+                (recur rest-q seen out pending))
+              ;; A fetch failure aborts only when the coord is the user's own;
+              ;; one reached through a dep's metadata degrades to a warning.
+              (let [fetched (attempt (fn [] (cache/ensure-lib! coord base)))]
+                (if (:error fetched)
+                  (recur rest-q seen out
+                         (conj pending
+                               (pending-warning via via-installed? warn-about
+                                                (:error fetched))))
+                  (let [{:keys [path dir installed?]} (:ok fetched)
+                        lgx-edn? (file-exists? (path/join dir
+                                                          config/config-name))
+                        ;; Rung 1: a dep's own lgx.edn is authoritative and its
+                        ;; deps.edn/project.clj go unread.
+                        found (if lgx-edn?
+                                {:children (mapv (fn [[clib cc]]
+                                                   {:lib clib
+                                                    :coord cc
+                                                    :base dir})
+                                                 (coords-at! dir))
+                                 :pending []}
+                                (declared-children lib coord dir installed?))
+                        row {:lib lib
+                             :path path
+                             :installed? installed?}]
+                    (recur (vec (concat rest-q (:children found)))
+                           (assoc seen lib id)
+                           (conj out (if via
+                                       (assoc row
+                                              :via via
+                                              :via-source via-source)
+                                       row))
+                           (vec (concat pending
+                                        (:pending found))))))))))))))
+
+(defn- via-label
+  "How a provenance source reads in install output."
+  [source]
+  (case source
+    :deps-edn "deps.edn"
+    :project-clj "project.clj"
+    :registry "registry"
+    :probe "tag probe"
+    (str source)))
 
 (defn- print-installs! [results]
   (let [new-installs (filter :installed? results)]
     (when (seq new-installs)
       (println "installing" (count new-installs) "dep(s)...")
-      (doseq [{:keys [lib path]} new-installs]
-        (println " " lib "->" path))
+      (doseq [{:keys [lib path via via-source]} new-installs]
+        (if via
+          (println " " lib "->" path
+                   (str " (via " via " " (via-label via-source) ")"))
+          (println " " lib "->" path)))
       (println "done"))))
 
 (defn- with->overlay!
@@ -162,7 +356,9 @@
     (write! *err* (str (style/header "Installing dependencies...") "\n"))
     (if (empty? coords)
       (println "no deps in lgx.edn")
-      (let [results (ensure-all! project coords)]
+      ;; The deliberate dependency-management moment: show every pending
+      ;; warning, including ones a warm cache would otherwise keep quiet.
+      (let [results (ensure-all! project coords true)]
         (if (some :installed? results)
           (print-installs! results)
           (println "all deps up to date"))))
@@ -190,7 +386,7 @@
    root list. Source paths include resolved dep dirs; resource paths are
    project-only (deps never contribute resource roots)."
   [project coords raw-paths raw-resource-paths]
-  (let [results (ensure-all! project coords)
+  (let [results (ensure-all! project coords false)
         own-paths (resolve-project-paths ":paths" project raw-paths)
         paths (vec (concat own-paths (mapv :path results)))
         resource-paths (resolve-project-paths ":resource-paths" project
@@ -225,7 +421,7 @@
   [project cfg cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
         overlay (with->overlay! cfg names)
-        inline-deps (vec (or (:extra-deps task) {}))
+        inline-deps (config/dep-pairs (or (:extra-deps task) {}))
         coords (reduce config/merge-coords
                        (config/coords cfg)
                        [(:deps-pairs overlay) inline-deps])
@@ -446,19 +642,24 @@
       (write! *err*
               (str (style/header (str "Running tests in " header "...")) "\n"))
       (print-installs! results)
-      ;; let-go's require swallows a test file's compile error: lg prints
-      ;; "error: failed to load ..." to stderr but exits 0, so the harness
-      ;; reports 0 failures. Replay lg's output (minus the harness marker)
-      ;; and, if a pre-harness load error slipped through a zero exit, fail.
+      ;; A test file that fails to load must never pass silently, and lg has
+      ;; reported that two different ways across versions: through 1.11.x
+      ;; `require` swallowed the error, printing "error: failed to load ..." to
+      ;; stderr while still exiting 0 with the harness reporting 0 failures;
+      ;; from 1.12.x it throws, so the harness never starts. Replay lg's output
+      ;; (minus the harness marker), then treat either shape as a failure — the
+      ;; harness never signalling ready, or a pre-harness diagnostic that
+      ;; slipped through a zero exit.
       (let [r (runner/run-lg! source-paths resource-paths [harness] verbose?)
             exit (:exit r)]
         (when (seq (:out r)) (write! *out* (:out r)))
         (let [shown-err (test-runner/strip-ready-marker (:err r))]
           (when (seq shown-err) (write! *err* shown-err)))
-        (if (and (zero? exit)
-                 (test-runner/load-error-before-harness? (:err r)))
+        (if (or (not (test-runner/harness-ready? (:err r)))
+                (and (zero? exit)
+                     (test-runner/load-error-before-harness? (:err r))))
           (do (write! *err* "lgx: a test file failed to load (see errors above)\n")
-              (os/exit 1))
+              (os/exit (if (zero? exit) 1 exit)))
           (os/exit exit))))))
 
 ;; `project` and `cfg` arrive preloaded from dispatch, which had to read the

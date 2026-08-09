@@ -110,9 +110,11 @@ of failing or silently dropping tasks.
    `.git/`, and rename atomically to the final cache path. Local coords
    resolve from disk and never clone. `ensure-lib!` reports whether
    this call did the clone.
-4. After a dep resolves, read that dep's own `lgx.edn` if present and
-   append only its `:deps` entries to the queue. Other top-level keys in
-   a dep's config are ignored by consumers (open-map leniency in
+4. After a dep resolves, read the deps it declares and append them to
+   the queue — from its own `lgx.edn` if it has one, otherwise from the
+   `deps.edn` or `project.clj` it ships for other tools (see
+   [Transitive resolution](#transitive-resolution)). Other top-level keys
+   in a dep's `lgx.edn` are ignored by consumers (open-map leniency in
    `config/coords-at`); an invalid `:deps` there reports
    `lgx: invalid lgx.edn in <dir> (N errors)` and exits 1. Duplicate lib
    names are first-wins: a later differing coord is skipped with a
@@ -577,6 +579,149 @@ Local deps use the same source path rule as git deps: `:deps/root`
 overrides the default probe; otherwise lgx uses `<local>/src/` when it
 exists and `<local>/` when it does not. lgx reads a local lib's own
 `lgx.edn` for transitive `:deps`, just as it does for git deps.
+
+## Transitive resolution
+
+Most Clojure libraries have never heard of lgx. They declare their
+dependencies in a `deps.edn` or a `project.clj`, in Maven coordinates lgx
+cannot fetch. The gap this closes is **discovery**: without it, a missing
+transitive dep surfaces as a confusing require-time failure somewhere
+inside the library, and the fix — finding the right repo and tag by hand —
+is guesswork the tool can often do or at least explain.
+
+Gitlibs remains the only resolution mechanism. `:mvn/version` is not a
+coord lgx accepts; writing one in `lgx.edn` is a validation error that
+names the substitution.
+
+### Source ladder
+
+Coords for a fetched dep come from the first source it has:
+
+1. its own **`lgx.edn`** — resolved exactly as the project's own, and
+   `deps.edn`/`project.clj` go unread;
+2. else its **`deps.edn`** — top-level `:deps` only; `:aliases` describe
+   how to develop that library, not what consuming it requires;
+3. else its **`project.clj`** — the top-level `:dependencies` vector of a
+   `(defproject …)` form, with `[lib "1.2.3"]` read as
+   `{:mvn/version "1.2.3"}`. Profiles are out of scope.
+
+Selection is by **file existence, not by result**. A `deps.edn` that
+declares nothing is authoritative: `{}` legitimately means zero deps, and
+a stale `project.clj` beside it must not resurrect old ones.
+
+Both readers (`config/declared-deps-at`, `config/project-clj-deps-at`) are
+total. A missing file, a parse failure, an unexpected shape — each yields
+`[]`. These files belong to third parties and were written for another
+tool; failing a user's build over one is never the right trade.
+
+### Classifying one declared dep
+
+After dropping anything the consuming coord `:exclusions` and the built-in
+skip list (`org.clojure/clojure`, `org.clojure/spec.alpha`,
+`org.clojure/core.specs.alpha`, which let-go supplies),
+`config/classify-declared` decides what each declaration means:
+
+| Declared shape | Action |
+|---|---|
+| `:git/url` + `:git/sha`/`:sha`/`:git/tag` | resolve as-is — already pinned |
+| `io.github.X/Y` or `com.github.X/Y` with a ref, no `:git/url` | resolve against `https://github.com/X/Y` — these groups name their owner, so the URL is a fact |
+| `:mvn/version`, lib in the registry | resolve via `lgx/registry.lg`: its `:git/url` plus `:tag-format` applied to the declared version |
+| `:mvn/version`, lib name is a URL-certain group | probe `git ls-remote` for tags `<version>` then `v<version>`; resolve on a hit |
+| `:mvn/version`, unknown | warn |
+| `:local/root` (non-blank) | resolve relative to the declaring dep's own directory |
+| anything else | warn |
+
+Auto-resolved children recurse in the same walk and carry provenance, which
+`print-installs!` appends:
+`weavejester/dependency -> …  (via integrant/integrant deps.edn)`.
+First-wins dedup is unchanged, and every top-level coord is queued before
+any child, so a coord you list yourself always overrides what a dep
+declares — that is the escape hatch when the ladder cannot pin something.
+
+### The registry
+
+`lgx/registry.lg` maps Maven coordinates to git repositories. It exists
+because the mapping is rarely guessable: the coordinate group usually is
+not the GitHub owner (`integrant/integrant` lives at
+`weavejester/integrant`, `aero/aero` at `juxt/aero`, `org.clojure/*` at
+`clojure/*`), and tag naming is per-project (`1.0.1` here, `v1.4.256`
+there).
+
+Every row is verified fact — URL and tag format checked against the live
+repo, group name against Clojars — not inference. Entries are seeded from
+`examples/clojure-libs/`, the set already known to run under let-go, plus
+the deps those libraries declare. A miss is never an error; it falls to a
+warning.
+
+`:tag-format` is one string per repository, so it describes how that
+project tags *now*. A version predating a scheme change resolves to a tag
+that does not exist, which surfaces as a warning rather than a wrong
+checkout.
+
+### Error containment
+
+Anything that goes wrong while acting on third-party metadata degrades to
+a warning and the walk continues: a registry tag that moved, an inferred
+URL that 404s, a clone that fails, a coord malformed enough that
+normalizing it throws. The status quo without this feature is "not
+resolved at all", so failing soft is strictly better than failing the
+command. Coords from the user's own `lgx.edn` keep their hard errors.
+
+### Warnings
+
+Emitted **after the walk completes**, so a dep resolved later in
+breadth-first order never falsely warns. One line per miss, quoting the
+declaration verbatim — including when the coord lgx synthesized from it is
+what actually failed, since the declared version is what the reader needs:
+
+```
+warning: integrant/integrant declares weavejester/dependency {:mvn/version "0.2.1"} - not resolved by lgx; add a :git coord to lgx.edn :deps or exclude it (see examples/clojure-libs/)
+```
+
+Two filters apply. First, a declaration that matches something already
+resolved is silent — by normalized URL when it carries one, else by lib
+symbol, else by artifact segment, so a dep asking for
+`weavejester/dependency` stays quiet when you pinned
+`dev.weavejester/dependency`. This is a heuristic and only ever silences a
+warning; it never decides what gets resolved.
+
+Second, gating by command. **`lgx install` shows every pending warning**:
+it is the deliberate dependency-management moment, and doubles as the way
+to re-read them. `run`/`build`/`test` warn only about deps whose declaring
+lib was freshly installed in that walk, so a warm cache stays quiet in the
+day-to-day loop and a deliberately partial setup is not nagged.
+
+### `:exclusions`
+
+Any coord may carry `:exclusions [lib-sym …]` — tools.deps vocabulary,
+scoped to the consuming dep. The listed symbols, matched exactly as that
+dep writes them in its own `deps.edn`/`project.clj`, are skipped entirely:
+no resolution, no warning. This is the permanent silence for a transitive
+dep you know you do not need.
+
+It differs from tools.deps in applying to a dep's direct declarations
+rather than a whole subtree — observably the same for the shallow trees
+this ecosystem has, and documented rather than hidden. When a Maven
+declaration carrying `:exclusions` is resolved through the registry or a
+probe, the exclusions ride along onto the synthesized coord.
+
+### Coord ordering
+
+Coord pairs come out of a map, and let-go's map iteration order follows the
+bundle's intern layout: it is neither insertion order nor stable across
+unrelated edits. That order is observable — it decides which of two
+conflicting sibling coords first-wins keeps, and the precedence of dep
+source paths when two deps ship the same namespace — so every coord map
+reaches the resolver through `config/dep-pairs`, ordered by lib name.
+Resolution does not depend on lgx.edn declaration order, which the EDN
+reader discards anyway.
+
+### Out of scope
+
+`:mvn/version` as an lgx.edn coord, deps.edn `:aliases`/`:paths`,
+project.clj profiles, and version mediation beyond first-wins. A
+Maven-resolution subsystem was designed and deliberately parked; see
+[`plans/2026-08-05-0228-mvn-deps.md`](plans/2026-08-05-0228-mvn-deps.md).
 
 ## External dependencies
 

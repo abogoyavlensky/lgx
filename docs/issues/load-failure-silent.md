@@ -2,9 +2,70 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go) ·
 **File:** [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/master/pkg/resolver/resolver.go) ·
-**Status:** draft
+**Status:** partly fixed upstream in lg 1.12 — see "What lg 1.12 changed"
 
-## Problem
+## What lg 1.12 changed
+
+lg 1.12.2 splits the old single behaviour in two, and one half is now
+*worse* than what this issue originally described. Measured by holding lgx
+fixed and varying only `LGX_LG`:
+
+| failing test file | lg 1.11.1 | lg 1.12.2 |
+|---|---|---|
+| compile error (unresolved symbol) | swallowed; `error: failed to load <path>: …` on stderr; exit 0 | **throws**; error + stack trace; non-zero exit |
+| reader/syntax error (unbalanced form) | swallowed; `error: failed to load <path>: Syntax error reading source …`; exit 0 | **silently ignored — no stderr at all, exit 0** |
+
+So the compile-error hole is closed: option 1 ("bubble the error up")
+effectively landed for that path, and `lgx test` now reports the failure and
+exits non-zero.
+
+The reader-error path regressed. There is no longer *any* observable signal:
+no diagnostic on stderr, exit 0, and the file's forms simply absent. lgx
+cannot detect it from outside the process, and cannot detect it from inside
+either — `find-ns` still returns a live ns object for a namespace whose
+source never parsed:
+
+```
+$ cat test/bad_test.lg
+(ns bad-test)
+(def y (+ 1
+
+$ lg -source-paths test -e "(require 'bad-test) (prn (find-ns 'bad-test))"
+<ns bad-test>          ; no error printed, exit 0
+```
+
+That makes an unreadable test file indistinguishable from an empty one, so
+the silent-CI-pass this issue is about is back for syntax errors
+specifically.
+
+**Ask:** apply the same fix the compile path got to the reader path — a
+reader failure in a required file should throw (or at minimum print a
+diagnostic and set a non-zero exit), not vanish.
+
+## lgx-side status
+
+`lgx test` detects everything it still can (`lgx.lg` `cmd-test`,
+`lgx/test-runner`):
+
+- `harness-ready?` — the harness writes a marker as its first body form, so
+  a thrown load error (1.12 compile path) is caught as "the harness never
+  started", independent of lg's wording;
+- `load-error-before-harness?` — matches both the wrapped
+  `error: failed to load <path>: …` form and 1.12's bare
+  `error: Syntax error reading source at (<file>:L:C).`, for lg versions
+  that still print one.
+
+Together these cover every shape lg still reports, on both versions, so
+`tests/e2e.sh` scenarios 68 and 70 pass under each — scenario 68 now asserts
+the offending file and symbol rather than one version's phrasing.
+
+What remains uncovered is narrower than the table above suggests: only a
+reader error that leaves lg with *nothing* to report. `(def y #)` still
+produces `error: Syntax error reading source at (…)` and a non-zero exit on
+1.12, and is caught. An unterminated form running to EOF produces no output
+at all, and is not detectable by any means available to lgx.
+
+## Problem (as originally filed, against lg ≤ 1.11)
 
 When a file referenced by `(:require [some.ns])` fails to compile,
 the resolver in `pkg/resolver/resolver.go:65-86` prints

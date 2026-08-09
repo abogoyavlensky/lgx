@@ -56,36 +56,79 @@
     :else []))
 
 (defn- at-key
-  "Anchor plain message strings at sub-path [k]."
-  [k msgs]
-  (mapv (fn [m] {:path [k]
-                 :msg m}) msgs))
+  "Anchor errors at sub-path [k]. Accepts plain message strings and
+   {:path :msg} maps, whose own relative path is nested under k."
+  [k errs]
+  (mapv (fn [e]
+          (if (string? e)
+            {:path [k]
+             :msg e}
+            {:path (vec (cons k (:path e)))
+             :msg (:msg e)}))
+        errs))
+
+(defn- exclusions-errors
+  "A coord's :exclusions — a vector of lib symbols. Scope is the consuming
+   dep: each symbol is matched verbatim against the names that dep declares
+   in its own deps.edn/project.clj (tools.deps vocabulary)."
+  [v]
+  (if-not (vector? v)
+    [(str "must be a vector of symbols, got " (pr-str v))]
+    (loop [i 0
+           acc []]
+      (if (>= i (count v))
+        acc
+        (recur (inc i)
+               (if (symbol? (nth v i))
+                 acc
+                 (conj acc {:path [i]
+                            :msg (str "must be a symbol, got "
+                                      (pr-str (nth v i)))})))))))
+
+;; Rejected with a dedicated message rather than left to the generic
+;; missing-:git/url checks: a :mvn/version coord is almost always pasted from
+;; a library README, and the useful reply names the substitution. The key
+;; itself stays unoccupied — no API commitment.
+(def ^:private mvn-version-msg
+  (str ":mvn/version is not supported - let-go runs Clojure libs from source; "
+       "use :git/url + :git/tag (or :git/sha) pointing at the lib's repo "
+       "(see examples/clojure-libs/)"))
 
 (defn- coord-errors
   "Coord rule: :local/root or :git/url + (:git/sha | :git/tag), optional
-   :deps/root. Coord maps are open — unknown keys are tools.deps
-   forward-compat, not errors."
+   :deps/root and :exclusions. Coord maps are open — unknown keys are
+   tools.deps forward-compat, not errors."
   [c]
   (let [has-local? (contains? c :local/root)
         has-git? (some #(contains? c %) git-keys)
         deps-root (if (contains? c :deps/root)
                     (at-key :deps/root (rel-path-errors (:deps/root c)))
-                    [])]
+                    [])
+        exclusions (if (contains? c :exclusions)
+                     (at-key :exclusions (exclusions-errors (:exclusions c)))
+                     [])]
     (cond
+      ;; First and short-circuiting: the teaching message is the whole answer,
+      ;; and the shape checks below would only bury it.
+      (contains? c :mvn/version)
+      mvn-version-msg
+
       (and has-local? has-git?)
       "cannot mix :local/root with :git/* keys"
 
       has-local?
       (vec (concat (at-key :local/root
                            (non-blank-string-errors (:local/root c)))
-                   deps-root))
+                   deps-root
+                   exclusions))
 
       :else
       (vec (concat
              (when-not (string? (:git/url c)) ["missing :git/url"])
              (when-not (or (string? (:git/sha c)) (string? (:git/tag c)))
                ["must specify :git/sha or :git/tag"])
-             deps-root)))))
+             deps-root
+             exclusions)))))
 
 (def ^:private coord-schema [:and :map [:fn coord-errors]])
 
@@ -400,10 +443,27 @@
           (os/exit 1))
       (:cfg r))))
 
+;; Coord pairs come out of a map, and let-go's map iteration order is neither
+;; insertion order nor stable across unrelated edits — it follows the bundle's
+;; intern layout, so adding a keyword literal anywhere can reshuffle it. That
+;; order is observable: it decides which of two conflicting sibling coords
+;; first-wins keeps, and the precedence of dep source paths when two deps ship
+;; the same namespace. Sorting by lib name makes both reproducible, at the cost
+;; of not being the order written in lgx.edn (which the reader discards anyway).
+(defn dep-pairs
+  "Turn a lib→coord map into [lib coord] pairs ordered by lib name. Every
+   coord map in lgx reaches the resolver through here, so ordering is one
+   decision in one place."
+  [m]
+  (vec (sort-by (fn [[lib _]] (str lib)) m)))
+
+(def ^:private sorted-pairs dep-pairs)
+
 (defn coords
-  "Return a vector of [lib coord] pairs from a loaded cfg map."
+  "Return a vector of [lib coord] pairs from a loaded cfg map, ordered by lib
+   name so resolution is reproducible (see sorted-pairs)."
   [cfg]
-  (vec (:deps cfg)))
+  (sorted-pairs (:deps cfg)))
 
 (defn merge-coords
   "Merge a task's `extra-pairs` over `project-pairs` (both vectors of
@@ -447,7 +507,7 @@
                                            {:lgx/unknown-context nm
                                             :defined (vec (keys contexts-map))}))))
                        names)
-        dep-lists (mapv (fn [o] (vec (:extra-deps o))) overlays)
+        dep-lists (mapv (fn [o] (sorted-pairs (:extra-deps o))) overlays)
         deps-pairs (reduce merge-coords [] dep-lists)
         paths (vec (mapcat (fn [o] (or (:extra-paths o) [])) overlays))
         resource-paths (vec (mapcat (fn [o] (or (:extra-resource-paths o) []))
@@ -498,7 +558,220 @@
         (if (seq errors)
           (throw (ex-info (errors-report (str "lgx.edn in " dir) errors)
                           {:lgx/invalid-dep-config dir}))
-          (vec (or (:deps (:value parsed)) [])))))))
+          (sorted-pairs (or (:deps (:value parsed)) {})))))))
+
+;; ---------------------------------------------------------------------------
+;; Declared deps from a dependency's own tools.deps / Leiningen metadata
+;;
+;; These files belong to third parties and were never written for lgx, so both
+;; readers are best-effort and total: any missing file, parse failure, or
+;; unexpected shape yields [] rather than an error. The alternative — failing a
+;; user's build over a stranger's project.clj — is never the right trade. The
+;; coord values come back verbatim and unvalidated; classify-declared decides
+;; what each one means.
+;; ---------------------------------------------------------------------------
+
+(def deps-edn-name "deps.edn")
+(def project-clj-name "project.clj")
+
+(defn- read-first-form
+  "Read the first form of the file at `p`, or nil if it is absent or the
+   reader gives up."
+  [p]
+  (when (file-exists? p)
+    (try
+      (edn/read-string (slurp p))
+      (catch _ nil))))
+
+(defn declared-deps-at
+  "Return [lib coord] pairs from a deps.edn in `dir` — its top-level :deps
+   only. :aliases are ignored: an alias describes how to develop the dep, not
+   what consuming it requires. Entries whose lib name is not a symbol are
+   dropped. Returns [] for anything unexpected."
+  [dir]
+  (let [form (read-first-form (path/join dir deps-edn-name))
+        deps (when (map? form) (:deps form))]
+    (if-not (map? deps)
+      []
+      (sorted-pairs (filter (fn [[lib _]] (symbol? lib)) deps)))))
+
+(defn- lein-dep->pair
+  "Translate one Leiningen :dependencies entry into a [lib coord] pair, or nil
+   when it does not match `[lib \"version\" & opts]`. Trailing options
+   (:scope, :exclusions, …) are ignored — lgx has no use for them."
+  [entry]
+  (when (and (vector? entry)
+             (>= (count entry) 2)
+             (symbol? (nth entry 0))
+             (string? (nth entry 1)))
+    [(nth entry 0) {:mvn/version (nth entry 1)}]))
+
+(defn project-clj-deps-at
+  "Return [lib coord] pairs from a project.clj in `dir`, translating Leiningen
+   `[lib \"1.2.3\"]` entries into `{:mvn/version \"1.2.3\"}` coords. Lib
+   symbols are kept exactly as written — a bare `medley` stays `medley`, since
+   guessing a group would only produce a name that matches nothing.
+
+   Only the top-level :dependencies vector of a `(defproject …)` form is read,
+   which is also what keeps :profiles dependencies out. Returns [] otherwise."
+  [dir]
+  (let [form (read-first-form (path/join dir project-clj-name))]
+    (if-not (and (seq? form) (= 'defproject (first form)))
+      []
+      (let [items (vec form)
+            deps (loop [i 0]
+                   (cond
+                     (>= i (count items)) nil
+                     (= :dependencies (nth items i)) (nth items (inc i) nil)
+                     :else (recur (inc i))))]
+        (if-not (vector? deps)
+          []
+          (vec (keep lein-dep->pair deps)))))))
+
+;; ---------------------------------------------------------------------------
+;; Classifying one declared transitive dep
+;; ---------------------------------------------------------------------------
+
+;; Declared by nearly every Clojure lib and supplied by let-go itself, so
+;; resolving these would be wrong, not merely wasteful.
+(def ^:private skip-libs
+  #{'org.clojure/clojure
+    'org.clojure/spec.alpha
+    'org.clojure/core.specs.alpha})
+
+;; Lib-name groups whose owner is part of the coordinate itself, so the repo
+;; URL is a fact rather than a guess. tools.deps reads them the same way.
+(def ^:private github-group-prefixes ["io.github." "com.github."])
+
+(defn inferred-git-url
+  "The github.com URL implied by an `io.github.X/Y` or `com.github.X/Y` lib
+   name, or nil for any other name. These groups name their owner in the
+   coordinate itself, so the URL is certain rather than guessed — which is
+   what makes it safe to probe for tags."
+  [lib]
+  (let [group (namespace lib)]
+    (when group
+      (first (keep (fn [prefix]
+                     (when (and (str/starts-with? group prefix)
+                                (> (count group) (count prefix)))
+                       (str "https://github.com/"
+                            (subs group (count prefix)) "/" (name lib))))
+                   github-group-prefixes)))))
+
+(defn- git-ref
+  "The pinned ref in a declared coord. Accepts :sha alongside :git/sha —
+   both spellings appear in real deps.edn files."
+  [coord]
+  (let [sha (or (:git/sha coord) (:sha coord))]
+    (cond
+      (string? sha) {:git/sha sha}
+      (string? (:git/tag coord)) {:git/tag (:git/tag coord)}
+      :else nil)))
+
+(defn classify-declared
+  "Decide what one declared transitive dep `[lib coord]` means to lgx.
+   Returns a map whose :action is one of:
+
+     :skip     — org.clojure/clojure and friends; let-go supplies these
+     :resolve  — fully pinned; :coord is an lgx coord ready for the cache
+     :mvn      — Maven-style; :version is the declared version string. The
+                 registry lookup and tag probe are the caller's job, since
+                 both need I/O
+     :warn     — nothing usable here
+
+   Pure. `coord` arrives verbatim from third-party metadata, so it may be any
+   value at all, including nil."
+  [lib coord]
+  (let [ref (when (map? coord) (git-ref coord))
+        url (when (map? coord)
+              (if (string? (:git/url coord))
+                (:git/url coord)
+                (when ref (inferred-git-url lib))))]
+    (cond
+      (contains? skip-libs lib)
+      {:action :skip}
+
+      (not (map? coord))
+      {:action :warn}
+
+      ;; Blank is not merely useless: it resolves to the declaring dep's own
+      ;; directory, which would pass that dep off as its own child.
+      (and (string? (:local/root coord))
+           (not (str/blank? (:local/root coord))))
+      {:action :resolve
+       :coord coord}
+
+      (and url ref)
+      {:action :resolve
+       :coord (merge (dissoc coord :sha) {:git/url url} ref)}
+
+      (string? (:mvn/version coord))
+      {:action :mvn
+       :version (:mvn/version coord)}
+
+      :else
+      {:action :warn})))
+
+(defn without-exclusions
+  "Drop the `declared` pairs whose lib symbol appears in `exclusions`. Matching
+   is exact: an exclusion names a symbol as the dep writes it, so excluding
+   `weavejester/dependency` says nothing about `dev.weavejester/dependency`.
+
+   Only a sequential collection of symbols excludes anything. The project's own
+   coords are schema-checked, but a transitive coord can arrive from a
+   third-party deps.edn with `:exclusions` set to whatever that file said, and
+   nothing here may throw over it."
+  [exclusions declared]
+  (let [syms (when (sequential? exclusions) (filter symbol? exclusions))]
+    (if (empty? syms)
+      (vec declared)
+      (let [excluded (set syms)]
+        (vec (filter (fn [[lib _]] (not (contains? excluded lib))) declared))))))
+
+;; ---------------------------------------------------------------------------
+;; Suppression: does a declared dep look like something already resolved?
+;; ---------------------------------------------------------------------------
+
+(defn- normalize-git-url
+  "Strip the parts of a git URL that carry no identity — a trailing slash and
+   a trailing .git — so the same repo written two ways compares equal."
+  [url]
+  (loop [u (str/trim url)]
+    (cond
+      (str/ends-with? u "/") (recur (subs u 0 (dec (count u))))
+      (str/ends-with? u ".git") (recur (subs u 0 (- (count u) 4)))
+      :else u)))
+
+(defn unresolved-declared
+  "Return the subset of `pending` warning entries whose declared dep does not
+   already look resolved. `resolved` maps lib symbol → coord (ensure-all!'s
+   seen map); each pending entry carries `:declared [lib coord]`.
+
+   Matching is tiered by the identity a declaration actually carries:
+   a git URL (explicit or inferred from the lib name) compares by normalized
+   URL, which is exact; everything else compares by lib symbol, then by
+   artifact segment, so a dep declaring `weavejester/dependency` stays quiet
+   when the user pinned `dev.weavejester/dependency`.
+
+   This is a heuristic, and deliberately only ever silences a warning — it
+   never decides whether something gets resolved."
+  [resolved pending]
+  (let [urls (set (keep (fn [[_ c]]
+                          (when (string? (:git/url c))
+                            (normalize-git-url (:git/url c))))
+                        resolved))
+        libs (set (keys resolved))
+        artifacts (set (map name (keys resolved)))]
+    (vec (filter
+           (fn [entry]
+             (let [[lib coord] (:declared entry)
+                   url (when (map? coord)
+                         (or (:git/url coord) (inferred-git-url lib)))]
+               (if (string? url)
+                 (not (contains? urls (normalize-git-url url)))
+                 (not (or (contains? libs lib)
+                          (contains? artifacts (name lib)))))))
+           pending))))
 
 (defn tasks
   "Return the :tasks map from a loaded cfg map, or {} if absent."
