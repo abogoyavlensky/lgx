@@ -715,12 +715,18 @@
 (defn without-exclusions
   "Drop the `declared` pairs whose lib symbol appears in `exclusions`. Matching
    is exact: an exclusion names a symbol as the dep writes it, so excluding
-   `weavejester/dependency` says nothing about `dev.weavejester/dependency`."
+   `weavejester/dependency` says nothing about `dev.weavejester/dependency`.
+
+   Only a sequential collection of symbols excludes anything. The project's own
+   coords are schema-checked, but a transitive coord can arrive from a
+   third-party deps.edn with `:exclusions` set to whatever that file said, and
+   nothing here may throw over it."
   [exclusions declared]
-  (if (empty? exclusions)
-    (vec declared)
-    (let [excluded (set exclusions)]
-      (vec (filter (fn [[lib _]] (not (contains? excluded lib))) declared)))))
+  (let [syms (when (sequential? exclusions) (filter symbol? exclusions))]
+    (if (empty? syms)
+      (vec declared)
+      (let [excluded (set syms)]
+        (vec (filter (fn [[lib _]] (not (contains? excluded lib))) declared))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Suppression: does a declared dep look like something already resolved?

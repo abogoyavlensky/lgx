@@ -1188,6 +1188,21 @@
     (is (= declared (config/without-exclusions nil declared)))
     (is (= declared (config/without-exclusions [] declared)))))
 
+(deftest without-exclusions-tolerates-malformed-third-party-values
+  ;; A transitive coord's :exclusions is whatever a stranger's deps.edn said.
+  ;; Nothing usable there means nothing excluded — and never a throw, which
+  ;; would abort the command outside the fail-soft boundary.
+  (let [declared [['a/b {:mvn/version "1"}]]]
+    (doseq [bad [5 :kw "a/b" {:a 1} true]]
+      (is (= declared (config/without-exclusions bad declared)) (pr-str bad)))))
+
+(deftest without-exclusions-ignores-non-symbol-entries
+  ;; A partly-malformed vector still honours the symbols it does contain.
+  (is (= ['keep/me]
+         (mapv first (config/without-exclusions
+                       ['drop/me 5 nil "x"]
+                       [['drop/me {}] ['keep/me {}]])))))
+
 ;; ---------------------------------------------------------------------------
 ;; unresolved-declared (suppression: is this declared dep already resolved?)
 ;; ---------------------------------------------------------------------------

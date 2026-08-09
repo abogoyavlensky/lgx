@@ -631,7 +631,7 @@ content is not implicated.
 
 ## STATUS: COMPLETE — 2026-08-09
 
-Full suite green: **521 unit tests / 759 assertions** and **314 e2e
+Full suite green: **523 unit tests / 765 assertions** and **314 e2e
 assertions**, `bash tests/run.sh` exit 0.
 
 ### What was implemented
@@ -728,7 +728,13 @@ ordering (already fixed by `dep-pairs`), `:exclusions` dropped when
 synthesizing a coord from a Maven declaration, fetch-failure warnings
 showing the synthesized coord instead of the declaration, and `coord-id`
 normalization running outside the fail-soft boundary — all three fixed and
-verified.
+verified. Final branch-level review (covering Tasks 7-9): one P2 — a
+third-party `deps.edn` giving `:exclusions` a non-collection value made
+`without-exclusions` throw from `empty?`, outside the fail-soft boundary,
+aborting the command. Fixed: only a sequential collection of symbols
+excludes anything. Verified with a three-level fixture where the middle dep
+declares `:exclusions 5` — install exits 0, the child resolves, and its own
+unresolvable dep warns.
 
 ### What the plan could have specified better
 
