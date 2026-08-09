@@ -459,7 +459,7 @@ responds: returns false after ~10s instead of hanging.
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Wire the ladder into the BFS**
+- [x] **Step 1: Wire the ladder into the BFS**
   In `ensure-all!` (`lgx.lg:71`): when a fetched dep has no lgx.edn,
   read `declared-deps-at`, falling back to `project-clj-deps-at`. Apply
   the consuming coord's `:exclusions`, then `classify-declared`:
@@ -483,7 +483,7 @@ responds: returns false after ~10s instead of hanging.
   deps.edn vs project.clj selection is by `file-exists?` on deps.edn
   (Design fallback rule), not by empty result.
 
-- [ ] **Step 2: Provenance in output**
+- [x] **Step 2: Provenance in output**
   Thread `:via`/`:via-source` into result rows; extend `print-installs!`
   to append `  (via <lib> deps.edn)` / `(via <lib> project.clj)` /
   `(via <lib> registry)` for rows that have it.
@@ -562,7 +562,7 @@ content is not implicated.
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add scenarios (existing bare-repo fixture style)**
+- [x] **Step 1: Add scenarios (existing bare-repo fixture style)**
   1. **Auto-install:** bare repo A whose tree contains a `deps.edn`
      declaring bare repo B via `{:git/url "file://…B" :git/sha <sha>}`;
      project depends only on A → `lgx install` installs both; output
@@ -584,11 +584,11 @@ content is not implicated.
      exits 0, installs A, and warns about the failed child instead of
      aborting.
 
-- [ ] **Step 2: Run the full suite**
+- [x] **Step 2: Run the full suite**
   Run: `bash tests/run.sh`
   Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -m "Add e2e coverage for transitive deps discovery"`
 
 ### Task 8: Docs and parking note
@@ -596,7 +596,7 @@ content is not implicated.
 **Files:**
 - Modify: `docs/ARCHITECTURE.md`, `docs/plans/2026-08-05-0228-mvn-deps.md`
 
-- [ ] **Step 1: ARCHITECTURE.md**
+- [x] **Step 1: ARCHITECTURE.md**
   Extend the transitive-deps section (near the existing lgx.edn
   transitive text, `docs/ARCHITECTURE.md:565-580`): the source ladder
   (lgx.edn > deps.edn > project.clj), the classification table, the
@@ -604,14 +604,14 @@ content is not implicated.
   (third-party metadata failures warn, never abort). Use
   /writing-clearly.
 
-- [ ] **Step 2: Park the Maven plan**
+- [x] **Step 2: Park the Maven plan**
   Add a status header to `docs/plans/2026-08-05-0228-mvn-deps.md`:
   **PARKED** (date), superseded by this plan, two-line rationale
   (shallow ecosystem / one-way door), note that the let-go natives it
   needed (`os/unzip`, `hash/sha*`) are merged upstream, and that it
   remains executable if ecosystem-scale demand materializes.
 
-- [ ] **Step 3: Manual registry smoke (network)**
+- [x] **Step 3: Manual registry smoke (network)**
   The registry and probe branches can't be exercised hermetically (the
   registry is compiled-in and points at real GitHub URLs; the suite is
   network-free — their logic is unit-covered in Tasks 3–5). Verify once
@@ -620,9 +620,128 @@ content is not implicated.
   `lgx install` auto-resolves `weavejester/dependency` via the registry
   with `(via … registry)` in the output.
 
-- [ ] **Step 4: Run the full suite one last time**
+- [x] **Step 4: Run the full suite one last time**
   Run: `bash tests/run.sh`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Document transitive discovery; park the Maven plan"`
+
+---
+
+## STATUS: COMPLETE — 2026-08-09
+
+Full suite green: **521 unit tests / 759 assertions** and **314 e2e
+assertions**, `bash tests/run.sh` exit 0.
+
+### What was implemented
+
+The resolution ladder as designed. A dep's transitive coords come from its
+own `lgx.edn`, else its `deps.edn`, else its `project.clj`, chosen by file
+existence. Each declared dep is classified (`config/classify-declared`):
+already-pinned git coords resolve as-is, `io.github.X/Y`-style names get
+their URL inferred, Maven coordinates resolve through the curated registry
+(`lgx/registry.lg`, 11 live-verified rows) or a `git ls-remote` tag probe
+when the lib name certifies the repo, and everything else warns. Warnings
+land after the walk, are suppressed for anything already resolved, and are
+gated by command — `install` always, `run`/`build`/`test` only for a fresh
+install. `:exclusions` silences one permanently. Failures on third-party
+metadata never abort the command. Install output annotates provenance:
+`(via <lib> deps.edn|project.clj|registry|tag probe)`.
+
+Verified end-to-end by hand beyond the e2e suite: `medley/medley
+{:mvn/version "1.4.0"}` auto-resolves through the registry and the library
+runs; `io.github.cognitect-labs/test-runner {:mvn/version "0.5.1"}`
+resolves through the probe to tag `v0.5.1`; integrant's real
+`weavejester/dependency {:mvn/version "0.2.1"}` declaration warns with the
+declaration verbatim and exits 0.
+
+### Issues encountered
+
+**One genuine detour.** `bash tests/run.sh` was already red at the branch
+point, and diagnosing it consumed most of the effort in this plan. Both
+failures came from this branch pinning **lg 1.12.2** where `master` pins
+**1.11.1** — not from any plan code:
+
+- lg 1.12.2 enumerates a `:deps` map in a different order, and lgx let that
+  order decide first-wins conflicts (scenario 65).
+- lg 1.12.2 **throws** on a test file's compile error instead of swallowing
+  it, so the test runner's stderr-scanning detection never fired
+  (scenarios 68, 70).
+
+Two false conclusions were reached and recorded before the real cause was
+found: first that Task 1's `config.lg` edit had flipped the map order
+("verified" by blob and binary hashes — but every master-vs-branch build
+silently swapped the lg version too, since `mise which lg` reads the
+checked-out `.mise.toml`), and second that scenarios 68/70 were
+contamination from stale binaries. The corrected diagnosis is in
+"Suite status on this branch" above. **Lesson: when comparing behaviour
+across branches, pin the toolchain explicitly — `.mise.toml` is part of the
+diff.**
+
+Both were fixed with the user's approval (Task 9 and `6101f0b`), which also
+found a real latent bug: a syntax error in a test file passed silently under
+lg 1.12.2. `lgx test` now detects load failures two ways — the harness
+never signalling ready (version-independent) and lg's diagnostic shapes
+(both the wrapped and bare reader forms). One residual case remains
+undetectable and is filed in `docs/issues/load-failure-silent.md`: an
+unterminated form running to EOF, which lg 1.12.2 discards with no output
+and exit 0.
+
+### Deviations (gathered)
+
+- `at-key` extended to nest `{:path :msg}` maps so `:exclusions` entry
+  errors carry an index.
+- `classify-declared` accepts `:sha` as well as `:git/sha`; malli,
+  dynaload, and tools.cli all use the bare spelling, and without it every
+  real git coord fell to `:warn`.
+- Exclusions filtering became its own exported fn, `without-exclusions`.
+- Registry alias rows corrected against the Clojars API: the plan asked for
+  `dev.weavejester/{integrant,hiccup,dependency}` aliases, but all three
+  404 — those libs publish under one group. Only medley and bond genuinely
+  have two. The plan appears to have read the `dev.weavejester/…` *local
+  labels* in `examples/clojure-libs/` lgx.edn files as Clojars groups.
+- Added `registry/coord-for` (lookup + translate in one call).
+- A fourth `:via-source`, `:probe`, printing as `(via <lib> tag probe)` —
+  a probe-resolved coord came from neither the registry nor the file
+  verbatim.
+- The probe does not reuse `git!` (which throws, the opposite of its
+  contract) and runs under `env GIT_TERMINAL_PROMPT=0` plus git's
+  `http.lowSpeedLimit`/`http.lowSpeedTime`, so a guessed URL can neither
+  prompt for credentials nor hang.
+- Queue entries became maps; rung selection also checks for the dep's
+  `lgx.edn` by file existence, since `coords-at` returns `[]` for both
+  "absent" and "no `:deps`".
+- Reader leniency: `~unquote` and `#"regex"` do *not* defeat let-go's
+  reader, so that planned test asserts the opposite. Lein entries' trailing
+  options (`:scope`) are ignored.
+- Added `config/dep-pairs` (approved out-of-plan fix) so coord ordering
+  never depends on let-go's map iteration.
+- Task 9 added beyond the plan, with approval, to unblock verification.
+
+### Codex review findings addressed
+
+Tasks 1, 2, 4 clean. Task 3: `{:local/root ""}` classified as resolvable
+(would resolve to the declaring dep's own directory) — fixed. Task 5: no
+deadline on the probe — fixed. Task 6: four P2s — nondeterministic declared
+ordering (already fixed by `dep-pairs`), `:exclusions` dropped when
+synthesizing a coord from a Maven declaration, fetch-failure warnings
+showing the synthesized coord instead of the declaration, and `coord-id`
+normalization running outside the fail-soft boundary — all three fixed and
+verified.
+
+### What the plan could have specified better
+
+**Pin the toolchain in the plan's own verification step.** The plan said
+Task 6 Step 3 should "PASS (all existing tests unaffected)" — but the suite
+was already failing when the plan was written, on the lg version the branch
+had already adopted. One line establishing the baseline ("`tests/run.sh` is
+currently red on N scenarios because of the lg 1.12.2 bump; that is
+pre-existing") would have saved the entire detour. More generally: a plan
+whose branch changes the toolchain should say so in **Tech Stack** and state
+what that breaks. The stated "pinned lg 1.12.2 (no new lg features
+required)" was true and still hid the two behaviour changes that mattered.
+
+Second, smaller: the registry seed list should have been given as
+*coordinates to verify* rather than as asserted alias facts. Three of its
+alias rows were wrong, and only a Clojars check caught it.
