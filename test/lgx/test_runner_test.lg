@@ -302,6 +302,19 @@
              "Syntax error reading source at (/p/foo_test.lg:2:10).\n"
              marker "\n")))))
 
+(deftest load-error-before-harness-detects-unwrapped-reader-error
+  ;; lg 1.12 swallows a reader failure but reports it without the
+  ;; "failed to load" wrapper — still a silent load failure.
+  (is (true?
+       (tr/load-error-before-harness?
+        (str "error: Syntax error reading source at (/p/foo_test.lg:4:10).\n"
+             marker "\n"))))
+  ;; ...and it still has to name a source file.
+  (is (false?
+       (tr/load-error-before-harness?
+        (str "error: Syntax error reading source at (repl:1:1).\n"
+             marker "\n")))))
+
 (deftest load-error-before-harness-false-when-marker-only-after
   ;; Even a perfectly-shaped diagnostic emitted AFTER the marker (i.e. by a
   ;; test during execution) must NOT count — the phase boundary excludes it.
@@ -327,6 +340,26 @@
 (deftest load-error-before-harness-nil-safe
   (is (false? (tr/load-error-before-harness? nil)))
   (is (false? (tr/load-error-before-harness? ""))))
+
+;; ---------------------------------------------------------------------------
+;; harness-ready? — the version-independent load-failure signal. From lg 1.12
+;; a test file's compile error throws instead of being swallowed, so the
+;; harness never reaches its first body form and never emits the marker.
+;; ---------------------------------------------------------------------------
+
+(deftest harness-ready-true-when-marker-present
+  (is (true? (tr/harness-ready? (str marker "\n"))))
+  (is (true? (tr/harness-ready? (str "some load noise\n" marker "\ntest stderr\n")))))
+
+(deftest harness-ready-false-when-marker-absent
+  ;; lg >= 1.12 throwing on a broken require: the harness body never ran.
+  (is (false? (tr/harness-ready?
+               (str "error: CompileError: Can't resolve nope in this context\n"
+                    "stack trace:\n  at require (harness.lg:1:1)\n")))))
+
+(deftest harness-ready-false-on-empty-or-nil
+  (is (false? (tr/harness-ready? nil)))
+  (is (false? (tr/harness-ready? ""))))
 
 (deftest write-harness-uses-versioned-stable-path
   (let [home (str "/tmp/lgx-harness-test-" (rand-int 100000000))

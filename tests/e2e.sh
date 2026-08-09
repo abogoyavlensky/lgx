@@ -1733,8 +1733,15 @@ EOF
     set -e
     [[ $rc -ne 0 ]] || fail "broken test: expected non-zero exit, got $rc (output: $out)"
     pass "broken test: lgx test exits non-zero"
-    assert_contains "$out" "error: failed to load" \
-        "broken test: lg's load error is surfaced"
+    # lg's wording for this depends on its version: through 1.11 require
+    # swallowed the error and printed "error: failed to load <path>: ..." while
+    # exiting 0; from 1.12 it throws a compile error with a stack trace. Assert
+    # what both carry — the offending file and the symbol that broke it —
+    # rather than one version's phrasing.
+    assert_contains "$out" "broken_test.lg" \
+        "broken test: the offending file is named"
+    assert_contains "$out" "totally-undefined-symbol" \
+        "broken test: lg's diagnostic is surfaced"
     assert_contains "$out" "a test file failed to load" \
         "broken test: lgx explains the failure"
     rm -rf "$proj_brk" "$home_brk"

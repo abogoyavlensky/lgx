@@ -126,13 +126,26 @@
   [declaring installed? source dir declared]
   (let [[dlib dcoord] declared
         {:keys [action coord version]} (config/classify-declared dlib dcoord)
+        ;; :exclusions ride along when a coord is synthesized from a Maven
+        ;; declaration: they are tools.deps vocabulary that a deps.edn may
+        ;; carry, and they scope to what *this* dep pulls in, so dropping them
+        ;; would silently resolve something the declaration ruled out. (The
+        ;; :resolve path keeps them already — the coord passes through whole.)
+        carry-exclusions (fn [c]
+                           (if (and (map? dcoord) (contains? dcoord :exclusions))
+                             (assoc c :exclusions (:exclusions dcoord))
+                             c))
         child (fn [c via-source]
                 {:child {:lib dlib
-                         :coord c
+                         :coord (carry-exclusions c)
                          :base dir
                          :via declaring
                          :via-source via-source
-                         :via-installed? installed?}})]
+                         :via-installed? installed?
+                         ;; Kept verbatim so a later fetch failure warns about
+                         ;; what the dep actually wrote, not about the coord we
+                         ;; synthesized from it.
+                         :declared declared}})]
     (cond
       (= :skip action) nil
       (= :resolve action) (child coord source)
@@ -211,49 +224,68 @@
     (if (empty? queue)
       (do (emit-warnings! seen pending warn-all?)
           out)
-      (let [{:keys [lib coord base via via-source via-installed?]} (first queue)
-            id (coord-id base coord)
-            rest-q (vec (rest queue))]
-        (if (contains? seen lib)
-          (do
-            (when (not= (get seen lib) id)
-              (write! *err*
-                      (str "warning: " lib " already resolved as "
-                           (coord-label (get seen lib)) "; ignoring "
-                           (coord-label id) "\n")))
-            (recur rest-q seen out pending))
-          ;; A fetch failure aborts only when the coord is the user's own; one
-          ;; reached through a dep's metadata degrades to a warning.
-          (let [fetched (if via
-                          (try {:ok (cache/ensure-lib! coord base)}
-                               (catch e {:error (ex-message e)}))
-                          {:ok (cache/ensure-lib! coord base)})]
-            (if (:error fetched)
-              (recur rest-q seen out
-                     (conj pending
-                           (pending-warning via via-installed? [lib coord]
-                                            (:error fetched))))
-              (let [{:keys [path dir installed?]} (:ok fetched)
-                    lgx-edn? (file-exists? (path/join dir config/config-name))
-                    ;; Rung 1: a dep's own lgx.edn is authoritative and its
-                    ;; deps.edn/project.clj go unread.
-                    found (if lgx-edn?
-                            {:children (mapv (fn [[clib cc]]
-                                               {:lib clib
-                                                :coord cc
-                                                :base dir})
-                                             (coords-at! dir))
-                             :pending []}
-                            (declared-children lib coord dir installed?))
-                    row {:lib lib
-                         :path path
-                         :installed? installed?}]
-                (recur (vec (concat rest-q (:children found)))
-                       (assoc seen lib id)
-                       (conj out (if via
-                                   (assoc row :via via :via-source via-source)
-                                   row))
-                       (vec (concat pending (:pending found))))))))))))
+      (let [{:keys [lib coord base via via-source via-installed? declared]}
+            (first queue)
+            rest-q (vec (rest queue))
+            ;; Everything that can throw on a coord reached through a dep's
+            ;; metadata sits inside this boundary, normalization included:
+            ;; coord-id resolves a relative :local/root, and third-party
+            ;; metadata can hold a value that is truthy but not a path.
+            soft? (some? via)
+            ;; A warning names what the dep wrote, not the coord synthesized
+            ;; from it, so a registry tag miss still shows the :mvn/version.
+            warn-about (or declared [lib coord])
+            attempt (fn [f]
+                      (if soft?
+                        (try {:ok (f)} (catch e {:error (ex-message e)}))
+                        {:ok (f)}))
+            normalized (attempt (fn [] (coord-id base coord)))]
+        (if (:error normalized)
+          (recur rest-q seen out
+                 (conj pending (pending-warning via via-installed? warn-about
+                                                (:error normalized))))
+          (let [id (:ok normalized)]
+            (if (contains? seen lib)
+              (do
+                (when (not= (get seen lib) id)
+                  (write! *err*
+                          (str "warning: " lib " already resolved as "
+                               (coord-label (get seen lib)) "; ignoring "
+                               (coord-label id) "\n")))
+                (recur rest-q seen out pending))
+              ;; A fetch failure aborts only when the coord is the user's own;
+              ;; one reached through a dep's metadata degrades to a warning.
+              (let [fetched (attempt (fn [] (cache/ensure-lib! coord base)))]
+                (if (:error fetched)
+                  (recur rest-q seen out
+                         (conj pending
+                               (pending-warning via via-installed? warn-about
+                                                (:error fetched))))
+                  (let [{:keys [path dir installed?]} (:ok fetched)
+                        lgx-edn? (file-exists? (path/join dir
+                                                          config/config-name))
+                        ;; Rung 1: a dep's own lgx.edn is authoritative and its
+                        ;; deps.edn/project.clj go unread.
+                        found (if lgx-edn?
+                                {:children (mapv (fn [[clib cc]]
+                                                   {:lib clib
+                                                    :coord cc
+                                                    :base dir})
+                                                 (coords-at! dir))
+                                 :pending []}
+                                (declared-children lib coord dir installed?))
+                        row {:lib lib
+                             :path path
+                             :installed? installed?}]
+                    (recur (vec (concat rest-q (:children found)))
+                           (assoc seen lib id)
+                           (conj out (if via
+                                       (assoc row
+                                              :via via
+                                              :via-source via-source)
+                                       row))
+                           (vec (concat pending
+                                        (:pending found))))))))))))))
 
 (defn- via-label
   "How a provenance source reads in install output."
@@ -610,19 +642,24 @@
       (write! *err*
               (str (style/header (str "Running tests in " header "...")) "\n"))
       (print-installs! results)
-      ;; let-go's require swallows a test file's compile error: lg prints
-      ;; "error: failed to load ..." to stderr but exits 0, so the harness
-      ;; reports 0 failures. Replay lg's output (minus the harness marker)
-      ;; and, if a pre-harness load error slipped through a zero exit, fail.
+      ;; A test file that fails to load must never pass silently, and lg has
+      ;; reported that two different ways across versions: through 1.11.x
+      ;; `require` swallowed the error, printing "error: failed to load ..." to
+      ;; stderr while still exiting 0 with the harness reporting 0 failures;
+      ;; from 1.12.x it throws, so the harness never starts. Replay lg's output
+      ;; (minus the harness marker), then treat either shape as a failure — the
+      ;; harness never signalling ready, or a pre-harness diagnostic that
+      ;; slipped through a zero exit.
       (let [r (runner/run-lg! source-paths resource-paths [harness] verbose?)
             exit (:exit r)]
         (when (seq (:out r)) (write! *out* (:out r)))
         (let [shown-err (test-runner/strip-ready-marker (:err r))]
           (when (seq shown-err) (write! *err* shown-err)))
-        (if (and (zero? exit)
-                 (test-runner/load-error-before-harness? (:err r)))
+        (if (or (not (test-runner/harness-ready? (:err r)))
+                (and (zero? exit)
+                     (test-runner/load-error-before-harness? (:err r))))
           (do (write! *err* "lgx: a test file failed to load (see errors above)\n")
-              (os/exit 1))
+              (os/exit (if (zero? exit) 1 exit)))
           (os/exit exit))))))
 
 ;; `project` and `cfg` arrive preloaded from dispatch, which had to read the

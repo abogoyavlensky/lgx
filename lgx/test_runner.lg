@@ -278,6 +278,20 @@
   (when (some? err)
     (str/replace err (str harness-ready-marker "\n") "")))
 
+(defn harness-ready?
+  "True if the harness reached its first body form, i.e. the (ns … :require …)
+   above it loaded every test namespace.
+
+   This is the version-independent half of load-failure detection. let-go
+   changed behaviour here: through 1.11.x `require` swallowed a test file's
+   compile error and carried on, so the harness still ran and the only trace
+   was a diagnostic line on stderr; from 1.12.x it throws, so the harness never
+   starts and there is no `error: failed to load` line to match. Asking whether
+   the marker arrived covers both, and asks about our own harness rather than
+   about lg's wording. nil-safe."
+  [err]
+  (and (some? err) (str/includes? err harness-ready-marker)))
+
 (defn- lg-load-error-line?
   "True if `line` is one of lg's loader diagnostics. lg emits them as
    `error: failed to load <path>: <diagnostic>` for every load failure —
@@ -287,9 +301,14 @@
    `.lg:`/`.cljc:`/`.clj:` source file) rather than the varying diagnostic
    text, so no failure type is missed. The source-file token plus the
    line-start anchor also keep arbitrary user stderr that merely mentions
-   the phrase — even at load time, before the marker — from matching."
+   the phrase — even at load time, before the marker — from matching.
+
+   lg 1.12 reports a swallowed *reader* failure without the wrapper, as
+   `error: Syntax error reading source at (<file>:L:C).`, so that shape counts
+   too. Both forms still have to name a source file to match."
   [line]
-  (and (str/starts-with? line "error: failed to load ")
+  (and (or (str/starts-with? line "error: failed to load ")
+           (str/starts-with? line "error: Syntax error reading source at "))
        (or (str/includes? line ".lg:")
            (str/includes? line ".cljc:")
            (str/includes? line ".clj:"))))
