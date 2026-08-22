@@ -2,11 +2,57 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make [`juxt/aero`](https://github.com/juxt/aero) 1.1.6 load and run under let-go so `examples/clojure-libs/with-aero` resolves a real `config.edn` (env/profile/ref/merge/coercion reader tags) under lgx.
+**Goal:** Make [`juxt/aero`](https://github.com/juxt/aero) 1.1.6 load and run under let-go so aero is usable in real let-go programs, with `examples/clojure-libs/with-aero` resolving a real `config.edn` (env/profile/ref/merge/coercion reader tags) under lgx as the proof.
 
 **Tech Stack:** Go (`pkg/compiler`, `pkg/vm`, `pkg/rt`), let-go Clojure (`pkg/rt/core/*.lg`), the lgx example harness.
 
-**Target repo:** `/Users/andrew/Projects/let-go`, branch `with-aero` (HEAD `91486bc`). **This plan does NOT touch lgx** except the final verify + doc-status steps.
+**Target repo:** `/Users/andrew/Projects/let-go`, a **fresh branch off current `main`**. **This plan does NOT touch lgx** except the final verify + doc-status steps.
+
+---
+
+> ## Revision 2026-08-22 — re-verified against `main` @ `d270802`
+>
+> The original plan (2026-07-15) was written against `91486bc` and never
+> executed: the `with-aero` branch still points at exactly that commit, which
+> has since been absorbed into `main` by unrelated work. **Zero tasks were
+> done.** `main` has advanced ~120 commits since (24 of them IR/lowering).
+>
+> **The gap analysis survived re-probing intact.** All twelve gaps still fail on
+> `d270802`, each reproducing the exact symptom the plan predicted — `(format
+> "%s" 42)` → `"%!s(int=42)"`, the syntax-quote / namespaced-`:keys` / seq-meta
+> probes → `nil`, `(clojure.lang.PersistentQueue/EMPTY)` → "is not a function".
+> The task *designs* are still the right ones.
+>
+> **What rotted is the mechanics.** Corrections are inline below and marked
+> `[2026-08-22]`. The load-bearing ones:
+>
+> 1. **The build/regen rules were wrong and would ship red CI** — see the
+>    superseding contract in "Build / regen rules", which now replaces the
+>    per-task "Regen + rebuild" steps wholesale.
+> 2. **Two backends.** `*ir-compile-strict*` landed since. Compiler/resolution
+>    fixes need the IR builder (`pkg/rt/core/ir/build.lg`) considered, or they
+>    silently fail to apply under `*ir-compile*`. This bit an unrelated PR
+>    (nooga/let-go#756) after review caught it. Concretely for this plan: the
+>    `nsAliases` table (G1) is **mirrored** at
+>    `pkg/rt/core/ir/passes/purity.lg:396`.
+> 3. **G10's scope is larger than written** — the vector seqs lack `WithMeta`
+>    too. Verified two ways (probe + grep); see Task 8.
+> 4. **Primitive registration changed** (`feat(rt): hoist 222 clojure.core
+>    primitives to named //lg:native decls`, #639). New builtins are declared
+>    with `//lg:native` / `//lg:name` markers and picked up by a generated
+>    registrar, not hand-written `ns.Def` calls.
+> 5. Two claims in the original encoded **prototype knowledge as fact** and did
+>    not hold on re-check (the G8 exemption list; G10's scope). Treat any
+>    remaining unverified claim the same way — re-probe before trusting.
+>
+> **Relationship to the six open HoneySQL PRs** (nooga/let-go#754, #756, #758,
+> #760, #762, #764): **no overlap, no blocker.** They touch no file this plan
+> touches, and aero's source and test suite use none of the constructs they fix
+> (no `thrown?`, no `#'ns/private`, no `reify`). They are based 2 commits behind
+> `main`, so they neither conflict with nor gate this work. The one incidental
+> benefit is #764 (insertion-ordered small maps): an aero-resolved config will
+> print in `config.edn` order rather than scrambled, which makes the example's
+> output readable — cosmetic, not required.
 
 ---
 
@@ -21,9 +67,42 @@ aero is not "data in, data out" — it is a small **reader + expansion engine**.
 
 That exercises machinery let-go had never used: a real `clojure.lang.TaggedLiteral`, `edn/read` with `:readers`/`:default`/`:eof`, metadata-carrying seqs, and syntax-quote / destructuring corners. Every gap here was found by **running aero under a patched `lg` and reading the first error**, and the three general compiler/core fixes plus the map+scalar expansion engine were validated end-to-end. Full gap analysis: `lgx/docs/issues/aero-compat.md`.
 
-### Current state (after the malli/host-compat merge into `with-aero`)
+### Current state `[2026-08-22 — re-probed on main @ d270802]`
 
-The merge (#510 generic JVM collection interop, #512 HashMap/ArrayDeque, #516 host compile-stubs) **already closed most of gap G3**: `Long/parseLong`, `Double/parseDouble`, `Integer/parseInt`, `Float/parseFloat` exist (`pkg/rt/host_jvm_statics.go:142-145`); `with-open` closes via `close!` on an `LGReader` (generic interop). What remains open (re-probed on `91486bc`): **G1, G2, G3-Boolean, G5, G6, G7, G8, G9, G10, G11, G12**. `#include` (G4) is **explicitly deferred** — it needs a host `File` type + `StringReader` + `io/reader` coercion that the example does not exercise.
+The malli/host-compat merge (#510 generic JVM collection interop, #512
+HashMap/ArrayDeque, #516 host compile-stubs) **already closed most of gap G3**:
+`Long/parseLong`, `Double/parseDouble`, `Integer/parseInt`, `Float/parseFloat`
+exist (`pkg/rt/host_jvm_statics.go:142-145` — anchor still exact); `with-open`
+closes via `close!` on an `LGReader` (generic interop).
+
+Still open, each re-verified by running it: **G1, G2, G3-Boolean, G5, G6, G7,
+G8, G9, G10, G11, G12**. `#include` (G4) stays **explicitly deferred** — it
+needs a host `File` type + `StringReader` + `io/reader` coercion the example
+does not exercise.
+
+Adjacent capabilities that *do* exist, which narrow three gaps usefully:
+
+| Probe | Result | Bearing |
+|---|---|---|
+| `(edn/read-string "{:a 1}")` | `{:a 1}` | the `edn` ns is real; G11 is only "no `read` with opts", not "no edn" |
+| `(read-string "#uuid \"…\"")` | a UUID | built-in tag dispatch works; G11 extends it rather than inventing it |
+| `(read-string "#env \"PORT\"")` | `"PORT"` | unknown tags silently **drop the tag** and return the payload — the exact hole G6 fills |
+| `(meta (with-meta (list 1 2) {:k 1}))` | `{:k 1}` | `List` carries meta; it is the *only* seq type that does (see Task 8) |
+| `(ns t (:import [clojure.lang PersistentQueue]))` | accepted | `:import` is **not** a gap — relevant because aero's test ns imports `aero.core.Deferred` |
+
+**`tagged-literal?` is a silent lie today.** `pkg/rt/core/core.lg:1985-1988` is
+`(defn tagged-literal? [_] false)` with a comment admitting there is no
+TaggedLiteral type. aero calls it, so on current `main` aero gets a *wrong
+answer* rather than a loud failure. Task 9 replaces it; if this plan is ever
+shelved mid-way, that stub is worth making throw instead (the house rule is
+that a stub which fails loudly beats one that plausibly lies).
+
+**Verifying with aero's own test suite.** aero ships
+`test/aero/core_test.cljc` — 251 lines, 28 `deftest`s, 49 `is` forms, one
+`are`, one `testing`. Running it under `lg` is the strongest available proof
+and is worth doing after Task 13 (see the note there). It needs **G1**, since
+its `ns` form requires `clojure.java.io`; it uses no `thrown?`, so it does not
+depend on the in-flight clojure.test work.
 
 ### Where each fix lives (`.lg` vs Go)
 
@@ -51,18 +130,104 @@ TaggedLiteral **must be opaque** to aero's record-walk. The earlier end-to-end v
 
 ### G8 risk
 
-The syntax-quote fix (qualify a bare symbol to the current ns when it is defined-locally **or** unresolvable-anywhere) is a general correctness fix but touches every macro-expansion. It already required exempting `catch`/`finally`/`&` (contextual keywords not in `specialForms`). Treat the full `make test` suite as the guard; expect to possibly exempt a few more contextual symbols.
+The syntax-quote fix (qualify a bare symbol to the current ns when it is defined-locally **or** unresolvable-anywhere) is a general correctness fix but touches every macro-expansion. Treat the full `make test` suite as the guard; expect to exempt some contextual symbols.
+
+> `[2026-08-22]` The original said this "already required exempting
+> `catch`/`finally`/`&`". That was **prototype knowledge from the throwaway
+> branch and is not in the tree** — today's guard at
+> `pkg/compiler/reader.go:899` exempts only `with-meta` and checks only
+> `cns.LookupLocal(sform) != nil`:
+> ```go
+> if ns == vm.NIL && sform != "with-meta" {
+>     cns := rt.CurrentNS.Deref().(*vm.Namespace)
+>     if cns.LookupLocal(sform) != nil {
+> ```
+> `catch`/`finally`/`&` are also absent from `specialForms`
+> (`pkg/compiler/compiler.go:927-936`, which holds only
+> `if do def set! fn* quote var let* loop* recur try`), so the special-form
+> escape at `reader.go:876` does not cover them either. Treat the exemption
+> list as a **hypothesis to re-derive under `make test`**, not a known
+> quantity. Also see "Two backends" — verify under `*ir-compile-strict*`.
 
 ### Ordering
 
 General fixes first (smallest, benefit every library, independently landable), then loading shims, then the two subsystems (TaggedLiteral + `edn/read`; seq metadata), then the reader-ctor stub, then end-to-end verify. Each task keeps `make test` green.
 
-### Build / regen rules
+### Build / regen rules `[2026-08-22 — REWRITTEN; supersedes every task's "Regen + rebuild" step]`
 
-- After any **Go** change: rebuild — `go build -ldflags="-s -w -X main.commit=$(git rev-parse --short HEAD)" -o lg .`
-- After any **`pkg/rt/core/*.lg`** change: regenerate the bundle first — `go run -tags bootstrap ./cmd/lgbgen` — then rebuild.
-- Full test suite: `make test` (runs `go test -count=1 ./test/...`; `test/*.lg` deftests are compiled and run via `(run-tests)` by `test/language_test.go`'s `TestMain`).
-- Fast per-gap signal: `LG_READ_CLJ=1 ./lg -e "<form>"`.
+The original rules here were incomplete in a way that ships red CI, and every
+task below inherited them. **Ignore the per-task rebuild commands and use
+this contract instead.**
+
+- **Build:** `make build` (promotes to `bin/lg`; the old `go build -o lg .`
+  bypasses generation). `make build` can mtime-skip regeneration after a branch
+  switch — when in doubt, `make generate` forces it.
+- **After *any* change that will be committed — Go or `.lg`:** run
+  `make generate`, then **commit all three tracked generated artifacts**:
+  `pkg/rt/core_compiled.lgb`, `pkg/rt/generated.manifest`,
+  `pkg/rt/generated.sums`. This is **not** an `.lg`-only concern, which is the
+  trap the old rule set: 87 `pkg/vm/*.go` files plus `pkg/compiler/` and
+  `pkg/bytecode/` are registered as bundle *generators*, so a one-file Go
+  change stales the manifest exactly as an `.lg` edit does. Nearly every task
+  in this plan touches one of those directories.
+  (`pkg/rt/core_go_lowered/` is gitignored — regenerated, never committed.)
+- **The gate:** `make check-generated`. CI runs it; **`make test` does not
+  cover it**. The local loop that actually proves a change is clean is
+  `make test && make check-generated`.
+- **Full test suite:** `make test`. (Correction: `test/*.lg` files are
+  discovered and run per-file by `TestRunner` in `test/language_test.go`, each
+  inside a clean dynamic-binding scope — not by a `TestMain`. Any new
+  `test/*.lg` file is picked up automatically; a single-segment ns resolves to
+  a sibling file in `test/`, which is how a two-namespace fixture is built.)
+- **Semantics changes:** for anything touching core data structures or
+  evaluation semantics, `make clojure-compat-report` (the jank
+  clojure-test-suite corpus) is the honest regression check — the README quotes
+  its pass count.
+- **Fast per-gap signal:** `LG_READ_CLJ=1 bin/lg -e "<form>"`. Note `-e` echoes
+  the form's return value after any printed output, so read the second-to-last
+  line, not the last.
+
+### Two backends `[2026-08-22 — new]`
+
+let-go compiles through the bytecode compiler (`pkg/compiler/`) **and** a
+self-hosted IR builder (`pkg/rt/core/ir/build.lg`), which implement resolution
+and special-form behavior separately. A fix to one often needs its mirror in
+the other, or the gap merely moves: under `*ir-compile*` the IR path either
+throws (strict mode) or silently falls back to bytecode, so the fix looks
+complete while quietly not applying, and tests on the default path do not
+notice.
+
+Tasks affected: **Task 2 (G8 syntax-quote)** and **Task 3 (G7 static field in
+call position)** are compiler changes — grep `ir/build.lg` for the same form
+before declaring either done, and gate with
+`(binding [*ir-compile* true *ir-compile-strict* true] …)`. **Task 5 (G1
+alias)** looks like a one-line map edit but the `nsAliases` table is
+**mirrored** at `pkg/rt/core/ir/passes/purity.lg:396` — update both or the
+backends disagree about what `clojure.java.io` resolves to.
+
+### PR structure `[2026-08-22 — new]`
+
+Land this as **independent PRs, smallest-risk first**, not one 13-task branch.
+The six HoneySQL PRs showed the maintainer reviews each one closely (building
+at the PR head, with babashka as a Clojure oracle), and a single branch
+spanning compiler + reader + vm + rt + core.lg is not reviewably sized.
+
+Suggested tranches, each independently valuable even if the next never lands:
+
+- **T1 — general wins, no aero dependency:** Tasks 1 (G9), 4 (G12), 5 (G1),
+  6 (G3), 7 (G2). Five small PRs; every one is a general Clojure-compat fix.
+- **T2 — seq metadata:** Task 8 (G10), after re-deriving its scope.
+- **T3 — the reader/compiler subsystem:** Tasks 2 (G8), 3 (G7), 9 (G6),
+  10 (G11), 11 (G5). This is where aero actually starts working, and where the
+  design risk is concentrated.
+
+G8 (Task 2) deserves separate thought before T3: it changes every
+macroexpansion, and review of nooga/let-go#754 surfaced a *second*
+syntax-quote divergence (auto-gensyms are scoped per-macroexpansion rather
+than per-syntax-quote-form, so a nested syntax-quote reuses the outer symbol
+where JVM Clojure generates a fresh one). Those two are plausibly one
+syntax-quote-semantics workstream and worth raising with the maintainer
+before implementing either.
 
 ### Deferred (not in this plan)
 
@@ -163,7 +328,7 @@ General fixes first (smallest, benefit every library, independently landable), t
 
 ## Task 4: G12 — `format` `%s` renders non-string args
 
-**Files:** Modify `formatf` (`pkg/rt/lang.go:6921`); Test `test/aero_compat_test.lg`
+**Files:** Modify `CoreFormatf` (`pkg/rt/lang.go:6629` — `[2026-08-22]` renamed from `formatf` and moved; behavior unchanged, the coercion switch maps `vm.Int`→`int` then calls `fmt.Sprintf` directly at `:6677`); Test `test/aero_compat_test.lg`
 
 Aero's need is `%s` on **numbers** (`"Config error on line %s"` with an int). Test numeric args only — avoid the keyword case, whose expected rendering (`:kw` vs `kw`) is a separate, already-shipped behavior this task must not change.
 
@@ -191,7 +356,7 @@ Aero's need is `%s` on **numbers** (`"Config error on line %s"` with an int). Te
 
 - [ ] **Step 1: Write the failing test** — assert `(Boolean/parseBoolean "true")` = `true`, `(Boolean/parseBoolean "false")` = `false`, `(Boolean/parseBoolean "TRUE")` = `true` (case-insensitive, matching JVM).
 - [ ] **Step 2: Verify it fails** — `LG_READ_CLJ=1 ./lg -e "(prn (Boolean/parseBoolean \"true\"))"` → `Can't resolve Boolean/parseBoolean`.
-- [ ] **Step 3: Implement** — beside the `Long/parseLong` block (`host_jvm_statics.go:142-145`), add a `parseBoolean` fn (`strings.EqualFold(s, "true")`) and `defStaticNS("Boolean").Def("parseBoolean", parseBoolean)`.
+- [ ] **Step 3: Implement** — beside the `Long/parseLong` block (`host_jvm_statics.go:142-145`, anchor still exact), add a `parseBoolean` fn (`strings.EqualFold(s, "true")`) and `defStaticNS("Boolean").Def("parseBoolean", parseBoolean)`. `[2026-08-22]` Note a `Boolean` bare namespace **already exists** at `pkg/rt/lang.go:4675-4676` (carrying only `TYPE`), so check which of the two homes wins at registration time rather than assuming `defStaticNS` creates it fresh.
 - [ ] **Step 4: Rebuild** — `go build … -o lg .`
 - [ ] **Step 5: Verify pass** — probe prints `true`; `make test` green.
 - [ ] **Step 6: Commit** — `git commit -am "feat(rt): add Boolean/parseBoolean static"`
@@ -209,7 +374,34 @@ Aero's need is `%s` on **numbers** (`"Config error on line %s"` with an int). Te
 
 ## Task 8: G10 — seqs carry metadata through `with-meta` (Go)
 
-The types that **lack `WithMeta`** (verified: `grep -L WithMeta` across `pkg/vm`) and thus lose metadata are **`LazySeq`** (`lazy_seq.go` — what `map`/`map-indexed`/`filter` return), **`Cons`** (`cons.go`), **`MapSeq`** (`map.go`), and **`ChunkedCons`** (`chunk.go`). The vector-seqs (`ArrayVectorSeq`/`PersistentVectorSeq`) and `List` already carry meta. **Aero's only need is `LazySeq`** — `kv-seq` does `(with-meta (map-indexed …) {…})`; the others are for general correctness. Note: `(type (map …))` prints `PersistentList` because `type` *realizes* the seq — `with-meta` sees the unrealized `LazySeq`, which is why the meta is lost.
+The types that **lack `WithMeta`** and thus lose metadata are **`LazySeq`**
+(`lazy_seq.go:16` — what `map`/`map-indexed`/`filter` return), **`Cons`**
+(`cons.go:12`), **`MapSeq`** (`map.go:110`), and **`ChunkedCons`**
+(`chunk.go:112`). **Aero's only need is `LazySeq`** — `kv-seq` does
+`(with-meta (map-indexed …) {…})`; the others are for general correctness.
+Note: `(type (map …))` prints `PersistentList` because `type` *realizes* the
+seq — `with-meta` sees the unrealized `LazySeq`, which is why the meta is lost.
+
+> `[2026-08-22 — SCOPE CORRECTION, re-derive before implementing]` The original
+> claim that "the vector-seqs (`ArrayVectorSeq`/`PersistentVectorSeq`) and
+> `List` already carry meta" is **false on `main`**. Verified two ways:
+> `(meta (with-meta (seq [1 2]) {:k 1}))` returns `nil`, and neither vector-seq
+> type appears among the types that implement `WithMeta`. Only **`List`**
+> (`list.go:62`) carries meta among the seq types.
+>
+> The full set implementing `WithMeta` today is: `Atom`, `DTypeInstance`,
+> `ExInfo`, `Func`/`Closure`/`MultiArityFn`, `MetaValue`/`MetaFn`, `List`,
+> `NativeFn`, `MultiFn`, `PersistentVector`, `PersistentMap`, `PersistentSet`,
+> `PersistentQueue`, `Record`, `Set`/`SetWithMeta`, `Protocol`/`ProtocolFn`,
+> `SortedMap`, `SortedSet`, `TypedArray`/`TypedArraySeq` (both no-ops),
+> `ArrayVector`. Re-derive the seq list against the tree at implementation time
+> rather than trusting either version of this paragraph, and decide explicitly
+> whether the vector-seqs are in scope for this task or a follow-up — aero does
+> not need them, but `(with-meta (seq v) m)` silently dropping metadata is a
+> general correctness bug worth its own PR.
+>
+> Note also that `pkg/vm/map.go` (`MapSeq`) is being restructured by
+> nooga/let-go#764; if that lands first, re-check the anchor.
 
 **Files:** Modify `pkg/vm/lazy_seq.go`, `pkg/vm/cons.go`, `pkg/vm/map.go`, `pkg/vm/chunk.go`; Test `test/aero_compat_test.lg`
 
@@ -232,7 +424,7 @@ The types that **lack `WithMeta`** (verified: `grep -L WithMeta` across `pkg/vm`
 - [ ] **Step 2: Verify it fails** — `LG_READ_CLJ=1 ./lg -e "(prn (tagged-literal 'x 1))"` → `Can't resolve tagged-literal`.
 - [ ] **Step 3a: Implement the type** — `pkg/vm/tagged_literal.go`: a `TaggedLiteral struct { Tag, Form Value }` and `TaggedLiteralType` (mirror `pkg/vm/regex.go` boilerplate). Implement `Value` (`String()` → `"#" + Tag + " " + pr(Form)`, `Type()`, `Unbox()`) and `Lookup` (`ValueAt`/`ValueAtOr`: keyword `:tag`→Tag, `:form`→Form, else default). **Do not** implement map/seq/record/collection interfaces — it must stay opaque.
 - [ ] **Step 3b: Register + constructor** — in `pkg/rt/lang.go`: `ns.Def("clojure.lang.TaggedLiteral", vm.TaggedLiteralType)` (beside the `PersistentQueue` registration in `installClojureCompatAliases`), and a `tagged-literal` core builtin `(tag form) → &vm.TaggedLiteral{Tag: tag, Form: form}`.
-- [ ] **Step 3c: `.lg` glue** — in `pkg/rt/core/core.lg`: replace the `tagged-literal?` stub with `(defn tagged-literal? [x] (instance? clojure.lang.TaggedLiteral x))`; add `(def ^:dynamic *data-readers* {})` and `(def default-data-readers {})`. Both are empty maps: aero merges them into its reader map, and its `:default tagged-literal` handles every tag — the example uses no `#uuid`/`#inst`, so keep these empty (YAGNI). If `#uuid`/`#inst` in a config are wanted later, add `'uuid`/`'inst` entries here that call the reader's existing UUID/instant parsers — a trivial follow-up, out of scope now.
+- [ ] **Step 3c: `.lg` glue** — in `pkg/rt/core/core.lg`: replace the `tagged-literal?` stub at `:1985-1988` — currently `(defn tagged-literal? [_] false)`, a hardcoded wrong answer aero actually calls — with `(defn tagged-literal? [x] (instance? clojure.lang.TaggedLiteral x))`; add `(def ^:dynamic *data-readers* {})` and `(def default-data-readers {})`. Both are empty maps: aero merges them into its reader map, and its `:default tagged-literal` handles every tag — the example uses no `#uuid`/`#inst`, so keep these empty (YAGNI). If `#uuid`/`#inst` in a config are wanted later, add `'uuid`/`'inst` entries here that call the reader's existing UUID/instant parsers — a trivial follow-up, out of scope now.
 - [ ] **Step 4: Regen + rebuild** — `go run -tags bootstrap ./cmd/lgbgen && go build … -o lg .`
 - [ ] **Step 5: Verify pass** — all probes in Step 1 pass; `make test` green.
 - [ ] **Step 6: Commit** — `git add pkg/vm/tagged_literal.go && git commit -am "feat(vm,rt): clojure.lang.TaggedLiteral type + tagged-literal(?) + *data-readers*"`
@@ -245,9 +437,9 @@ Depends on Task 9 (produces `TaggedLiteral`s).
 
 - [ ] **Step 1: Write the failing test** — `deftest edn-read`: with a string/reader source `"#env \"PORT\""`, `(edn/read {:default tagged-literal} <reader>)` returns a `TaggedLiteral` with tag `env` form `"PORT"`; `:readers {'env (fn [v] [:got v])}` routes `#env` to that fn; `:eof :end` returns `:end` at end of input; a plain form (`"{:a 1}"`) reads as data. **Sequential-read guard:** from one reader over `"1 2 3"`, three successive `(edn/read {} r)` calls return `1`, `2`, `3` and a fourth with `:eof :done` returns `:done` (proves buffered read-ahead isn't discarded between calls).
 - [ ] **Step 2: Verify it fails** — `LG_READ_CLJ=1 ./lg -e "(require '[clojure.edn :as edn]) (prn edn/read)"` → `Can't resolve edn/read`.
-- [ ] **Step 3a: Reader dispatch** — in `pkg/compiler/reader.go`: add opts fields to `LispReader` (`dataReaders map[tag]Fn`, `defaultReader Fn`, and an eof sentinel/flag). Change `readTaggedLiteral` to consult them: if `dataReaders[tag]` → call it with the value; else if built-in `uuid`/`inst` (and not overridden) → parse as today; else if `defaultReader` → call it with `(tag, value)`; else current best-effort. Reading with no opts set keeps today's behavior (so `read-string` is unchanged).
+- [ ] **Step 3a: Reader dispatch** — in `pkg/compiler/reader.go`: add opts fields to `LispReader` (`dataReaders map[tag]Fn`, `defaultReader Fn`, and an eof sentinel/flag). `[2026-08-22]` Anchors confirmed: `readTaggedLiteral` is at `reader.go:1503` (dispatched from `:1494`), hardcodes only `uuid`/`inst`, and its `default:` branch silently returns the value **un-tagged** — that silent tag-drop is the observable bug (`(read-string "#env \"PORT\"")` → `"PORT"`). `LispReader` (`reader.go:45-59`) currently has no opts fields at all: `inputName, pos, line, column, lastCol, lastRune, maxPercent, inShortFn, r, Tokens, tokenizing, splicing`. Change `readTaggedLiteral` to consult the new fields: if `dataReaders[tag]` → call it with the value; else if built-in `uuid`/`inst` (and not overridden) → parse as today; else if `defaultReader` → call it with `(tag, value)`; else current best-effort. Reading with no opts set keeps today's behavior (so `read-string` is unchanged).
 - [ ] **Step 3b: `edn/read` primitive (reader reuse!)** — in `pkg/compiler/eval.go` (where `read-string` is installed): a Go fn `(opts, source)` that reads **one** form and returns the `:eof` value at EOF instead of erroring. **The `LispReader` wraps a `bufio.Reader` that reads ahead, so a fresh `LispReader` per call would discard buffered bytes and corrupt the next read** — you must reuse **one** `LispReader` per source across calls: attach it to the source (a field on `rt.LGReader`, which `pkg/compiler` may import) or memoize it in a registry keyed by the source-reader pointer. A bare string source can build a one-shot reader. Set `:readers`/`:default`/`:eof` from `opts` on that reader before each read. Install as `core/-edn-read` (or into the `edn` ns). The sequential-read test in Step 1 is the guard.
-- [ ] **Step 3c: `.lg` entry** — in `pkg/rt/core/edn.lg`, replace the stub with `(defn read ([source] (core/-edn-read {} source)) ([opts source] (core/-edn-read opts source)))`.
+- [ ] **Step 3c: `.lg` entry** — in `pkg/rt/core/edn.lg`, add `(defn read ([source] (core/-edn-read {} source)) ([opts source] (core/-edn-read opts source)))`. `[2026-08-22]` There is **no stub to replace** — `edn.lg` is 28 lines holding only the ns form, `read-string` (single-arity, delegating to `core/read-string`), `write-string`, `deep-sort`, and `pretty`. `read` is a new definition, and `read-string` gains no opts arity here.
 - [ ] **Step 4: Regen + rebuild** — `go run -tags bootstrap ./cmd/lgbgen && go build … -o lg .`
 - [ ] **Step 5: Verify pass** — Step-1 probes pass; `make test` green (confirm `read-string` unaffected).
 - [ ] **Step 6: Commit** — `git commit -am "feat(edn): edn/read with :readers/:default/:eof and tagged-literal dispatch"`
@@ -289,6 +481,24 @@ This is where aero is actually loaded and a real `config.edn` resolved — the t
 - [ ] **Step 1: Provision aero source** — ensure aero 1.1.6 is fetched to the lgx gitlibs cache: `cd examples/clojure-libs/with-aero && LGX_LG=/Users/andrew/Projects/let-go/lg <lgx-bin> install` (resolves `lgx.edn` deps). The source lands at `~/.lgx/gitlibs/github.com/juxt/aero/1.1.6/src` (`AERO_SRC`). If lgx isn't built yet, `make build` in the lgx repo first.
 - [ ] **Step 2: Direct run (fast loop)** — `AERO_SRC=$(echo ~/.lgx/gitlibs/github.com/juxt/aero/1.1.6/src); LG_READ_CLJ=1 /Users/andrew/Projects/let-go/lg -source-paths "$AERO_SRC" examples/clojure-libs/with-aero/main.lg` → resolves the config under `:default` and `:prod`, printing the labeled sections, no `error:` output. This is the real proof aero loads and every tag (`#env #or #long #double #boolean #keyword #join #ref #merge #read-edn #envf #profile`) resolves.
 - [ ] **Step 3: Through lgx (faithful)** — `cd examples/clojure-libs/with-aero && LGX_LG=/Users/andrew/Projects/let-go/lg <lgx-bin> run main.lg`. Output must match Step 2.
+- [ ] **Step 3b: Run aero's own test suite** `[2026-08-22 — new]` — the strongest available proof, and cheap once aero loads. Write a throwaway runner (not committed) and put aero's `src` **and** `test` on the source path:
+  ```clojure
+  ;; .tmp/aero-suite.lg
+  (require 'test)
+  (require 'aero.core-test)
+  (test/run-tests)
+  ```
+  ```
+  LG_READ_CLJ=1 <lg> -source-paths "$AERO_SRC:$AERO_ROOT/test" .tmp/aero-suite.lg
+  ```
+  The suite is 251 lines / 28 deftests / 49 assertions. It needs **G1** (its ns
+  requires `clojure.java.io`) and `:import` (already supported); it uses no
+  `thrown?`. Judge from the printed `Tests: … Pass: … Fail: … Error: …` summary,
+  not the exit code, and use the no-arg `(test/run-tests)` — the
+  explicit-namespaces arity is currently broken upstream (it calls `name` on a
+  Namespace object). Record the counts; any failure is a fresh gap to triage
+  with a minimal repro rather than a reason to stop.
+
 - [ ] **Step 4: Docs (lgx knowledge-base)** — add the new fns/behaviors (`edn/read`, `tagged-literal`/`tagged-literal?`, `Boolean/parseBoolean`, seq metadata, `clojure.java.io` alias) to `docs/knowledge-base/let-go-stdlib-quick-ref.md`; keep each `Verify against:` footer accurate.
 - [ ] **Step 5: Docs (lgx issue status)** — flip `docs/issues/aero-compat.md` status to implemented; correct G3 (mostly pre-closed by the malli/host-compat merge — only `Boolean/parseBoolean` was added here) and the `#include` deferral; list the shipped let-go commits.
 - [ ] **Step 6: Commit (lgx)** — `git commit -am "docs: aero runs under let-go; update quick-ref + issue status"`
