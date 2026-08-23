@@ -15,4 +15,5 @@ Issues filed (or to be filed) against
 | [load-failure-silent.md](./load-failure-silent.md) | `(:require)` of a file with a compile error returns nil and prints to stderr only — exit 0, missing tests hidden | draft |
 | [nrepl-port-zero.md](./nrepl-port-zero.md) | `-p 0` should bind an OS-assigned nREPL port and report the real one | draft |
 | [http-request-method-string.md](./http-request-method-string.md) | `http` server delivers `:request-method` as a String, not a Keyword (breaks Ring routers) | draft |
+| [interop-slice-boxing.md](./interop-slice-boxing.md) | `[]any` crosses the Go/let-go boundary as opaque boxes, and a vector containing `nil` fails to convert to `[]any` | implemented on `fix/vm-boxing-symmetry` |
 | [aero-compat.md](./aero-compat.md) | Run juxt/aero under let-go — TaggedLiteral type + `edn/read` tag dispatch, static-field-in-call-position, syntax-quote qualification, namespaced `:keys`, seq metadata | prototyped (throwaway), not upstreamed |
