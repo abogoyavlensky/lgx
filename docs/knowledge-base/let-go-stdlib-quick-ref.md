@@ -78,6 +78,23 @@ Motivated by metosin/malli; general and available to any library.
   bare `UUID/fromString`.
 - Degraded (loud stubs / pass-through): java.time date coercion,
   `BigDecimal.`/`URI.` coercion, the `FutureTask.`/`Thread.` timeout path.
+- `Boolean/parseBoolean`; `System/setProperty`/`clearProperty` beside the
+  existing `getProperty`/`getProperties` (both return the previous value).
+- `(instance? Class x)` markers also cover `clojure.lang.IObj` (every
+  metadata-bearing type, including fns and seqs), `clojure.lang.IRecord`
+  (records), and `clojure.lang.IMapEntry` (resolves, always **false** — a map
+  entry here is an `ArrayVector`, so an `IMapEntry` branch falls through to the
+  `vector?`/`coll?` branch beside it).
+- `clojure.lang.TaggedLiteral` — an unevaluated `#tag form`, built with
+  `(tagged-literal 'tag form)` and tested with `tagged-literal?`. Answers
+  `:tag`/`:form` and **nothing else**: `map?`/`record?`/`seq?`/`coll?` are all
+  false, so a tree walk treats it as a leaf. `*data-readers*` (empty) and
+  `default-data-readers` (`uuid`, `inst`) resolve as tables a caller can
+  consult; the reader does not consult them itself.
+- `(clojure.lang.LineNumberingPushbackReader. r)` is a passthrough returning
+  `r`; `.getLineNumber` answers `-1` (the JVM's "no line info" sentinel).
+- `(Class/STATIC_FIELD)` in call position reads the field, so
+  `(clojure.lang.PersistentQueue/EMPTY)` and `(Boolean/TYPE)` work.
 
 ## `os`
 
@@ -102,7 +119,15 @@ Motivated by metosin/malli; general and available to any library.
 
 - `edn/read-string` — delegates to `core/read-string`. Handles `;`
   comments inside maps and other Clojure-syntax niceties. Suitable for
-  `lgx.edn`-style configs without a separate parser.
+  `lgx.edn`-style configs without a separate parser. Note it is the *code*
+  reader, so it accepts non-EDN forms (`#(inc %)`, `@foo`) and returns
+  constructor forms for sets (`(hash-set 1)`, not `#{1}`).
+- `edn/read` — one form from a string or reader, with `:readers`
+  `{tag-sym fn}`, `:default (fn [tag value])` and `:eof value`. Unlike
+  `read-string` this is EDN-strict: it rejects the code-only reader macros
+  and throws on a tag it has no handler for, and it returns data (a set
+  literal is a set; metadata is attached). Successive reads from the same
+  reader continue where the last stopped.
 - `edn/write-string` — wraps `pr-str`.
 
 ## `io` (the let-go ns)
@@ -111,10 +136,41 @@ Mostly thin wrappers. `io/slurp-lines` is the only convenience worth
 calling out. The base `slurp`/`spit`/`mkdir`/`file-exists?` etc. live
 in core, not `io`.
 
+- `clojure.java.io` is an alias for this namespace, so a JVM library's
+  `(:require [clojure.java.io :as io])` resolves.
+- `with-open` closes readers and writers (as well as channels), and closing
+  twice is a no-op — `(with-open [r (io/reader p)] (io/slurp r))` closes
+  twice by construction and is fine.
+- `io/file` resolves but **throws when called**: there is no `java.io.File`
+  equivalent. It exists so a library carrying a File code path still
+  compiles. Use a path string with `io/reader`/`io/slurp` or the `os` ns.
+
+## Behaviours worth knowing (they bite Clojure libraries)
+
+- **Seqs carry metadata.** `(with-meta (map inc [1 2]) m)` used to be a silent
+  no-op; every seq view now implements `IMeta`. `with-meta` on a lazy seq
+  *realizes* it, as on the JVM. `range`/`repeat`/`iterate` still drop metadata
+  and correspondingly answer `IObj` false.
+- **A map entry is a vector, not a seq** — `vector?` true, `seq?` false, as in
+  Clojure. Code that dispatches on shape depends on this.
+- **Syntax-quote resolves to the defining namespace**: `` `inc `` →
+  `core/inc`, a referred symbol → the namespace that defines it, an alias →
+  the full name, an unresolvable symbol → the current namespace. `catch`,
+  `finally`, `&` and `with-meta` stay bare. Namespace names are let-go's
+  internal ones (`core`, `string`), not `clojure.core`/`clojure.string`.
+- **`format "%s"`** renders any value via `str` (nil is `"null"`, a UUID is
+  bare). A regex and an instant still print as readable literals rather than
+  Java's `toString`.
+- **Namespaced destructuring**: `{:keys [foo/bar]}` reads `:foo/bar`, and an
+  entry's namespace beats the directive's.
+
 ## What's missing or hidden
 
 - No `filepath/join` equivalent. lgx provides its own at
   `lgx/path.lg`.
+- No `java.io.File` (`io/file` throws), so `#include`-style relative-path
+  resolution in config libraries does not work.
+- The reader does not consult `*data-readers*`; pass `:readers` to `edn/read`.
 - `os/exec` returns a Go `*exec.Cmd` but exposes only `with-stdin`. You
   can't reach `Stdout`/`Stderr` fields or call `Run`/`Wait` from let-go.
 - `syscall/exec` (process replacement) exists on Linux only.

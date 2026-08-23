@@ -1,4 +1,6 @@
 {:main "main.lg"
  :targets {:bin {:out "bin/with-lib"}}
- :deps {dev.weavejester/medley {:git/url "https://github.com/juxt/aero"
-                                :git/tag "1.1.6"}}}
+ ;; aero has no runtime deps beyond clojure.edn / clojure.java.io (both let-go
+ ;; builtins), so only aero itself is listed.
+ :deps {juxt/aero {:git/url "https://github.com/juxt/aero"
+                   :git/tag "1.1.6"}}}
