@@ -1,5 +1,7 @@
 # letgo-packages SQL Layer Implementation Plan
 
+> **STATUS: COMPLETE** — see the summary at the end.
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the single-driver sqlite wrapper into a driver-agnostic SQL layer for let-go — a shared `sql/` package with a next.jdbc-shaped API, plus thin `sqlite/` and `postgres/` drivers — so a let-go web app can talk to either database through one interface.
@@ -177,25 +179,35 @@ Repo: `/Users/andrew/Projects/letgo-packages`
 
 No unit tests — this is a capability probe whose entire output is a yes/no answer that shapes every task after it.
 
-- [ ] **Step 1: Add a probe function to the existing shim**
+- [x] **Step 1: Add a probe function to the existing shim**
   Declare the `Connectable` interface from the Design, plus one function taking it:
   ```go
   func ProbeQuery(c Connectable, q string) (*sql.Rows, error) { return c.Query(q) }
   ```
   Register it in the shim's `init` alongside the existing definitions.
 
-- [ ] **Step 2: Call it with both a DB and a Tx**
+- [x] **Step 2: Call it with both a DB and a Tx**
   In `sqlite/example/`, run a script under
   `LGX_LETGO_REPLACE=/Users/andrew/Projects/let-go lgx run <script>`
   that opens a database, calls `ProbeQuery` with the connection, then calls `.Begin` and calls `ProbeQuery` with the resulting transaction.
   Expected: both succeed. A failure will surface as a reflect error about assignability.
 
-- [ ] **Step 3: Decide and record**
+- [x] **Step 3: Decide and record**
   If both work, the Design's `Connectable` shape is confirmed — continue as planned.
   If either fails, switch to the fallback: separate `QueryTx`/`ExecTx` shim functions plus a runtime branch in the veneer, and note the change under this task in this plan as a `> Deviation:` line before continuing. Do not attempt to work around it inside let-go.
 
-- [ ] **Step 4: Revert the probe**
+  > Result: confirmed. Both the boxed `*sql.DB` and the boxed `*sql.Tx` passed
+  > through `ProbeQuery`'s `Connectable` parameter and returned rows. The
+  > Design's interface shape stands; no fallback needed.
+
+- [x] **Step 4: Revert the probe**
   Remove `ProbeQuery`. The real interface lands in Task 2.
+
+> Deviation (environment, applies to all tasks): the let-go checkout was on
+> `fix/vm-boxing-symmetry`, which lacks `pkg/cli`; switched it to
+> `integration/go-interop` (contains the boxing fix and is what lgx consumes).
+> `lgx` on PATH is 0.1.0 and predates `:go/*` deps, so all commands use
+> `/Users/andrew/Projects/lgx/bin/lgx` (0.1.2).
 
 ### Task 2: The `sql` package — shim
 
@@ -203,26 +215,39 @@ No unit tests — this is a capability probe whose entire output is a yes/no ans
 - Create: `sql/shim/go.mod`, `sql/shim/shim.go`
 - Create: `sql/lgx.edn`
 
-- [ ] **Step 1: Move the shim**
+- [x] **Step 1: Move the shim**
   `git mv sqlite/shim sql/shim` to keep history. Update the module path in `go.mod` to `github.com/abogoyavlensky/letgo-packages/sql/shim`, and the package doc comment to describe a driver-agnostic seam rather than a sqlite one.
 
-- [ ] **Step 2: Rework the API onto `Connectable`**
+- [x] **Step 2: Rework the API onto `Connectable`**
   Change `Query` and `Exec` to take the `Connectable` interface from the Design instead of `*sql.DB`. Keep `ScanRow` as is. Keep the namespace registered as `sql.shim` (rename from `sqlite.shim`), with `vm.NewNamespace` + `vm.MustBox` + `rt.RegisterNS` in `init`, calling the installer directly rather than via `RegisterInstaller`.
 
-- [ ] **Step 3: Decide the value-conversion shape**
+- [x] **Step 3: Decide the value-conversion shape**
   Check whether the boxing-symmetry plan has landed in the let-go checkout at `/Users/andrew/Projects/let-go` (look for interface-element handling in `BoxValue`'s slice branch in `pkg/vm/value.go`).
   - Landed: use plain `[]any` for both `ScanRow`'s return and the `args` parameters, and delete the conversion helpers.
   - Not landed: keep `[]vm.Value` on both sides with the existing `toValue`/`unbox` helpers.
   Record which branch was taken as a `> Deviation:` note under this task either way — the next reader needs to know.
 
-- [ ] **Step 4: Write `sql/lgx.edn`**
+  > Deviation: the boxing-symmetry plan HAS landed (let-go `integration/go-interop`,
+  > commit 40ec3a9 "fix(vm): make []any cross the Go/let-go boundary as native
+  > values"). The shim uses plain `[]any` on both sides; the `toValue`/`unbox`
+  > helpers are deleted. sqlite TEXT-as-[]byte and NULL-as-nil are now handled
+  > by the boxing layer's dynamic-type path, not shim conversion.
+
+- [x] **Step 4: Write `sql/lgx.edn`**
   `:paths ["src"]`, and `:deps` with `database/sql {:go/interop "sql"}` plus the shim via `{:go/local "shim"}`. No driver — that is what makes this package driver-agnostic.
 
-- [ ] **Step 5: Verify it compiles**
+- [x] **Step 5: Verify it compiles**
   Run `gofmt -l sql/shim/` (expect no output) and `go vet ./...` inside `sql/shim/` with a temporary `replace` pointing at the let-go checkout. Full compilation is proven by Task 4's build.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "Move the shim into a driver-agnostic sql package"`
+
+> Codex review (commit 291dca7): two P1s, both accepted without fixup.
+> (1) sqlite/ references the deleted shim until Task 4 — intentional
+> intermediate state in the plan's ordering. (2) the example's
+> `:lg-version "1.11.1"` predates the []any boxing fix — no released let-go
+> has it yet; dev runs use LGX_LETGO_REPLACE and tagging is already blocked
+> on a release. README note lands in Task 5.
 
 ### Task 3: The `sql` package — veneer
 
@@ -231,10 +256,10 @@ No unit tests — this is a capability probe whose entire output is a yes/no ans
 
 No unit test harness exists in this repo, and the API is inseparable from a live database, so verification is the driver e2e tasks (5 and 7). Keep the pure parts — key transforms, opts merging, statement destructuring — as separate small fns so they stay readable and could be tested later.
 
-- [ ] **Step 1: Implement the key transforms and opts merging**
+- [x] **Step 1: Implement the key transforms and opts merging**
   A `:keys` option resolving to a `String -> keyword` function: `:unqualified` (verbatim), `:unqualified-lower` (lower-cased), or a caller-supplied function passed through. Reject anything else with a clear error naming the accepted values. Opts merge connection-level defaults under per-call opts.
 
-- [ ] **Step 2: Implement `execute!` and `execute-one!`**
+- [x] **Step 2: Implement `execute!` and `execute-one!`**
   Both take `[connectable statement]` or `[connectable statement opts]`. Destructure the statement into query string and parameter vector.
 
   Implement the dispatch from the Design: a pure `returns-rows?` predicate over the statement string, plus the `:returns` opt override taking precedence over it. Keep the predicate separate and small — it is the one genuinely testable pure fn in this package, so give it direct tests covering leading whitespace, a leading `--` comment, a `/* */` comment, mixed case, each rows-path keyword, a trailing `RETURNING`, `RETURNING` inside a string literal (must *not* match), and the known `WITH ... INSERT` false positive.
@@ -244,32 +269,66 @@ No unit test harness exists in this repo, and the API is inseparable from a live
 
   **Check `.Err` after the cursor loop, before closing.** `(.Next rows)` returns false for both end-of-rows and a read failure, so a loop stopping on `Next` alone silently returns a partial result set on a mid-stream error — a truncated query that looks successful. Call `(.Err rows)` once iteration ends and throw if it is non-nil. Return shapes: `execute!` gives a vector of maps or `[{:sql/update-count n}]`; `execute-one!` gives the first map, `nil` for an empty result set, or `{:sql/update-count n}`.
 
-- [ ] **Step 3: Implement `query` as sugar**
+- [x] **Step 3: Implement `query` as sugar**
   A thin alias for `execute!`, documented as such.
 
-- [ ] **Step 4: Implement `with-transaction`**
+- [x] **Step 4: Implement `with-transaction`**
   A macro binding `tx` over the body: `.Begin`, run, `.Commit` on normal return, `.Rollback` and rethrow on a throw. Verify let-go's `try`/`finally` preserves the original exception through the rollback — if it does not, use an explicit catch that rolls back and rethrows. Document that nesting is unsupported.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Add the sql veneer: execute!, execute-one!, query, with-transaction"`
+
+> Notes: `returns-rows?` got 11 direct tests in `sql/test/sql/core_test.lg`,
+> run green via `lgx test` in `sql/` (which also proved the package's custom
+> runtime builds). Verified live that let-go's `try`/`finally` preserves the
+> original throw, and typed `(catch Throwable e)` works on
+> `integration/go-interop`; `with-transaction` rolls back only on body
+> failure, so a failed commit throws without a misleading rollback attempt.
+>
+> Codex review round 1 (9250f77): two P2s, both fixed in 067aab8 —
+> (1) `returning` inside a SQL comment took the rows path; the regex
+> literal-stripping became a single-pass scrubber removing literals, quoted
+> identifiers, and comments before any keyword match. (2) `execute-one!`
+> realized the full result set; it now reads at most one row before closing
+> the cursor. 13 predicate tests green.
+>
+> Codex round 2 (067aab8): P1 claiming `count` returns byte length was
+> refuted by direct test — let-go's `count`/`subs`/`string/index-of` are all
+> rune-indexed and consistent (added a non-ASCII test as a guard). P2
+> (per-character `subs`/`str` making the scan quadratic) was real and fixed
+> in 42ce78c: the scrubber now jumps between quote/comment tokens with
+> `index-of`, copying spans whole. 14 tests green.
+>
+> Codex round 3 (42ce78c): P2 — let-go's `index-of` re-materializes the rune
+> slice per call, so the token-jump scan was still quadratic (confirmed in
+> `pkg/rt/lang.go`). Fixed in 25a664d by deleting the hand scanner: dispatch
+> now uses two RE2 regexes (linear time) — a head-keyword match and a
+> tokenizing alternation where literals/comments outcompete a bare
+> `\breturning\b`. Net -36 lines; 14 tests green. Review rounds for this
+> task: 3 (max).
 
 ### Task 4: `sqlite` becomes a thin driver package
 
 **Files:**
 - Modify: `sqlite/lgx.edn`, `sqlite/src/sqlite/core.lg`, `sqlite/README.md`
 
-- [ ] **Step 1: Rewrite `sqlite/lgx.edn`**
+- [x] **Step 1: Rewrite `sqlite/lgx.edn`**
   `:paths ["src"]`; `:deps` with the `sql` package via `{:local/root "../sql"}` and `modernc.org/sqlite {:go/version "v1.57.0"}`. The `database/sql` interop coord and the shim now arrive transitively from `sql/` — do not repeat them.
 
-- [ ] **Step 2: Reduce `sqlite/src/sqlite/core.lg` to the driver-specific part**
+- [x] **Step 2: Reduce `sqlite/src/sqlite/core.lg` to the driver-specific part**
   `open` (driver name `"sqlite"`, accepting a path or `":memory:"`, plus opts) and `close!`. Re-export `execute!`, `execute-one!`, `query`, and `with-transaction` from `sql.core` so a consumer needs one `require`.
 
-- [ ] **Step 3: Verify the transitive Go coords arrive**
+- [x] **Step 3: Verify the transitive Go coords arrive**
   In `sqlite/example/`, run:
   `LGX_LETGO_REPLACE=/Users/andrew/Projects/let-go lgx --verbose install`
   Expected: the trace shows a runtime build whose lginterop `-packages` list includes `database/sql`, proving `sql/`'s coord flowed up through `:local/root`.
 
-- [ ] **Step 4: Commit**
+  > Note: `--verbose` did not surface the build commands, so the check was
+  > made on the generated runtime module instead: `~/.lgx/runtimes/<hash>/src`
+  > contains `interop/interop_sql.go`, a `replace` for `sql/shim`, and
+  > `modernc.org/sqlite v1.57.0` — all three coords flowed up.
+
+- [x] **Step 4: Commit**
   `git commit -m "Reduce sqlite to a thin driver over the sql package"`
 
 ### Task 5: sqlite end-to-end
@@ -278,39 +337,53 @@ No unit test harness exists in this repo, and the API is inseparable from a live
 - Modify: `sqlite/example/main.lg`
 - Modify: `sqlite/README.md`
 
-- [ ] **Step 1: Rewrite the example for the new API**
+- [x] **Step 1: Rewrite the example for the new API**
   Exercise every entry point: `open`, `execute!` for DDL, `execute!` for parameterized inserts, `execute-one!`, `query`, `with-transaction` committing, and `with-transaction` rolling back on a throw with a follow-up read proving the rollback happened. Round-trip integer, float, text, boolean, and NULL, and assert the read-back values are native let-go values (`(= "Ada" (:name row))`, `(nil? (:notes row))`), not just that they print plausibly.
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
   In `sqlite/example/`: `LGX_LETGO_REPLACE=/Users/andrew/Projects/let-go lgx run`
   Expected: every assertion passes.
 
-- [ ] **Step 3: Build and run standalone**
+- [x] **Step 3: Build and run standalone**
   Same env: `lgx build`, then run `bin/app` from a different directory.
   Expected: identical output.
 
-- [ ] **Step 4: Update `sqlite/README.md`** (use /writing-clearly)
+- [x] **Step 4: Update `sqlite/README.md`** (use /writing-clearly)
   New API, the `:keys` option, the unqualified-keys constraint and why it exists, the layered structure, and the note that the shim's let-go require must be pinned to a real release before tagging.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "Verify sqlite end to end against the new sql API"`
+
+> Notes: 19 checks, green under both `lgx run` and the built `bin/app` run
+> from /tmp. Boolean round-trip is asserted as sqlite actually behaves
+> (`true` reads back as `1`, `false` as `0` — no boolean storage class);
+> noted in the README. The example's entry call gained a
+> `(when-not *compiling-aot* ...)` guard so `lgx build` does not execute it
+> at AOT time.
 
 ### Task 6: The `postgres` package
 
 **Files:**
 - Create: `postgres/lgx.edn`, `postgres/src/postgres/core.lg`, `postgres/README.md`
 
-- [ ] **Step 1: Write `postgres/lgx.edn`**
+- [x] **Step 1: Write `postgres/lgx.edn`**
   `:paths ["src"]`; `:deps` with the `sql` package via `{:local/root "../sql"}` and `github.com/jackc/pgx/v5/stdlib {:go/version "v5.10.0"}`.
   Note this is the first coord whose package path differs from its module path (`github.com/jackc/pgx/v5`) — lgx resolves it via `go get`, which is exactly why it never hand-writes require lines. If the runtime build fails here, that is an lgx bug worth recording, not something to work around in this repo.
 
-- [ ] **Step 2: Implement `postgres/src/postgres/core.lg`**
+- [x] **Step 2: Implement `postgres/src/postgres/core.lg`**
   `open` taking a DSN or connection URL, with driver name `"pgx"` (the name `pgx/v5/stdlib` registers), plus `close!` and the same re-exports as sqlite. Default `:keys` to `:unqualified-lower`, since Postgres folds unquoted identifiers to lower case — document the choice.
 
-- [ ] **Step 3: Verify the runtime builds and the driver registers**
+- [x] **Step 3: Verify the runtime builds and the driver registers**
   Build a runtime for this package and confirm `sql/Open "pgx" ...` returns a connection object without a driver-not-found error. A live server is not needed for this step.
 
-- [ ] **Step 4: Commit**
+  > Verified with a throwaway probe under `postgres/example/` (whose
+  > `lgx.edn` was created a task early to give the probe a project context —
+  > Task 7 reuses it). The package-path coord resolved to module
+  > `github.com/jackc/pgx/v5` via `go get` with no special handling, the
+  > runtime built, and `open` returned a connectable. A minimal
+  > `postgres/README.md` also landed here; Task 8 polishes it.
+
+- [x] **Step 4: Commit**
   `git commit -m "Add the postgres driver package"`
 
 ### Task 7: postgres end-to-end against a live server
@@ -320,22 +393,40 @@ No unit test harness exists in this repo, and the API is inseparable from a live
 
 Prereq: Docker. If unavailable, stop and report — do not fake the verification or mark the task done.
 
-- [ ] **Step 1: Start a server**
+- [x] **Step 1: Start a server**
   `docker run --rm -d --name letgo-pg -e POSTGRES_PASSWORD=letgo -p 5432:5432 postgres:17`
   Wait for readiness with `docker exec letgo-pg pg_isready` before proceeding.
 
-- [ ] **Step 2: Write the example**
+- [x] **Step 2: Write the example**
   Mirror the sqlite example's coverage so the two are directly comparable, and add the types Postgres has that SQLite does not: `timestamptz` and `numeric`, both of which must round-trip for this task to pass.
   Also try a `text[]` array, but treat it as *exploratory*: `database/sql` has no portable array scanning, so a failure records an unsupported type in `postgres/README.md` rather than failing the task. Note which it turned out to be. Read the DSN from an env var with a localhost default.
 
-- [ ] **Step 3: Run it**
+- [x] **Step 3: Run it**
   In `postgres/example/`: `LGX_LETGO_REPLACE=/Users/andrew/Projects/let-go lgx run`
   Expected: every assertion passes.
 
-- [ ] **Step 4: Record where the abstraction leaked**
+- [x] **Step 4: Record where the abstraction leaked**
   This is the real deliverable of building a second driver. Note every place the `sql/` layer needed a driver-specific accommodation — value conversion, key casing, parameter placeholders (`?` for SQLite vs `$1` for Postgres, which callers will hit immediately), error shapes. If the leak is structural rather than cosmetic, fix `sql/` now while nothing is tagged, and record it as a `> Deviation:` note here.
 
-- [ ] **Step 5: Stop the server and commit**
+  > Leak audit: no structural leaks — `sql/` needed zero changes for the
+  > second driver. Cosmetic differences, all documented in the READMEs:
+  > placeholders (`?` vs `$1`), key casing (postgres defaults
+  > `:unqualified-lower`), and value conversion (booleans: sqlite `1`/`0` vs
+  > postgres `true`/`false`; `timestamptz` arrives as a boxed `time.Time`
+  > usable via methods like `.Unix`; `numeric` arrives as a decimal string;
+  > `text[]` arrives as the array's text form `"{a,b}"` — recorded as
+  > unsupported-as-native in `postgres/README.md`). 25 checks green against
+  > postgres:17 in Docker, including `INSERT ... RETURNING` through the
+  > heuristic and both timestamptz/numeric round-trips.
+  >
+  > Codex review (fb7d1c7): P1 — the DSN is configurable, so `drop table
+  > people` against a user's server could destroy real data; the example now
+  > uses `letgo_example_people`. P2 — the numeric claim wasn't actually
+  > enforced (a float would also `str` to "12.34"); now asserted with
+  > `string?`. Both fixed in 95a006b, re-verified green against a fresh
+  > container.
+
+- [x] **Step 5: Stop the server and commit**
   `docker stop letgo-pg`
   `git commit -m "Verify postgres end to end"`
 
@@ -346,9 +437,70 @@ Prereq: Docker. If unavailable, stop and report — do not fake the verification
 - Create: `sql/README.md`
 - Modify: `postgres/README.md`
 
-- [ ] **Step 1: Write the docs** (use /writing-clearly)
+- [x] **Step 1: Write the docs** (use /writing-clearly)
   Root `README.md`: the three-package table, how `:deps/root` consumption works, and a stated rule that driver packages must use pure-Go drivers — cgo breaks cross-compilation and forces a C toolchain on users. Note the tagging blocker from the Design (the lgx `:deps/root` fix).
   `sql/README.md`: the full API reference, the `:keys` option, the unqualified-keys constraint and its cause, the `Connectable` interface, and the parameter-placeholder difference between drivers.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "Document the sql layer and its three packages"`
+
+---
+
+## Completion summary (2026-08-23)
+
+**Implemented.** Eleven commits in letgo-packages (291dca7..b8527bc): the
+driver-agnostic `sql/` package (shim on the `Connectable` interface, plain
+`[]any` at both boundaries, and the `sql.core` veneer — `execute!`,
+`execute-one!`, `query`, `with-transaction`, `:keys` transforms, opts
+merging, and the `returns-rows?` heuristic with a `:returns` override);
+`sqlite/` reduced to `open`/`close!` plus re-exports; a new `postgres/`
+package on pgx v5.10.0; examples for both drivers; and READMEs for all
+three packages plus the repo root.
+
+**Verification.** The Task 1 spike confirmed a boxed `*sql.DB`/`*sql.Tx`
+passes into an interface-typed shim parameter. 14 predicate tests run via
+`lgx test` in `sql/`. The sqlite example (19 checks) passes under `lgx run`
+and as a built binary run from another directory. The postgres example
+(26 checks) passes against postgres:17 in Docker, including
+`INSERT ... RETURNING`, timestamptz (`.Unix` on the boxed `time.Time`), and
+numeric-as-string round-trips; `text[]` arrives as its Postgres text form
+and is documented as such. Final full pass (tests + both e2es) green.
+
+**Abstraction leak audit (Task 7's deliverable).** No structural leaks;
+`sql/` needed zero changes for the second driver. Cosmetic, documented
+differences: placeholders (`?` vs `$1`), key casing (postgres defaults
+`:unqualified-lower`), boolean shape (`1`/`0` vs `true`/`false`), and the
+postgres-specific value types above.
+
+**Deviations, gathered.**
+- Environment: the let-go checkout was switched from `fix/vm-boxing-symmetry`
+  to `integration/go-interop` (has `pkg/cli` and the boxing fix); all
+  commands used `/Users/andrew/Projects/lgx/bin/lgx` (0.1.2), since the
+  PATH lgx is 0.1.0.
+- Task 2: boxing symmetry has landed, so the shim uses plain `[]any` both
+  ways; the `toValue`/`unbox` helpers were deleted.
+- Task 6: `postgres/example/lgx.edn` was created one task early to give the
+  driver-registration probe a project context; a minimal `postgres/README.md`
+  also landed there.
+- Codex checkpoints drove five fixup commits: comment-aware RETURNING
+  detection and single-row `execute-one!` (067aab8), two scanner performance
+  rewrites ending in the linear regex tokenizer (42ce78c, 25a664d),
+  example-table isolation plus a real numeric-type assertion (95a006b), and
+  README claim qualifications (b8527bc). Two codex claims were refuted by
+  direct test (rune-indexing "crash"; two intentional mid-sequence states)
+  and accepted without change.
+- Also fixed stale drift in `docs/knowledge-base/lgx-go-runtimes.md` (the
+  `[]any` gotcha now describes the boxing-symmetry fix), per the repo's
+  drift rule.
+
+**Still blocking tagging** (unchanged from the Design): the lgx `:deps/root`
+fix from the cross-compilation plan, and a let-go release carrying the
+boxing fix to pin in `sql/shim/go.mod`.
+
+**What the plan could have specified better:** the examples' assertions
+against a *configurable* live server needed an isolation rule (codex caught
+`drop table people` against a user-pointed DSN); and it could have said
+what "round-trip boolean" means per driver — sqlite has no boolean storage
+class, so the honest assertion is `1`/`0`, which the plan's wording left to
+be discovered. Otherwise it held up: the spike-first ordering and the
+leak-audit task both paid off directly.

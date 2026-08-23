@@ -106,15 +106,17 @@ works with literal arguments, but a wrapper holding its parameters in a
 vector cannot spread them - there is no `(apply .Query ...)`. The fix
 belongs in a Go shim that takes a slice and spreads it.
 
-**`[]any` results arrive as opaque boxed values.** `vm.BoxValue` walks
-a slice by its *static* element type, so every element of a `[]any` is
-kind Interface, misses the string/int fast paths, and reaches let-go as
-a `vm.Boxed` printing as `<go.string Ada>` and comparing equal to
-nothing. Return `[]vm.Value` and convert each element with
-`vm.ToLetGo`, where reflect sees the dynamic type. The same asymmetry
-runs the other way: a let-go vector containing `nil` fails to convert
-to `[]any` and arrives as `[]vm.Value`, so a Go function taking
-parameters from let-go should take `[]vm.Value` and unbox them itself.
+**`[]any` needs a let-go carrying the boxing-symmetry fix.** On older
+let-go versions, `vm.BoxValue` walks a slice by its *static* element
+type, so every element of a `[]any` reaches let-go as an opaque
+`vm.Boxed` comparing equal to nothing, and a let-go vector containing
+`nil` fails to convert to `[]any` going the other way. The fix ("make
+[]any cross the Go/let-go boundary as native values", on
+`integration/go-interop`, unreleased as of 2026-08-23) boxes
+interface-typed elements by their dynamic type and lets `nil` elements
+through, so shims can use plain `[]any` in both directions. Against a
+let-go without it, fall back to `[]vm.Value` plus explicit
+`vm.ToLetGo`/`Unbox` conversion on both sides.
 
 ## `LGX_LETGO_REPLACE`
 
