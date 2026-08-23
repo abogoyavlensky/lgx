@@ -1474,3 +1474,28 @@
                                                       :git/sha "s"
                                                       "note" true}}})))))
     (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-colliding-go-interop-aliases
+  ;; cmd/lginterop writes one interop_<alias>.go per package and refuses a run
+  ;; where two collide — better caught here than minutes into a runtime build.
+  (let [errors (:errors (load-cfg {:deps {'example.com/a/log
+                                          {:go/version "v1" :go/interop "log"}
+                                          'example.org/b/log
+                                          {:go/version "v1"
+                                           :go/interop "log"}}}))]
+    (is (= 2 (count errors)))
+    (is (= [:deps 'example.com/a/log :go/interop] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "example.org/b/log"))))
+
+(deftest load-accepts-distinct-go-interop-aliases
+  (let [cfg {:deps {'example.com/a/log {:go/version "v1" :go/interop "log"}
+                    'example.org/b/trace {:go/version "v1"
+                                          :go/interop "trace"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest go-coord?-ignores-unknown-go-namespaced-keys
+  ;; This predicate also sees coords synthesized from a third-party deps.edn,
+  ;; which are never validated: a stranger's :go/note must not reclassify
+  ;; their source dep as a Go package and drop it from resolution.
+  (is (not (config/go-coord? {:local/root "../x" :go/note "hi"})))
+  (is (config/go-coord? {:go/version "v1"})))

@@ -199,9 +199,16 @@
 ;; ---------------------------------------------------------------------------
 
 (defn go-coord?
-  "True when `c` declares a Go package dep — i.e. carries any :go/* key."
+  "True when `c` declares a Go package dep.
+
+   Deliberately narrower than the check coord-errors uses: this one also runs
+   over coords synthesized from a third-party deps.edn or project.clj, which
+   are never validated and may carry arbitrary namespaced keys. Requiring a
+   *known* :go/* key means a stranger's :go/note cannot quietly reclassify
+   their source dep as a Go package. Inside lgx's own validated config the two
+   checks agree, because an unknown :go/* key is rejected outright."
   [c]
-  (and (map? c) (go-key? c)))
+  (and (map? c) (boolean (some #(contains? go-key-set %) (keys c)))))
 
 (defn go-default-alias
   "The let-go namespace cmd/lginterop generates for a Go package path: its
@@ -216,12 +223,40 @@
   [lib]
   (not (str/includes? (first (str/split (str lib) "/")) ".")))
 
+(defn- go-alias-collisions
+  "Libs whose :go/interop alias is shared with another lib. cmd/lginterop
+   writes one interop_<alias>.go per package and refuses a run where two
+   collide, so catching it here turns a failure that surfaces minutes into a
+   runtime build into a config error."
+  [deps]
+  (let [pairs (filter (fn [[_ c]] (contains? c :go/interop)) deps)
+        by-alias (reduce (fn [acc [lib _]]
+                           (let [a (go-default-alias lib)]
+                             (assoc acc a (conj (or (get acc a) []) lib))))
+                         {}
+                         pairs)]
+    (vec (mapcat (fn [[a libs]]
+                   (if (< (count libs) 2)
+                     []
+                     (mapv (fn [lib]
+                             {:path [lib :go/interop]
+                              :msg (str "alias " (pr-str a) " is also used by "
+                                        (str/join ", "
+                                                  (map str
+                                                       (sort (filter
+                                                               #(not= % lib)
+                                                               libs))))
+                                        " - cmd/lginterop writes one file per "
+                                        "alias and refuses a collision")})
+                           (sort-by str libs))))
+                 by-alias))))
+
 (defn- go-deps-errors
   "Cross-key rule over a whole :deps / :extra-deps map: the parts of the :go/*
    contract that need the lib symbol. Runs only after every coord passed
    coord-errors, so the shapes below hold."
   [deps]
-  (vec (mapcat
+  (vec (concat (go-alias-collisions deps) (mapcat
          (fn [[lib c]]
            (when (go-coord? c)
              (let [stdlib? (go-stdlib? lib)
@@ -257,7 +292,7 @@
                              "last segment and takes no per-package alias")}]
 
                  :else []))))
-         deps)))
+         deps))))
 
 (def ^:private deps-schema
   [:and [:map-of :symbol coord-schema] [:fn go-deps-errors]])

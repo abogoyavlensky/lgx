@@ -404,8 +404,7 @@
    needs for -bundle-base)."
   [cfg basis severity verbose?]
   (let [go-pairs (:go-coords basis)
-        action (gobuild/runtime-action
-                 (not (str/blank? (os/getenv "LGX_LG"))) nil)]
+        action (gobuild/runtime-action (gobuild/user-set-lg?) nil)]
     (cond
       (empty? go-pairs)
       (do (check-lg-version! cfg severity) nil)
@@ -419,7 +418,7 @@
       (let [lg-version (config/lg-version cfg)
             _ (gobuild/preflight! go-pairs lg-version)
             path (gobuild/ensure-runtime! go-pairs lg-version verbose?)]
-        (os/setenv "LGX_LG" path)
+        (gobuild/select-runtime! path)
         (when verbose?
           (write! *err* (str "+ custom lg runtime " path "\n")))
         path))))

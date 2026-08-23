@@ -374,3 +374,20 @@
 (deftest render-go-mod-leaves-ordinary-paths-unquoted
   (let [out (gobuild/render-go-mod [sqlite] "1.11.1" "/Users/x/let-go" [])]
     (is (str/includes? out "=> /Users/x/let-go\n"))))
+
+(deftest split-ignores-unknown-go-keys-on-third-party-coords
+  (let [e (entry 'foo/bar {:local/root "../x" :go/note "hi"} "/proj")
+        r (gobuild/split-go-coords [e] {})]
+    (is (= [e] (:src r)))
+    (is (= [] (:go-pairs r)))))
+
+(deftest user-set-lg?-is-false-for-a-value-lgx-set-itself
+  ;; A nested lgx inherits LGX_LG from its parent; treating that as a user
+  ;; override would make it skip building a runtime for its own Go deps.
+  (gobuild/select-runtime! "/rt/lg")
+  (is (not (gobuild/user-set-lg?)))
+  (os/setenv "LGX_LG" "/their/lg")
+  (is (gobuild/user-set-lg?))
+  (os/setenv "LGX_LG" "")
+  (os/setenv "LGX_LG_AUTO" "")
+  (is (not (gobuild/user-set-lg?))))

@@ -339,10 +339,13 @@
   (let [p (path/join dir "go.mod")]
     (when-not (file-exists? p)
       (die! (str ":go/local " dir " is not a Go module (no go.mod there)")))
+    ;; Split on whitespace rather than matching a literal "module " prefix:
+    ;; go.mod's grammar allows a tab (or any run of spaces) after the keyword.
     (or (some (fn [line]
-                (let [l (str/trim line)]
-                  (when (str/starts-with? l "module ")
-                    (str/trim (subs l 7)))))
+                (let [toks (filter #(not (str/blank? %))
+                                   (str/split (str/trim line) #"\s+"))]
+                  (when (and (= "module" (first toks)) (second toks))
+                    (second toks))))
               (str/split (slurp p) "\n"))
         (die! (str ":go/local " dir " has a go.mod with no module line")))))
 
@@ -434,3 +437,29 @@
           (some #(= "-bundle-base" %) forward-args))
     (vec forward-args)
     (vec (concat forward-args ["-bundle-base" runtime-path]))))
+
+;; ---------------------------------------------------------------------------
+;; LGX_LG ownership
+;;
+;; Pointing LGX_LG at the runtime is what makes runner.lg pick it up with no
+;; changes, but the child inherits it — and a program or :sh task that invokes
+;; lgx again would read its parent's runtime as an explicit user override,
+;; skip building one for its own Go deps, and fail to resolve them. So lgx
+;; stamps the value it set alongside it: LGX_LG matching LGX_LG_AUTO is lgx's
+;; own, anything else is the user's.
+;; ---------------------------------------------------------------------------
+
+(def ^:private lg-auto-env "LGX_LG_AUTO")
+
+(defn user-set-lg?
+  "True when LGX_LG is set to something lgx did not put there."
+  []
+  (let [lg (os/getenv "LGX_LG")]
+    (and (not (str/blank? lg))
+         (not= lg (os/getenv lg-auto-env)))))
+
+(defn select-runtime!
+  "Point LGX_LG at `path` and record that lgx owns that value."
+  [path]
+  (os/setenv "LGX_LG" path)
+  (os/setenv lg-auto-env path))
