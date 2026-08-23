@@ -201,7 +201,7 @@
   [lib]
   (last (str/split (str lib) "/")))
 
-(defn- go-stdlib?
+(defn go-stdlib?
   "True when `lib` names a Go standard-library package. Go's own rule: a module
    path's first segment is a domain and so contains a dot; a stdlib path's does
    not (`database/sql`, `strconv`)."

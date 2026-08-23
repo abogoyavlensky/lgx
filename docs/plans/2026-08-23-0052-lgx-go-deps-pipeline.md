@@ -160,22 +160,35 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 - Create: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - Cache key: stable across coord order; changes with any of lib/version/interop/local and with the let-go ref; `LGX_LETGO_REPLACE` ref renders as `replace:<abs-path>`.
   - `render-go-mod`: module line `lgx.local/runtime`; let-go require with pinned version; `v0.0.0` + replace when a replace path is given; one `require ... v0.0.0` + `replace` pair per `:go/local` coord using a caller-supplied module path (the fn takes `[coord module-path]` pairs — reading the target's `go.mod` is the side-effecting caller's job); NO require lines for `:go/version` coords (they're added via `go get` — see Design); stdlib coords absent.
   - `render-main-go`: `pkg/cli` import + `cli.Main` call; blank imports only for link-only external coords; `lgx.local/runtime/interop` blank import iff any interop coords; no interop import otherwise.
   - `interop-packages`: ordered list of package paths for the `-packages` flag.
   - `go-get-args`: `["get" "<sym>@<version>"]` per `:go/version` coord, deterministic order.
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Pure string-rendering fns in `lgx.gobuild`; hash via let-go's bundled hash ns (confirm the fn in `pkg/rt/core/hash.lg` of the pinned let-go — e.g. xxh3 — and render hex). Canonical coord line: `lib|version|interop|local` with empty slots for absent keys, sorted.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat(gobuild): cache key and runtime module rendering"`
+
+> Deviation: `hash/xxh3-64-str` returns Go's uint64 as a *signed* integer, so
+> `(format "%016x" h)` renders half of all hashes with a leading minus — a
+> `-b3b8...` directory name. `hex64` masks each 32-bit half instead;
+> `runtime-hash-is-16-unsigned-hex-digits` pins it.
+>
+> The generated go.mod carries `go 1.26` (let-go's own minimum); `go mod tidy`
+> raises it if a dependency ever needs more.
+>
+> Verified beyond the unit tests: the rendered module was written to a scratch
+> dir and driven through the real `go mod tidy` -> lginterop -> `go build`
+> pipeline against the integration branch. The resulting binary reports
+> `lg dev` and resolves `sql/Open`.
 
 ### Task 4: gobuild side-effecting pipeline
 

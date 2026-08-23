@@ -110,3 +110,176 @@
     (is (= [] (:go-pairs r)))
     (is (= [] (:warnings r)))
     (is (= {} (:seen-go r)))))
+
+;; ---------------------------------------------------------------------------
+;; runtime-hash
+;; ---------------------------------------------------------------------------
+
+(def ^:private sqlite ['modernc.org/sqlite {:go/version "v1.38.0"}])
+(def ^:private sql ['database/sql {:go/interop "sql"}])
+(def ^:private shim ['github.com/you/pkgs/shim {:go/local "/proj/shim"}])
+
+(deftest runtime-hash-is-stable-across-coord-order
+  (is (= (gobuild/runtime-hash [sqlite sql shim] "1.11.1")
+         (gobuild/runtime-hash [shim sqlite sql] "1.11.1"))))
+
+(deftest runtime-hash-is-16-unsigned-hex-digits
+  ;; xxh3-64-str hands back Go's uint64 as a signed integer, so this guards
+  ;; against a hash whose top bit is set rendering as "-b3b8..." and becoming
+  ;; a leading-dash directory name. The three-coord set below is one such.
+  (doseq [pairs [[sqlite] [sql] [shim] [sqlite sql shim] []]]
+    (let [h (gobuild/runtime-hash pairs "1.11.1")]
+      (is (string? h))
+      (is (= 16 (count h)))
+      (is (nil? (re-find #"[^0-9a-f]" h))))))
+
+(deftest runtime-hash-changes-with-the-let-go-ref
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [sqlite] "1.12.0"))))
+
+(deftest runtime-hash-changes-with-the-lib-symbol
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [['modernc.org/sqlite3
+                                    {:go/version "v1.38.0"}]] "1.11.1"))))
+
+(deftest runtime-hash-changes-with-the-version
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [['modernc.org/sqlite
+                                    {:go/version "v1.30.0"}]] "1.11.1"))))
+
+(deftest runtime-hash-changes-when-interop-is-added
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [['modernc.org/sqlite
+                                    {:go/version "v1.38.0"
+                                     :go/interop "sqlite"}]] "1.11.1"))))
+
+(deftest runtime-hash-changes-with-the-local-path
+  (is (not= (gobuild/runtime-hash [shim] "1.11.1")
+            (gobuild/runtime-hash [['github.com/you/pkgs/shim
+                                    {:go/local "/other/shim"}]] "1.11.1"))))
+
+(deftest runtime-hash-distinguishes-an-empty-coord-set
+  (is (not= (gobuild/runtime-hash [] "1.11.1")
+            (gobuild/runtime-hash [sqlite] "1.11.1"))))
+
+;; ---------------------------------------------------------------------------
+;; letgo-ref — what the hash and go.mod see for let-go itself
+;; ---------------------------------------------------------------------------
+
+(deftest letgo-ref-is-the-pinned-version
+  (is (= "1.11.1" (gobuild/letgo-ref "1.11.1" nil))))
+
+(deftest letgo-ref-renders-a-replace-path
+  (is (= "replace:/Users/x/let-go" (gobuild/letgo-ref "1.11.1"
+                                                      "/Users/x/let-go"))))
+
+(deftest letgo-ref-replace-wins-over-the-pin
+  (is (not= (gobuild/letgo-ref "1.11.1" nil)
+            (gobuild/letgo-ref "1.11.1" "/Users/x/let-go"))))
+
+;; ---------------------------------------------------------------------------
+;; render-go-mod
+;; ---------------------------------------------------------------------------
+
+(deftest render-go-mod-pins-let-go-at-the-given-version
+  (let [out (gobuild/render-go-mod [sqlite sql] "1.11.1" nil [])]
+    (is (str/includes? out "module lgx.local/runtime"))
+    (is (str/includes? out "require github.com/nooga/let-go v1.11.1"))
+    (is (not (str/includes? out "replace")))))
+
+(deftest render-go-mod-emits-a-replace-for-a-local-let-go
+  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" "/Users/x/let-go" [])]
+    (is (str/includes? out "require github.com/nooga/let-go v0.0.0"))
+    (is (str/includes? out
+                       "replace github.com/nooga/let-go => /Users/x/let-go"))
+    (is (not (str/includes? out "v1.11.1")))))
+
+(deftest render-go-mod-never-requires-go-version-coords
+  ;; A coord symbol is a *package* path, which is not always a *module* path
+  ;; (golang.org/x/crypto/ssh lives in golang.org/x/crypto), so lgx lets
+  ;; `go get <pkg>@<version>` resolve the owning module instead.
+  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" nil [])]
+    (is (not (str/includes? out "modernc.org/sqlite")))))
+
+(deftest render-go-mod-omits-stdlib-coords
+  (let [out (gobuild/render-go-mod [sql] "1.11.1" nil [])]
+    (is (not (str/includes? out "database/sql")))))
+
+(deftest render-go-mod-requires-and-replaces-each-local-module
+  ;; The module path can't be derived from the package path, so the caller
+  ;; reads it from the target's own go.mod and passes it in.
+  (let [out (gobuild/render-go-mod
+              [shim] "1.11.1" nil
+              [[{:go/local "/proj/shim"} "github.com/you/pkgs/sqlite/shim"]])]
+    (is (str/includes? out "require github.com/you/pkgs/sqlite/shim v0.0.0"))
+    (is (str/includes?
+          out "replace github.com/you/pkgs/sqlite/shim => /proj/shim"))))
+
+(deftest render-go-mod-ends-with-a-newline
+  (is (str/ends-with? (gobuild/render-go-mod [sqlite] "1.11.1" nil []) "\n")))
+
+;; ---------------------------------------------------------------------------
+;; render-main-go
+;; ---------------------------------------------------------------------------
+
+(deftest render-main-go-wraps-cli-main
+  (let [out (gobuild/render-main-go [])]
+    (is (str/includes? out "package main"))
+    (is (str/includes? out "\"github.com/nooga/let-go/pkg/cli\""))
+    (is (str/includes? out "os.Exit(cli.Main("))))
+
+(deftest render-main-go-blank-imports-link-only-coords
+  ;; A coord with :go/interop needs none: its generated binding package
+  ;; imports the package itself.
+  (let [out (gobuild/render-main-go [sqlite sql])]
+    (is (str/includes? out "_ \"modernc.org/sqlite\""))
+    (is (not (str/includes? out "_ \"database/sql\"")))))
+
+(deftest render-main-go-skips-a-blank-import-for-interop-coords
+  (let [out (gobuild/render-main-go [['modernc.org/sqlite
+                                      {:go/version "v1.38.0"
+                                       :go/interop "sqlite"}]])]
+    (is (not (str/includes? out "_ \"modernc.org/sqlite\"")))))
+
+(deftest render-main-go-imports-the-interop-package-when-any-exist
+  (is (str/includes? (gobuild/render-main-go [sql sqlite])
+                     "_ \"lgx.local/runtime/interop\"")))
+
+(deftest render-main-go-omits-the-interop-import-otherwise
+  (is (not (str/includes? (gobuild/render-main-go [sqlite])
+                          "lgx.local/runtime/interop"))))
+
+(deftest render-main-go-orders-blank-imports-deterministically
+  (let [a (gobuild/render-main-go [sqlite shim])
+        b (gobuild/render-main-go [shim sqlite])]
+    (is (= a b))))
+
+;; ---------------------------------------------------------------------------
+;; interop-packages / go-get-args
+;; ---------------------------------------------------------------------------
+
+(deftest interop-packages-lists-only-interop-coords
+  (is (= ["database/sql"] (gobuild/interop-packages [sql sqlite shim]))))
+
+(deftest interop-packages-is-sorted
+  (is (= ["database/sql" "modernc.org/sqlite"]
+         (gobuild/interop-packages
+           [['modernc.org/sqlite {:go/version "v1" :go/interop "sqlite"}]
+            sql]))))
+
+(deftest interop-packages-is-empty-without-interop-coords
+  (is (= [] (gobuild/interop-packages [sqlite shim]))))
+
+(deftest go-get-args-one-per-version-coord
+  (is (= [["get" "modernc.org/sqlite@v1.38.0"]]
+         (gobuild/go-get-args [sqlite sql shim]))))
+
+(deftest go-get-args-is-deterministic
+  (let [a ['a.com/x {:go/version "v1"}]
+        b ['b.com/y {:go/version "v2"}]]
+    (is (= (gobuild/go-get-args [a b]) (gobuild/go-get-args [b a])))
+    (is (= [["get" "a.com/x@v1"] ["get" "b.com/y@v2"]]
+           (gobuild/go-get-args [b a])))))
+
+(deftest go-get-args-is-empty-without-version-coords
+  (is (= [] (gobuild/go-get-args [sql shim]))))

@@ -9,7 +9,8 @@
 ;; Everything in this file is pure; the subprocess pipeline that builds the
 ;; module lives further down and is the only side-effecting part.
 (ns lgx.gobuild
-  (:require [lgx.config :as config]
+  (:require [hash]
+            [lgx.config :as config]
             [lgx.path :as path]
             [string :as str]))
 
@@ -86,3 +87,146 @@
           (let [id (absolutize-go-local base coord)]
             (recur (next es) src (conj go-pairs [lib id])
                    (assoc seen lib id) warnings)))))))
+
+;; ---------------------------------------------------------------------------
+;; The runtime cache key
+;;
+;; A runtime is fully determined by two things: which let-go it links, and
+;; which Go packages it links. Both are folded into one hash, and the built
+;; binary lives at $LGX_HOME/runtimes/<hash>/lg — so two projects with the same
+;; declaration share one build, and changing any part of the declaration lands
+;; on a different path rather than invalidating one in place.
+;; ---------------------------------------------------------------------------
+
+(def letgo-module "github.com/nooga/let-go")
+
+(defn letgo-ref
+  "The let-go identity the runtime is built against, as it enters the cache
+   key: the pinned :lg-version, or `replace:<abs-path>` when LGX_LETGO_REPLACE
+   points the build at a local checkout. The replace target's *content* is
+   deliberately not hashed — ensure-runtime! rebuilds unconditionally in that
+   mode instead."
+  [lg-version replace-path]
+  (if (str/blank? (or replace-path ""))
+    (str lg-version)
+    (str "replace:" replace-path)))
+
+(defn- coord-line
+  "One go coord as a canonical line: lib|version|interop|local, empty slots for
+   absent keys. Sorting these is what makes the hash order-independent."
+  [[lib c]]
+  (str/join "|" [(str lib)
+                 (or (:go/version c) "")
+                 (or (:go/interop c) "")
+                 (or (:go/local c) "")]))
+
+(defn- hex64
+  "Render a 64-bit hash as 16 unsigned hex digits. xxh3-64-str hands back Go's
+   uint64 as a signed integer, so half the values would otherwise format with a
+   leading minus and land in a directory name like `-b3b8c4cbc702fe1`. Masking
+   each 32-bit half sidesteps the sign entirely."
+  [n]
+  (format "%08x%08x"
+          (bit-and (bit-shift-right n 32) 0xffffffff)
+          (bit-and n 0xffffffff)))
+
+(defn runtime-hash
+  "Hex xxh3-64 of the let-go ref crossed with the sorted canonical coord lines.
+   `lg-ref` is either a bare :lg-version or a letgo-ref result."
+  [go-pairs lg-ref]
+  (let [body (str/join "\n" (concat [(str "letgo|" lg-ref)]
+                                    (sort (map coord-line go-pairs))))]
+    (hex64 (hash/xxh3-64-str body))))
+
+;; ---------------------------------------------------------------------------
+;; Rendering the generated module
+;; ---------------------------------------------------------------------------
+
+(def runtime-module "lgx.local/runtime")
+(def interop-package (str runtime-module "/interop"))
+
+(defn- interop? [[_ c]] (some? (:go/interop c)))
+
+(defn- external? [[lib _]] (not (config/go-stdlib? lib)))
+
+(defn render-go-mod
+  "Pure. The generated module's go.mod.
+
+   No `require` line is emitted for a :go/version coord: a coord symbol is a Go
+   *package* path, which is not always a *module* path (golang.org/x/crypto/ssh
+   lives in module golang.org/x/crypto), so `go get <pkg>@<version>` is left to
+   resolve the owning module itself.
+
+   `local-modules` is a vector of [coord module-path] pairs — reading the
+   module path out of a :go/local target's own go.mod is the side-effecting
+   caller's job, so this stays pure."
+  [go-pairs lg-version replace-path local-modules]
+  (let [replace? (not (str/blank? (or replace-path "")))]
+    (str "module " runtime-module "\n"
+         "\n"
+         ;; Matches let-go's own minimum; `go mod tidy` raises it if a
+         ;; dependency ever needs more.
+         "go 1.26\n"
+         "\n"
+         "require " letgo-module " "
+         (if replace? "v0.0.0" (str "v" lg-version)) "\n"
+         (str/join "" (map (fn [[_ mod]] (str "require " mod " v0.0.0\n"))
+                           local-modules))
+         (if replace?
+           (str "\nreplace " letgo-module " => " replace-path "\n")
+           "")
+         (str/join "" (map (fn [[c mod]]
+                             (str "replace " mod " => " (:go/local c) "\n"))
+                           local-modules)))))
+
+(defn render-main-go
+  "Pure. The generated module's main.go: a binary that IS `lg`, with the
+   declared packages linked in.
+
+   Blank imports go to link-only coords — drivers and self-registering shims
+   that export nothing anyone calls. A coord with :go/interop needs none: its
+   generated binding package imports the package itself, and blank-importing
+   that binding package is what registers every namespace."
+  [go-pairs]
+  (let [links (sort (map (fn [[lib _]] (str lib))
+                         (filter #(and (external? %) (not (interop? %)))
+                                 go-pairs)))
+        any-interop? (boolean (some interop? go-pairs))]
+    (str "package main\n"
+         "\n"
+         "import (\n"
+         "\t\"os\"\n"
+         "\n"
+         "\t\"" letgo-module "/pkg/cli\"\n"
+         (if any-interop?
+           (str "\n\t_ \"" interop-package "\"\n")
+           "")
+         (if (seq links)
+           (str "\n" (str/join "" (map #(str "\t_ \"" % "\"\n") links)))
+           "")
+         ")\n"
+         "\n"
+         "func main() { os.Exit(cli.Main(\"dev\", \"none\")) }\n")))
+
+(def interop-doc-go
+  ;; Chicken-and-egg: main.go imports the interop package, but lginterop can
+  ;; only scan once the module's deps are fetched — and `go mod tidy` will not
+  ;; fetch them while an import does not resolve. This placeholder makes the
+  ;; module build before generation, and is overwritten alongside it after.
+  (str "// Package interop holds the bindings cmd/lginterop generates.\n"
+       "// This placeholder exists so the module resolves before generation.\n"
+       "package interop\n"))
+
+(defn interop-packages
+  "The package paths for cmd/lginterop's -packages flag, sorted so the
+   generated files (and any regeneration) stay stable."
+  [go-pairs]
+  (vec (sort (map (fn [[lib _]] (str lib)) (filter interop? go-pairs)))))
+
+(defn go-get-args
+  "One `go get <pkg>@<version>` argv per :go/version coord, in a deterministic
+   order."
+  [go-pairs]
+  (mapv (fn [[lib c]] ["get" (str lib "@" (:go/version c))])
+        (sort-by (fn [[lib _]] (str lib))
+                 (filter (fn [[_ c]] (some? (:go/version c))) go-pairs))))
