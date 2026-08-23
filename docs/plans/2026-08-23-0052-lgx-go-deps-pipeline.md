@@ -101,22 +101,28 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 - Modify: `lgx/config.lg`
 - Test: the existing config test file under `test/lgx/` (locate it first; create `test/lgx/config_test.lg` if none covers coords)
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Cases: valid external link-only (`:go/version`); valid external with `:go/local`; valid stdlib (`:go/interop` only); valid external with both `:go/version` and `:go/interop`; error on stdlib with `:go/version`; error on external with neither `:go/version` nor `:go/local`; error mixing `:go/version` with `:git/url`; error on `:go/interop` alias not equal to the default (last path segment); go coords accepted in `:extra-deps` (contexts/tasks) and by the lenient dep-config schema.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lgx test test/lgx/<file>` in `/Users/andrew/Projects/lgx`.
   Expected: FAIL on the new cases.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `coord-errors` (`lgx/config.lg:64`): detect the `:go/*` family (any key with namespace `"go"`), branch before the git/local logic, apply the rules from the Design. Add public helpers: `(go-coord? c)` and `(go-default-alias lib-sym)` (last `/` segment) — `lgx.lg` and `gobuild` share them. Stdlib detection: first `/`-segment of the symbol string contains no `.`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
   Run: `lgx test`
   Expected: PASS, full suite green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat(config): :go/* coord family for Go package deps"`
+
+> Deviation: the rules that need the lib symbol (stdlib detection, lginterop
+> alias) can't live in `coord-errors` — `[:fn coord-errors]` only receives the
+> coord value. They moved to a `:deps`-level cross-check, `deps-schema` becoming
+> `[:and [:map-of :symbol coord-schema] [:fn go-deps-errors]]`, which covers
+> `:deps`, `:extra-deps`, and the lenient dep-config schema alike.
 
 ### Task 2: Partition go coords through resolution
 

@@ -24,6 +24,13 @@
 
 (def ^:private git-keys #{:git/url :git/sha :git/tag})
 
+(def ^:private go-value-keys [:go/version :go/interop :go/local])
+
+;; Family marker, kept ahead of coord-errors so the coord check can branch on
+;; it. The public go-coord? below is the same test.
+(defn- go-key? [c]
+  (boolean (some #(= "go" (namespace %)) (keys c))))
+
 ;; Built-in CLI commands that may not be shadowed by a project task. Includes
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
 ;; so the namespace is available for future use.
@@ -101,6 +108,7 @@
   [c]
   (let [has-local? (contains? c :local/root)
         has-git? (some #(contains? c %) git-keys)
+        has-go? (go-key? c)
         deps-root (if (contains? c :deps/root)
                     (at-key :deps/root (rel-path-errors (:deps/root c)))
                     [])
@@ -112,6 +120,23 @@
       ;; and the shape checks below would only bury it.
       (contains? c :mvn/version)
       mvn-version-msg
+
+      ;; The :go/* family before the git/local shapes: a go coord has neither
+      ;; :git/url nor :local/root, so the generic checks below would only
+      ;; report the wrong missing key.
+      (and has-go? (or has-local? has-git?))
+      "cannot mix :go/* with :git/* or :local/root keys"
+
+      (and has-go? (contains? c :go/version) (contains? c :go/local))
+      "cannot mix :go/version with :go/local (pick a released or a local module)"
+
+      has-go?
+      (vec (concat (mapcat (fn [k]
+                             (if (contains? c k)
+                               (at-key k (non-blank-string-errors (get c k)))
+                               []))
+                           go-value-keys)
+                   exclusions))
 
       (and has-local? has-git?)
       "cannot mix :local/root with :git/* keys"
@@ -132,7 +157,74 @@
 
 (def ^:private coord-schema [:and :map [:fn coord-errors]])
 
-(def ^:private deps-schema [:map-of :symbol coord-schema])
+;; ---------------------------------------------------------------------------
+;; :go/* coords
+;;
+;; A go coord's lib symbol IS the Go package path, so half the rules need the
+;; key, not just the value: whether the package is standard library (Go's own
+;; test — no dot in the first path segment) and what alias cmd/lginterop will
+;; derive for it. coord-errors only ever sees the coord map, so those two rules
+;; live in a :deps-level cross-check instead, anchored back at [lib].
+;; ---------------------------------------------------------------------------
+
+(defn go-coord?
+  "True when `c` declares a Go package dep — i.e. carries any :go/* key."
+  [c]
+  (and (map? c) (go-key? c)))
+
+(defn go-default-alias
+  "The let-go namespace cmd/lginterop generates for a Go package path: its
+   last `/`-separated segment (cmd/lginterop's defaultAlias)."
+  [lib]
+  (last (str/split (str lib) "/")))
+
+(defn- go-stdlib?
+  "True when `lib` names a Go standard-library package. Go's own rule: a module
+   path's first segment is a domain and so contains a dot; a stdlib path's does
+   not (`database/sql`, `strconv`)."
+  [lib]
+  (not (str/includes? (first (str/split (str lib) "/")) ".")))
+
+(defn- go-deps-errors
+  "Cross-key rule over a whole :deps / :extra-deps map: the parts of the :go/*
+   contract that need the lib symbol. Runs only after every coord passed
+   coord-errors, so the shapes below hold."
+  [deps]
+  (vec (mapcat
+         (fn [[lib c]]
+           (when (go-coord? c)
+             (let [stdlib? (go-stdlib? lib)
+                   interop (:go/interop c)
+                   alias (go-default-alias lib)]
+               (cond
+                 (and stdlib? (or (contains? c :go/version)
+                                  (contains? c :go/local)))
+                 [{:path [lib]
+                   :msg (str lib " is a standard-library package: it has no "
+                             "module requirement, so :go/version/:go/local "
+                             "are not allowed (declare :go/interop only)")}]
+
+                 (and (not stdlib?)
+                      (not (contains? c :go/version))
+                      (not (contains? c :go/local)))
+                 [{:path [lib]
+                   :msg (str "must specify :go/version (or :go/local for a "
+                             "module checked out on disk)")}]
+
+                 ;; cmd/lginterop derives the namespace from the package path
+                 ;; and its -packages flag takes no per-package alias, so any
+                 ;; other value would name a namespace nothing registers.
+                 (and (string? interop) (not= interop alias))
+                 [{:path [lib :go/interop]
+                   :msg (str "must be " (pr-str alias) " - cmd/lginterop "
+                             "derives the namespace from the package path's "
+                             "last segment and takes no per-package alias")}]
+
+                 :else []))))
+         deps)))
+
+(def ^:private deps-schema
+  [:and [:map-of :symbol coord-schema] [:fn go-deps-errors]])
 
 (defn- placeholder-kw?
   "True for an :arg/<name> placeholder keyword in a step vector."

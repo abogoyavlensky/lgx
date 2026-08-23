@@ -1279,3 +1279,165 @@
                     (str "(defproject foo \"1.0\" :dependencies"
                          " [bare [] [no/version] [x/y 5] [a/b \"1.2\"]])")}
            (fn [dir] (mapv first (config/project-clj-deps-at dir)))))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :go/* coord family
+;;
+;; A go coord's lib symbol IS the Go package path, so the rules that depend on
+;; it (stdlib vs external, the lginterop alias) are checked at the :deps level
+;; where the lib name is in scope, not inside the per-coord check.
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-go-version-coord
+  (let [cfg {:deps {'modernc.org/sqlite {:go/version "v1.38.0"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-local-coord
+  (let [cfg {:deps {'github.com/you/pkgs/shim {:go/local "shim"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-interop-stdlib-coord
+  (let [cfg {:deps {'database/sql {:go/interop "sql"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-single-segment-stdlib-coord
+  (let [cfg {:deps {'strconv {:go/interop "strconv"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-version-plus-interop-coord
+  (let [cfg {:deps {'modernc.org/sqlite {:go/version "v1.38.0"
+                                         :go/interop "sqlite"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-local-plus-interop-coord
+  (let [cfg {:deps {'github.com/you/pkgs/shim {:go/local "shim"
+                                               :go/interop "shim"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-stdlib-go-coord-with-version
+  (let [errors (:errors (load-cfg {:deps {'database/sql
+                                          {:go/interop "sql"
+                                           :go/version "v1.0.0"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'database/sql] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "standard-library package"))
+    (is (str/includes? (:msg (first errors)) ":go/version"))))
+
+(deftest load-rejects-stdlib-go-coord-with-local
+  (let [errors (:errors (load-cfg {:deps {'database/sql
+                                          {:go/interop "sql"
+                                           :go/local "shim"}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors)) "standard-library package"))))
+
+(deftest load-rejects-blank-go-interop
+  (is (= {:errors [{:path [:deps 'database/sql :go/interop]
+                    :msg "must be non-blank"}]}
+         (load-cfg {:deps {'database/sql {:go/interop "  "}}}))))
+
+(deftest load-rejects-external-go-coord-without-version-or-local
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/interop "sqlite"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'modernc.org/sqlite] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) ":go/version"))
+    (is (str/includes? (:msg (first errors)) ":go/local"))))
+
+(deftest load-rejects-go-coord-mixed-with-git
+  (doseq [coord [{:go/version "v1.0.0" :git/url "https://github.com/foo/bar"}
+                 {:go/interop "sqlite" :git/sha "abc"}
+                 {:go/local "shim" :local/root "../x"}]]
+    (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite coord}}))]
+      (is (= 1 (count errors)))
+      (is (str/includes? (:msg (first errors))
+                         "cannot mix :go/* with :git/* or :local/root")))))
+
+(deftest load-rejects-go-version-with-go-local
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.0.0"
+                                           :go/local "vendor/sqlite"}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors))
+                       "cannot mix :go/version with :go/local"))))
+
+(deftest load-rejects-blank-go-version
+  (is (= {:errors [{:path [:deps 'modernc.org/sqlite :go/version]
+                    :msg "must be non-blank"}]}
+         (load-cfg {:deps {'modernc.org/sqlite {:go/version "  "}}}))))
+
+(deftest load-rejects-non-string-go-local
+  (is (= {:errors [{:path [:deps 'modernc.org/sqlite :go/local]
+                    :msg "must be a string, got 5"}]}
+         (load-cfg {:deps {'modernc.org/sqlite {:go/local 5}}}))))
+
+(deftest load-rejects-go-interop-alias-mismatch
+  ;; cmd/lginterop derives the namespace alias from the package path's last
+  ;; segment and has no per-package alias flag, so any other value would name
+  ;; a namespace the generated code never registers.
+  (let [errors (:errors (load-cfg {:deps {'database/sql {:go/interop "db"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'database/sql :go/interop] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "\"sql\""))))
+
+(deftest load-accepts-go-coord-in-context-extra-deps
+  (let [cfg {:contexts {:dev {:extra-deps {'database/sql {:go/interop "sql"}}}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-bad-go-coord-in-context-extra-deps
+  (let [errors (:errors (load-cfg {:contexts
+                                   {:dev {:extra-deps
+                                          {'database/sql
+                                           {:go/interop "db"}}}}}))]
+    (is (= [:contexts :dev :extra-deps 'database/sql :go/interop]
+           (:path (first errors))))))
+
+(deftest load-accepts-go-coord-in-task-extra-deps
+  (let [cfg {:tasks {'lint {:do [{:sh "echo hi"}]
+                            :extra-deps {'modernc.org/sqlite
+                                         {:go/version "v1.38.0"}}}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+;; ---------------------------------------------------------------------------
+;; coords-at: the lenient dep-config schema accepts go coords too, so a dep's
+;; own go deps flow up through transitive resolution.
+;; ---------------------------------------------------------------------------
+
+(deftest coords-at-accepts-go-coords
+  (let [dir (str "/tmp/lgx-go-coords-at-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn")
+          (pr-str {:paths ["src"]
+                   :deps {'database/sql {:go/interop "sql"}
+                          'modernc.org/sqlite {:go/version "v1.38.0"}}}))
+    (let [pairs (config/coords-at dir)]
+      (os/sh "rm" "-rf" dir)
+      (is (= ['database/sql 'modernc.org/sqlite] (mapv first pairs)))
+      (is (= [{:go/interop "sql"} {:go/version "v1.38.0"}]
+             (mapv second pairs))))))
+
+(deftest coords-at-rejects-invalid-go-coord
+  (let [dir (str "/tmp/lgx-go-coords-at-bad-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn")
+          (pr-str {:deps {'database/sql {:go/version "v1.0.0"}}}))
+    (let [r (threw? (fn [] (config/coords-at dir)))]
+      (os/sh "rm" "-rf" dir)
+      (is (= :threw r)))))
+
+;; ---------------------------------------------------------------------------
+;; go-coord? / go-default-alias
+;; ---------------------------------------------------------------------------
+
+(deftest go-coord?-detects-the-family
+  (is (config/go-coord? {:go/version "v1.0.0"}))
+  (is (config/go-coord? {:go/interop "sql"}))
+  (is (config/go-coord? {:go/local "shim"}))
+  (is (not (config/go-coord? {:git/url "u" :git/sha "s"})))
+  (is (not (config/go-coord? {:local/root "../x"})))
+  (is (not (config/go-coord? {}))))
+
+(deftest go-default-alias-is-the-last-path-segment
+  (is (= "sql" (config/go-default-alias 'database/sql)))
+  (is (= "sqlite" (config/go-default-alias 'modernc.org/sqlite)))
+  (is (= "shim" (config/go-default-alias 'github.com/you/pkgs/sqlite/shim)))
+  (is (= "strconv" (config/go-default-alias 'strconv))))
