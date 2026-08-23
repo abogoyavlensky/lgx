@@ -1,0 +1,112 @@
+;; Unit tests for lgx.gobuild — Go coord partitioning, runtime cache key, and
+;; the generated module's file rendering. Everything here is pure; the
+;; subprocess pipeline (go get / go mod tidy / lginterop / go build) is covered
+;; by the end-to-end verification instead.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.gobuild-test
+  (:require [lgx.gobuild :as gobuild]
+            [string :as str]
+            [clojure.test :refer [deftest is]]))
+
+;; ---------------------------------------------------------------------------
+;; split-go-coords
+;; ---------------------------------------------------------------------------
+
+(defn- entry [lib coord base]
+  {:lib lib :coord coord :base base})
+
+(deftest split-partitions-go-coords-out-of-source-coords
+  (let [git (entry 'foo/bar {:git/url "u" :git/sha "s"} "/proj")
+        loc (entry 'my/lib {:local/root "../mylib"} "/proj")
+        go (entry 'modernc.org/sqlite {:go/version "v1.38.0"} "/proj")
+        r (gobuild/split-go-coords [git loc go] {})]
+    (is (= [git loc] (:src r)))
+    (is (= [['modernc.org/sqlite {:go/version "v1.38.0"}]] (:go-pairs r)))
+    (is (= [] (:warnings r)))))
+
+(deftest split-leaves-non-go-entries-untouched
+  (let [entries [(entry 'foo/bar {:git/url "u" :git/tag "v1"} "/proj")]
+        r (gobuild/split-go-coords entries {})]
+    (is (= entries (:src r)))
+    (is (= [] (:go-pairs r)))
+    (is (= {} (:seen-go r)))))
+
+(deftest split-normalizes-relative-go-local-against-the-entry-base
+  ;; A dep declaring {:go/local "shim"} means "relative to the dep", so the
+  ;; base has to be applied here, while it is still in scope.
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim {:go/local "shim"}
+                    "/home/u/.lgx/gitlibs/x/y/abc")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim
+             {:go/local "/home/u/.lgx/gitlibs/x/y/abc/shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-leaves-absolute-go-local-alone
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim {:go/local "/abs/shim"} "/proj")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim {:go/local "/abs/shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-normalizes-dot-relative-go-local
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim {:go/local "./shim"} "/proj")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim {:go/local "/proj/shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-preserves-other-go-keys-when-normalizing
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim
+                    {:go/local "shim" :go/interop "shim"} "/proj")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim
+             {:go/local "/proj/shim" :go/interop "shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-dedups-first-wins-without-warning-when-identical
+  (let [c {:go/version "v1.38.0"}
+        r (gobuild/split-go-coords
+            [(entry 'modernc.org/sqlite c "/proj")
+             (entry 'modernc.org/sqlite c "/dep")]
+            {})]
+    (is (= [['modernc.org/sqlite c]] (:go-pairs r)))
+    (is (= [] (:warnings r)))))
+
+(deftest split-warns-when-a-duplicate-go-coord-differs
+  (let [r (gobuild/split-go-coords
+            [(entry 'modernc.org/sqlite {:go/version "v1.38.0"} "/proj")
+             (entry 'modernc.org/sqlite {:go/version "v1.30.0"} "/dep")]
+            {})]
+    (is (= [['modernc.org/sqlite {:go/version "v1.38.0"}]] (:go-pairs r)))
+    (is (= 1 (count (:warnings r))))
+    (let [w (first (:warnings r))]
+      (is (str/includes? w "modernc.org/sqlite"))
+      (is (str/includes? w "v1.38.0"))
+      (is (str/includes? w "v1.30.0")))))
+
+(deftest split-honors-already-seen-go-coords
+  ;; The transitive walk splits one queue level at a time, so a coord accepted
+  ;; at the root must suppress the same lib reached later through a dep.
+  (let [r (gobuild/split-go-coords
+            [(entry 'modernc.org/sqlite {:go/version "v1.30.0"} "/dep")]
+            {'modernc.org/sqlite {:go/version "v1.38.0"}})]
+    (is (= [] (:go-pairs r)))
+    (is (= 1 (count (:warnings r))))))
+
+(deftest split-accumulates-seen-go
+  (let [r (gobuild/split-go-coords
+            [(entry 'database/sql {:go/interop "sql"} "/proj")]
+            {'modernc.org/sqlite {:go/version "v1.38.0"}})]
+    (is (= {'modernc.org/sqlite {:go/version "v1.38.0"}
+            'database/sql {:go/interop "sql"}}
+           (:seen-go r)))))
+
+(deftest split-handles-an-empty-batch
+  (let [r (gobuild/split-go-coords [] {})]
+    (is (= [] (:src r)))
+    (is (= [] (:go-pairs r)))
+    (is (= [] (:warnings r)))
+    (is (= {} (:seen-go r)))))

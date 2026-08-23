@@ -130,18 +130,29 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 - Modify: `lgx.lg` (`ensure-all!`, `basis`, `cmd-install`)
 - Test: `test/lgx/gobuild_test.lg` (start it here) or the existing resolution test file
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `ensure-all!` is currently private and side-effecting; extract the partition/dedup decision into a pure helper (e.g. `split-go-coords` taking `[lib coord base]` entries → `{:src-pairs [...] :go-pairs [...]}`) and test that: go coords split out; first-wins dedup with warning on a differing duplicate go coord; git/local pairs untouched; a relative `:go/local` is rewritten to absolute against the entry's `base` (transitive case: a dep declaring `{:go/local "shim"}` yields `<dep-dir>/shim`).
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `ensure-all!` (`lgx.lg:71`): partition each queue level with the helper; go coords never reach `cache/ensure-lib!` but ARE collected across the transitive walk (a dep's `lgx.edn` go coords flow up via the same `coords-at!` read). Return shape changes to `{:installs [...] :go-coords [[lib coord] ...]}`; update `basis` (thread `:go-coords` into its return map) and `cmd-install`/`print-installs!` call sites.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: collect :go/* coords through transitive resolution"`
+
+> Deviation: `split-go-coords` lives in the new `lgx/gobuild.lg` rather than
+> `lgx.lg` — everything `:go/*` in one namespace, and `lgx.lg`'s fns are
+> private so a helper there would not be unit-testable. It splits one queue
+> level at a time (taking the accumulated `seen-go` map) rather than the whole
+> entry list at once, which is what preserves breadth-first first-wins.
+>
+> Codex review of Task 1 found two real gaps, fixed before Task 2's commit:
+> the `:go/*` key namespace is now closed (a misspelled `:go/interops` used to
+> validate as a go coord that generates nothing), and `:deps/root` /
+> `:exclusions` are rejected on go coords instead of silently ignored.
 
 ### Task 3: gobuild pure functions — cache key and file rendering
 

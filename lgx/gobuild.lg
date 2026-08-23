@@ -1,0 +1,88 @@
+;; lgx.gobuild — the Go side of dependency resolution.
+;;
+;; A :go/* coord names a Go package, not a let-go source tree: it produces no
+;; source path and no gitlibs clone. Instead the coords a project resolves —
+;; its own and every one a dependency declares — are collected here and turned
+;; into a small Go module that links them into a custom `lg` binary, cached
+;; under $LGX_HOME/runtimes/<hash>/.
+;;
+;; Everything in this file is pure; the subprocess pipeline that builds the
+;; module lives further down and is the only side-effecting part.
+(ns lgx.gobuild
+  (:require [lgx.config :as config]
+            [lgx.path :as path]
+            [string :as str]))
+
+;; ---------------------------------------------------------------------------
+;; Partitioning go coords out of transitive resolution
+;; ---------------------------------------------------------------------------
+
+(defn go-coord-label
+  "How a go coord reads in a resolution warning."
+  [c]
+  (let [base (cond
+               (:go/version c) (:go/version c)
+               (:go/local c) (str "local:" (:go/local c))
+               :else "interop-only")]
+    (if (:go/interop c)
+      (str base " +interop")
+      base)))
+
+(defn- absolutize-go-local
+  "Resolve a coord's relative :go/local against `base`. The declaring file's
+   directory is the base — the project root for a top-level coord, the dep's
+   own directory for a transitive one — and it is only in scope here, which is
+   why normalization happens at collection time (the rule coord-id already
+   applies to :local/root)."
+  [base c]
+  (if-let [local (:go/local c)]
+    (assoc c :go/local (if (path/absolute? local)
+                         (path/normalize local)
+                         (path/normalize (path/join base local))))
+    c))
+
+(defn split-go-coords
+  "Pure. Partition one queue level of resolution entries ({:lib :coord :base})
+   into the source coords the resolver fetches and the Go coords it only
+   collects.
+
+   `seen-go` is the lib -> coord map accumulated over the walk so far. A lib
+   already in it is dropped (first-wins, matching the source-coord rule, so a
+   top-level coord always beats one a dep declares), with a warning line when
+   the later coord differs. Version conflicts beyond that are Go's own MVS
+   problem: lgx writes what it has and `go mod tidy` settles it.
+
+   Returns {:src [entry ...] :go-pairs [[lib coord] ...] :seen-go {...}
+   :warnings [line ...]}, where each accepted coord has had its :go/local
+   normalized to an absolute path against the entry's :base."
+  [entries seen-go]
+  (loop [es (seq entries)
+         src []
+         go-pairs []
+         seen seen-go
+         warnings []]
+    (if (nil? es)
+      {:src src
+       :go-pairs go-pairs
+       :seen-go seen
+       :warnings warnings}
+      (let [{:keys [lib coord base]} (first es)]
+        (cond
+          (not (config/go-coord? coord))
+          (recur (next es) (conj src (first es)) go-pairs seen warnings)
+
+          (contains? seen lib)
+          (let [prev (get seen lib)
+                id (absolutize-go-local base coord)]
+            (recur (next es) src go-pairs seen
+                   (if (= prev id)
+                     warnings
+                     (conj warnings
+                           (str "warning: " lib " already resolved as "
+                                (go-coord-label prev) "; ignoring "
+                                (go-coord-label id) "\n")))))
+
+          :else
+          (let [id (absolutize-go-local base coord)]
+            (recur (next es) src (conj go-pairs [lib id])
+                   (assoc seen lib id) warnings)))))))

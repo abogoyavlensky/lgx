@@ -1441,3 +1441,26 @@
   (is (= "sqlite" (config/go-default-alias 'modernc.org/sqlite)))
   (is (= "shim" (config/go-default-alias 'github.com/you/pkgs/sqlite/shim)))
   (is (= "strconv" (config/go-default-alias 'strconv))))
+
+(deftest load-rejects-unknown-go-key
+  ;; A misspelled :go/* key would otherwise classify as a go coord and then
+  ;; generate nothing, so the namespace is closed even though coords are open.
+  (let [errors (:errors (load-cfg {:deps {'database/sql
+                                          {:go/interops "sql"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'database/sql] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "unknown key :go/interops"))))
+
+(deftest load-rejects-deps-root-on-go-coord
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.38.0"
+                                           :deps/root "src"}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors)) ":deps/root does not apply"))))
+
+(deftest load-rejects-exclusions-on-go-coord
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.38.0"
+                                           :exclusions ['a/b]}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors)) ":exclusions does not apply"))))

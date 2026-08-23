@@ -25,6 +25,7 @@
 (def ^:private git-keys #{:git/url :git/sha :git/tag})
 
 (def ^:private go-value-keys [:go/version :go/interop :go/local])
+(def ^:private go-key-set (set go-value-keys))
 
 ;; Family marker, kept ahead of coord-errors so the coord check can branch on
 ;; it. The public go-coord? below is the same test.
@@ -131,12 +132,34 @@
       "cannot mix :go/version with :go/local (pick a released or a local module)"
 
       has-go?
-      (vec (concat (mapcat (fn [k]
-                             (if (contains? c k)
-                               (at-key k (non-blank-string-errors (get c k)))
-                               []))
-                           go-value-keys)
-                   exclusions))
+      (vec (concat
+             ;; Unlike :git/* and :local/root, the :go/* namespace is lgx's
+             ;; own — no other tool writes it — so an unrecognized key here is
+             ;; a typo, not tools.deps forward-compat. Closing it is what keeps
+             ;; {:go/interops "sql"} from validating as a coord that then
+             ;; generates nothing.
+             (let [unknown (sort (map str (filter #(and (= "go" (namespace %))
+                                                        (not (contains?
+                                                               go-key-set %)))
+                                                  (keys c))))]
+               (if (seq unknown)
+                 [(str "unknown key " (str/join ", " unknown)
+                       " (allowed: :go/version, :go/interop, :go/local)")]
+                 []))
+             (mapcat (fn [k]
+                       (if (contains? c k)
+                         (at-key k (non-blank-string-errors (get c k)))
+                         []))
+                     go-value-keys)
+             ;; Both name parts of a Clojure source tree a Go package does not
+             ;; have. Accepting them would advertise an option the Go pipeline
+             ;; silently ignores.
+             (if (contains? c :deps/root)
+               [":deps/root does not apply to a :go/* coord (a Go package has no source root)"]
+               [])
+             (if (contains? c :exclusions)
+               [":exclusions does not apply to a :go/* coord (Go versions are settled by go mod tidy)"]
+               [])))
 
       (and has-local? has-git?)
       "cannot mix :local/root with :git/* keys"
@@ -197,12 +220,17 @@
                    interop (:go/interop c)
                    alias (go-default-alias lib)]
                (cond
-                 (and stdlib? (or (contains? c :go/version)
-                                  (contains? c :go/local)))
+                 ;; A stdlib package takes :go/interop and nothing else: there
+                 ;; is no module to require, and bindings are the only reason
+                 ;; to name it at all.
+                 (and stdlib?
+                      (not= #{:go/interop}
+                            (set (filter #(= "go" (namespace %)) (keys c)))))
                  [{:path [lib]
                    :msg (str lib " is a standard-library package: it has no "
-                             "module requirement, so :go/version/:go/local "
-                             "are not allowed (declare :go/interop only)")}]
+                             "module requirement, so :go/version/:go/local do "
+                             "not apply - declare :go/interop " (pr-str alias)
+                             " only")}]
 
                  (and (not stdlib?)
                       (not (contains? c :go/version))
