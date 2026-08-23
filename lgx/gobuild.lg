@@ -11,7 +11,9 @@
 (ns lgx.gobuild
   (:require [hash]
             [lgx.config :as config]
+            [lgx.home :as home]
             [lgx.path :as path]
+            [lgx.style :as style]
             [string :as str]))
 
 ;; ---------------------------------------------------------------------------
@@ -230,3 +232,134 @@
   (mapv (fn [[lib c]] ["get" (str lib "@" (:go/version c))])
         (sort-by (fn [[lib _]] (str lib))
                  (filter (fn [[_ c]] (some? (:go/version c))) go-pairs))))
+
+;; ---------------------------------------------------------------------------
+;; Building the runtime
+;;
+;; Everything below shells out. The Go toolchain is invoked with `go -C <dir>`
+;; rather than a `cd` in a shell, so no path ever passes through shell quoting.
+;; ---------------------------------------------------------------------------
+
+(def ^:private letgo-replace-env "LGX_LETGO_REPLACE")
+
+(defn letgo-replace-path
+  "LGX_LETGO_REPLACE as an absolute path, or nil when unset. Pointing it at a
+   let-go checkout builds the runtime against that working tree instead of a
+   released version — the lever that makes the whole pipeline testable before
+   a release carrying pkg/cli and cmd/lginterop exists."
+  []
+  (let [v (os/getenv letgo-replace-env)]
+    (when-not (str/blank? v)
+      (if (path/absolute? v)
+        (path/normalize v)
+        (path/normalize (path/join (os/cwd) v))))))
+
+(defn go-available?
+  "True when a `go` binary resolves on PATH. Passed as an argument, never
+   interpolated into the script (same shape as runner/lg-resolved-path)."
+  []
+  (let [r (try (os/sh "sh" "-c" "command -v -- \"$1\"" "sh" "go")
+               (catch e nil))]
+    (boolean (and r (zero? (:exit r)) (not (str/blank? (:out r)))))))
+
+(defn- die! [msg]
+  (write! *err* (str "error: " msg "\n"))
+  (os/exit 1))
+
+(defn preflight!
+  "Check what building a custom runtime needs before any work starts: the Go
+   toolchain, and a let-go to build against. Exits 1 with a message naming the
+   fix. A no-op when there are no go coords."
+  [go-pairs lg-version]
+  (when (seq go-pairs)
+    (when-not (go-available?)
+      (die! (str "lgx.edn declares Go deps, which need the Go toolchain, but "
+                 "`go` is not on PATH.\n"
+                 "  install it with `mise use -g go@latest`, "
+                 "or from https://go.dev/dl")))
+    (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
+      (die! (str "lgx.edn declares Go deps but no :lg-version.\n"
+                 "  the custom runtime links let-go itself, so the version has "
+                 "to be pinned: add :lg-version \"<version>\" to lgx.edn")))))
+
+(defn- go!
+  "Run one `go` subprocess. On failure the captured output is printed as-is —
+   the toolchain's own diagnostics are the useful part — and lgx exits 1."
+  [args what verbose?]
+  (when verbose?
+    (write! *err* (str "+ go " (str/join " " args) "\n")))
+  (let [r (apply os/sh "go" args)]
+    (when-not (zero? (:exit r))
+      (write! *err* (str (:out r) (:err r)))
+      (die! (str what " failed (go exited " (:exit r) ")")))
+    r))
+
+(defn- module-path-at
+  "The `module` line of the go.mod in `dir`. A :go/local target has to be a Go
+   module: its module path is what the generated go.mod requires and replaces,
+   and it cannot be derived from the package path."
+  [dir]
+  (let [p (path/join dir "go.mod")]
+    (when-not (file-exists? p)
+      (die! (str ":go/local " dir " is not a Go module (no go.mod there)")))
+    (or (some (fn [line]
+                (let [l (str/trim line)]
+                  (when (str/starts-with? l "module ")
+                    (str/trim (subs l 7)))))
+              (str/split (slurp p) "\n"))
+        (die! (str ":go/local " dir " has a go.mod with no module line")))))
+
+(defn- local-coords [go-pairs]
+  (filter (fn [[_ c]] (some? (:go/local c))) go-pairs))
+
+(defn runtimes-dir []
+  (path/join (home/root) "runtimes"))
+
+(defn- write-module! [dir go-pairs lg-version replace-path]
+  (mkdir dir)
+  (let [locals (mapv (fn [[_ c]] [c (module-path-at (:go/local c))])
+                     (local-coords go-pairs))]
+    (spit (path/join dir "go.mod")
+          (render-go-mod go-pairs lg-version replace-path locals))
+    (spit (path/join dir "main.go") (render-main-go go-pairs))
+    (when (seq (interop-packages go-pairs))
+      (mkdir (path/join dir "interop"))
+      (spit (path/join dir "interop" "doc.go") interop-doc-go))))
+
+(defn- build-runtime! [dir out go-pairs verbose?]
+  (doseq [args (go-get-args go-pairs)]
+    (go! (vec (concat ["-C" dir] args)) (str "go " (second args)) verbose?))
+  (go! ["-C" dir "mod" "tidy"] "go mod tidy" verbose?)
+  (let [pkgs (interop-packages go-pairs)]
+    (when (seq pkgs)
+      (go! ["-C" dir "run" (str letgo-module "/cmd/lginterop")
+            "-packages" (str/join "," pkgs)
+            "-out-pkg" "interop" "-out" "interop"]
+           "lginterop" verbose?)))
+  (go! ["-C" dir "build" "-o" out "."] "go build" verbose?))
+
+(defn ensure-runtime!
+  "Build (or reuse) the custom `lg` that links this project's Go deps, and
+   return its absolute path.
+
+   The binary is cached at $LGX_HOME/runtimes/<hash>/lg and a hit short-circuits
+   everything — except when a :go/local coord or LGX_LETGO_REPLACE is in play.
+   Those point at working trees whose *content* is not in the hash, so the
+   build steps re-run every time; `go build` is incremental, so that costs
+   about a second."
+  [go-pairs lg-version verbose?]
+  (let [replace-path (letgo-replace-path)
+        ref (letgo-ref lg-version replace-path)
+        dir (path/join (runtimes-dir) (runtime-hash go-pairs ref))
+        src (path/join dir "src")
+        out (path/join dir "lg")
+        live? (or (some? replace-path) (seq (local-coords go-pairs)))]
+    (if (and (file-exists? out) (not live?))
+      out
+      (do
+        (write! *err* (str (style/header "Building custom lg runtime...") "\n"))
+        (write-module! src go-pairs lg-version replace-path)
+        ;; -o is resolved relative to the -C directory, so out has to be
+        ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
+        (build-runtime! src out go-pairs verbose?)
+        out))))

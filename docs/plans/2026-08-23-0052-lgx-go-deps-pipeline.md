@@ -197,17 +197,30 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 
 No unit tests (subprocess orchestration; covered by Task 8 e2e). Follow the existing subprocess conventions in `lgx/cache.lg` (`git!`-style error wrapping) and `lgx/runner.lg`.
 
-- [ ] **Step 1: Implement preflight**
+- [x] **Step 1: Implement preflight**
   `go-available?` via `command -v` (the `sh -c "command -v -- \"$1\""` pattern from `runner/lg-resolved-path`, `lgx/runner.lg:37`). On missing: stderr error naming the fix (`mise use -g go@latest` or https://go.dev/dl) and exit 1. On go coords present with no `:lg-version` and no `LGX_LETGO_REPLACE`: error explaining `:lg-version` pins the runtime's let-go.
 
-- [ ] **Step 2: Implement `ensure-runtime!`**
+- [x] **Step 2: Implement `ensure-runtime!`**
   Signature: `(ensure-runtime! go-pairs lg-version verbose?)` → absolute path of the built `lg`. Logic per Design: hash → `$LGX_HOME/runtimes/<hash>/`; cache hit returns immediately unless a local replace is active; else: read the `module` line from each `:go/local` target's `go.mod` (error if the target isn't a module), write `src/go.mod` + `src/main.go` + placeholder `src/interop/doc.go` (when interop coords), then with cwd `src/`: `go get <sym>@<version>` per `:go/version` coord → `go mod tidy` → (when interop coords) `go run github.com/nooga/let-go/cmd/lginterop -packages <csv> -out-pkg interop -out interop` → `go build -o ../lg .` — each failure printing the captured output and exiting 1. `--verbose` traces each subprocess command (match the `+ ...` trace style in `runner.lg`). Print a one-line `Building custom lg runtime...` header (via `lgx.style`) on cold builds so the first-run pause is explained.
 
-- [ ] **Step 3: Manual smoke (no commit gate)**
+- [x] **Step 3: Manual smoke (no commit gate)**
   With `LGX_LETGO_REPLACE` pointed at the integration worktree and a scratch project declaring `{database/sql {:go/interop "sql"}}`, confirm a binary appears under `$LGX_HOME/runtimes/` and `<runtime>/lg -v` runs. (Full verification is Task 8.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "feat(gobuild): build and cache the custom lg runtime"`
+
+> Deviation: the toolchain is invoked as `go -C <dir> ...` rather than through
+> a shell `cd`, so no generated path passes through shell quoting. `os/sh`
+> takes no cwd, and the plan's alternative would have.
+>
+> Smoke results (Step 3, `LGX_LETGO_REPLACE` at the integration worktree,
+> `{database/sql {:go/interop "sql"}}`): cold build produced
+> `<LGX_HOME>/runtimes/0f4d4db73b9bb951/lg`, which reports `lg dev` and
+> resolves `sql/Open`; the replace-active rebuild re-ran and took 0.7s; a
+> pinned coord set with a pre-existing binary short-circuited with no
+> subprocesses. A genuinely pinned build correctly fails today — no let-go
+> release contains `pkg/cli` yet (v1.12.2 checked) — surfacing go's own
+> diagnostic and exiting 1, which is exactly why LGX_LETGO_REPLACE exists.
 
 ### Task 5: Wire the runtime into commands
 
