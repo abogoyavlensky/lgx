@@ -1,5 +1,7 @@
 # lgx Go Deps Pipeline Implementation Plan
 
+**Status: COMPLETE** (2026-08-23)
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let lgx projects declare Go package dependencies in `lgx.edn`, build a cached custom `lg` runtime that links them, wire it through every command transparently, and prove it end-to-end with a thin sqlite wrapper in the `letgo-packages` monorepo.
@@ -272,40 +274,142 @@ No unit tests (subprocess orchestration; covered by Task 8 e2e). Follow the exis
 - Modify: `README.md` (coord family reference, end-user requirements: go on PATH via mise, `:lg-version`), `docs/ARCHITECTURE.md` (resolution data flow + runtimes cache in the `$LGX_HOME` layout section)
 - Create: `docs/knowledge-base/lgx-go-runtimes.md` (cache layout, hash inputs, `LGX_LETGO_REPLACE`, rebuild policy, troubleshooting `go` failures) with a `Verify against: lgx/gobuild.lg, lgx.lg` footer
 
-- [ ] **Step 1: Write the docs** (use /writing-clearly)
-- [ ] **Step 2: Commit** — `git commit -m "docs: Go deps pipeline"`
+- [x] **Step 1: Write the docs** (use /writing-clearly)
+- [x] **Step 2: Commit** — `git commit -m "docs: Go deps pipeline"`
+
+> Deviation: also updated `AGENTS.md` (routing entry for the new note) and
+> `docs/knowledge-base/lgx-dev-workflow.md`, whose smoke-test section still
+> pointed at `examples/with-lib/`, which no longer exists — and which now says
+> that `LGX_LG` is the wrong lever for a Go-deps project.
 
 ### Task 7: sqlite wrapper in letgo-packages
 
 **Files (repo `/Users/andrew/Projects/letgo-packages`):**
 - Create: `sqlite/lgx.edn`, `sqlite/src/sqlite/core.lg`, `sqlite/shim/go.mod`, `sqlite/shim/shim.go`, `sqlite/example/lgx.edn`, `sqlite/example/main.lg`; fill `sqlite/README.md`
 
-- [ ] **Step 1: Shim module**
+- [x] **Step 1: Shim module**
   Module path: from `git -C /Users/andrew/Projects/letgo-packages remote get-url origin` (fallback `github.com/abogoyavlensky/letgo-packages`) + `/sqlite/shim`. `shim.go`: the `ScanRow` implementation from let-go's `docs/guide/go-interop.md` verbatim, plus the init registering `sqlite.shim/ScanRow` (`vm.NewNamespace` + `vm.MustBox` + `rt.RegisterNS`). `go.mod` requires let-go at a placeholder (root-module replace governs during dev; note in README it must pin a real release before tagging). Sanity: `go vet ./...` inside `shim/` with a temporary replace, or defer compile-checking to Task 8's pipeline build.
 
-- [ ] **Step 2: Wrapper `lgx.edn` + veneer**
+- [x] **Step 2: Wrapper `lgx.edn` + veneer**
   `lgx.edn`: `:paths ["src"]`; deps `database/sql {:go/interop "sql"}`, `modernc.org/sqlite {:go/version "<current release — check pkg.go.dev>"}`, shim via `{:go/local "shim"}` for now. `src/sqlite/core.lg`: `open` / `close!` / `query` / `execute!` per the Design (realize with `doall` before closing rows; keywordize columns).
 
-- [ ] **Step 3: Example app**
+- [x] **Step 3: Example app**
   `example/lgx.edn`: dep on the wrapper `{:local/root ".."}`, `:main "main.lg"`, `:lg-version` matching the integration branch's version token, `:targets {:bin {:out "bin/app"}}`. `main.lg`: open a file db in a temp path, `create table`, two inserts (parameterized), `query` and print the row maps, print `:rows-affected` — output deterministic enough to eyeball.
 
-- [ ] **Step 4: Commit (letgo-packages repo)**
+- [x] **Step 4: Commit (letgo-packages repo)**
   `git -C /Users/andrew/Projects/letgo-packages add -A && git -C /Users/andrew/Projects/letgo-packages commit -m "Add sqlite wrapper: shim, veneer, example"`
+
+> Deviation: the shim carries two more functions than the plan specified, both
+> forced by let-go semantics the design did not anticipate:
+>
+> - `Query`/`Exec` taking a parameter slice. Methods are not first-class values
+>   in let-go, so `(apply sql/Query db q params)` — the shape the let-go guide
+>   sketches — cannot work: `(.Query db q p1 p2)` needs literal arguments, and a
+>   veneer holding its parameters in a vector has no way to spread them.
+> - Value conversion at both boundaries. `vm.BoxValue` walks a Go slice by its
+>   *static* element type, so the guide's `ScanRow() ([]any, error)` returns
+>   every column as an opaque `vm.Boxed` printing `<go.string Ada>` and equal to
+>   nothing; returning `[]vm.Value` converted with `vm.ToLetGo` fixes it. The
+>   same asymmetry runs the other way — a let-go vector containing `nil` fails
+>   to convert to `[]any` and arrives as `[]vm.Value`, so `Query`/`Exec` take
+>   `[]vm.Value` and unbox them.
+>
+> Driver pinned at `modernc.org/sqlite v1.57.0` (current release). The example
+> depends on the wrapper via `{:local/root ".."}` rather than `:deps/root`,
+> which is the natural spelling for a sibling directory.
 
 ### Task 8: End-to-end verification
 
 Prereqs: `go` on PATH; the let-go worktree `/Users/andrew/Projects/let-go-interop` on `integration/go-interop` (built per the upstream plan, Task 8 there). If absent, stop and report — do not fake the verification.
 
-- [ ] **Step 1: Run path**
+- [x] **Step 1: Run path**
   In `sqlite/example/`: `LGX_LETGO_REPLACE=/Users/andrew/Projects/let-go-interop lgx run` (lgx itself per the dev-workflow doc — `docs/knowledge-base/lgx-dev-workflow.md`).
   Expected: cold build header, then the example's printed rows. Re-run: because the shim is `:go/local` (and `LGX_LETGO_REPLACE` is set), the second run takes the incremental-rebuild path, NOT the cache-hit skip — verify it re-runs `go build` and stays fast (a few seconds). The pure cache-hit skip only applies to fully pinned coord sets.
 
-- [ ] **Step 2: Build path**
+- [x] **Step 2: Build path**
   Same env: `lgx build`, then run `bin/app` directly.
   Expected: identical output from the standalone binary; confirm with `lgx build --verbose` that `-bundle-base` pointed at the runtimes-cache binary.
 
-- [ ] **Step 3: Regression**
+- [x] **Step 3: Regression**
   In `/Users/andrew/Projects/lgx`: `lgx test` — full suite green (no-go-deps path unchanged).
 
-- [ ] **Step 4: Record findings**
+- [x] **Step 4: Record findings**
   Append gotchas discovered (registration timing, tidy/network behavior, alias issues) to `docs/knowledge-base/lgx-go-runtimes.md`; commit in the owning repo(s).
+
+---
+
+## Completion summary
+
+All eight tasks landed. `lgx` projects declare Go packages as a third coord
+family in `:deps`; lgx collects them through transitive resolution, builds a
+custom `lg` that links them, caches it under `$LGX_HOME/runtimes/<hash>/`, and
+routes `run`/`repl`/`nrepl`/`test`/`build`/`install`/tasks through it. The
+sqlite wrapper in `letgo-packages` exercises the whole stack.
+
+**Verification.** 608 unit tests, 933 assertions, green. End-to-end from a cold
+`$LGX_HOME` against the `integration/go-interop` branch: the sqlite example
+built its runtime and ran create/insert/select in 3.2s warm-Go-cache; `lgx
+build` produced a standalone `bin/app` with identical output and
+`-bundle-base` pointing at the runtimes-cache binary; `lgx install` warmed the
+runtime; a nested `lgx` correctly built its own rather than inheriting the
+parent's; `LGX_LG` set warned and skipped the build entirely.
+
+Three `examples/` projects fail to run (`local-dep`, `clojure-libs/with-aero`,
+`clojure-libs/with-hiccup`), all identically on the released lgx 0.1.2 — they
+predate this branch and are not regressions.
+
+**Not done:** the wrapper cannot be tagged yet. `pkg/cli` and `cmd/lginterop
+-out-pkg` exist only on the integration branch, so a pinned `:lg-version`
+build fails (checked against v1.12.2) and `LGX_LETGO_REPLACE` is required.
+Once let-go releases them, `sqlite/shim/go.mod` needs a real let-go require and
+`sqlite/lgx.edn` needs `{:go/version "vX.Y.Z"}` in place of `{:go/local
+"shim"}`. Both are noted in the wrapper README.
+
+### Deviations
+
+Recorded per task above. The load-bearing ones:
+
+- `split-go-coords` and the wiring decisions live in `lgx/gobuild.lg`, not
+  `lgx.lg` — `lgx.lg`'s fns are private and so not unit-testable.
+- Lib-symbol-dependent coord rules moved from `coord-errors` to a `:deps`-level
+  cross-check, because `[:fn coord-errors]` only receives the coord value.
+- `apply-runtime!` checks the `LGX_LG` override before building, not after.
+- lginterop is always given `-opaque-structs`.
+- The sqlite shim carries `Query`/`Exec` and converts values at both
+  boundaries, neither of which the plan anticipated.
+
+### Defects the plan's design did not cover
+
+Six, all found by review or by running the real toolchain, all fixed and
+regression-tested:
+
+1. `go mod tidy` pruned an interop coord's requirement before lginterop could
+   scan it. The interop placeholder now blank-imports each wrapped package.
+2. Without `-opaque-structs`, wrapped structs flatten to field-only Records and
+   every method call fails.
+3. `require <mod>/v2 v0.0.0` is rejected outright by Go.
+4. Unquoted `replace` paths containing a space make go.mod unparsable.
+5. `LGX_LG` leaked to nested `lgx` invocations, which read it as a user
+   override. Fixed with an `LGX_LG_AUTO` stamp.
+6. `namespace` throws on a non-Named coord key, turning the resolver's
+   warn-and-continue path into an aborted command.
+
+Plus two let-go boxing asymmetries that shaped the shim: a `[]any` return
+arrives as opaque boxed values, and a let-go vector containing `nil` fails to
+convert to `[]any`. Both are recorded in
+`docs/knowledge-base/lgx-go-runtimes.md`. **The `ScanRow` example in let-go's
+own `docs/guide/go-interop.md` has the first bug** — worth an upstream fix.
+
+### What the plan could have specified better
+
+It designed the generated Go module without ever running the Go toolchain
+against a rendered one, and four of the six defects above are exactly what that
+missed: tidy's pruning, `-opaque-structs`, major-version suffixes, and path
+quoting. A plan that generates input for an external tool should include one
+"render it and feed it to the real tool" step *before* the tasks that build on
+it, not only in the end-to-end task at the end.
+
+It also treated let-go's `go-interop.md` guide as a specification. Two of its
+sketches do not work as written (`(apply sql/Query db q params)`, and
+`ScanRow` returning `[]any`), which surfaced only at Task 7. Prose guides are a
+starting point to verify, not a contract.
