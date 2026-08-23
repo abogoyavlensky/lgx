@@ -1464,3 +1464,13 @@
                                            :exclusions ['a/b]}}}))]
     (is (= 1 (count errors)))
     (is (str/includes? (:msg (first errors)) ":exclusions does not apply"))))
+
+(deftest load-tolerates-non-keyword-coord-keys
+  ;; Coord maps are open, and a third-party deps.edn can carry a string key.
+  ;; The :go/* family check must not throw out of `namespace` on one.
+  (let [cfg {:deps {'foo/bar {:git/url "u" :git/sha "s"}}}]
+    (is (= :no-throw
+           (threw? (fn [] (load-cfg {:deps {'foo/bar {:git/url "u"
+                                                      :git/sha "s"
+                                                      "note" true}}})))))
+    (is (= {:cfg cfg} (load-cfg cfg)))))

@@ -283,3 +283,12 @@
 
 (deftest go-get-args-is-empty-without-version-coords
   (is (= [] (gobuild/go-get-args [sql shim]))))
+
+(deftest split-tolerates-non-keyword-coord-keys
+  ;; Transitive coords synthesized from a third-party deps.edn reach the split
+  ;; unvalidated and pass through whole, so a string key must not abort the
+  ;; walk — the resolver's contract there is warn-and-continue.
+  (let [e (entry 'foo/bar {:local/root "../x" "note" true} "/proj")
+        r (gobuild/split-go-coords [e] {})]
+    (is (= [e] (:src r)))
+    (is (= [] (:go-pairs r)))))

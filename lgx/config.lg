@@ -29,8 +29,16 @@
 
 ;; Family marker, kept ahead of coord-errors so the coord check can branch on
 ;; it. The public go-coord? below is the same test.
+(defn- go-ns-key?
+  "True for a :go/* keyword. Guarded on keyword? because coord maps are open
+   and third-party deps.edn/project.clj coords reach this unvalidated — a
+   coord like {:local/root \"../x\" \"note\" true} would otherwise throw out of
+   `namespace` and abort a resolution that is supposed to fail soft."
+  [k]
+  (and (keyword? k) (= "go" (namespace k))))
+
 (defn- go-key? [c]
-  (boolean (some #(= "go" (namespace %)) (keys c))))
+  (boolean (some go-ns-key? (keys c))))
 
 ;; Built-in CLI commands that may not be shadowed by a project task. Includes
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
@@ -138,7 +146,7 @@
              ;; a typo, not tools.deps forward-compat. Closing it is what keeps
              ;; {:go/interops "sql"} from validating as a coord that then
              ;; generates nothing.
-             (let [unknown (sort (map str (filter #(and (= "go" (namespace %))
+             (let [unknown (sort (map str (filter #(and (go-ns-key? %)
                                                         (not (contains?
                                                                go-key-set %)))
                                                   (keys c))))]
@@ -225,7 +233,7 @@
                  ;; to name it at all.
                  (and stdlib?
                       (not= #{:go/interop}
-                            (set (filter #(= "go" (namespace %)) (keys c)))))
+                            (set (filter go-ns-key? (keys c)))))
                  [{:path [lib]
                    :msg (str lib " is a standard-library package: it has no "
                              "module requirement, so :go/version/:go/local do "
