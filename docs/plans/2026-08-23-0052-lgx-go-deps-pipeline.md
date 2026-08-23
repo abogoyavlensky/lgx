@@ -228,19 +228,43 @@ No unit tests (subprocess orchestration; covered by Task 8 e2e). Follow the exis
 - Modify: `lgx.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests for the pure decisions**
+- [x] **Step 1: Write failing tests for the pure decisions**
   - LGX_LG override: helper deciding `{:setenv path}` vs `{:warn ...}` given (user-LGX_LG-set?, go-coords-present?).
   - Bundle-base injection: given forward-args and a runtime path, argv gains `["-bundle-base" path]` before `-b` only when the user's args don't already contain `"-bundle-base"`.
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   A shared helper in `lgx.lg` called right after each command's basis: when `:go-coords` non-empty → preflight, `ensure-runtime!`, then setenv-or-warn per the helper. Skip `check-lg-version!` when the custom runtime is active (call sites at `lgx.lg:305,330,357,374,422` — restructure so the check runs only in the no-go-deps path). `cmd-install` calls the same helper after `print-installs!`. `cmd-build` uses the injection helper for its argv (`lgx.lg:388`).
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS (existing suite must stay green — no-go-deps projects take the unchanged path).
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS (existing suite must stay green — no-go-deps projects take the unchanged path).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: custom runtime wired through run/repl/test/build/install"`
+
+> Deviation: `apply-runtime!` checks the LGX_LG override *before* building
+> rather than after — an explicit LGX_LG discards the runtime, and building one
+> cold takes minutes. `runtime-action` therefore decides from the flag alone
+> and the warning no longer names a path.
+>
+> The `check-lg-version!` calls moved from before the basis to inside
+> `apply-runtime!` (the plan's restructure): the transitive `:go/*` coords are
+> only known once resolution has run. For a no-go-deps project the check now
+> fires after deps are fetched instead of before — the only user-visible change
+> on that path.
+>
+> Also fixed here, found by review of Task 3: lginterop needs
+> `-opaque-structs`. Without it the wrapped structs flatten to field-only
+> Records and every method call fails (`no method Query on record sql/DB`),
+> which would have made the whole sqlite wrapper unusable.
+>
+> Verified end-to-end against the integration branch with a scratch project
+> declaring `{database/sql {:go/interop "sql"} modernc.org/sqlite {:go/version
+> "v1.38.0"}}`: `lgx run` opened a sqlite db and ran create/insert/select;
+> `lgx --verbose build` showed `-bundle-base` pointing at the runtimes-cache
+> binary and the standalone `bin/app` produced identical output; `lgx install`
+> warmed the runtime; `LGX_LG` set warned and skipped the build; a no-go-deps
+> example still runs unchanged.
 
 ### Task 6: Docs
 

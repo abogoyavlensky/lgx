@@ -375,6 +375,55 @@
              (write! *err* (str "warning: failed to fetch let-go " version
                                 " source: " (ex-message e) "\n"))))))
 
+;; Preflight: when :lg-version is pinned, compare it to the lg on PATH. Warn for
+;; iteration commands (run/nrepl), fail for build/test. LGX_SKIP_VERSION_CHECK
+;; bypasses both; a dev/unknown installed version is skipped, not warned.
+(defn- check-lg-version! [cfg severity]
+  (when-let [pinned (config/lg-version cfg)]
+    ;; os/getenv returns "" (truthy) when unset, so gate on a non-blank value.
+    (when (str/blank? (os/getenv "LGX_SKIP_VERSION_CHECK"))
+      (let [installed (version/installed)]
+        (when (= :mismatch (version/check pinned installed))
+          (let [msg (str "lg " installed " on PATH does not match :lg-version "
+                         pinned " in lgx.edn (update the pin or the installed lg)")]
+            (if (= severity :fail)
+              (do (write! *err* (str "error: " msg "\n")) (os/exit 1))
+              (write! *err* (str "warning: " msg "\n")))))))))
+
+(defn- apply-runtime!
+  "The single place the custom Go runtime enters a command. Called right after
+   the basis resolves, because only then are the transitive :go/* coords known.
+
+   With no Go deps this is just the :lg-version preflight, unchanged. With Go
+   deps it builds (or reuses) the runtime and points LGX_LG at it, so runner.lg
+   picks it up with no changes of its own — and the version check is skipped,
+   because a runtime built from the pin matches it by construction and the
+   check would only be probing whichever lg happens to be on PATH.
+
+   Returns the runtime path when one is in play, else nil (the value cmd-build
+   needs for -bundle-base)."
+  [cfg basis severity verbose?]
+  (let [go-pairs (:go-coords basis)
+        action (gobuild/runtime-action
+                 (not (str/blank? (os/getenv "LGX_LG"))) nil)]
+    (cond
+      (empty? go-pairs)
+      (do (check-lg-version! cfg severity) nil)
+
+      ;; Decided before the build, not after: an explicit LGX_LG means the
+      ;; runtime would only be discarded, and building one cold takes minutes.
+      (:warn action)
+      (do (write! *err* (:warn action)) nil)
+
+      :else
+      (let [lg-version (config/lg-version cfg)
+            _ (gobuild/preflight! go-pairs lg-version)
+            path (gobuild/ensure-runtime! go-pairs lg-version verbose?)]
+        (os/setenv "LGX_LG" path)
+        (when verbose?
+          (write! *err* (str "+ custom lg runtime " path "\n")))
+        path))))
+
 (defn- cmd-install [with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
@@ -386,10 +435,13 @@
       (println "no deps in lgx.edn")
       ;; The deliberate dependency-management moment: show every pending
       ;; warning, including ones a warm cache would otherwise keep quiet.
-      (let [{:keys [installs]} (ensure-all! project coords true)]
+      (let [{:keys [installs go-coords]} (ensure-all! project coords true)]
         (if (some :installed? installs)
           (print-installs! installs)
-          (println "all deps up to date"))))
+          (println "all deps up to date"))
+        ;; Warm the custom runtime here too, so `lgx install` leaves nothing
+        ;; for the first run to discover — the CI-friendly shape.
+        (apply-runtime! cfg {:go-coords go-coords} :warn false)))
     (install-letgo-source! cfg)))
 
 (defn- cmd-version []
@@ -498,21 +550,6 @@
         (write! *err* (str "+ auto context " nm "\n"))))
     (vec (concat auto with))))
 
-;; Preflight: when :lg-version is pinned, compare it to the lg on PATH. Warn for
-;; iteration commands (run/nrepl), fail for build/test. LGX_SKIP_VERSION_CHECK
-;; bypasses both; a dev/unknown installed version is skipped, not warned.
-(defn- check-lg-version! [cfg severity]
-  (when-let [pinned (config/lg-version cfg)]
-    ;; os/getenv returns "" (truthy) when unset, so gate on a non-blank value.
-    (when (str/blank? (os/getenv "LGX_SKIP_VERSION_CHECK"))
-      (let [installed (version/installed)]
-        (when (= :mismatch (version/check pinned installed))
-          (let [msg (str "lg " installed " on PATH does not match :lg-version "
-                         pinned " in lgx.edn (update the pin or the installed lg)")]
-            (if (= severity :fail)
-              (do (write! *err* (str "error: " msg "\n")) (os/exit 1))
-              (write! *err* (str "warning: " msg "\n")))))))))
-
 (defn- cmd-run [forward-args verbose? with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
@@ -527,9 +564,10 @@
         plan (runner/plan-run-args forward-args main-script)
         _ (when-let [reason (:error plan)]
             (run-target-error! reason))
-        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg [:dev] with verbose?)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
+        basis (overlay-basis project cfg with nil)
+        {:keys [results paths resource-paths]} basis
+        _ (apply-runtime! cfg basis :warn verbose?)]
     (when (:inject? plan)
       (resolve-main-script! project main-script))
     ;; No status header for `run`: it is the dev-time stand-in for the built
@@ -552,9 +590,10 @@
             (os/exit 1)))
         project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg [:dev :test] with verbose?)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+        basis (overlay-basis project cfg with nil)
+        {:keys [results paths resource-paths]} basis
+        _ (apply-runtime! cfg basis :warn verbose?)
         ;; No --port: ask lgx's own runtime (let-go >= 1.11.0) for a free
         ;; port via os/free-port, then pass it as the literal -p value lg
         ;; writes to .nrepl-port. The OS vets it as free, so unlike the old
@@ -579,9 +618,10 @@
     (os/exit 1))
   (let [project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg [:dev :test] with verbose?)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
+        basis (overlay-basis project cfg with nil)
+        {:keys [results paths resource-paths]} basis
+        _ (apply-runtime! cfg basis :warn verbose?)]
     (print-installs! results)
     ;; Empty forward-args: with no script, no -e, and no -n, lg drops into its
     ;; terminal REPL. Like cmd-nrepl, no LGX_RUN for a REPL session.
@@ -596,8 +636,9 @@
 (defn- cmd-build [forward-args verbose? with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :fail)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+        basis (overlay-basis project cfg with nil)
+        {:keys [results paths resource-paths]} basis
+        runtime (apply-runtime! cfg basis :fail verbose?)
         main-script (config/main cfg)
         bin (:bin (config/targets cfg))]
     (when (nil? main-script)
@@ -610,7 +651,11 @@
     (resolve-main-script! project main-script)
     (let [abs-out (ensure-out-dir! project (:out bin))
           abs-main (path/join project main-script)
-          args (vec (concat forward-args ["-b" abs-out abs-main]))]
+          ;; `lg -b` copies the running binary as the bundle base; with Go
+          ;; natives linked, that base has to be the custom runtime or the
+          ;; bundled app resolves none of its namespaces.
+          args (vec (concat (gobuild/inject-bundle-base forward-args runtime)
+                            ["-b" abs-out abs-main]))]
       (write! *err* (str (style/header (str "Building " (:out bin) "...")) "\n"))
       (print-installs! results)
       (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
@@ -644,7 +689,6 @@
     (os/exit 1))
   (let [project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :fail)
         test-dir (path/join project "test")
         stat (os/stat test-dir)]
     ;; Cheap validation first: a missing test/ must error before the basis is
@@ -654,7 +698,9 @@
       (write! *err* "lgx: no test/ directory in project\n")
       (os/exit 1))
     (let [with (auto-with! cfg [:test] with verbose?)
-          {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+          basis (overlay-basis project cfg with nil)
+          {:keys [results paths resource-paths]} basis
+          _ (apply-runtime! cfg basis :fail verbose?)
           single? (= 1 (count forward-args))
           entries (if single?
                     (single-file-entries! test-dir (first forward-args) project)
@@ -711,7 +757,9 @@
         (write! *err* (str "lgx: " task-name ": " msg "\n")))
       (write! *err* (str (args/usage-line task-name decls) "\n"))
       (os/exit 1))
-    (let [{:keys [results paths resource-paths]} (overlay-basis project cfg with task)]
+    (let [basis (overlay-basis project cfg with task)
+          {:keys [results paths resource-paths]} basis]
+      (apply-runtime! cfg basis :warn verbose?)
       (print-installs! results)
       (tasks/run-task! task-name task paths resource-paths verbose?
                        (:bindings bound)))))

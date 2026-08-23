@@ -419,9 +419,9 @@
    so it wins and lgx only says why the custom runtime is not in play."
   [user-lg-set? runtime-path]
   (if user-lg-set?
-    {:warn (str "warning: lgx.edn declares Go deps, but LGX_LG is set - "
-                "using that lg instead of the custom runtime at "
-                runtime-path "\n")}
+    {:warn (str "warning: lgx.edn declares Go deps, but LGX_LG is set - using "
+                "that lg instead of a custom runtime, so the Go namespaces "
+                "will not resolve\n")}
     {:setenv runtime-path}))
 
 (defn inject-bundle-base

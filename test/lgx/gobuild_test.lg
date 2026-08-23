@@ -301,9 +301,11 @@
   (is (= {:setenv "/rt/lg"} (gobuild/runtime-action false "/rt/lg"))))
 
 (deftest runtime-action-warns-when-the-user-set-lgx-lg
-  (let [r (gobuild/runtime-action true "/rt/lg")]
-    (is (nil? (:setenv r)))
-    (is (str/includes? (:warn r) "LGX_LG"))))
+  ;; Decided without a path, because the caller asks before building one.
+  (doseq [p [nil "/rt/lg"]]
+    (let [r (gobuild/runtime-action true p)]
+      (is (nil? (:setenv r)))
+      (is (str/includes? (:warn r) "LGX_LG")))))
 
 (deftest inject-bundle-base-appends-the-runtime
   (is (= ["-bundle-base" "/rt/lg"] (gobuild/inject-bundle-base [] "/rt/lg"))))
