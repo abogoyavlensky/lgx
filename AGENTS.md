@@ -16,6 +16,9 @@ read them only when relevant. Do not preload.
   [`docs/knowledge-base/let-go-bundling.md`](docs/knowledge-base/let-go-bundling.md).
 - Touching `(:require)` resolution, `.cljc` discovery, ns layout →
   [`docs/knowledge-base/let-go-resolver.md`](docs/knowledge-base/let-go-resolver.md).
+- Touching `:go/*` coords, the custom `lg` runtime cache, or the
+  `go`/lginterop subprocess pipeline →
+  [`docs/knowledge-base/lgx-go-runtimes.md`](docs/knowledge-base/lgx-go-runtimes.md).
 - Setting up a dev iteration loop (`LGX_LG`, cache management) →
   [`docs/knowledge-base/lgx-dev-workflow.md`](docs/knowledge-base/lgx-dev-workflow.md).
 - Filing or referencing upstream let-go work →

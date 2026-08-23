@@ -32,6 +32,7 @@ lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
 lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
 lgx/cache.lg        gitlibs cache layout, fetch via git
+lgx/gobuild.lg      everything :go/* — partitioning go coords out of resolution, the runtime cache key, rendering the generated Go module, and driving go get / go mod tidy / lginterop / go build
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
@@ -545,6 +546,7 @@ $LGX_HOME/
   gitlibs/<host>/<owner>/<repo>/<ref>/
   templates/<host>/<owner>/<repo>/<sha>/
   test-runner/lgx-test-<version>.lg
+  runtimes/<hash>/{src/,lg}
 ```
 
 `LGX_HOME` defaults to `~/.lgx`. Gitlib cache paths are pure functions
@@ -553,7 +555,10 @@ of the git URL and ref. For `:git/sha` coords, `<ref>` is the sha. For
 leaf is a read-only worktree. The `test-runner` directory holds the
 generated test harness. The `templates/` tree parallels
 gitlibs but uses sha-only keying — populated by `lgx new` on first use
-and reused on subsequent runs.
+and reused on subsequent runs. `runtimes/` holds custom `lg` binaries
+built for projects with `:go/*` deps, keyed by a hash of the let-go
+version and the whole Go coord set (see [Go deps](#go-deps) and
+[`knowledge-base/lgx-go-runtimes.md`](knowledge-base/lgx-go-runtimes.md)).
 
 By default, `cache/ensure-lib!` returns `<ref>/src/` if that
 subdirectory exists, otherwise `<ref>/`. This matches the `tools.deps`
@@ -579,6 +584,49 @@ Local deps use the same source path rule as git deps: `:deps/root`
 overrides the default probe; otherwise lgx uses `<local>/src/` when it
 exists and `<local>/` when it does not. lgx reads a local lib's own
 `lgx.edn` for transitive `:deps`, just as it does for git deps.
+
+### Go deps
+
+A third coord family, `:go/*`, names a Go package rather than a let-go
+source tree. It is validated in `config/coord-errors` (per-coord shape)
+and `config/go-deps-errors` (the rules needing the lib symbol: standard
+library vs. external, and `cmd/lginterop`'s alias, which is always the
+package path's last segment).
+
+Go coords never reach `cache/ensure-lib!`. `gobuild/split-go-coords`
+partitions each queue level of `ensure-all!` before it is walked, so a
+Go coord produces no source path and no clone but is still collected -
+including from a dependency's own `lgx.edn`, which is how a wrapper
+library's Go deps flow up to its consumer. `ensure-all!` therefore
+returns `{:installs [...] :go-coords [[lib coord] ...]}`, and `basis`
+threads `:go-coords` into its result.
+
+Dedup mirrors the source-coord rule: breadth-first, first-wins, with a
+warning when a later coord for the same lib differs. Splitting a level
+at a time (rather than the whole entry list at once) is what preserves
+that ordering. A relative `:go/local` is made absolute against the
+declaring file's directory at collection time, while that base is still
+known - the same rule `coord-id` applies to `:local/root`.
+
+`apply-runtime!` is the single place the result enters a command. It
+runs right after the basis, because only then are the transitive Go
+coords known:
+
+- no Go coords: run `check-lg-version!` as before, return nil
+- `LGX_LG` set by the user: warn and return nil, without building
+- otherwise: preflight, `gobuild/ensure-runtime!`, then point `LGX_LG`
+  at the built binary so `runner.lg` picks it up unchanged
+
+`check-lg-version!` is skipped when a custom runtime is active - it is
+built from the pin by construction, and the check would only be probing
+whichever `lg` happens to be on `PATH`. lgx stamps `LGX_LG_AUTO`
+alongside `LGX_LG` so a nested `lgx` can tell its parent's runtime from
+a genuine user override.
+
+`lgx build` additionally injects `-bundle-base <runtime>` into the argv
+before `-b`, unless the user passed their own. `lg -b` copies the
+running binary as its base, and a stock `lg` base would produce an app
+whose Go namespaces do not resolve.
 
 ## Transitive resolution
 
