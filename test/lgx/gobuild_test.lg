@@ -292,3 +292,83 @@
         r (gobuild/split-go-coords [e] {})]
     (is (= [e] (:src r)))
     (is (= [] (:go-pairs r)))))
+
+;; ---------------------------------------------------------------------------
+;; Wiring decisions
+;; ---------------------------------------------------------------------------
+
+(deftest runtime-action-sets-lgx-lg-when-the-user-has-not
+  (is (= {:setenv "/rt/lg"} (gobuild/runtime-action false "/rt/lg"))))
+
+(deftest runtime-action-warns-when-the-user-set-lgx-lg
+  (let [r (gobuild/runtime-action true "/rt/lg")]
+    (is (nil? (:setenv r)))
+    (is (str/includes? (:warn r) "LGX_LG"))))
+
+(deftest inject-bundle-base-appends-the-runtime
+  (is (= ["-bundle-base" "/rt/lg"] (gobuild/inject-bundle-base [] "/rt/lg"))))
+
+(deftest inject-bundle-base-keeps-existing-forward-args
+  (is (= ["-x" "-bundle-base" "/rt/lg"]
+         (gobuild/inject-bundle-base ["-x"] "/rt/lg"))))
+
+(deftest inject-bundle-base-defers-to-a-user-supplied-one
+  ;; A cross-compile override is the whole point of passing it by hand.
+  (is (= ["-bundle-base" "/their/lg"]
+         (gobuild/inject-bundle-base ["-bundle-base" "/their/lg"] "/rt/lg"))))
+
+(deftest inject-bundle-base-is-identity-without-a-runtime
+  (is (= ["-x"] (gobuild/inject-bundle-base ["-x"] nil))))
+
+;; ---------------------------------------------------------------------------
+;; Regressions found by review
+;; ---------------------------------------------------------------------------
+
+(deftest interop-doc-blank-imports-keep-packages-across-tidy
+  ;; Without these, `go mod tidy` prunes the requirement `go get` just added
+  ;; (nothing imports the package until lginterop has run), and lginterop then
+  ;; cannot resolve the package it was asked to scan.
+  (let [out (gobuild/render-interop-doc-go
+              [['modernc.org/sqlite {:go/version "v1.38.0"
+                                     :go/interop "sqlite"}]
+               sql])]
+    (is (str/includes? out "package interop"))
+    (is (str/includes? out "_ \"modernc.org/sqlite\""))
+    (is (str/includes? out "_ \"database/sql\""))))
+
+(deftest interop-doc-has-no-import-block-without-interop-coords
+  (let [out (gobuild/render-interop-doc-go [sqlite])]
+    (is (str/includes? out "package interop"))
+    (is (not (str/includes? out "import (")))))
+
+(deftest placeholder-version-matches-a-module-major-suffix
+  ;; Go rejects `require example.com/mod/v2 v0.0.0` outright, replace or not.
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/mod")))
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/mod/shim")))
+  (is (= "v2.0.0" (gobuild/placeholder-version "example.com/mod/v2")))
+  (is (= "v11.0.0" (gobuild/placeholder-version "example.com/mod/v11")))
+  ;; /v0 and /v1 are not major suffixes in Go's module grammar.
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/mod/v1")))
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/verbose"))))
+
+(deftest render-go-mod-uses-the-major-aware-placeholder-version
+  (let [out (gobuild/render-go-mod
+              [shim] "1.11.1" nil
+              [[{:go/local "/proj/shim"} "example.com/mod/v2"]])]
+    (is (str/includes? out "require example.com/mod/v2 v2.0.0"))))
+
+(deftest render-go-mod-quotes-a-replace-path-with-spaces
+  ;; The directive grammar splits on whitespace, so an unquoted path parses as
+  ;; a path plus a bogus version and go.mod fails to load.
+  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" "/tmp/sp ace" [])]
+    (is (str/includes? out "=> \"/tmp/sp ace\""))))
+
+(deftest render-go-mod-quotes-a-local-module-path-with-spaces
+  (let [out (gobuild/render-go-mod
+              [shim] "1.11.1" nil
+              [[{:go/local "/tmp/sp ace/shim"} "example.com/mod"]])]
+    (is (str/includes? out "=> \"/tmp/sp ace/shim\""))))
+
+(deftest render-go-mod-leaves-ordinary-paths-unquoted
+  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" "/Users/x/let-go" [])]
+    (is (str/includes? out "=> /Users/x/let-go\n"))))

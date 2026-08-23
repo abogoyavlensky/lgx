@@ -151,6 +151,28 @@
 
 (defn- external? [[lib _]] (not (config/go-stdlib? lib)))
 
+(defn- mod-path
+  "A filesystem path as go.mod wants it. The directive grammar splits on
+   whitespace, so an unquoted `=> /tmp/sp ace` parses as a path plus a bogus
+   version; Go-quoting restores it. Quoted only when it has to be, so the
+   generated file stays readable in the common case."
+  [p]
+  (if (nil? (re-find #"[\s\"\\]" p))
+    p
+    (str "\"" (str/replace (str/replace p "\\" "\\\\") "\"" "\\\"") "\"")))
+
+(defn placeholder-version
+  "The version a `replace`d requirement is pinned at. v0.0.0 normally, but a
+   module path carrying a major suffix must agree with it — Go rejects
+   `require example.com/mod/v2 v0.0.0` outright, replacement or not."
+  [module-path]
+  (let [seg (last (str/split module-path "/"))]
+    ;; v0 and v1 are not major suffixes in Go's module grammar — v1 is
+    ;; implied — so the pattern starts at v2 and admits v10 and up.
+    (if (re-find #"^v([2-9]|[1-9][0-9]+)$" seg)
+      (str seg ".0.0")
+      "v0.0.0")))
+
 (defn render-go-mod
   "Pure. The generated module's go.mod.
 
@@ -172,13 +194,16 @@
          "\n"
          "require " letgo-module " "
          (if replace? "v0.0.0" (str "v" lg-version)) "\n"
-         (str/join "" (map (fn [[_ mod]] (str "require " mod " v0.0.0\n"))
+         (str/join "" (map (fn [[_ mod]]
+                             (str "require " mod " "
+                                  (placeholder-version mod) "\n"))
                            local-modules))
          (if replace?
-           (str "\nreplace " letgo-module " => " replace-path "\n")
+           (str "\nreplace " letgo-module " => " (mod-path replace-path) "\n")
            "")
          (str/join "" (map (fn [[c mod]]
-                             (str "replace " mod " => " (:go/local c) "\n"))
+                             (str "replace " mod " => "
+                                  (mod-path (:go/local c)) "\n"))
                            local-modules)))))
 
 (defn render-main-go
@@ -210,20 +235,32 @@
          "\n"
          "func main() { os.Exit(cli.Main(\"dev\", \"none\")) }\n")))
 
-(def interop-doc-go
-  ;; Chicken-and-egg: main.go imports the interop package, but lginterop can
-  ;; only scan once the module's deps are fetched — and `go mod tidy` will not
-  ;; fetch them while an import does not resolve. This placeholder makes the
-  ;; module build before generation, and is overwritten alongside it after.
-  (str "// Package interop holds the bindings cmd/lginterop generates.\n"
-       "// This placeholder exists so the module resolves before generation.\n"
-       "package interop\n"))
-
 (defn interop-packages
   "The package paths for cmd/lginterop's -packages flag, sorted so the
    generated files (and any regeneration) stay stable."
   [go-pairs]
   (vec (sort (map (fn [[lib _]] (str lib)) (filter interop? go-pairs)))))
+
+(defn render-interop-doc-go
+  "The interop package's placeholder, written before generation and left in
+   place beside the generated files afterwards.
+
+   The blank imports are load-bearing, not documentation. main.go imports the
+   interop package but nothing imports the *wrapped* packages until lginterop
+   has run — so `go mod tidy`, which runs first, would prune the requirement
+   `go get` just added, and lginterop would then fail to resolve the package it
+   was asked to scan. Naming them here keeps them required across tidy."
+  [go-pairs]
+  (let [pkgs (interop-packages go-pairs)]
+    (str "// Package interop holds the bindings cmd/lginterop generates.\n"
+         "// This placeholder exists so the module resolves before generation;\n"
+         "// its imports keep the wrapped packages required across go mod tidy.\n"
+         "package interop\n"
+         (if (seq pkgs)
+           (str "\nimport (\n"
+                (str/join "" (map #(str "\t_ \"" % "\"\n") pkgs))
+                ")\n")
+           ""))))
 
 (defn go-get-args
   "One `go get <pkg>@<version>` argv per :go/version coord, in a deterministic
@@ -324,7 +361,8 @@
     (spit (path/join dir "main.go") (render-main-go go-pairs))
     (when (seq (interop-packages go-pairs))
       (mkdir (path/join dir "interop"))
-      (spit (path/join dir "interop" "doc.go") interop-doc-go))))
+      (spit (path/join dir "interop" "doc.go")
+            (render-interop-doc-go go-pairs)))))
 
 (defn- build-runtime! [dir out go-pairs verbose?]
   (doseq [args (go-get-args go-pairs)]
@@ -332,8 +370,14 @@
   (go! ["-C" dir "mod" "tidy"] "go mod tidy" verbose?)
   (let [pkgs (interop-packages go-pairs)]
     (when (seq pkgs)
+      ;; -opaque-structs keeps struct types boxed and dispatching methods
+      ;; reflectively instead of flattening them to field-only Records. Every
+      ;; interesting Go API is used through its methods — `database/sql` is all
+      ;; (.Query db ...) / (.Next rows) — and without this those calls fail
+      ;; with "no method Query on record sql/DB".
       (go! ["-C" dir "run" (str letgo-module "/cmd/lginterop")
             "-packages" (str/join "," pkgs)
+            "-opaque-structs"
             "-out-pkg" "interop" "-out" "interop"]
            "lginterop" verbose?)))
   (go! ["-C" dir "build" "-o" out "."] "go build" verbose?))
@@ -363,3 +407,30 @@
         ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
         (build-runtime! src out go-pairs verbose?)
         out))))
+
+;; ---------------------------------------------------------------------------
+;; Wiring the runtime into the commands
+;; ---------------------------------------------------------------------------
+
+(defn runtime-action
+  "Pure. What to do with a freshly ensured runtime, given whether the user set
+   LGX_LG themselves. lgx normally points LGX_LG at the runtime so runner.lg
+   picks it up unchanged; an explicit LGX_LG is the user overriding on purpose,
+   so it wins and lgx only says why the custom runtime is not in play."
+  [user-lg-set? runtime-path]
+  (if user-lg-set?
+    {:warn (str "warning: lgx.edn declares Go deps, but LGX_LG is set - "
+                "using that lg instead of the custom runtime at "
+                runtime-path "\n")}
+    {:setenv runtime-path}))
+
+(defn inject-bundle-base
+  "Pure. `lg -b` copies the running binary as the bundle base, which would
+   produce an app without the linked Go natives. Point it at the custom runtime
+   instead — unless the user passed a -bundle-base of their own, which is how
+   cross-compiling works and so wins."
+  [forward-args runtime-path]
+  (if (or (nil? runtime-path)
+          (some #(= "-bundle-base" %) forward-args))
+    (vec forward-args)
+    (vec (concat forward-args ["-bundle-base" runtime-path]))))
