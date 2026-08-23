@@ -228,92 +228,92 @@
                                       :coord c
                                       :base project}) coords)
                  {})]
-   (doseq [w (:warnings split0)] (write! *err* w))
-   (loop [queue (:src split0)
-         seen {}
-         out []
-         pending []
-         go-seen (:seen-go split0)
-         go-pairs (:go-pairs split0)]
-    (if (empty? queue)
-      (do (emit-warnings! seen pending warn-all?)
-          {:installs out
-           :go-coords go-pairs})
-      (let [{:keys [lib coord base via via-source via-installed? declared]}
-            (first queue)
-            rest-q (vec (rest queue))
+    (doseq [w (:warnings split0)] (write! *err* w))
+    (loop [queue (:src split0)
+           seen {}
+           out []
+           pending []
+           go-seen (:seen-go split0)
+           go-pairs (:go-pairs split0)]
+      (if (empty? queue)
+        (do (emit-warnings! seen pending warn-all?)
+            {:installs out
+             :go-coords go-pairs})
+        (let [{:keys [lib coord base via via-source via-installed? declared]}
+              (first queue)
+              rest-q (vec (rest queue))
             ;; Everything that can throw on a coord reached through a dep's
             ;; metadata sits inside this boundary, normalization included:
             ;; coord-id resolves a relative :local/root, and third-party
             ;; metadata can hold a value that is truthy but not a path.
-            soft? (some? via)
+              soft? (some? via)
             ;; A warning names what the dep wrote, not the coord synthesized
             ;; from it, so a registry tag miss still shows the :mvn/version.
-            warn-about (or declared [lib coord])
-            attempt (fn [f]
-                      (if soft?
-                        (try {:ok (f)} (catch e {:error (ex-message e)}))
-                        {:ok (f)}))
-            normalized (attempt (fn [] (coord-id base coord)))]
-        (if (:error normalized)
-          (recur rest-q seen out
-                 (conj pending (pending-warning via via-installed? warn-about
-                                                (:error normalized)))
-                 go-seen go-pairs)
-          (let [id (:ok normalized)]
-            (if (contains? seen lib)
-              (do
-                (when (not= (get seen lib) id)
-                  (write! *err*
-                          (str "warning: " lib " already resolved as "
-                               (coord-label (get seen lib)) "; ignoring "
-                               (coord-label id) "\n")))
-                (recur rest-q seen out pending go-seen go-pairs))
+              warn-about (or declared [lib coord])
+              attempt (fn [f]
+                        (if soft?
+                          (try {:ok (f)} (catch e {:error (ex-message e)}))
+                          {:ok (f)}))
+              normalized (attempt (fn [] (coord-id base coord)))]
+          (if (:error normalized)
+            (recur rest-q seen out
+                   (conj pending (pending-warning via via-installed? warn-about
+                                                  (:error normalized)))
+                   go-seen go-pairs)
+            (let [id (:ok normalized)]
+              (if (contains? seen lib)
+                (do
+                  (when (not= (get seen lib) id)
+                    (write! *err*
+                            (str "warning: " lib " already resolved as "
+                                 (coord-label (get seen lib)) "; ignoring "
+                                 (coord-label id) "\n")))
+                  (recur rest-q seen out pending go-seen go-pairs))
               ;; A fetch failure aborts only when the coord is the user's own;
               ;; one reached through a dep's metadata degrades to a warning.
-              (let [fetched (attempt (fn [] (cache/ensure-lib! coord base)))]
-                (if (:error fetched)
-                  (recur rest-q seen out
-                         (conj pending
-                               (pending-warning via via-installed? warn-about
-                                                (:error fetched)))
-                         go-seen go-pairs)
-                  (let [{:keys [path dir installed?]} (:ok fetched)
-                        lgx-edn? (file-exists? (path/join dir
-                                                          config/config-name))
+                (let [fetched (attempt (fn [] (cache/ensure-lib! coord base)))]
+                  (if (:error fetched)
+                    (recur rest-q seen out
+                           (conj pending
+                                 (pending-warning via via-installed? warn-about
+                                                  (:error fetched)))
+                           go-seen go-pairs)
+                    (let [{:keys [path dir installed?]} (:ok fetched)
+                          lgx-edn? (file-exists? (path/join dir
+                                                            config/config-name))
                         ;; Rung 1: a dep's own lgx.edn is authoritative and its
                         ;; deps.edn/project.clj go unread.
-                        found (if lgx-edn?
-                                {:children (mapv (fn [[clib cc]]
-                                                   {:lib clib
-                                                    :coord cc
-                                                    :base dir})
-                                                 (coords-at! dir))
-                                 :pending []}
-                                (declared-children lib coord dir installed?))
+                          found (if lgx-edn?
+                                  {:children (mapv (fn [[clib cc]]
+                                                     {:lib clib
+                                                      :coord cc
+                                                      :base dir})
+                                                   (coords-at! dir))
+                                   :pending []}
+                                  (declared-children lib coord dir installed?))
                         ;; A dep's own go coords flow up through the same read.
                         ;; Splitting each batch as it is discovered (rather
                         ;; than the whole queue up front) is what keeps
                         ;; first-wins breadth-first: the root's batch is split
                         ;; before any dep's.
-                        split (gobuild/split-go-coords (:children found)
-                                                       go-seen)
-                        row {:lib lib
-                             :path path
-                             :installed? installed?}]
-                    (doseq [w (:warnings split)] (write! *err* w))
-                    (recur (vec (concat rest-q (:src split)))
-                           (assoc seen lib id)
-                           (conj out (if via
-                                       (assoc row
-                                              :via via
-                                              :via-source via-source)
-                                       row))
-                           (vec (concat pending
-                                        (:pending found)))
-                           (:seen-go split)
-                           (vec (concat go-pairs
-                                        (:go-pairs split)))))))))))))))
+                          split (gobuild/split-go-coords (:children found)
+                                                         go-seen)
+                          row {:lib lib
+                               :path path
+                               :installed? installed?}]
+                      (doseq [w (:warnings split)] (write! *err* w))
+                      (recur (vec (concat rest-q (:src split)))
+                             (assoc seen lib id)
+                             (conj out (if via
+                                         (assoc row
+                                                :via via
+                                                :via-source via-source)
+                                         row))
+                             (vec (concat pending
+                                          (:pending found)))
+                             (:seen-go split)
+                             (vec (concat go-pairs
+                                          (:go-pairs split)))))))))))))))
 
 (defn- via-label
   "How a provenance source reads in install output."
