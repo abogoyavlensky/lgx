@@ -2,10 +2,22 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** gaps identified and mostly prototyped on a throwaway branch (see
-"Validation" below); not yet upstreamed. The map+scalar expansion engine is
-proven working end-to-end; reading a config from EDN (`edn/read` + a real
-`TaggedLiteral`) and non-map collection values remain to implement.
+**Status: implemented (2026-08-23).** aero 1.1.6 loads and runs under let-go.
+`examples/clojure-libs/with-aero` resolves a real `config.edn` — every tag
+(`#env #or #long #double #boolean #keyword #join #ref #merge #read-edn #envf
+#profile`) — both directly and through lgx.
+
+**Verified against JVM aero**, not just "it printed something": the same
+`config.edn` read by aero 1.1.6 on Clojure 1.12 and by aero on let-go produces
+**byte-identical** output under `:default`, `:prod` and `:test`.
+
+Shipped as twelve reviewable PRs against `nooga/let-go` (branches `aero/g*`),
+each with tests, each keeping `make test` and the 6311-assertion
+`clojure-compat-report` green. Where behaviour was in question, the expected
+value was taken from JVM Clojure rather than assumed.
+
+Two gaps remain open, both recorded below: `#include` (G4, needs a real
+`java.io.File`) and reading `^:meta` back out of printed EDN.
 
 ## Summary
 
@@ -313,11 +325,63 @@ a hand-built tagged-literal tree:
 ;; with {:profile :prod}: :prof => "is-prod"   (profile dispatch works)
 ```
 
-`#ref`/`#merge`/vector values still need G10 (seq metadata); reading a real
-`config.edn` still needs G11 (`edn/read` + tag dispatch). The three compiler/
-core fixes (G7 static-field call, G8 syntax-quote, G9 destructuring) are general
-let-go correctness fixes that happen to be surfaced by aero — each should ship
-with a test and keep `make test` green.
+## What shipped
+
+| Gap | Fix | Branch |
+|---|---|---|
+| G1 | `clojure.java.io` → `io` alias (+ the IR-side mirror) | `aero/g1-io-alias` |
+| G2 | `IObj`/`IRecord`/`IMapEntry` markers; `MapEntry` gains `IMeta` | `aero/g2-interface-markers` |
+| G3 | `Boolean/parseBoolean` | `aero/g3-parse-boolean` |
+| G5 | `LineNumberingPushbackReader.` + `.getLineNumber`; **`with-open` can close a reader at all** | `aero/g5-reader-ctor` |
+| G6 | `clojure.lang.TaggedLiteral` type, `tagged-literal(?)`, `*data-readers*` | `aero/g6-tagged-literal` |
+| G7 | `(Class/STATIC_FIELD)` in call position, **both backends** | `aero/g7-static-field` |
+| G8 | syntax-quote resolves to the **defining** namespace | `aero/g8-syntax-quote` |
+| G9 | namespaced `:keys`/`:syms` destructuring | `aero/g9-namespaced-keys` |
+| G10 | seqs carry metadata (9 view types + chunks) | `aero/g10-seq-meta` |
+| G11 | `edn/read` with `:readers`/`:default`/`:eof`, EDN-strict | `aero/g11-edn-read` |
+| G12 | `format` `%s` renders non-string args | `aero/g12-format-s` |
+| — | **`seq?` on a map entry**, `io/file`, `StringReader.`, `System/setProperty` | integration commit |
+
+### The one that actually blocked everything
+
+Not on the original list, and not findable gap-by-gap: **a map entry answered
+both `vector?` and `seq?` true**. Clojure's `MapEntry` is a vector and reports
+`seq?` false. aero's walk checks `seq?` before its collection branch, so every
+entry came back as a list and rebuilding the map failed with *"conj! on
+transient map expects [key val] pair"* — for **any** map, before a single aero
+tag was reached. `builtins.IsSeq` already kept a negative list for exactly this
+class of type and `MapEntry` was simply missing from it; a second, duplicated
+copy of that switch in `lang.go` was the one actually bound to `seq?`, so the
+first fix appeared to do nothing.
+
+Lesson worth keeping: testing each gap in isolation cannot find an
+interaction bug. Only loading the real library did.
+
+## Still open
+
+- **G4 `#include`** — needs a real `java.io.File` (`.isAbsolute`,
+  `.getParent`, `.exists`, plus `io/reader` coercion). `io/file` now *resolves*
+  and throws when called, because an unresolvable symbol is a compile error and
+  aero's `#include` resolver is compiled whether or not it is used — without
+  that, the library will not load at all. 20 of the 22 remaining failures in
+  aero's own suite are this.
+- **`^:meta` in EDN** — `read-config` on a printed form with
+  `*print-meta*` does not read the metadata back (9 failures).
+- **`#inst ^:ref [...]`** — the ref is not resolved before the `inst` reader
+  runs (1 failure).
+
+### aero's own test suite
+
+Runnable now, which is the strongest available check:
+
+```
+cd <aero-checkout>
+lg -source-paths "$AERO/src:$AERO/test" run.lg   # (require 'aero.core-test) (test/run-tests)
+```
+
+**28 tests, 7 pass, 9 fail, 22 error** — every remaining failure falls into the
+three buckets above. Run it from aero's project root; the suite uses relative
+paths like `test/aero/config.edn`.
 
 ## What lgx does
 
