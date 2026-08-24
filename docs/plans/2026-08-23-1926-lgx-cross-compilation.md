@@ -132,20 +132,22 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `render-go-mod` no longer emits a `require github.com/nooga/let-go v<version>` line for the pinned case (the replace case keeps its `v0.0.0` placeholder plus `replace`, which a `go get` cannot express). `go-get-args`, or a sibling fn, yields `["get" "github.com/nooga/let-go@v1.11.1"]` for `"1.11.1"`, `["get" "github.com/nooga/let-go@main"]` for `"main"`, and the sha verbatim for a 40-character hex string. No let-go `go get` is emitted when `LGX_LETGO_REPLACE` is active.
 
-- [ ] **Step 2: Verify fail** — `lgx test test/lgx/gobuild_test.lg`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test test/lgx/gobuild_test.lg`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Prefix a bare semver with `v`; pass anything else through untouched. Order matters in `build-runtime!`: let-go's `go get` must run before `go mod tidy`, alongside the coord `go get`s.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Verify end to end**
+- [x] **Step 5: Verify end to end**
   With a scratch project declaring a `:go/*` coord and `:lg-version "main"`, and `LGX_LETGO_REPLACE` unset, confirm a runtime builds against upstream main. This will fail until `pkg/cli` is merged upstream — if it does, confirm the failure is `does not contain package .../pkg/cli` (proving the ref resolved) rather than a version-parse error, and note that in the plan.
+  > Verified 2026-08-24: `pkg/cli` is still unmerged upstream, and the failure was exactly `module github.com/nooga/let-go@latest found (v1.12.2), but does not contain package github.com/nooga/let-go/pkg/cli` at `go mod tidy`. The generated go.mod carried `require github.com/nooga/let-go v1.12.3-0.20260824031836-fc4bec425943` — `"main"` resolved to that day's commit pseudo-version, so the ref pass-through and the pre-hash resolution both work.
+  > Deviation: `render-go-mod` dropped its `lg-version` parameter entirely (3 args now) — with no pinned require line the parameter was dead, and a dead parameter is worse than an arity change contained in the same file.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "feat(gobuild): resolve :lg-version through go get, so a sha or branch works"`
 
 ### Task 2: The runtime reports its real version

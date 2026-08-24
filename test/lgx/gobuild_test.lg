@@ -181,42 +181,46 @@
 ;; render-go-mod
 ;; ---------------------------------------------------------------------------
 
-(deftest render-go-mod-pins-let-go-at-the-given-version
-  (let [out (gobuild/render-go-mod [sqlite sql] "1.11.1" nil [])]
+(deftest render-go-mod-emits-no-let-go-require-when-pinned
+  ;; The pinned case leaves let-go entirely to `go get` (letgo-get-args), the
+  ;; same way every other :go/version coord is resolved — so a branch or sha
+  ;; ref works without go.mod having to guess a version string for it.
+  (let [out (gobuild/render-go-mod [sqlite sql] nil [])]
     (is (str/includes? out "module lgx.local/runtime"))
-    (is (str/includes? out "require github.com/nooga/let-go v1.11.1"))
+    (is (not (str/includes? out "github.com/nooga/let-go")))
     (is (not (str/includes? out "replace")))))
 
 (deftest render-go-mod-emits-a-replace-for-a-local-let-go
-  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" "/Users/x/let-go" [])]
+  ;; A replace target still needs its v0.0.0 placeholder require: `go get`
+  ;; cannot express a replace directive.
+  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [])]
     (is (str/includes? out "require github.com/nooga/let-go v0.0.0"))
     (is (str/includes? out
-                       "replace github.com/nooga/let-go => /Users/x/let-go"))
-    (is (not (str/includes? out "v1.11.1")))))
+                       "replace github.com/nooga/let-go => /Users/x/let-go"))))
 
 (deftest render-go-mod-never-requires-go-version-coords
   ;; A coord symbol is a *package* path, which is not always a *module* path
   ;; (golang.org/x/crypto/ssh lives in golang.org/x/crypto), so lgx lets
   ;; `go get <pkg>@<version>` resolve the owning module instead.
-  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" nil [])]
+  (let [out (gobuild/render-go-mod [sqlite] nil [])]
     (is (not (str/includes? out "modernc.org/sqlite")))))
 
 (deftest render-go-mod-omits-stdlib-coords
-  (let [out (gobuild/render-go-mod [sql] "1.11.1" nil [])]
+  (let [out (gobuild/render-go-mod [sql] nil [])]
     (is (not (str/includes? out "database/sql")))))
 
 (deftest render-go-mod-requires-and-replaces-each-local-module
   ;; The module path can't be derived from the package path, so the caller
   ;; reads it from the target's own go.mod and passes it in.
   (let [out (gobuild/render-go-mod
-              [shim] "1.11.1" nil
+              [shim] nil
               [[{:go/local "/proj/shim"} "github.com/you/pkgs/sqlite/shim"]])]
     (is (str/includes? out "require github.com/you/pkgs/sqlite/shim v0.0.0"))
     (is (str/includes?
           out "replace github.com/you/pkgs/sqlite/shim => /proj/shim"))))
 
 (deftest render-go-mod-ends-with-a-newline
-  (is (str/ends-with? (gobuild/render-go-mod [sqlite] "1.11.1" nil []) "\n")))
+  (is (str/ends-with? (gobuild/render-go-mod [sqlite] nil []) "\n")))
 
 ;; ---------------------------------------------------------------------------
 ;; render-main-go
@@ -283,6 +287,45 @@
 
 (deftest go-get-args-is-empty-without-version-coords
   (is (= [] (gobuild/go-get-args [sql shim]))))
+
+;; ---------------------------------------------------------------------------
+;; letgo-get-args / mutable-letgo-ref? — :lg-version through go get
+;; ---------------------------------------------------------------------------
+
+(deftest letgo-get-args-prefixes-a-bare-semver-with-v
+  (is (= ["get" "github.com/nooga/let-go@v1.11.1"]
+         (gobuild/letgo-get-args "1.11.1" nil))))
+
+(deftest letgo-get-args-passes-a-branch-through-verbatim
+  (is (= ["get" "github.com/nooga/let-go@main"]
+         (gobuild/letgo-get-args "main" nil))))
+
+(deftest letgo-get-args-passes-a-sha-through-verbatim
+  (let [sha "a6657612002b4f6f0316f4f0316f4f0316f4f031"]
+    (is (= ["get" (str "github.com/nooga/let-go@" sha)]
+           (gobuild/letgo-get-args sha nil)))))
+
+(deftest letgo-get-args-passes-a-pseudo-version-through-verbatim
+  ;; A mutable ref is resolved to its pseudo-version before the build, and the
+  ;; resolved form already carries the v — no second prefix.
+  (is (= ["get" "github.com/nooga/let-go@v1.12.3-0.20260820193935-a6657612002b"]
+         (gobuild/letgo-get-args "v1.12.3-0.20260820193935-a6657612002b" nil))))
+
+(deftest letgo-get-args-is-nil-under-a-replace
+  ;; `go get` cannot express a replace directive; the rendered go.mod pins the
+  ;; local checkout instead.
+  (is (nil? (gobuild/letgo-get-args "1.11.1" "/Users/x/let-go"))))
+
+(deftest mutable-letgo-ref-is-true-for-a-branch
+  (is (gobuild/mutable-letgo-ref? "main"))
+  (is (gobuild/mutable-letgo-ref? "integration-go-interop")))
+
+(deftest mutable-letgo-ref-is-false-for-immutable-refs
+  ;; A semver pin and a full commit sha already name one commit forever, so
+  ;; hashing them literally is safe and skips a network resolution.
+  (is (not (gobuild/mutable-letgo-ref? "1.11.1")))
+  (is (not (gobuild/mutable-letgo-ref?
+             "a6657612002b4f6f0316f4f0316f4f0316f4f031"))))
 
 (deftest split-tolerates-non-keyword-coord-keys
   ;; Transitive coords synthesized from a third-party deps.edn reach the split
@@ -355,24 +398,24 @@
 
 (deftest render-go-mod-uses-the-major-aware-placeholder-version
   (let [out (gobuild/render-go-mod
-              [shim] "1.11.1" nil
+              [shim] nil
               [[{:go/local "/proj/shim"} "example.com/mod/v2"]])]
     (is (str/includes? out "require example.com/mod/v2 v2.0.0"))))
 
 (deftest render-go-mod-quotes-a-replace-path-with-spaces
   ;; The directive grammar splits on whitespace, so an unquoted path parses as
   ;; a path plus a bogus version and go.mod fails to load.
-  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" "/tmp/sp ace" [])]
+  (let [out (gobuild/render-go-mod [sqlite] "/tmp/sp ace" [])]
     (is (str/includes? out "=> \"/tmp/sp ace\""))))
 
 (deftest render-go-mod-quotes-a-local-module-path-with-spaces
   (let [out (gobuild/render-go-mod
-              [shim] "1.11.1" nil
+              [shim] nil
               [[{:go/local "/tmp/sp ace/shim"} "example.com/mod"]])]
     (is (str/includes? out "=> \"/tmp/sp ace/shim\""))))
 
 (deftest render-go-mod-leaves-ordinary-paths-unquoted
-  (let [out (gobuild/render-go-mod [sqlite] "1.11.1" "/Users/x/let-go" [])]
+  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [])]
     (is (str/includes? out "=> /Users/x/let-go\n"))))
 
 (deftest split-ignores-unknown-go-keys-on-third-party-coords

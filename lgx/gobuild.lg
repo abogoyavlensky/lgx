@@ -179,12 +179,15 @@
    No `require` line is emitted for a :go/version coord: a coord symbol is a Go
    *package* path, which is not always a *module* path (golang.org/x/crypto/ssh
    lives in module golang.org/x/crypto), so `go get <pkg>@<version>` is left to
-   resolve the owning module itself.
+   resolve the owning module itself. let-go gets the same treatment
+   (letgo-get-args), so :lg-version can name a branch or sha — except under a
+   replace, which `go get` cannot express, so that case keeps its placeholder
+   require plus the replace directive.
 
    `local-modules` is a vector of [coord module-path] pairs — reading the
    module path out of a :go/local target's own go.mod is the side-effecting
    caller's job, so this stays pure."
-  [go-pairs lg-version replace-path local-modules]
+  [go-pairs replace-path local-modules]
   (let [replace? (not (str/blank? (or replace-path "")))]
     (str "module " runtime-module "\n"
          "\n"
@@ -192,8 +195,9 @@
          ;; dependency ever needs more.
          "go 1.26\n"
          "\n"
-         "require " letgo-module " "
-         (if replace? "v0.0.0" (str "v" lg-version)) "\n"
+         (if replace?
+           (str "require " letgo-module " v0.0.0\n")
+           "")
          (str/join "" (map (fn [[_ mod]]
                              (str "require " mod " "
                                   (placeholder-version mod) "\n"))
@@ -269,6 +273,42 @@
   (mapv (fn [[lib c]] ["get" (str lib "@" (:go/version c))])
         (sort-by (fn [[lib _]] (str lib))
                  (filter (fn [[_ c]] (some? (:go/version c))) go-pairs))))
+
+(defn- semver-version?
+  "A bare semver pin like \"1.11.1\" — the form lgx.edn has always taken."
+  [v]
+  (some? (re-find #"^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$" (str v))))
+
+(defn- commit-sha?
+  [v]
+  (some? (re-find #"^[0-9a-f]{40}$" (str v))))
+
+(defn letgo-module-ref
+  "The ref `go get`/`go list` sees for :lg-version: a bare semver gets the `v`
+   Go's module grammar requires; anything else — a branch, a sha, an
+   already-resolved pseudo-version — passes through verbatim."
+  [lg-version]
+  (if (semver-version? lg-version)
+    (str "v" lg-version)
+    (str lg-version)))
+
+(defn letgo-get-args
+  "The `go get` argv that pins let-go itself in the generated module, or nil
+   under LGX_LETGO_REPLACE — `go get` cannot express a replace directive, so
+   the rendered go.mod carries the pin there instead."
+  [lg-version replace-path]
+  (when (str/blank? (or replace-path ""))
+    ["get" (str letgo-module "@" (letgo-module-ref lg-version))]))
+
+(defn mutable-letgo-ref?
+  "True when :lg-version names something that can move over time — a branch or
+   tag — rather than a semver or a full commit sha. A mutable ref must be
+   resolved to the commit it points at before it enters the cache key: hashing
+   the literal string would reuse the first build forever, and two machines
+   could cache different commits under one hash."
+  [lg-version]
+  (and (not (semver-version? lg-version))
+       (not (commit-sha? lg-version))))
 
 ;; ---------------------------------------------------------------------------
 ;; Building the runtime
@@ -355,19 +395,44 @@
 (defn runtimes-dir []
   (path/join (home/root) "runtimes"))
 
-(defn- write-module! [dir go-pairs lg-version replace-path]
+(defn- resolve-letgo-version!
+  "Resolve a mutable :lg-version (a branch or tag) to the pseudo-version it
+   points at right now, via `go list -m`. The cache key hashes the result, so
+   the cached runtime's identity is the commit rather than the name pointing at
+   it — the name would reuse the first build forever. Runs in the runtimes dir:
+   the module query needs no go.mod, but the user's cwd might hold one whose
+   replace directives would skew the answer."
+  [lg-version verbose?]
+  (let [dir (runtimes-dir)
+        _ (mkdir dir)
+        r (go! ["-C" dir "list" "-m"
+                (str letgo-module "@" (letgo-module-ref lg-version))]
+               (str "resolving let-go@" lg-version) verbose?)
+        ver (second (filter #(not (str/blank? %))
+                            (str/split (str/trim (:out r)) #"\s+")))]
+    (when (str/blank? (or ver ""))
+      (die! (str "resolving let-go@" lg-version
+                 " returned no version (go list output: "
+                 (str/trim (:out r)) ")")))
+    ver))
+
+(defn- write-module! [dir go-pairs replace-path]
   (mkdir dir)
   (let [locals (mapv (fn [[_ c]] [c (module-path-at (:go/local c))])
                      (local-coords go-pairs))]
     (spit (path/join dir "go.mod")
-          (render-go-mod go-pairs lg-version replace-path locals))
+          (render-go-mod go-pairs replace-path locals))
     (spit (path/join dir "main.go") (render-main-go go-pairs))
     (when (seq (interop-packages go-pairs))
       (mkdir (path/join dir "interop"))
       (spit (path/join dir "interop" "doc.go")
             (render-interop-doc-go go-pairs)))))
 
-(defn- build-runtime! [dir out go-pairs verbose?]
+(defn- build-runtime! [dir out go-pairs lg-version replace-path verbose?]
+  ;; let-go's own `go get` runs with the coord ones, before tidy: the rendered
+  ;; go.mod carries no require for it in the pinned case.
+  (when-let [args (letgo-get-args lg-version replace-path)]
+    (go! (vec (concat ["-C" dir] args)) (str "go " (second args)) verbose?))
   (doseq [args (go-get-args go-pairs)]
     (go! (vec (concat ["-C" dir] args)) (str "go " (second args)) verbose?))
   (go! ["-C" dir "mod" "tidy"] "go mod tidy" verbose?)
@@ -396,6 +461,14 @@
    about a second."
   [go-pairs lg-version verbose?]
   (let [replace-path (letgo-replace-path)
+        ;; A branch or tag resolves to its pseudo-version before anything else:
+        ;; the hash, go get, and (later) the version the binary reports all see
+        ;; the commit, not the name. This costs one `go list -m` per invocation
+        ;; for mutable refs — the price of the cache key staying honest.
+        lg-version (if (and (nil? replace-path)
+                            (mutable-letgo-ref? lg-version))
+                     (resolve-letgo-version! lg-version verbose?)
+                     lg-version)
         ref (letgo-ref lg-version replace-path)
         dir (path/join (runtimes-dir) (runtime-hash go-pairs ref))
         src (path/join dir "src")
@@ -405,10 +478,10 @@
       out
       (do
         (write! *err* (str (style/header "Building custom lg runtime...") "\n"))
-        (write-module! src go-pairs lg-version replace-path)
+        (write-module! src go-pairs replace-path)
         ;; -o is resolved relative to the -C directory, so out has to be
         ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
-        (build-runtime! src out go-pairs verbose?)
+        (build-runtime! src out go-pairs lg-version replace-path verbose?)
         out))))
 
 ;; ---------------------------------------------------------------------------
