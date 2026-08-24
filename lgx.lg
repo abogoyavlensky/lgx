@@ -33,7 +33,7 @@
        "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
        "                               (free port unless --port given; auto-applies :dev and :test contexts)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
-       "                               (extra args forwarded to `lg` before -b)\n"
+       "                               (--target <os>/<arch>[,...] or --all cross-compile; other args forwarded to `lg`)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
        "                               (one file if given, else walk test/; auto-applies :test context)\n"
        "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli`, `lib` or git URL)\n"
@@ -639,34 +639,91 @@
     abs))
 
 (defn- cmd-build [forward-args verbose? with]
-  (let [project (config/find-project!)
+  (let [{:keys [targets all? forward]}
+        (try
+          (cli/parse-build-args (vec forward-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        project (config/find-project!)
         cfg (config/load-config! project)
+        resolved (gobuild/resolve-build-targets targets all?
+                                                (config/platforms cfg))
+        _ (when (:error resolved)
+            (write! *err* (str "lgx: " (:error resolved) "\n"))
+            (os/exit 1))
+        target-list (:targets resolved)
+        cross? (boolean (some some? target-list))
         basis (overlay-basis project cfg with nil)
         {:keys [results paths resource-paths]} basis
-        runtime (apply-runtime! cfg basis :fail verbose?)
-        main-script (config/main cfg)
-        bin (:bin (config/targets cfg))]
-    (when (nil? main-script)
-      (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
-      (os/exit 1))
-    (when (nil? bin)
-      (write! *err* (str "lgx: :targets/:bin is required for build "
-                         "(set :targets {:bin {:out \"...\"}} in lgx.edn)\n"))
-      (os/exit 1))
-    (resolve-main-script! project main-script)
-    (let [abs-out (ensure-out-dir! project (:out bin))
-          abs-main (path/join project main-script)
-          ;; `lg -b` copies the running binary as the bundle base; with Go
-          ;; natives linked, that base has to be the custom runtime or the
-          ;; bundled app resolves none of its namespaces.
-          args (vec (concat (gobuild/inject-bundle-base forward-args runtime)
-                            ["-b" abs-out abs-main]))]
-      (write! *err* (str (style/header (str "Building " (:out bin) "...")) "\n"))
+        go-pairs (:go-coords basis)]
+    ;; Cross-build contradictions and prerequisites, decided before any
+    ;; building — a cold runtime build takes many seconds and would only be
+    ;; thrown away.
+    (when cross?
+      (when (and (seq go-pairs) (gobuild/user-set-lg?))
+        (write! *err*
+                (str "error: LGX_LG is set, but a cross-build of a project "
+                     "with Go deps needs the host runtime lgx builds - the "
+                     "LGX_LG lg cannot resolve the project's Go namespaces "
+                     "while bundling. unset LGX_LG to cross-build.\n"))
+        (os/exit 1))
+      (gobuild/cross-preflight! (config/lg-version cfg)))
+    ;; The host half of the two-runtimes rule: the lg that *executes* `lg -b`
+    ;; (and must resolve the project's Go namespaces at compile time). With Go
+    ;; deps that is a host-platform custom runtime; without, the PATH lg.
+    (let [runtime (apply-runtime! cfg basis :fail verbose?)
+          main-script (config/main cfg)
+          bin (:bin (config/targets cfg))]
+      (when (nil? main-script)
+        (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
+        (os/exit 1))
+      (when (nil? bin)
+        (write! *err* (str "lgx: :targets/:bin is required for build "
+                           "(set :targets {:bin {:out \"...\"}} in lgx.edn)\n"))
+        (os/exit 1))
+      (resolve-main-script! project main-script)
+      ;; :platforms gets this collision check at config load; an ad-hoc
+      ;; --target list only meets it here.
+      (when-let [dup (gobuild/duplicate-target-out (:out bin) target-list)]
+        (write! *err*
+                (str "lgx: more than one target renders :out to " (pr-str dup)
+                     " - the artifacts would overwrite each other; add an "
+                     "{{os}} or {{arch}} placeholder to :out\n"))
+        (os/exit 1))
       (print-installs! results)
-      (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
-        (when (zero? exit)
-          (println "built" abs-out))
-        (os/exit exit)))))
+      (let [abs-main (path/join project main-script)
+            user-base? (boolean (some #(= "-bundle-base" %) forward))]
+        (doseq [target target-list]
+          (let [out-rel (gobuild/target-out (:out bin) target)
+                abs-out (ensure-out-dir! project out-rel)
+                ;; The target half: `lg -b` copies the running binary as the
+                ;; bundle base, so a cross target needs a target-platform
+                ;; runtime as -bundle-base — built even with no Go deps (the
+                ;; empty coord set renders a stock module). Native keeps the
+                ;; host runtime (or none). A user-supplied -bundle-base wins
+                ;; and skips the build outright.
+                base (cond
+                       user-base? nil
+                       target (gobuild/ensure-runtime!
+                                go-pairs (config/lg-version cfg) target
+                                verbose?)
+                       :else runtime)
+                args (vec (concat (gobuild/inject-bundle-base forward base)
+                                  ["-b" abs-out abs-main]))
+                label (str "Building " out-rel
+                           (if target
+                             (str " (" (:os target) "/" (:arch target) ")")
+                             "")
+                           "...")]
+            (write! *err* (str (style/header label) "\n"))
+            (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
+              (if (zero? exit)
+                (println "built" abs-out)
+                (os/exit exit)))))
+        (when (> (count target-list) 1)
+          (println (str "built " (count target-list) " targets")))
+        (os/exit 0)))))
 
 (defn- validate-error-line [reason user-path]
   (case reason

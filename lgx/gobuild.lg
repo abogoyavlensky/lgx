@@ -613,6 +613,62 @@
 ;; Wiring the runtime into the commands
 ;; ---------------------------------------------------------------------------
 
+(defn resolve-build-targets
+  "Pure. The target list one `lgx build` works through, from the parsed CLI
+   targets, the --all flag, and lgx.edn's :platforms. An explicit --target
+   list wins outright; --all takes every declared platform; neither is the
+   native build — one entry, nil target, no Go involvement. Returns
+   {:targets [...]} or {:error msg}."
+  [cli-targets all? platforms]
+  (cond
+    (seq cli-targets) {:targets (vec cli-targets)}
+
+    all?
+    (if (seq platforms)
+      {:targets (vec platforms)}
+      {:error (str "build --all builds every declared platform, but lgx.edn "
+                   "declares none - add :platforms under :targets :bin, or "
+                   "name one with --target <os>/<arch>")})
+
+    :else {:targets [nil]}))
+
+(defn target-out
+  "Pure. The :out path one target's artifact lands on: the template expanded
+   for a cross target, byte-for-byte :out for native (nil) — which is what
+   keeps an existing config producing exactly the file it always did."
+  [out target]
+  (if target
+    (config/expand-out out target)
+    out))
+
+(defn duplicate-target-out
+  "Pure. The first :out path two targets in `targets` both render to, or nil
+   when all are distinct. lgx.edn's :platforms get this check at load time;
+   an ad-hoc --target list only meets it here."
+  [out targets]
+  (loop [ts (seq targets)
+         seen #{}]
+    (when ts
+      (let [rendered (target-out out (first ts))]
+        (if (contains? seen rendered)
+          rendered
+          (recur (next ts) (conj seen rendered)))))))
+
+(defn cross-preflight!
+  "What any cross-build needs before work starts, Go deps or not: the Go
+   toolchain (the target-platform lg is generated even for a stock runtime)
+   and a let-go to build it from. Exits 1 with a message naming the fix."
+  [lg-version]
+  (when-not (go-available?)
+    (die! (str "cross-compiling builds a target-platform lg, which needs the "
+               "Go toolchain, but `go` is not on PATH.\n"
+               "  install it with `mise use -g go@latest`, "
+               "or from https://go.dev/dl")))
+  (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
+    (die! (str "cross-compiling builds a target-platform lg, so the let-go "
+               "version has to be pinned: add :lg-version \"<version>\" "
+               "to lgx.edn"))))
+
 (defn runtime-action
   "Pure. What to do with a freshly ensured runtime, given whether the user set
    LGX_LG themselves. lgx normally points LGX_LG at the runtime so runner.lg

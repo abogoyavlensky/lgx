@@ -203,6 +203,60 @@
   (is (= [] (gobuild/target-env-args nil))))
 
 ;; ---------------------------------------------------------------------------
+;; resolve-build-targets / target-out — cmd-build's pure decisions
+;; ---------------------------------------------------------------------------
+
+(def ^:private linux-arm64 {:os "linux" :arch "arm64"})
+(def ^:private darwin-arm64 {:os "darwin" :arch "arm64"})
+
+(deftest resolve-targets-explicit-cli-targets-win
+  ;; --target names an ad-hoc list; :platforms is not consulted.
+  (is (= {:targets [linux-arm64]}
+         (gobuild/resolve-build-targets [linux-arm64] false
+                                        [darwin-arm64]))))
+
+(deftest resolve-targets-all-takes-every-declared-platform
+  (is (= {:targets [linux-arm64 darwin-arm64]}
+         (gobuild/resolve-build-targets [] true
+                                        [linux-arm64 darwin-arm64]))))
+
+(deftest resolve-targets-all-without-platforms-is-an-error
+  (let [r (gobuild/resolve-build-targets [] true [])]
+    (is (nil? (:targets r)))
+    (is (str/includes? (:error r) ":platforms"))))
+
+(deftest resolve-targets-neither-means-one-native-build
+  ;; One entry, nil target: the native path, no Go involvement.
+  (is (= {:targets [nil]}
+         (gobuild/resolve-build-targets [] false [linux-arm64]))))
+
+(deftest target-out-expands-the-template-for-a-target
+  (is (= "dist/app_linux_arm64"
+         (gobuild/target-out "dist/app_{{os}}_{{arch}}" linux-arm64))))
+
+(deftest duplicate-target-out-finds-a-collision
+  ;; An ad-hoc --target list bypasses the load-time :platforms check, so
+  ;; cmd-build re-checks rendered outputs before building anything.
+  (is (= "bin/app"
+         (gobuild/duplicate-target-out "bin/app" [linux-arm64 darwin-arm64])))
+  (is (= "dist/linux/app"
+         (gobuild/duplicate-target-out
+           "dist/{{os}}/app" [linux-arm64 {:os "linux" :arch "amd64"}]))))
+
+(deftest duplicate-target-out-nil-when-distinct
+  (is (nil? (gobuild/duplicate-target-out "dist/app_{{os}}_{{arch}}"
+                                          [linux-arm64 darwin-arm64])))
+  (is (nil? (gobuild/duplicate-target-out "bin/app" [linux-arm64])))
+  ;; The native build: one entry, nil target.
+  (is (nil? (gobuild/duplicate-target-out "bin/app" [nil]))))
+
+(deftest target-out-is-identity-for-native
+  ;; The native build keeps :out byte-for-byte — backward compatibility.
+  (is (= "dist/app_{{os}}_{{arch}}"
+         (gobuild/target-out "dist/app_{{os}}_{{arch}}" nil)))
+  (is (= "bin/app" (gobuild/target-out "bin/app" nil))))
+
+;; ---------------------------------------------------------------------------
 ;; letgo-ref — what the hash and go.mod see for let-go itself
 ;; ---------------------------------------------------------------------------
 

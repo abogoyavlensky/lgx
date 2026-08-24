@@ -254,28 +254,30 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests for the pure decisions**
+- [x] **Step 1: Write failing tests for the pure decisions**
   Both helpers go in `lgx/gobuild.lg`, not `lgx.lg` — `lgx.lg` runs `main` when loaded, so nothing in it is reachable from a test (`lgx/cli.lg` documents this, and it is why `split-go-coords` already lives in `gobuild`). `lgx.lg` keeps only the imperative loop.
   A helper resolving the target list from `(cli-targets, --all?, :platforms)`: explicit `--target` wins; `--all` uses `:platforms`; neither gives the native build (one entry, no target). `--all` with no `:platforms` declared is an error naming the config key. Another helper mapping a target to its output path via the `:out` template.
+  > Added a third helper found necessary during e2e: `duplicate-target-out` — an ad-hoc `--target a,b` list bypasses the load-time `:platforms` collision check, so cmd-build re-checks rendered `:out` paths before building (observed both artifacts landing on `bin/app` before the guard).
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Rework `cmd-build` to parse its own args, resolve the target list, and loop. For each target: ensure the runtime, expand `:out`, inject `-bundle-base`, invoke `lg -b`. Print one status line per target and a summary at the end.
   Per the Design's two-runtimes rule, a cross-build resolves *two* things: the host `lg` that executes `lg -b` (a host-target runtime when the project has Go deps, else `PATH` `lg`) and the target runtime used as `-bundle-base`. Building only the target produces a binary whose namespaces cannot resolve at compile time.
   A cross-build with no Go deps still needs a target runtime — the empty-coord-set path already renders a valid stock module, so route through the same `ensure-runtime!`. A native build with no Go deps must keep using `PATH` `lg` and must not invoke Go at all.
   Fail before building if `LGX_LG` is set on a cross-build of a Go-deps project, with the message from the Design.
   Preflight before any building: a cross-build without `go` on PATH exits 1 with the mise hint, the same message `gobuild/preflight!` already produces; and a cross-build without `:lg-version` exits 1 naming that key, whether or not Go deps are declared.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS, existing suite green.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS, existing suite green.
 
-- [ ] **Step 5: Verify end to end**
+- [x] **Step 5: Verify end to end**
   Against a scratch project with `:platforms` declared and no Go deps: `lgx build --all`, then `file` each artifact.
   Then repeat against `letgo-packages/sqlite/example` (Go deps present, `LGX_LETGO_REPLACE` set).
   Expected: correct binaries per platform in both cases; `lgx --verbose build --all` shows `-bundle-base` pointing at the matching per-target runtime while the `lg` being *invoked* is the host one — two different paths on the same line, which is the two-runtimes rule made visible.
   Then run each produced binary on a machine or container of its platform where possible; at minimum confirm the host-platform artifact runs and prints the expected output. A binary that builds but cannot resolve its namespaces is the exact failure the host runtime prevents, and only running it proves the absence.
+  > Verified 2026-08-24. No-deps scratch, `--all` over linux/arm64+darwin/arm64+linux/amd64: three correct artifacts (`file` confirms ELF aarch64 / Mach-O arm64 / ELF x86-64), host one runs. sqlite example: verbose line shows host runtime `1a4c880…/lg` invoked with `-bundle-base …/9fac42b…/lg` (darwin/arm64) — the two-runtimes rule on one line. `--target linux/arm64` (host platform, explicit target) produced a binary that runs the example's full check suite: "all checks passed", proving namespace resolution and target-scanned interop bindings. Native build re-checked: no Go invocation, PATH lg, `:out` byte-for-byte.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "feat: lgx build --target and --all produce per-platform binaries"`
 
 ### Task 7: `:deps/root` relocates the dep's `lgx.edn`
