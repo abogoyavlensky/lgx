@@ -65,17 +65,26 @@
          (not= "/" nroot)
          (str/starts-with? ndir (str nroot "/")))))
 
+(defn- symlink?
+  "True when `p` is itself a symlink. os/stat follows links, so this asks
+   test(1) instead — the check that keeps a symlinked cache root (pointing
+   anywhere) from being cleaned *through*."
+  [p]
+  (let [r (try (os/sh "sh" "-c" "test -L \"$1\"" "sh" p)
+               (catch e nil))]
+    (boolean (and r (zero? (:exit r))))))
+
 (defn- entry-size
-  "Recursive size of one filesystem entry in bytes; 0 when it vanished."
+  "Disk usage of one filesystem entry in bytes, via du -sk (POSIX). du does
+   not follow symlinks, so a cached repo containing a link cycle cannot loop
+   the sizing and a link pointing outside the cache counts as the link, not
+   its target. KB granularity — an honest match for what deletion frees."
   [abs]
-  (let [stat (os/stat abs)]
-    (cond
-      (nil? stat) 0
-      (:dir? stat) (reduce (fn [acc name]
-                             (+ acc (entry-size (path/join abs name))))
-                           0
-                           (os/ls abs))
-      :else (or (:size stat) 0))))
+  (let [r (try (os/sh "du" "-sk" abs) (catch e nil))]
+    (if (and r (zero? (:exit r)))
+      (* 1024 (or (parse-long (first (str/split (str/trim (:out r)) #"\s+")))
+                  0))
+      0)))
 
 (defn clean-category!
   "Size and remove every entry directly under `dir` (the cache root itself
@@ -122,6 +131,14 @@
                   (write! *err*
                           (str "error: refusing to clean " dir " - it is not "
                                "inside LGX_HOME (" root "); check LGX_HOME\n"))
+                  (os/exit 1))
+                ;; A symlinked cache root would be cleaned *through*: os/ls
+                ;; follows the link, so the entries removed would live in the
+                ;; link's target — possibly far outside LGX_HOME.
+                (when (symlink? dir)
+                  (write! *err*
+                          (str "error: refusing to clean " dir " - it is a "
+                               "symlink; clean its target directly\n"))
                   (os/exit 1))
                 (let [{:keys [bytes entries]} (clean-category! dir dry-run?)]
                   (println (str (name category) ": " verb " " entries

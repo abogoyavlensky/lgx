@@ -337,6 +337,7 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 
 - [x] **Step 6: Commit**
   `git commit -m "feat: lgx clean for the runtimes, gitlibs, and template caches"`
+  > Codex review round 1: one P1, two P2s, all fixed in a fixup. (1) A symlinked cache root would be cleaned *through* (os/ls follows the link) — now refused via a `test -L` check, since released lg has no lstat/canonical-path primitive. (2) Sizing walked through symlinks (a `loop -> .` cycle hung it) — replaced with `du -sk`, which never follows links; removal was already safe (`syscall/rm-rf` is Go's RemoveAll, which unlinks). Tests updated to du's block granularity plus a symlink/cycle case. (3) `clean` added to `completion/builtin-commands`.
 
 ### Task 9: Docs
 

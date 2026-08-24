@@ -102,9 +102,11 @@
   (os/sh "rm" "-rf" root))
 
 (deftest clean-category-removes-entries-and-reports-bytes
+  ;; Sizes come from du -sk, so assert on presence and consistency rather
+  ;; than exact bytes (block sizes are filesystem-dependent).
   (let [root (make-tree)
         r (clean/clean-category! (str root "/runtimes") false)]
-    (is (= 15 (:bytes r)))
+    (is (> (:bytes r) 0))
     (is (= 2 (:entries r)))
     (is (= [] (vec (os/ls (str root "/runtimes")))))
     ;; The other cache is untouched.
@@ -113,12 +115,30 @@
 
 (deftest clean-category-dry-run-changes-nothing
   (let [root (make-tree)
-        r (clean/clean-category! (str root "/runtimes") true)]
-    (is (= 15 (:bytes r)))
-    (is (= 2 (:entries r)))
+        dry (clean/clean-category! (str root "/runtimes") true)]
+    (is (> (:bytes dry) 0))
+    (is (= 2 (:entries dry)))
     (is (= ["aaa" "bbb"] (vec (sort (os/ls (str root "/runtimes"))))))
+    ;; The real run reclaims exactly what the dry run promised.
+    (is (= dry (clean/clean-category! (str root "/runtimes") false)))
     (rm-tree! root)))
 
 (deftest clean-category-handles-a-missing-dir
   (is (= {:bytes 0 :entries 0}
          (clean/clean-category! "/tmp/lgx-clean-test-does-not-exist" false))))
+
+(deftest clean-category-unlinks-a-symlink-without-following-it
+  ;; A cached entry that is a symlink must be unlinked, never descended:
+  ;; whatever it points at — even outside the cache — survives.
+  (let [root (make-tree)
+        outside (str root "/outside")]
+    (mkdir outside)
+    (spit (str outside "/precious") "keep me")
+    (os/sh "ln" "-s" outside (str root "/runtimes/link"))
+    ;; A self-referential link must not loop the sizing either.
+    (os/sh "ln" "-s" "." (str root "/runtimes/aaa/loop"))
+    (let [r (clean/clean-category! (str root "/runtimes") false)]
+      (is (= 3 (:entries r)))
+      (is (= [] (vec (os/ls (str root "/runtimes")))))
+      (is (= "keep me" (slurp (str outside "/precious")))))
+    (rm-tree! root)))
