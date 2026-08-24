@@ -279,6 +279,7 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 
 - [x] **Step 6: Commit**
   `git commit -m "feat: lgx build --target and --all produce per-platform binaries"`
+  > Codex review round 1: one P1, two P2s, all fixed in a fixup. (1) A user `-bundle-base` with multiple targets silently produced N copies of one platform — now rejected. (2) `cross-preflight!` no longer runs when the user supplies the base (nothing gets generated). (3) cmd-build now validates everything cheap — `:main`, `:bin`, `:out` collisions, base/target contradictions — before deps resolve or any runtime builds.
 
 ### Task 7: `:deps/root` relocates the dep's `lgx.edn`
 

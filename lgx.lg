@@ -654,46 +654,60 @@
             (os/exit 1))
         target-list (:targets resolved)
         cross? (boolean (some some? target-list))
-        basis (overlay-basis project cfg with nil)
-        {:keys [results paths resource-paths]} basis
-        go-pairs (:go-coords basis)]
-    ;; Cross-build contradictions and prerequisites, decided before any
-    ;; building — a cold runtime build takes many seconds and would only be
-    ;; thrown away.
-    (when cross?
-      (when (and (seq go-pairs) (gobuild/user-set-lg?))
+        main-script (config/main cfg)
+        bin (:bin (config/targets cfg))
+        user-base? (boolean (some #(= "-bundle-base" %) forward))]
+    ;; Cheap validation first, before deps resolve or any runtime builds — a
+    ;; bad invocation must never spend minutes building things it will not
+    ;; use (mirrors cmd-test's test-dir check).
+    (when (nil? main-script)
+      (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
+      (os/exit 1))
+    (when (nil? bin)
+      (write! *err* (str "lgx: :targets/:bin is required for build "
+                         "(set :targets {:bin {:out \"...\"}} in lgx.edn)\n"))
+      (os/exit 1))
+    (resolve-main-script! project main-script)
+    ;; :platforms gets this collision check at config load; an ad-hoc
+    ;; --target list only meets it here.
+    (when-let [dup (gobuild/duplicate-target-out (:out bin) target-list)]
+      (write! *err*
+              (str "lgx: more than one target renders :out to " (pr-str dup)
+                   " - the artifacts would overwrite each other; add an "
+                   "{{os}} or {{arch}} placeholder to :out\n"))
+      (os/exit 1))
+    ;; One hand-picked base binary cannot serve two platforms: every bundle
+    ;; would carry the base's platform under a different file name.
+    (when (and user-base? (> (count target-list) 1))
+      (write! *err*
+              (str "lgx: -bundle-base names one base binary, but this build "
+                   "has " (count target-list) " targets - drop -bundle-base "
+                   "and let lgx build a runtime per target, or build one "
+                   "--target at a time\n"))
+      (os/exit 1))
+    ;; A user-supplied base skips runtime generation entirely, so the Go
+    ;; toolchain and :lg-version are only required when lgx builds the base.
+    (when (and cross? (not user-base?))
+      (gobuild/cross-preflight! (config/lg-version cfg)))
+    (let [basis (overlay-basis project cfg with nil)
+          {:keys [results paths resource-paths]} basis
+          go-pairs (:go-coords basis)]
+      ;; Decided before any building — a cold runtime build takes many
+      ;; seconds and would only be thrown away.
+      (when (and cross? (seq go-pairs) (gobuild/user-set-lg?))
         (write! *err*
                 (str "error: LGX_LG is set, but a cross-build of a project "
                      "with Go deps needs the host runtime lgx builds - the "
                      "LGX_LG lg cannot resolve the project's Go namespaces "
                      "while bundling. unset LGX_LG to cross-build.\n"))
         (os/exit 1))
-      (gobuild/cross-preflight! (config/lg-version cfg)))
-    ;; The host half of the two-runtimes rule: the lg that *executes* `lg -b`
-    ;; (and must resolve the project's Go namespaces at compile time). With Go
-    ;; deps that is a host-platform custom runtime; without, the PATH lg.
-    (let [runtime (apply-runtime! cfg basis :fail verbose?)
-          main-script (config/main cfg)
-          bin (:bin (config/targets cfg))]
-      (when (nil? main-script)
-        (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
-        (os/exit 1))
-      (when (nil? bin)
-        (write! *err* (str "lgx: :targets/:bin is required for build "
-                           "(set :targets {:bin {:out \"...\"}} in lgx.edn)\n"))
-        (os/exit 1))
-      (resolve-main-script! project main-script)
-      ;; :platforms gets this collision check at config load; an ad-hoc
-      ;; --target list only meets it here.
-      (when-let [dup (gobuild/duplicate-target-out (:out bin) target-list)]
-        (write! *err*
-                (str "lgx: more than one target renders :out to " (pr-str dup)
-                     " - the artifacts would overwrite each other; add an "
-                     "{{os}} or {{arch}} placeholder to :out\n"))
-        (os/exit 1))
+      ;; The host half of the two-runtimes rule: the lg that *executes*
+      ;; `lg -b` (and must resolve the project's Go namespaces at compile
+      ;; time). With Go deps that is a host-platform custom runtime; without,
+      ;; the PATH lg.
       (print-installs! results)
-      (let [abs-main (path/join project main-script)
-            user-base? (boolean (some #(= "-bundle-base" %) forward))]
+      (let [runtime (apply-runtime! cfg basis :fail verbose?)
+            abs-main (path/join project main-script)]
         (doseq [target target-list]
           (let [out-rel (gobuild/target-out (:out bin) target)
                 abs-out (ensure-out-dir! project out-rel)
