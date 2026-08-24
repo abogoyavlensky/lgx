@@ -287,24 +287,26 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx.lg`
 - Test: `test/lgx/config_test.lg` or `test/lgx/gobuild_test.lg`, whichever suits the extracted helper
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Extract the "where does this dep's config live" decision into a pure helper taking the checkout dir and the coord, returning the directory to read `lgx.edn` from. Cover: no `:deps/root` gives the checkout root; `:deps/root` whose directory holds an `lgx.edn` gives that subdirectory; `:deps/root` whose directory has no `lgx.edn` falls back to the checkout root (the `tools.cli` layout).
   Do not test a missing `:deps/root` directory — `cache/resolve-source-path` throws on that first, so the case is unreachable here.
   The fallback is what keeps this backward compatible — make sure a test pins it.
+  > Helper is `config/dep-config-dir`, tested in `config_test.lg`.
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Use the helper at the `lgx-edn?` check in `ensure-all!`, and use the same directory as the `:base` for the children it yields, so a relative `:local/root` or `:go/local` in that config resolves against the package directory rather than the repo root. Getting the base wrong here would break monorepo sibling deps in a way tests on the read path alone would not catch — cover it.
   Leave `declared-children` (the `deps.edn`/`project.clj` ladder) on the checkout root: those files belong to other tools with their own conventions.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Verify end to end**
+- [x] **Step 5: Verify end to end**
   Build a scratch monorepo: a root with no `lgx.edn`, a `pkg/` subdirectory whose `lgx.edn` declares `database/sql {:go/interop "sql"}`, and a consumer depending on it with `:local/root` plus `:deps/root "pkg"`.
   Expected: the consumer triggers a runtime build. Before this fix the same setup runs with no build and no warning, which is the bug.
+  > Verified 2026-08-24: `lgx install` in the consumer prints `Building custom lg runtime...` — the package's Go coord is discovered through `:deps/root`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "fix: read a dep's lgx.edn from :deps/root when it lives there"`
 
 ### Task 8: `lgx clean`

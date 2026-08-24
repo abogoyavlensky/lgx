@@ -1640,3 +1640,53 @@
   ;; their source dep as a Go package and drop it from resolution.
   (is (not (config/go-coord? {:local/root "../x" :go/note "hi"})))
   (is (config/go-coord? {:go/version "v1"})))
+
+;; ---------------------------------------------------------------------------
+;; dep-config-dir — where a dep's lgx.edn is read from
+;; ---------------------------------------------------------------------------
+
+;; Build a throwaway checkout tree, run f on its root, clean up.
+(defn- with-checkout [layout f]
+  (let [dir (str "/tmp/lgx-dep-config-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (doseq [[rel content] layout]
+      (let [abs (str dir "/" rel)
+            parent (subs abs 0 (- (count abs) (count (last (str/split abs "/"))) 1))]
+        (mkdir parent)
+        (spit abs content)))
+    (let [r (f dir)]
+      (os/sh "rm" "-rf" dir)
+      r)))
+
+(deftest dep-config-dir-without-deps-root-is-the-checkout-root
+  (is (= :root
+         (with-checkout {"lgx.edn" "{}"}
+           (fn [dir]
+             (if (= dir (config/dep-config-dir dir {:git/url "u"}))
+               :root
+               :other))))))
+
+(deftest dep-config-dir-relocates-into-deps-root
+  ;; The monorepo-package layout: the package's own lgx.edn lives beside its
+  ;; sources under :deps/root, and must not be silently ignored.
+  (is (= :sub
+         (with-checkout {"pkg/lgx.edn" "{}"}
+           (fn [dir]
+             (let [r (config/dep-config-dir dir {:local/root "x"
+                                                 :deps/root "pkg"})]
+               (cond
+                 (= r (str dir "/pkg")) :sub
+                 (= r dir) :root
+                 :else :other)))))))
+
+(deftest dep-config-dir-falls-back-to-the-checkout-root
+  ;; The tools.cli layout: :deps/root points at sources, the metadata stays
+  ;; at the repo root. The fallback is what keeps this backward compatible.
+  (is (= :root
+         (with-checkout {"lgx.edn" "{}"
+                         "pkg/keep" ""}
+           (fn [dir]
+             (if (= dir (config/dep-config-dir
+                          dir {:git/url "u" :deps/root "pkg"}))
+               :root
+               :other))))))

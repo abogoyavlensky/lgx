@@ -808,6 +808,22 @@
 (def ^:private dep-config-schema
   [:map [:deps {:optional true} deps-schema]])
 
+(defn dep-config-dir
+  "The directory a dep's lgx.edn is read from, given the checkout dir and the
+   consuming coord. :deps/root relocates the read when the package keeps its
+   config there — the monorepo-package layout, where <repo>/<pkg>/lgx.edn
+   describes the package. A repo whose metadata stays at the root while
+   :deps/root only points at sources (org.clojure/tools.cli with
+   :deps/root \"src/main/clojure\") falls back to the checkout root, which is
+   what keeps this backward compatible. The fallback covers a missing
+   *config*, never a missing directory: cache/resolve-source-path throws on a
+   nonexistent :deps/root long before this decision is reached."
+  [dir coord]
+  (let [root (:deps/root coord)]
+    (if (and root (file-exists? (path/join dir root config-name)))
+      (path/join dir root)
+      dir)))
+
 (defn coords-at
   "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
    is absent. Unlike the project's own lgx.edn, a missing file is not an
