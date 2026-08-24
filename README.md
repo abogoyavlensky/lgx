@@ -215,7 +215,9 @@ Rules that follow from the mechanics:
 
 - **Cross-builds need the Go toolchain and `:lg-version`** - the target
   runtime is generated with Go even when the project has no Go deps. A
-  native build of a project without Go deps never invokes Go.
+  native build of a project without Go deps never invokes Go, and
+  neither does a cross-build where you supply `-bundle-base` yourself
+  (nothing is generated, so neither prerequisite applies).
 - **Go deps must be pure Go.** Cross-builds run with `CGO_ENABLED=0`,
   because a cgo dependency cannot cross-compile without a target C
   toolchain. Pure-Go drivers (e.g. `modernc.org/sqlite`) work everywhere.

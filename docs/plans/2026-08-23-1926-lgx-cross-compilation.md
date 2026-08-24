@@ -346,13 +346,15 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 **Files:**
 - Modify: `README.md`, `docs/ARCHITECTURE.md`, `docs/knowledge-base/lgx-go-runtimes.md`
 
-- [ ] **Step 1: Write the docs** (use /writing-clearly)
+- [x] **Step 1: Write the docs** (use /writing-clearly)
   `README.md`: `:platforms` and templated `:out` under `:targets`; `lgx build --target`/`--all`; `lgx clean` in the commands table; the requirement that cross-compiling needs `go` while native builds do not; the pure-Go-driver rule; `:deps/root` now relocating a dep's `lgx.edn`; the state-layout note that runtimes are keyed per platform.
   `docs/ARCHITECTURE.md`: the target dimension in the runtime hash, the build-time decision table for which runtime a command uses, and the `:deps/root` change in the transitive-resolution section.
   `docs/knowledge-base/lgx-go-runtimes.md`: cross-compilation mechanics, `CGO_ENABLED=0` and why cgo drivers break, the measured cold/warm build costs, cache growth under multiple targets, and `lgx clean`. Keep the `Verify against:` footer current.
+  > Also cleared the drift deferred from Tasks 1/2/5: the KB doc now describes the let-go `go get`, mutable-ref resolution in the hash, the real-version `cli.Main`, and the two-step target-scanned lginterop. The windows limitation is documented in README, the KB doc, and its issue file.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git commit -m "docs: cross-compilation, lgx clean, and the :deps/root fix"`
+  > Codex review: two P2 doc inaccuracies, both fixed in a fixup — the cross-build prerequisites bullet now carries the user-supplied `-bundle-base` exception, and the KB's `LGX_LG` rebuild rule is qualified per build kind (native-warn / cross-with-deps-reject / cross-without-deps-still-generates).
 
 ### Task 10: Full verification
 

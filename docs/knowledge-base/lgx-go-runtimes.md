@@ -65,8 +65,12 @@ would mean walking it on every command.
 - Any `:go/local` coord, or `LGX_LETGO_REPLACE` set: always re-run the
   build steps. `go build` is incremental, so a no-op rebuild is under a
   second. This is the price of not hashing working trees.
-- `LGX_LG` set by the user: no runtime is built at all. lgx warns that
-  the Go namespaces will not resolve and gets out of the way.
+- `LGX_LG` set by the user, on a native command with Go deps: no
+  runtime is built at all. lgx warns that the Go namespaces will not
+  resolve and gets out of the way. Cross-builds differ: with Go deps
+  the combination is rejected outright (the host runtime is required),
+  and without Go deps the target runtime is generated regardless -
+  `LGX_LG` overrides only the host `lg`, never the bundle base.
 
 ## The build steps
 
