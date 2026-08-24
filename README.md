@@ -90,8 +90,9 @@ lgx run
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
-| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. |
+| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). |
 | `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
+| `lgx clean <--cache...>` | Remove caches under `$LGX_HOME`: `--runtimes`, `--gitlibs`, `--templates`, or `--all`; `--dry-run` only reports. Prints bytes reclaimed. Never automatic. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. |
 | `lgx` or `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
@@ -179,13 +180,51 @@ options). For a scratch script or `lg` flags with your deps on the path, use
 ### `lgx build` details
 
 `lgx build` is shortcut for `lg <paths> [extra-args...] -b <:out> <:main>`.
-Extra args go before `-b`, so cross-OS bundling works as:
+Both `:main` and `:targets/:bin` are required. Args other than lgx's own
+`--target`/`--all` are forwarded to `lg` before `-b`.
+
+#### Cross-compilation
+
+`lgx build` can produce binaries for other platforms from one machine:
 
 ```sh
-lgx build -bundle-base /path/to/lg
+lgx build                        # native, unchanged
+lgx build --target linux/arm64   # one ad-hoc platform; no config needed
+lgx build --all                  # every platform declared in :platforms
 ```
 
-Both `:main` and `:targets/:bin` are required.
+Declare a release matrix in `lgx.edn`, with `{{os}}` and `{{arch}}`
+placeholders in `:out` so the artifacts land on distinct paths:
+
+```clojure
+:targets {:bin {:out "dist/app_{{os}}_{{arch}}"
+                :platforms [{:os "linux" :arch "amd64"}
+                            {:os "darwin" :arch "arm64"}]}}
+```
+
+A plain `:out "bin/app"` keeps working for native builds; declaring more
+than one platform without a distinguishing placeholder is a config error.
+`:os`/`:arch` values are validated against Go's `go tool dist list`.
+
+For each target lgx builds a target-platform `lg` runtime (cached under
+`$LGX_HOME/runtimes/`, one entry per platform) and passes it to `lg -b`
+as `-bundle-base`. A hand-rolled `lgx build -bundle-base /path/to/lg`
+still wins over the generated one, for a single target only.
+
+Rules that follow from the mechanics:
+
+- **Cross-builds need the Go toolchain and `:lg-version`** - the target
+  runtime is generated with Go even when the project has no Go deps. A
+  native build of a project without Go deps never invokes Go.
+- **Go deps must be pure Go.** Cross-builds run with `CGO_ENABLED=0`,
+  because a cgo dependency cannot cross-compile without a target C
+  toolchain. Pure-Go drivers (e.g. `modernc.org/sqlite`) work everywhere.
+- **A cross-build of a Go-deps project uses two runtimes**: a host one
+  that executes `lg -b` (bundling compiles the script, so the Go
+  namespaces must resolve on the host), and the target one shipped as
+  the binary's base. Setting `LGX_LG` contradicts this and fails.
+- `windows/*` targets fail until let-go itself builds for Windows (see
+  `docs/issues/windows-build-unix-only-term.md`).
 
 ### `lgx test` details
 
@@ -232,7 +271,9 @@ key's rules in detail.
   my/lib                 {:local/root "../my-lib"}}      ; local dir, no gitlibs cache
 
  ; Build output for `lgx build`. :bin is the only target; :out is relative to
- ; the project root (lgx creates the parent dir if missing).
+ ; the project root (lgx creates the parent dir if missing). Optional
+ ; :platforms lists cross-compile targets for `lgx build --all`; {{os}} and
+ ; {{arch}} in :out keep their artifacts on distinct paths.
  :targets {:bin {:out "bin/myapp"}}
 
  ; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
@@ -305,7 +346,9 @@ Each coord is a git source (`:git/url` plus one of `:git/sha`/`:git/tag`,
 HTTPS only), a `:local/root` dir, or a Go package (`:go/*`) - never a mix.
 Local deps bypass the gitlibs cache. `:deps/root` names the source subdir
 inside the dep (defaults to `src` if present, else the repo root; matches
-tools.deps).
+tools.deps). When that subdir holds its own `lgx.edn` - a monorepo package -
+lgx reads the dep's config from there instead of the checkout root, so the
+package's `:deps` (Go deps included) reach the consumer.
 
 #### Go deps (`:go/*`)
 
@@ -509,8 +552,9 @@ $LGX_HOME/
 `<ref>` is the sha for `:git/sha` coords, or the tag with `/` replaced
 by `_` for `:git/tag` coords. `runtimes/<hash>/` holds one custom `lg`
 and the generated Go module it was built from; `<hash>` covers the
-let-go version and every Go coord, so projects declaring the same set
-share one build (see
+let-go version, every Go coord, and - for cross-builds - the target
+platform, so projects declaring the same set share one build and each
+platform gets its own entry. `lgx clean --runtimes` reclaims them (see
 [`docs/knowledge-base/lgx-go-runtimes.md`](docs/knowledge-base/lgx-go-runtimes.md)). `lgx test` rewrites the version-stamped
 harness on each run. `lgx new` reuses the template cache after the first
 clone.

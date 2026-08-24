@@ -27,7 +27,7 @@ embedded git library ended up shelling out for edge cases anyway.
 
 ```
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring
-lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port
+lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port, build --target/--all
 lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
 lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
@@ -37,6 +37,8 @@ lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
 lgx/new.lg          scaffold a new project from a built-in or URL template
+lgx/clean.lg        explicit cache cleanup: flag parsing, sizing via du, guarded removal under $LGX_HOME
+lgx/home.lg         $LGX_HOME root and the cache-root accessors every cache-owning module shares
 lgx/completion.lg   shell TAB completion: pure candidate logic, bundled bash/zsh/fish scripts, the `completion`/`__complete` handlers
 lgx/style.lg        colored status headers (green built-ins, purple tasks), LGX_NO_COLOR gate
 ```
@@ -244,28 +246,65 @@ apply to a REPL session. `nrepl` is a reserved task name
 
 ### `lgx build [args...]`
 
-Steps 1–4 match `install`. Then:
+`cli/parse-build-args` first splits lgx's own flags (`--target
+<os>/<arch>[,...]`, repeatable, and `--all`) from the args forwarded to
+`lg`. `gobuild/resolve-build-targets` turns that plus `:platforms` into
+the target list: an explicit `--target` list wins, `--all` takes every
+declared platform (an error when none are), and neither means one
+native build (nil target). Then, before anything expensive:
 
-5. Read `:main` and `:targets/:bin` from the validated config. Either
+1. Read `:main` and `:targets/:bin` from the validated config. Either
    being absent exits 1 with a clear error (`lgx: :main is required for
    build` / `lgx: :targets/:bin is required for build`).
-6. Verify the `:main` script exists on disk (resolved against the
+2. Verify the `:main` script exists on disk (resolved against the
    project root). Missing → `lgx: :main script not found: <path>` and
    exit 1.
-7. Resolve `:targets/:bin/:out` to an absolute path under the project
-   root and `mkdir` its parent (recursive, idempotent).
-8. Exec `lg -source-paths <X> -resource-paths <R> [forwarded-args...] -b
-   <abs-out> <abs-main>`. The source/resource flags come first, then the
-   forwarded args extend `lg`'s flag list before `-b` (real example:
-   `-bundle-base /path/to/lg` for cross-OS builds). With `-b`, `lg` embeds the
-   resources under `<R>` into the binary, so a bundled app resolves
-   `io/resource` with no files alongside it. Both `-b` target and main script
-   are absolute paths so `lgx build` produces the same artifact regardless of
-   which subdirectory of the project the user invoked it from.
+3. Reject a target list whose rendered `:out` paths collide
+   (`gobuild/duplicate-target-out` - the load-time `:platforms` check
+   only covers config, not an ad-hoc `--target` list), and a forwarded
+   `-bundle-base` combined with more than one target (one base binary
+   cannot serve two platforms).
+4. For a cross-build where lgx generates the base,
+   `gobuild/cross-preflight!` requires the Go toolchain and
+   `:lg-version` - Go deps or not, since even a stock target runtime is
+   generated with Go.
+
+Then steps matching `install` resolve the basis, and per target:
+
+5. Expand `:out` through `config/expand-out` (`{{os}}`/`{{arch}}`;
+   native keeps `:out` byte-for-byte), resolve it to an absolute path
+   under the project root, and `mkdir` its parent.
+6. Resolve the bundle base: a cross target gets a target-platform
+   runtime from `gobuild/ensure-runtime!`; native uses the host runtime
+   (Go deps) or none (stock `lg` copies itself); a user-forwarded
+   `-bundle-base` wins and skips generation.
+7. Exec `lg -source-paths <X> -resource-paths <R> [forwarded-args...]
+   [-bundle-base <base>] -b <abs-out> <abs-main>`. With `-b`, `lg`
+   embeds the resources under `<R>` into the binary, so a bundled app
+   resolves `io/resource` with no files alongside it. Both `-b` target
+   and main script are absolute paths so `lgx build` produces the same
+   artifact regardless of which subdirectory of the project the user
+   invoked it from.
+
+Which `lg` runs, and which is shipped, is decided per the two-runtimes
+rule - bundling *executes* the script on the host (compilation runs
+top-level forms), while `-bundle-base` becomes the shipped binary:
+
+| Project / build | `lg` that runs `-b` (host) | `-bundle-base` (shipped) |
+|---|---|---|
+| no Go deps, native | PATH `lg` | none (base = itself) |
+| no Go deps, cross | PATH `lg` | generated target runtime |
+| Go deps, native | host custom runtime | same host runtime |
+| Go deps, cross | host custom runtime | generated target runtime |
+
+So a four-platform release of a Go-deps project builds five runtimes:
+one host plus four targets. A cross-build of a Go-deps project with
+`LGX_LG` set fails outright - the override would leave the host side
+unable to resolve the project's Go namespaces at compile time.
 
 `lgx build` shares `resolve-main-script!` and the project-basis
-resolution with `lgx run`; the only structural difference is the
-argument shape and the required-config / mkdir steps.
+resolution with `lgx run`; the structural differences are the argument
+shape, the per-target loop, and the required-config / mkdir steps.
 
 ### `lgx test`
 
@@ -556,9 +595,15 @@ leaf is a read-only worktree. The `test-runner` directory holds the
 generated test harness. The `templates/` tree parallels
 gitlibs but uses sha-only keying — populated by `lgx new` on first use
 and reused on subsequent runs. `runtimes/` holds custom `lg` binaries
-built for projects with `:go/*` deps, keyed by a hash of the let-go
-version and the whole Go coord set (see [Go deps](#go-deps) and
+built for projects with `:go/*` deps and for cross-build bundle bases,
+keyed by a hash of the let-go version, the whole Go coord set, and -
+when cross-compiling - the target platform, so each platform gets its
+own entry while native builds keep their pre-target hashes (see
+[Go deps](#go-deps) and
 [`knowledge-base/lgx-go-runtimes.md`](knowledge-base/lgx-go-runtimes.md)).
+`lgx clean` removes these caches on request (`--runtimes`, `--gitlibs`,
+`--templates`, `--all`; `--dry-run` only reports) - never automatically,
+never outside `$LGX_HOME`, and never through a symlinked cache root.
 
 By default, `cache/ensure-lib!` returns `<ref>/src/` if that
 subdirectory exists, otherwise `<ref>/`. This matches the `tools.deps`
@@ -571,6 +616,15 @@ no further probing. The value must be a relative path with no `..`
 segments; if the directory does not exist after clone, `ensure-lib!`
 throws. This handles libs that ship sources under non-standard
 locations, e.g. `org.clojure/tools.cli` with `:deps/root "src/main/clojure"`.
+
+`:deps/root` also relocates where the dep's own `lgx.edn` is read
+(`config/dep-config-dir`): when `<ref>/<deps/root>/lgx.edn` exists — a
+monorepo package — that file is authoritative and its children resolve
+their relative `:local/root`/`:go/local` against the package directory.
+When it does not — the tools.cli layout, metadata at the repo root —
+lgx falls back to the checkout root, which keeps the old behavior. The
+`deps.edn`/`project.clj` ladder always reads from the checkout root:
+those files belong to other tools with their own conventions.
 
 ### Local deps
 
@@ -626,7 +680,11 @@ a genuine user override.
 `lgx build` additionally injects `-bundle-base <runtime>` into the argv
 before `-b`, unless the user passed their own. `lg -b` copies the
 running binary as its base, and a stock `lg` base would produce an app
-whose Go namespaces do not resolve.
+whose Go namespaces do not resolve. For a cross-build the injected base
+is a *target-platform* runtime (`ensure-runtime!` with a `{:os :arch}`
+target, which joins the cache hash and sets `GOOS`/`GOARCH`/
+`CGO_ENABLED=0` on the final `go build`) — see the runtime decision
+table under [`lgx build`](#lgx-build-args).
 
 ## Transitive resolution
 
