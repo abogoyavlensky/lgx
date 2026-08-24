@@ -174,6 +174,7 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 
 - [x] **Step 5: Commit**
   `git commit -m "feat(gobuild): the built runtime reports its real let-go version"`
+  > Codex review round 1: two P2s. (1) Runtimes cached before this commit keep reporting `dev` — accepted as advisory: the plan pins today's hash inputs (Task 5), the go-deps pipeline is unreleased, and `lgx clean` (Task 8) is the remedy. (2) MVS could select a newer let-go than the pin, making the embedded version dishonest — fixed: after `go mod tidy`, main.go is re-rendered from `go list -m -f {{.Version}}` (offline), which also covers sha pins without the build-time network resolution the first cut used.
 
 ### Task 3: `:platforms` schema and `:out` templating
 

@@ -455,6 +455,18 @@
       (spit (path/join dir "interop" "doc.go")
             (render-interop-doc-go go-pairs)))))
 
+(defn- rewrite-main-with-selected-version!
+  "Re-render main.go from the let-go version Go actually selected, read out of
+   the tidied go.mod. The pre-tidy main.go embeds the *requested* version, but
+   MVS may have picked a newer one (a Go dep can require a later let-go), and
+   a sha pin only gets its pseudo-version here — so the honest values exist
+   only after tidy. Offline: `go list -m` reads the module graph, no network."
+  [dir go-pairs verbose?]
+  (let [r (go! ["-C" dir "list" "-m" "-f" "{{.Version}}" letgo-module]
+               "go list -m let-go" verbose?)
+        [ver com] (letgo-version-parts (str/trim (:out r)) false)]
+    (spit (path/join dir "main.go") (render-main-go go-pairs ver com))))
+
 (defn- build-runtime! [dir out go-pairs lg-version replace-path verbose?]
   ;; let-go's own `go get` runs with the coord ones, before tidy: the rendered
   ;; go.mod carries no require for it in the pinned case.
@@ -463,6 +475,10 @@
   (doseq [args (go-get-args go-pairs)]
     (go! (vec (concat ["-C" dir] args)) (str "go " (second args)) verbose?))
   (go! ["-C" dir "mod" "tidy"] "go mod tidy" verbose?)
+  ;; Under a replace there is no selected version to report — main.go already
+  ;; says dev/replace and stays that way.
+  (when (str/blank? (or replace-path ""))
+    (rewrite-main-with-selected-version! dir go-pairs verbose?))
   (let [pkgs (interop-packages go-pairs)]
     (when (seq pkgs)
       ;; -opaque-structs keeps struct types boxed and dispatching methods
@@ -503,14 +519,11 @@
         live? (or (some? replace-path) (seq (local-coords go-pairs)))]
     (if (and (file-exists? out) (not live?))
       out
-      (let [;; What the binary reports (letgo-version-parts). A sha pin is
-            ;; hashed literally so cache hits stay offline, but on a miss —
-            ;; where the network is already needed — it resolves to its
-            ;; pseudo-version so the report names a real version too.
-            reported (if (and (nil? replace-path) (commit-sha? lg-version))
-                       (resolve-letgo-version! lg-version verbose?)
-                       lg-version)
-            [ver com] (letgo-version-parts reported (some? replace-path))]
+      (let [;; The pre-tidy main.go embeds the *requested* version; after
+            ;; `go mod tidy` the build rewrites it from the version Go
+            ;; actually selected (rewrite-main-with-selected-version!), which
+            ;; is when a sha pin's pseudo-version and any MVS upgrade exist.
+            [ver com] (letgo-version-parts lg-version (some? replace-path))]
         (write! *err* (str (style/header "Building custom lg runtime...") "\n"))
         (write-module! src go-pairs replace-path ver com)
         ;; -o is resolved relative to the -C directory, so out has to be
