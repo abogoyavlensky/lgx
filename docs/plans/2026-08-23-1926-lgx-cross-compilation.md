@@ -205,18 +205,18 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx/cli.lg`
 - Test: `test/lgx/cli_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `parse-build-args` splits lgx's own build flags from the args forwarded to `lg`. Cover: no flags (everything forwards); `--target linux/arm64`; `--target` with a comma-separated list; a repeated `--target`; `--all`; `--target` combined with forwarded lg flags in any order; `--target` with no value (error); an unparseable target value (error naming the expected `os/arch` form); `--all` and `--target` together (error — they contradict).
   Mirror the shape `parse-nrepl-args` already uses, including how it reports errors.
 
-- [ ] **Step 2: Verify fail** — `lgx test test/lgx/cli_test.lg`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test test/lgx/cli_test.lg`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Return the parsed targets as `{:os :arch}` maps, matching the `lgx.edn` shape, so downstream code has one representation. Only the CLI surface uses slash form.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat(cli): parse --target and --all before forwarding build args to lg"`
 
 ### Task 5: Target-aware runtime builds

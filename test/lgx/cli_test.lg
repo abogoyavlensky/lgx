@@ -3,6 +3,7 @@
 
 (ns lgx.cli-test
   (:require [lgx.cli :as cli]
+            [string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- threw? [f]
@@ -132,3 +133,68 @@
 
 (deftest new-two-positionals-throws
   (is (= :threw (threw? #(cli/parse-new-args ["a" "b"])))))
+
+;; ---------------------------------------------------------------------------
+;; parse-build-args
+;; ---------------------------------------------------------------------------
+
+(deftest build-no-flags-forwards-everything
+  (is (= {:targets [] :all? false :forward ["-O2" "-v"]}
+         (cli/parse-build-args ["-O2" "-v"])))
+  (is (= {:targets [] :all? false :forward []}
+         (cli/parse-build-args []))))
+
+(deftest build-single-target
+  (is (= {:targets [{:os "linux" :arch "arm64"}] :all? false :forward []}
+         (cli/parse-build-args ["--target" "linux/arm64"]))))
+
+(deftest build-comma-separated-targets
+  (is (= {:targets [{:os "linux" :arch "arm64"}
+                    {:os "darwin" :arch "amd64"}]
+          :all? false
+          :forward []}
+         (cli/parse-build-args ["--target" "linux/arm64,darwin/amd64"]))))
+
+(deftest build-repeated-target-accumulates
+  (is (= {:targets [{:os "linux" :arch "arm64"}
+                    {:os "darwin" :arch "arm64"}]
+          :all? false
+          :forward []}
+         (cli/parse-build-args ["--target" "linux/arm64"
+                                "--target" "darwin/arm64"]))))
+
+(deftest build-all-flag
+  (is (= {:targets [] :all? true :forward []}
+         (cli/parse-build-args ["--all"]))))
+
+(deftest build-target-mixes-with-forwarded-lg-flags
+  ;; lgx's own flags may appear anywhere; everything else forwards in order.
+  (is (= {:targets [{:os "linux" :arch "arm64"}] :all? false
+          :forward ["-O2" "-v"]}
+         (cli/parse-build-args ["-O2" "--target" "linux/arm64" "-v"])))
+  (is (= {:targets [{:os "linux" :arch "arm64"}] :all? false
+          :forward ["-O2" "-v"]}
+         (cli/parse-build-args ["--target" "linux/arm64" "-O2" "-v"]))))
+
+(deftest build-target-missing-value-throws
+  (is (= :threw (threw? #(cli/parse-build-args ["--target"])))))
+
+(deftest build-target-unparseable-value-throws
+  (is (= :threw (threw? #(cli/parse-build-args ["--target" "linux"]))))
+  (is (= :threw (threw? #(cli/parse-build-args ["--target" "linux/arm64/x"]))))
+  (is (= :threw (threw? #(cli/parse-build-args ["--target" "/arm64"]))))
+  (is (= :threw (threw? #(cli/parse-build-args ["--target" "linux/"]))))
+  (is (= :threw (threw? #(cli/parse-build-args ["--target" ","])))))
+
+(deftest build-target-error-names-the-expected-form
+  (let [msg (try (cli/parse-build-args ["--target" "linux"])
+                 nil
+                 (catch e (ex-message e)))]
+    (is (str/includes? msg "<os>/<arch>"))))
+
+(deftest build-all-and-target-together-throw
+  ;; They contradict: one says "everything declared", the other names a list.
+  (is (= :threw (threw? #(cli/parse-build-args ["--all" "--target"
+                                                "linux/arm64"]))))
+  (is (= :threw (threw? #(cli/parse-build-args ["--target" "linux/arm64"
+                                                "--all"])))))
