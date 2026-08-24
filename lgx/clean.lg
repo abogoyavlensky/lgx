@@ -93,6 +93,19 @@
                       {:path abs})))
     (* 1024 kb)))
 
+(defn- plan-category
+  "Size every entry directly under `dir` without removing anything. Returns
+   {:bytes n :entries n :paths [abs ...]}; a missing dir is zero of each.
+   Throws (via entry-size) when an entry cannot be sized."
+  [dir]
+  (let [stat (os/stat dir)]
+    (if (or (nil? stat) (not (:dir? stat)))
+      {:bytes 0 :entries 0 :paths []}
+      (let [paths (mapv (fn [name] (path/join dir name)) (os/ls dir))]
+        {:bytes (reduce + 0 (map entry-size paths))
+         :entries (count paths)
+         :paths paths}))))
+
 (defn clean-category!
   "Size and remove every entry directly under `dir` (the cache root itself
    stays). With dry-run? nothing is removed. Returns {:bytes n :entries n}
@@ -100,15 +113,11 @@
    Every entry is sized before anything is removed, so a sizing failure
    (entry-size throws) aborts with the cache intact."
   [dir dry-run?]
-  (let [stat (os/stat dir)]
-    (if (or (nil? stat) (not (:dir? stat)))
-      {:bytes 0 :entries 0}
-      (let [entries (mapv (fn [name] (path/join dir name)) (os/ls dir))
-            bytes (reduce + 0 (map entry-size entries))]
-        (when-not dry-run?
-          (doseq [abs entries]
-            (syscall/rm-rf abs)))
-        {:bytes bytes :entries (count entries)}))))
+  (let [{:keys [bytes entries paths]} (plan-category dir)]
+    (when-not dry-run?
+      (doseq [abs paths]
+        (syscall/rm-rf abs)))
+    {:bytes bytes :entries entries}))
 
 (defn- category-dir [category]
   (case category
@@ -128,11 +137,14 @@
                  (write! *err* (str (ex-message e) "\n"))
             (os/exit 1)))
         root (home/root)
-        verb (if dry-run? "would remove" "removed")]
-    (let [total
-          (try
-           (reduce
-            (fn [acc category]
+        verb (if dry-run? "would remove" "removed")
+        ;; Guard and size EVERY selected category before removing anything,
+        ;; so a sizing failure in the last category still leaves the first
+        ;; one intact — the whole command is preflight-then-delete.
+        plans
+        (try
+          (mapv
+            (fn [category]
               (let [dir (category-dir category)]
                 (when-not (safe-dir? dir root)
                   (write! *err*
@@ -147,14 +159,17 @@
                           (str "error: refusing to clean " dir " - it is a "
                                "symlink; clean its target directly\n"))
                   (os/exit 1))
-                (let [{:keys [bytes entries]} (clean-category! dir dry-run?)]
-                  (println (str (name category) ": " verb " " entries
-                                " entr" (if (= 1 entries) "y" "ies")
-                                ", " (format-bytes bytes)))
-                  (+ acc bytes))))
-            0
+                (assoc (plan-category dir) :category category)))
             categories)
-           (catch e
-                  (write! *err* (str "error: " (ex-message e) "\n"))
-             (os/exit 1)))]
-      (println (str "total: " verb " " (format-bytes total))))))
+          (catch e
+                 (write! *err* (str "error: " (ex-message e) "\n"))
+            (os/exit 1)))]
+    (doseq [{:keys [category bytes entries paths]} plans]
+      (when-not dry-run?
+        (doseq [abs paths]
+          (syscall/rm-rf abs)))
+      (println (str (name category) ": " verb " " entries
+                    " entr" (if (= 1 entries) "y" "ies")
+                    ", " (format-bytes bytes))))
+    (println (str "total: " verb " "
+                  (format-bytes (reduce + 0 (map :bytes plans)))))))
