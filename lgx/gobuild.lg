@@ -210,15 +210,39 @@
                                   (mod-path (:go/local c)) "\n"))
                            local-modules)))))
 
+(defn letgo-version-parts
+  "Pure. The [version commit] pair cli.Main reports, from the let-go version
+   the build selected. A semver pin has no commit to name. A resolved
+   pseudo-version (vX.Y.Z-<n>.<timestamp>-<12hex>) splits into its version
+   (v stripped) and its trailing commit segment. Under a replace there is no
+   released version at all, so the pair reads dev/replace — honest about being
+   unreleased, and distinguishable from the old hardcoded dev/none."
+  [resolved-version replace?]
+  (if replace?
+    ["dev" "replace"]
+    (let [v (str resolved-version)
+          v (if (str/starts-with? v "v") (subs v 1) v)
+          ;; The timestamp follows "." in the tagged form (v1.2.3-0.<ts>-<sha>)
+          ;; and "-" in the untagged one (v0.0.0-<ts>-<sha>).
+          m (re-find #"[.-][0-9]{14}-([0-9a-f]{12})$" v)]
+      [v (if m (second m) "")])))
+
+(defn- go-string-literal
+  "Escape `s` into a double-quoted Go string literal."
+  [s]
+  (str "\"" (str/replace (str/replace (str s) "\\" "\\\\") "\"" "\\\"") "\""))
+
 (defn render-main-go
   "Pure. The generated module's main.go: a binary that IS `lg`, with the
-   declared packages linked in.
+   declared packages linked in. `version` and `commit` fill cli.Main's two
+   slots (letgo-version-parts), so the runtime — and any binary bundled from
+   it — answers `lg -v` with the let-go it actually contains.
 
    Blank imports go to link-only coords — drivers and self-registering shims
    that export nothing anyone calls. A coord with :go/interop needs none: its
    generated binding package imports the package itself, and blank-importing
    that binding package is what registers every namespace."
-  [go-pairs]
+  [go-pairs version commit]
   (let [links (sort (map (fn [[lib _]] (str lib))
                          (filter #(and (external? %) (not (interop? %)))
                                  go-pairs)))
@@ -237,7 +261,8 @@
            "")
          ")\n"
          "\n"
-         "func main() { os.Exit(cli.Main(\"dev\", \"none\")) }\n")))
+         "func main() { os.Exit(cli.Main(" (go-string-literal version) ", "
+         (go-string-literal commit) ")) }\n")))
 
 (defn interop-packages
   "The package paths for cmd/lginterop's -packages flag, sorted so the
@@ -418,13 +443,13 @@
                  (str/trim (:out r)) ")")))
     ver))
 
-(defn- write-module! [dir go-pairs replace-path]
+(defn- write-module! [dir go-pairs replace-path version commit]
   (mkdir dir)
   (let [locals (mapv (fn [[_ c]] [c (module-path-at (:go/local c))])
                      (local-coords go-pairs))]
     (spit (path/join dir "go.mod")
           (render-go-mod go-pairs replace-path locals))
-    (spit (path/join dir "main.go") (render-main-go go-pairs))
+    (spit (path/join dir "main.go") (render-main-go go-pairs version commit))
     (when (seq (interop-packages go-pairs))
       (mkdir (path/join dir "interop"))
       (spit (path/join dir "interop" "doc.go")
@@ -478,9 +503,16 @@
         live? (or (some? replace-path) (seq (local-coords go-pairs)))]
     (if (and (file-exists? out) (not live?))
       out
-      (do
+      (let [;; What the binary reports (letgo-version-parts). A sha pin is
+            ;; hashed literally so cache hits stay offline, but on a miss —
+            ;; where the network is already needed — it resolves to its
+            ;; pseudo-version so the report names a real version too.
+            reported (if (and (nil? replace-path) (commit-sha? lg-version))
+                       (resolve-letgo-version! lg-version verbose?)
+                       lg-version)
+            [ver com] (letgo-version-parts reported (some? replace-path))]
         (write! *err* (str (style/header "Building custom lg runtime...") "\n"))
-        (write-module! src go-pairs replace-path)
+        (write-module! src go-pairs replace-path ver com)
         ;; -o is resolved relative to the -C directory, so out has to be
         ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
         (build-runtime! src out go-pairs lg-version replace-path verbose?)

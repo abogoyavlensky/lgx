@@ -227,36 +227,77 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest render-main-go-wraps-cli-main
-  (let [out (gobuild/render-main-go [])]
+  (let [out (gobuild/render-main-go [] "1.11.1" "")]
     (is (str/includes? out "package main"))
     (is (str/includes? out "\"github.com/nooga/let-go/pkg/cli\""))
     (is (str/includes? out "os.Exit(cli.Main("))))
 
+(deftest render-main-go-embeds-the-real-version-and-commit
+  ;; `lg -v` on the built runtime (and on any binary bundled from it) has to
+  ;; report the let-go it actually contains, not "dev".
+  (let [out (gobuild/render-main-go
+              [] "1.12.3-0.20260820193935-a6657612002b" "a6657612002b")]
+    (is (str/includes?
+          out
+          (str "cli.Main(\"1.12.3-0.20260820193935-a6657612002b\", "
+               "\"a6657612002b\")")))
+    (is (not (str/includes? out "\"dev\"")))
+    (is (not (str/includes? out "\"none\"")))))
+
+(deftest render-main-go-pins-the-semver-case
+  (let [out (gobuild/render-main-go [sqlite] "1.11.1" "")]
+    (is (str/includes? out "cli.Main(\"1.11.1\", \"\")"))))
+
+(deftest render-main-go-escapes-the-version-strings
+  ;; Both arguments land inside Go string literals, so a quote or backslash in
+  ;; a hostile value must not escape the literal.
+  (let [out (gobuild/render-main-go [] "1.0\"x" "a\\b")]
+    (is (str/includes? out "cli.Main(\"1.0\\\"x\", \"a\\\\b\")"))))
+
 (deftest render-main-go-blank-imports-link-only-coords
   ;; A coord with :go/interop needs none: its generated binding package
   ;; imports the package itself.
-  (let [out (gobuild/render-main-go [sqlite sql])]
+  (let [out (gobuild/render-main-go [sqlite sql] "1.11.1" "")]
     (is (str/includes? out "_ \"modernc.org/sqlite\""))
     (is (not (str/includes? out "_ \"database/sql\"")))))
 
 (deftest render-main-go-skips-a-blank-import-for-interop-coords
   (let [out (gobuild/render-main-go [['modernc.org/sqlite
                                       {:go/version "v1.38.0"
-                                       :go/interop "sqlite"}]])]
+                                       :go/interop "sqlite"}]] "1.11.1" "")]
     (is (not (str/includes? out "_ \"modernc.org/sqlite\"")))))
 
 (deftest render-main-go-imports-the-interop-package-when-any-exist
-  (is (str/includes? (gobuild/render-main-go [sql sqlite])
+  (is (str/includes? (gobuild/render-main-go [sql sqlite] "1.11.1" "")
                      "_ \"lgx.local/runtime/interop\"")))
 
 (deftest render-main-go-omits-the-interop-import-otherwise
-  (is (not (str/includes? (gobuild/render-main-go [sqlite])
+  (is (not (str/includes? (gobuild/render-main-go [sqlite] "1.11.1" "")
                           "lgx.local/runtime/interop"))))
 
 (deftest render-main-go-orders-blank-imports-deterministically
-  (let [a (gobuild/render-main-go [sqlite shim])
-        b (gobuild/render-main-go [shim sqlite])]
+  (let [a (gobuild/render-main-go [sqlite shim] "1.11.1" "")
+        b (gobuild/render-main-go [shim sqlite] "1.11.1" "")]
     (is (= a b))))
+
+;; ---------------------------------------------------------------------------
+;; letgo-version-parts — what cli.Main reports
+;; ---------------------------------------------------------------------------
+
+(deftest version-parts-of-a-semver-pin
+  (is (= ["1.11.1" ""] (gobuild/letgo-version-parts "1.11.1" false))))
+
+(deftest version-parts-of-a-resolved-pseudo-version
+  ;; A mutable ref resolves to a pseudo-version before the build; its trailing
+  ;; segment is the commit, so both cli.Main slots can be filled honestly.
+  (is (= ["1.12.3-0.20260820193935-a6657612002b" "a6657612002b"]
+         (gobuild/letgo-version-parts
+           "v1.12.3-0.20260820193935-a6657612002b" false))))
+
+(deftest version-parts-under-a-replace
+  ;; No released version to name — honest about being unreleased, and
+  ;; distinguishable from the old hardcoded ("dev", "none").
+  (is (= ["dev" "replace"] (gobuild/letgo-version-parts "1.11.1" true))))
 
 ;; ---------------------------------------------------------------------------
 ;; interop-packages / go-get-args

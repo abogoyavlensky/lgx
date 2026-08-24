@@ -149,6 +149,7 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 
 - [x] **Step 6: Commit**
   `git commit -m "feat(gobuild): resolve :lg-version through go get, so a sha or branch works"`
+  > Codex review: two P2s. (1) The editor-source fetch built tag `v<version>` from any pin, so `"main"` → nonexistent `vmain` — fixed in 55391a0 by skipping the fetch (with a warning) for non-semver pins. (2) `lgx-go-runtimes.md` drift — deferred to Task 9, which updates that doc; same-PR rule holds at branch level.
 
 ### Task 2: The runtime reports its real version
 
@@ -156,19 +157,22 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `render-main-go` takes the version and a build ref and emits them into the `cli.Main` call; the rendered output contains neither `"dev"` nor `"none"` when a real version is given. Keep a case covering what is emitted under `LGX_LETGO_REPLACE`, where there is no released version to name — decide what reads honestly there (a `dev` marker plus the replace path is reasonable) and pin it.
+  > Pinned: replace emits `("dev", "replace")` via `letgo-version-parts`, exactly as the Design proposed.
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Thread the version through `render-main-go` and its `ensure-runtime!` caller. Both arguments are Go string literals, so escape them rather than interpolating raw.
+  > Deviation: a sha pin resolves to its pseudo-version at build time only (cache hits stay offline; the hash keeps the literal sha), so its report names a real version too. Also: the pseudo-version regex must accept `.` before the timestamp — the tagged form is `v1.2.3-0.<ts>-<sha>`, only the untagged `v0.0.0-<ts>-<sha>` uses `-`.
 
-- [ ] **Step 4: Verify pass and check the binary**
+- [x] **Step 4: Verify pass and check the binary**
   `lgx test`, then build a runtime and run `<runtime>/lg -v`.
   Expected: the pinned version, not `lg dev`.
+  > Verified 2026-08-24: suite green. The pinned case cannot build until `pkg/cli` merges upstream, so the binary check ran under `LGX_LETGO_REPLACE`: main.go embeds `cli.Main("dev", "replace")` and `lg -v` prints `lg dev` — let-go's cli shows the commit slot only when longer than 7 chars, and "replace" is exactly 7. The semver/pseudo-version cases are pinned by unit tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat(gobuild): the built runtime reports its real let-go version"`
 
 ### Task 3: `:platforms` schema and `:out` templating
