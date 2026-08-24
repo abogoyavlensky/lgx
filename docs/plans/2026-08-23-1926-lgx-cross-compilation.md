@@ -244,6 +244,7 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 
 - [x] **Step 6: Commit**
   `git commit -m "feat(gobuild): build runtimes for an explicit target platform"`
+  > Codex review round 1: one P1 — `lginterop` via `go run` scans the *host* API, so a `:go/interop` package with platform-specific exports (e.g. `syscall`) would generate host-only bindings that fail on the target. Fixed in a fixup: the tool is now built for the host, then *run* under the target's `GOOS`/`GOARCH` — the go/types source importer reads them from the env at process start, verified empirically (darwin scan emits `Kqueue`, linux scan emits `EpollCreate`). Cross-built a `database/sql` interop runtime for darwin/arm64 to confirm the pipeline.
 
 ### Task 6: `cmd-build` builds every target
 
