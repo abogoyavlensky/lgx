@@ -182,18 +182,19 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Valid: `:bin` with `:out` and a `:platforms` vector of `{:os :arch}` maps; `:bin` with `:out` and no `:platforms` (unchanged today's shape). Errors: `:platforms` not a vector; an entry that is not a map; an entry missing `:os` or `:arch`; an unknown key in an entry (`:closed true`, matching the surrounding schemas); a non-string or blank `:os`/`:arch`; duplicate platform entries; and more than one platform with an `:out` carrying no `{{os}}`/`{{arch}}` placeholder. Also test the `platforms` accessor returns `[]` when absent.
 
-- [ ] **Step 2: Verify fail** — `lgx test test/lgx/config_test.lg`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test test/lgx/config_test.lg`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Extend `targets-schema` in `lgx/config.lg`. The multi-platform/placeholder rule is a cross-key check over the `:bin` map, so it needs a `[:fn ...]` alongside the structural map in an `[:and ...]` — the same shape `coord-schema` and `task-schema` already use.
   Validate `:os` and `:arch` against Go's real list rather than a hand-kept set: capture `go tool dist list` output once and embed the platform pairs as a constant, with a comment naming the command and the Go version it came from so it can be refreshed.
+  > Embedded `go tool dist list` from go1.26.6 (47 pairs). A valid os with a wrong arch (darwin/386) gets its own pair-level error, since both names pass their individual checks.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS with the existing suite green.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS with the existing suite green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat(config): :platforms and templated :out under :targets/:bin"`
 
 ### Task 4: Build-arg parsing

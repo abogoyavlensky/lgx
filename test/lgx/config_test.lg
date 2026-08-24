@@ -297,7 +297,8 @@
          (load-cfg {:targets {:bin {}}}))))
 
 (deftest load-rejects-unknown-bin-key
-  (is (= {:errors [{:path [:targets :bin] :msg "unknown key :foo (allowed: :out)"}]}
+  (is (= {:errors [{:path [:targets :bin]
+                    :msg "unknown key :foo (allowed: :out, :platforms)"}]}
          (load-cfg {:targets {:bin {:out "bin/app" :foo 1}}}))))
 
 (deftest load-rejects-bad-out
@@ -309,6 +310,124 @@
   (is (= {:errors [{:path [:targets :bin :out]
                     :msg "must not contain .. segments"}]}
          (load-cfg {:targets {:bin {:out "bin/../app"}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :targets :bin :platforms
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-bin-with-platforms
+  (let [cfg {:targets {:bin {:out "dist/app_{{os}}_{{arch}}"
+                             :platforms [{:os "linux" :arch "amd64"}
+                                         {:os "darwin" :arch "arm64"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-one-platform-without-a-placeholder
+  ;; A single platform cannot collide with anything, so a plain :out is fine.
+  (let [cfg {:targets {:bin {:out "bin/app"
+                             :platforms [{:os "linux" :arch "arm64"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-platforms-not-a-vector
+  (is (= {:errors [{:path [:targets :bin :platforms]
+                    :msg "must be a vector, got {:os \"linux\"}"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms {:os "linux"}}}}))))
+
+(deftest load-rejects-a-platform-entry-that-is-not-a-map
+  (is (= {:errors [{:path [:targets :bin :platforms 0]
+                    :msg "must be a map, got \"linux/amd64\""}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms ["linux/amd64"]}}}))))
+
+(deftest load-rejects-a-platform-entry-missing-a-key
+  (is (= {:errors [{:path [:targets :bin :platforms 0]
+                    :msg "missing required key :arch"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os "linux"}]}}}))))
+
+(deftest load-rejects-an-unknown-platform-key
+  ;; :closed, matching the surrounding schemas — room for per-platform keys
+  ;; later means adding them to the schema, not accepting anything now.
+  (is (= {:errors [{:path [:targets :bin :platforms 0]
+                    :msg "unknown key :cc (allowed: :os, :arch)"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os "linux" :arch "amd64"
+                                                 :cc "zig"}]}}}))))
+
+(deftest load-rejects-a-non-string-or-blank-platform-value
+  (is (= {:errors [{:path [:targets :bin :platforms 0 :os]
+                    :msg "must be a string, got :linux"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os :linux :arch "amd64"}]}}})))
+  (is (= {:errors [{:path [:targets :bin :platforms 0 :arch]
+                    :msg "must be non-blank"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os "linux" :arch " "}]}}}))))
+
+(deftest load-rejects-an-unknown-os
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "template"
+                                                  :arch "amd64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms 0 :os] (:path e)))
+    (is (str/includes? (:msg e) "must be one of:"))
+    (is (str/includes? (:msg e) "linux"))
+    (is (str/includes? (:msg e) "\"template\""))))
+
+(deftest load-rejects-an-unknown-arch
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "linux"
+                                                  :arch "x64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms 0 :arch] (:path e)))
+    (is (str/includes? (:msg e) "must be one of:"))
+    (is (str/includes? (:msg e) "amd64"))
+    (is (str/includes? (:msg e) "\"x64\""))))
+
+(deftest load-rejects-a-valid-os-with-a-wrong-arch
+  ;; Both names exist, but Go has no such pair.
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "darwin"
+                                                  :arch "386"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms 0] (:path e)))
+    (is (str/includes? (:msg e) "darwin/386"))
+    (is (str/includes? (:msg e) "go tool dist list"))))
+
+(deftest load-rejects-duplicate-platforms
+  (let [r (load-cfg {:targets {:bin {:out "dist/app_{{os}}_{{arch}}"
+                                     :platforms [{:os "linux" :arch "amd64"}
+                                                 {:os "darwin" :arch "arm64"}
+                                                 {:os "linux" :arch "amd64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms] (:path e)))
+    (is (str/includes? (:msg e) "duplicate"))
+    (is (str/includes? (:msg e) "linux/amd64"))))
+
+(deftest load-rejects-multiple-platforms-without-a-placeholder
+  ;; The artifacts would overwrite each other; catch it at load time rather
+  ;; than after four builds.
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "linux" :arch "amd64"}
+                                                 {:os "darwin" :arch "arm64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :out] (:path e)))
+    (is (str/includes? (:msg e) "{{os}}"))
+    (is (str/includes? (:msg e) "{{arch}}")))
+  ;; One placeholder is enough only if it disambiguates; either placeholder
+  ;; satisfies the rule.
+  (let [cfg {:targets {:bin {:out "dist/{{os}}/app"
+                             :platforms [{:os "linux" :arch "amd64"}
+                                         {:os "darwin" :arch "arm64"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest platforms-accessor
+  (is (= [{:os "linux" :arch "amd64"}]
+         (config/platforms {:targets {:bin {:out "a"
+                                            :platforms [{:os "linux"
+                                                         :arch "amd64"}]}}})))
+  (is (= [] (config/platforms {:targets {:bin {:out "a"}}})))
+  (is (= [] (config/platforms {}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :tasks

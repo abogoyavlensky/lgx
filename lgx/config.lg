@@ -521,11 +521,110 @@
    [:extra-paths {:optional true} [:vector rel-path-schema]]
    [:extra-resource-paths {:optional true} [:vector rel-path-schema]]])
 
+;; Platform pairs from `go tool dist list` (go1.26.6). Refresh by re-running
+;; the command against a newer Go and pasting the output.
+(def ^:private go-platform-pairs
+  [["aix" "ppc64"]
+   ["android" "386"] ["android" "amd64"] ["android" "arm"] ["android" "arm64"]
+   ["darwin" "amd64"] ["darwin" "arm64"]
+   ["dragonfly" "amd64"]
+   ["freebsd" "386"] ["freebsd" "amd64"] ["freebsd" "arm"] ["freebsd" "arm64"]
+   ["illumos" "amd64"]
+   ["ios" "amd64"] ["ios" "arm64"]
+   ["js" "wasm"]
+   ["linux" "386"] ["linux" "amd64"] ["linux" "arm"] ["linux" "arm64"]
+   ["linux" "loong64"] ["linux" "mips"] ["linux" "mips64"] ["linux" "mips64le"]
+   ["linux" "mipsle"] ["linux" "ppc64"] ["linux" "ppc64le"] ["linux" "riscv64"]
+   ["linux" "s390x"]
+   ["netbsd" "386"] ["netbsd" "amd64"] ["netbsd" "arm"] ["netbsd" "arm64"]
+   ["openbsd" "386"] ["openbsd" "amd64"] ["openbsd" "arm"] ["openbsd" "arm64"]
+   ["openbsd" "ppc64"] ["openbsd" "riscv64"]
+   ["plan9" "386"] ["plan9" "amd64"] ["plan9" "arm"]
+   ["solaris" "amd64"]
+   ["wasip1" "wasm"]
+   ["windows" "386"] ["windows" "amd64"] ["windows" "arm64"]])
+
+(def ^:private go-os-names
+  (vec (sort (distinct (map first go-platform-pairs)))))
+
+(def ^:private go-arch-names
+  (vec (sort (distinct (map second go-platform-pairs)))))
+
+(def ^:private go-platform-set (set go-platform-pairs))
+
+(defn- platform-known-errors
+  "Post-structural check: :os and :arch each against Go's real names, then the
+   pair against the real pair list — darwin and 386 both exist, darwin/386
+   does not."
+  [p]
+  (let [os (:os p)
+        arch (:arch p)]
+    (cond
+      (not (contains? (set go-os-names) os))
+      {:path [:os]
+       :msg (str "must be one of: " (str/join ", " go-os-names)
+                 ", got " (pr-str os))}
+
+      (not (contains? (set go-arch-names) arch))
+      {:path [:arch]
+       :msg (str "must be one of: " (str/join ", " go-arch-names)
+                 ", got " (pr-str arch))}
+
+      (not (contains? go-platform-set [os arch]))
+      (str os "/" arch " is not a platform Go can build "
+           "(see `go tool dist list`)")
+
+      :else nil)))
+
+(def ^:private platform-schema
+  [:and
+   [:map {:closed true}
+    [:os [:fn non-blank-string-errors]]
+    [:arch [:fn non-blank-string-errors]]]
+   [:fn platform-known-errors]])
+
+(defn- platform-dup-errors
+  "Runs after every entry validated. Duplicate platforms would build the same
+   artifact twice, and with a templated :out the second build would silently
+   overwrite the first."
+  [ps]
+  (loop [i 0
+         seen #{}
+         dups []]
+    (if (>= i (count ps))
+      (when (seq dups)
+        (str "duplicate platform entries: " (str/join ", " (distinct dups))))
+      (let [p (nth ps i)
+            k (str (:os p) "/" (:arch p))]
+        (recur (inc i)
+               (conj seen k)
+               (if (contains? seen k) (conj dups k) dups))))))
+
+(defn- out-template?
+  "True when :out carries an {{os}} or {{arch}} placeholder."
+  [out]
+  (or (str/includes? out "{{os}}") (str/includes? out "{{arch}}")))
+
+(defn- bin-out-collision-errors
+  "Cross-key rule over the :bin map: more than one platform with a
+   placeholder-free :out means every build lands on the same path."
+  [bin]
+  (when (and (> (count (or (:platforms bin) [])) 1)
+             (not (out-template? (:out bin))))
+    {:path [:out]
+     :msg (str "needs an {{os}} or {{arch}} placeholder when :platforms has "
+               "more than one entry - the artifacts would overwrite each "
+               "other")}))
+
 (def ^:private targets-schema
   [:map {:closed true}
    [:bin {:optional true}
-    [:map {:closed true}
-     [:out rel-path-schema]]]])
+    [:and
+     [:map {:closed true}
+      [:out rel-path-schema]
+      [:platforms {:optional true}
+       [:and [:vector platform-schema] [:fn platform-dup-errors]]]]
+     [:fn bin-out-collision-errors]]]])
 
 (defn- with-refs-errors
   "Root-level cross-key rule: every task :with entry must name a defined
@@ -968,3 +1067,8 @@
   "Return the :targets map from a loaded cfg map, or {} if absent."
   [cfg]
   (or (:targets cfg) {}))
+
+(defn platforms
+  "Return the :platforms vector under :targets :bin, or [] if absent."
+  [cfg]
+  (or (:platforms (:bin (targets cfg))) []))
