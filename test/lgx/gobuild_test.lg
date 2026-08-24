@@ -162,6 +162,46 @@
   (is (not= (gobuild/runtime-hash [] "1.11.1")
             (gobuild/runtime-hash [sqlite] "1.11.1"))))
 
+(deftest runtime-hash-includes-the-target
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "arm64"})
+            (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "darwin" :arch "arm64"})))
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "arm64"})
+            (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "amd64"}))))
+
+(deftest runtime-hash-is-stable-for-a-target
+  (is (= (gobuild/runtime-hash [sqlite] "1.11.1" {:os "linux" :arch "arm64"})
+         (gobuild/runtime-hash [sqlite] "1.11.1" {:os "linux" :arch "arm64"}))))
+
+(deftest runtime-hash-nil-target-keeps-todays-inputs
+  ;; A native build must land on the same cache entry it did before targets
+  ;; existed — nil adds nothing to the hashed body.
+  (is (= (gobuild/runtime-hash [sqlite] "1.11.1")
+         (gobuild/runtime-hash [sqlite] "1.11.1" nil))))
+
+(deftest runtime-hash-native-differs-from-an-explicit-target
+  ;; Even the host's own platform, named explicitly, is a different cache
+  ;; entry: the native binary was built without GOOS/GOARCH/CGO_ENABLED=0.
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "arm64"}))))
+
+;; ---------------------------------------------------------------------------
+;; target-env-args — how GOOS/GOARCH reach the go build subprocess
+;; ---------------------------------------------------------------------------
+
+(deftest target-env-args-for-a-cross-build
+  ;; CGO_ENABLED=0 rides along: a cgo dep cannot cross-compile without a
+  ;; target C toolchain, and lgx's message beats the Go linker's.
+  (is (= ["env" "GOOS=darwin" "GOARCH=arm64" "CGO_ENABLED=0"]
+         (gobuild/target-env-args {:os "darwin" :arch "arm64"}))))
+
+(deftest target-env-args-empty-for-native
+  (is (= [] (gobuild/target-env-args nil))))
+
 ;; ---------------------------------------------------------------------------
 ;; letgo-ref — what the hash and go.mod see for let-go itself
 ;; ---------------------------------------------------------------------------

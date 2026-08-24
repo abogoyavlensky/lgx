@@ -225,21 +225,24 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `runtime-hash` includes the target: two different targets with identical coords hash differently; the same target hashes stably; a nil/native target keeps today's hash inputs so existing caches are not invalidated for native builds. `ensure-runtime!` accepts a target. Test the `:out` template expansion separately: `{{os}}`/`{{arch}}` substitution, an unchanged path with no placeholders, and a placeholder appearing more than once.
+  > The `:out` expansion tests landed in `config_test.lg` with `config/expand-out` (see Task 3's deviation). `target-env-args` (the env(1) prefix) is the additional pure surface tested here.
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Thread an optional target through `ensure-runtime!` into the hash and into the build. Go's toolchain is invoked as `go -C <dir> ...` so no path passes through shell quoting; `GOOS`/`GOARCH` therefore need to reach the subprocess as environment variables — follow the `os/sh "env" "KEY=value" ...` pattern already used in `lgx/cache.lg`.
   Set `CGO_ENABLED=0` for cross-builds: a cgo dependency cannot cross-compile without a target C toolchain, and failing at the Go linker produces a far worse message than lgx explaining that a pure-Go driver is required.
+  > Only the final `go build` gets the env prefix — go get / tidy / lginterop run host-side and their outputs are platform-independent.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Verify a real cross-build**
+- [x] **Step 5: Verify a real cross-build**
   Build a runtime for `darwin/arm64` from this host and confirm with `file` that the output is a Mach-O arm64 binary. Repeat for `linux/amd64`.
+  > Verified 2026-08-24 (linux/arm64 host, `LGX_LETGO_REPLACE`, empty coord set): darwin/arm64 → `Mach-O 64-bit arm64 executable`; linux/amd64 → `ELF 64-bit LSB executable, x86-64, statically linked`. Two distinct runtime hashes, `env GOOS=... GOARCH=... CGO_ENABLED=0` visible on the build line.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "feat(gobuild): build runtimes for an explicit target platform"`
 
 ### Task 6: `cmd-build` builds every target
