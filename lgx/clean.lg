@@ -1,0 +1,133 @@
+;; lgx.clean — explicit cache cleanup: `lgx clean` removes the runtimes,
+;; gitlibs, and templates caches under $LGX_HOME, never automatically and
+;; never anything else. Cross-compilation is what makes this necessary rather
+;; than nice: a four-platform release is four ~25MB runtimes, and every
+;; :lg-version or driver bump orphans the previous set.
+(ns lgx.clean
+  (:require [lgx.home :as home]
+            [lgx.path :as path]
+            [string :as str]))
+
+;; Canonical category order — parsing normalizes to it, output follows it.
+(def ^:private category-order [:runtimes :gitlibs :templates])
+
+(def ^:private usage-error
+  (str "lgx: clean needs at least one cache to act on: "
+       "--runtimes, --gitlibs, --templates, or --all "
+       "(add --dry-run to only report)"))
+
+(defn parse-clean-args
+  "Parse the `clean` command's rest-args. Category flags are additive and may
+   be combined; --all means every category; --dry-run rides along anywhere.
+   Returns {:categories [kw ...] :dry-run? bool} with categories deduped in
+   canonical order. Throws ex-info on an unknown token — and on no category
+   at all: a bare command that deletes everything is the wrong default for a
+   destructive operation."
+  [args]
+  (loop [xs (seq args)
+         chosen #{}
+         dry-run? false]
+    (if (nil? xs)
+      (if (empty? chosen)
+        (throw (ex-info usage-error {}))
+        {:categories (vec (filter chosen category-order))
+         :dry-run? dry-run?})
+      (let [tok (first xs)]
+        (case tok
+          "--runtimes" (recur (next xs) (conj chosen :runtimes) dry-run?)
+          "--gitlibs" (recur (next xs) (conj chosen :gitlibs) dry-run?)
+          "--templates" (recur (next xs) (conj chosen :templates) dry-run?)
+          "--all" (recur (next xs) (set category-order) dry-run?)
+          "--dry-run" (recur (next xs) chosen true)
+          (throw (ex-info (str "lgx: clean does not understand " (pr-str tok)
+                               "\n" usage-error)
+                          {})))))))
+
+(defn format-bytes
+  "Render a byte count the way a human reads disk usage: whole bytes under a
+   KB, one decimal place above."
+  [n]
+  (cond
+    (< n 1024) (str n " B")
+    (< n (* 1024 1024)) (format "%.1f KB" (/ (* 1.0 n) 1024))
+    (< n (* 1024 1024 1024)) (format "%.1f MB" (/ (* 1.0 n) 1024 1024))
+    :else (format "%.1f GB" (/ (* 1.0 n) 1024 1024 1024))))
+
+(defn safe-dir?
+  "True when `dir` sits strictly inside `root` and root is a real directory
+   path — the guard that keeps a misconfigured LGX_HOME failing loudly
+   instead of deleting a home directory. Prefix-checked on normalized paths
+   with the separator attached, so a sibling like ~/.lgx-evil never passes."
+  [dir root]
+  (let [nroot (path/normalize (or root ""))
+        ndir (path/normalize (or dir ""))]
+    (and (not (str/blank? nroot))
+         (not= "/" nroot)
+         (str/starts-with? ndir (str nroot "/")))))
+
+(defn- entry-size
+  "Recursive size of one filesystem entry in bytes; 0 when it vanished."
+  [abs]
+  (let [stat (os/stat abs)]
+    (cond
+      (nil? stat) 0
+      (:dir? stat) (reduce (fn [acc name]
+                             (+ acc (entry-size (path/join abs name))))
+                           0
+                           (os/ls abs))
+      :else (or (:size stat) 0))))
+
+(defn clean-category!
+  "Size and remove every entry directly under `dir` (the cache root itself
+   stays). With dry-run? nothing is removed. Returns {:bytes n :entries n}
+   for what was (or would be) reclaimed; a missing dir is zero of both."
+  [dir dry-run?]
+  (let [stat (os/stat dir)]
+    (if (or (nil? stat) (not (:dir? stat)))
+      {:bytes 0 :entries 0}
+      (reduce (fn [acc name]
+                (let [abs (path/join dir name)
+                      size (entry-size abs)]
+                  (when-not dry-run?
+                    (syscall/rm-rf abs))
+                  {:bytes (+ (:bytes acc) size)
+                   :entries (inc (:entries acc))}))
+              {:bytes 0 :entries 0}
+              (os/ls dir)))))
+
+(defn- category-dir [category]
+  (case category
+    :runtimes (home/runtimes-dir)
+    :gitlibs (home/gitlibs-dir)
+    :templates (home/templates-dir)))
+
+(defn cmd-clean!
+  "The `lgx clean` command. Reports what was (or, with --dry-run, would be)
+   removed per cache and in total, in bytes reclaimed. Refuses to touch any
+   path that does not sit strictly inside $LGX_HOME."
+  [rest-args]
+  (let [{:keys [categories dry-run?]}
+        (try
+          (parse-clean-args (vec rest-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        root (home/root)
+        verb (if dry-run? "would remove" "removed")]
+    (let [total
+          (reduce
+            (fn [acc category]
+              (let [dir (category-dir category)]
+                (when-not (safe-dir? dir root)
+                  (write! *err*
+                          (str "error: refusing to clean " dir " - it is not "
+                               "inside LGX_HOME (" root "); check LGX_HOME\n"))
+                  (os/exit 1))
+                (let [{:keys [bytes entries]} (clean-category! dir dry-run?)]
+                  (println (str (name category) ": " verb " " entries
+                                " entr" (if (= 1 entries) "y" "ies")
+                                ", " (format-bytes bytes)))
+                  (+ acc bytes))))
+            0
+            categories)]
+      (println (str "total: " verb " " (format-bytes total))))))

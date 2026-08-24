@@ -316,23 +316,26 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - Modify: `lgx.lg`, `lgx/home.lg`
 - Test: `test/lgx/clean_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Keep the pure parts separable: a helper turning flags into the list of cache roots to act on, and byte-size formatting.
   The flag contract, pinned: category flags are additive and may be combined (`--runtimes --templates` cleans both); `--all` means every category; **bare `lgx clean` is an error** listing the categories, because a no-argument command that deletes everything is the wrong default for a destructive operation. Test each of these. Directory walking and removal are side-effecting; cover them with a test that builds a throwaway tree under `LGX_HOME` and asserts what survives.
+  > `clean-category!` takes the cache dir explicitly, so the removal tests run against a throwaway tree with no `LGX_HOME` env games; the safety guard (`safe-dir?`) is tested as a pure fn.
 
-- [ ] **Step 2: Verify fail** — `lgx test test/lgx/clean_test.lg`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test test/lgx/clean_test.lg`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Enumerate each cache root's leaves, size them, and remove them. `--dry-run` prints exactly what would be removed and changes nothing. Report reclaimed bytes per cache and a total.
   Never delete anything outside `$LGX_HOME` — resolve and check the prefix before removing, since a misconfigured `LGX_HOME` should fail loudly rather than delete a home directory.
   Add `clean` to `reserved-task-names` in `lgx/config.lg` so a project task cannot shadow it, and to the help text.
+  > The cache-root accessors moved to `lgx/home.lg` as planned; `cache.lg`, `gobuild.lg`, and `new.lg` now delegate to them, so each cache has one path definition.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Verify manually**
+- [x] **Step 5: Verify manually**
   With a populated `LGX_HOME`, run `lgx clean --runtimes --dry-run`, confirm nothing was removed, then run it for real and confirm the reported bytes match the reclaimed space.
+  > Verified 2026-08-24: dry-run reported 11 entries / 355.9 MB with `du` unchanged (373,149,455 B ≈ 355.9 MB — the numbers agree); the real run emptied the cache; bare `lgx clean` errors listing the flags.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -m "feat: lgx clean for the runtimes, gitlibs, and template caches"`
 
 ### Task 9: Docs

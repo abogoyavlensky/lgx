@@ -14,3 +14,21 @@
   "Return the directory for the generated test-runner harness."
   []
   (path/join (root) "test-runner"))
+
+;; Cache roots, named here so `lgx clean` and the modules that populate them
+;; (cache.lg, gobuild.lg, new.lg) agree on one definition per cache.
+
+(defn gitlibs-dir
+  "The git dependency cache root."
+  []
+  (path/join (root) "gitlibs"))
+
+(defn runtimes-dir
+  "The custom `lg` runtime cache root."
+  []
+  (path/join (root) "runtimes"))
+
+(defn templates-dir
+  "The `lgx new` template cache root."
+  []
+  (path/join (root) "templates"))

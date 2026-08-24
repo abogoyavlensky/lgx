@@ -15,7 +15,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- gitlibs-root []
-  (path/join (home/root) "gitlibs"))
+  (home/gitlibs-dir))
 
 ;; Parse a git URL into ["host" "owner" "repo"] used as the cache key.
 ;; Supported forms:

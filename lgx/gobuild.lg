@@ -447,7 +447,7 @@
   (filter (fn [[_ c]] (some? (:go/local c))) go-pairs))
 
 (defn runtimes-dir []
-  (path/join (home/root) "runtimes"))
+  (home/runtimes-dir))
 
 (defn- resolve-letgo-version!
   "Resolve a mutable :lg-version (a branch or tag) to the pseudo-version it
