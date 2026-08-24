@@ -274,8 +274,10 @@
         (sort-by (fn [[lib _]] (str lib))
                  (filter (fn [[_ c]] (some? (:go/version c))) go-pairs))))
 
-(defn- semver-version?
-  "A bare semver pin like \"1.11.1\" — the form lgx.edn has always taken."
+(defn semver-version?
+  "A bare semver pin like \"1.11.1\" — the form lgx.edn has always taken.
+   Public because callers that only work against a released version (the
+   editor-source fetch clones tag v<version>) use it to skip other ref forms."
   [v]
   (some? (re-find #"^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$" (str v))))
 
