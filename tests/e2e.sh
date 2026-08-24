@@ -177,7 +177,7 @@ rm -rf "$proj" "$home"
 # ---------------------------------------------------------------------------
 echo "==> Scenario 4b: :lg-version mismatch warns on run, fails build, bypassable"
 proj="$(mktemp -d)"
-echo '{:paths ["."] :lg-version "9.9.9" :main "main.lg"}' > "$proj/lgx.edn"
+echo '{:paths ["."] :lg-version "9.9.9" :main "main.lg" :targets {:bin {:out "bin/app"}}}' > "$proj/lgx.edn"
 echo '(println "ran")' > "$proj/main.lg"
 home="$(mktemp -d)"
 # run: warns (stderr) but still runs the script (exit 0).

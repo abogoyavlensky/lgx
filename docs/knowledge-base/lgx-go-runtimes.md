@@ -127,7 +127,12 @@ pure Go, so the sqlite stack cross-builds cleanly.
 Measured on a linux/arm64 host (2026-08-23): a fully cold stock build
 (empty module and build cache) 10.8s; warm module, cold build cache
 9.3s; a no-op rebuild 0.5s; a cache hit 0ms. With the sqlite driver
-linked in, a cold build cache took 15.3s.
+linked in, a cold build cache took 15.3s. A four-platform
+`lgx build --all` of the sqlite example under `LGX_LETGO_REPLACE` took
+17.1s with warm Go caches and 5.3s on re-run - replace mode re-runs
+every build step by design, so those 5.3s are four incremental
+rebuilds plus four bundles; a pinned `:lg-version` re-run is four
+0ms cache hits plus the bundles.
 
 `GOOS=windows` does not work yet: let-go's `pkg/rt/term.go` uses
 `golang.org/x/sys/unix` unguarded, so the final build fails upstream

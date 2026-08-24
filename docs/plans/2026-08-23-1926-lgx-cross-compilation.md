@@ -358,15 +358,35 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 
 ### Task 10: Full verification
 
-- [ ] **Step 1: Regression**
+- [x] **Step 1: Regression**
   In `/Users/andrew/Projects/lgx`: `lgx test`.
   Expected: full suite green.
+  > `make test` (bundle + 678 unit tests + 314 e2e assertions) green. One e2e fixture needed updating, not because behavior regressed but because error *ordering* changed: cmd-build now validates `:targets/:bin` before the version check (the cheap-validation-first reorder from Task 6's review), and scenario 4b's project had no `:targets` — it now declares one so the scenario tests the version mismatch it names.
 
-- [ ] **Step 2: Native paths unchanged**
+- [x] **Step 2: Native paths unchanged**
   Run `lgx run` in two examples that have no Go deps and confirm behavior is identical to before this plan, with no Go invocation. Compare against the released `lgx` binary for any example that already fails, so a pre-existing failure is not misread as a regression.
+  > Verified with `examples/hello` and `examples/clojure-libs/with-malli`: identical output under dev and released lgx, verbose shows plain PATH `lg`, no Go. `with-hiccup` fails identically under the *released* lgx (a defprotocol incompatibility with lg 1.12.2) — pre-existing, not a regression.
 
-- [ ] **Step 3: The full cross-compilation story**
+- [x] **Step 3: The full cross-compilation story**
   In `letgo-packages/sqlite/example` with `LGX_LETGO_REPLACE` set: `lgx build --all` with `:platforms` covering the CI matrix. Confirm one correct binary per platform, and that re-running is fast because the runtimes are cached.
+  > Verified over linux/amd64 + linux/arm64 + darwin/arm64 + darwin/amd64: four correct binaries (`file` confirms each format), 17.1s first run, 5.3s re-run (replace mode re-runs incrementally by design; a pinned version would pure-cache-hit). The host-platform artifact runs the example's full check suite. The example's lgx.edn was restored afterwards.
 
-- [ ] **Step 4: Record findings**
+- [x] **Step 4: Record findings**
   Append anything surprising to `docs/knowledge-base/lgx-go-runtimes.md` and commit.
+  > Added the multi-platform timing numbers. The windows limitation was already recorded during Task 5 (`docs/issues/windows-build-unix-only-term.md`).
+
+---
+
+## Completion summary (2026-08-24)
+
+**Status: complete.** All ten tasks landed on `go-deps`, each with a blocking codex review; the full suite (678 unit tests, 1064 assertions; 314 e2e assertions) is green and the feature was exercised end-to-end (4-platform `--all` build of the sqlite example, host artifact runs its checks).
+
+What was implemented, per the design: `:lg-version` resolved through `go get` (branch/sha pins, pseudo-version in the cache key), runtimes reporting the let-go version Go actually selected, `:platforms`/templated `:out` config, `--target`/`--all` build-arg parsing, target-aware runtime builds (`GOOS`/`GOARCH`/`CGO_ENABLED=0`), the two-runtimes cmd-build loop, the `:deps/root` lgx.edn relocation, `lgx clean`, and the docs.
+
+**Codex-review catches worth remembering** (7 rounds produced fixups): placeholder *presence* vs rendered-path uniqueness in `:out` collision checks; lginterop scanning the host API instead of the target's (fixed with a host-built tool run under target env — the biggest correctness catch of the plan); a single `-bundle-base` silently serving multiple targets; `lgx clean` following symlinks (root and entries) and deleting before sizing; MVS upgrading let-go past the pin the binary then misreported.
+
+**Deviations, gathered:** `render-go-mod` dropped its dead version param; `expand-out` lives in `config.lg` (validation needs it), not `gobuild.lg`; `duplicate-target-out` added for ad-hoc `--target` lists; sha pins get their pseudo-version from the post-tidy `go list` instead of a pre-hash network call; e2e scenario 4b's fixture gained `:targets` after the validation reorder; the symlinked-LGX_HOME review finding was rejected as a legitimate relocation pattern.
+
+**Found along the way:** let-go does not build for `GOOS=windows` (`pkg/rt/term.go` uses `x/sys/unix` unguarded) — filed as `docs/issues/windows-build-unix-only-term.md`; windows targets fail in the final `go build` until upstream guards it.
+
+**What the plan could have specified better:** it treated lginterop's generated bindings as platform-independent — the design's two-runtimes analysis stopped at the binary and missed that the *scanner* also sees a platform, which became the plan's only P1-severity design gap. It also never said what a cross-build should do about `-bundle-base` with multiple targets, or what native builds do with a templated `:out` (both decided during execution). Otherwise it held up: every pinned file, symbol, and command was accurate.
