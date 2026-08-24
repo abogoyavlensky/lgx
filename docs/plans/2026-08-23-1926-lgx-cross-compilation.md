@@ -245,6 +245,8 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 - [x] **Step 6: Commit**
   `git commit -m "feat(gobuild): build runtimes for an explicit target platform"`
   > Codex review round 1: one P1 — `lginterop` via `go run` scans the *host* API, so a `:go/interop` package with platform-specific exports (e.g. `syscall`) would generate host-only bindings that fail on the target. Fixed in a fixup: the tool is now built for the host, then *run* under the target's `GOOS`/`GOARCH` — the go/types source importer reads them from the env at process start, verified empirically (darwin scan emits `Kqueue`, linux scan emits `EpollCreate`). Cross-built a `database/sql` interop runtime for darwin/arm64 to confirm the pipeline.
+  > Codex review round 2: two P2s — the interop scan now also mirrors the final build's `CGO_ENABLED` (0 for cross, host default for native; verified with `CGO_ENABLED=1` inherited), and the stale "platform-independent" comment was corrected. Doc drift again deferred to Task 9.
+  > Finding: `GOOS=windows` targets cannot build at all — let-go's `pkg/rt/term.go` uses `x/sys/unix` unguarded. Filed as `docs/issues/windows-build-unix-only-term.md`; unix-family targets are unaffected.
 
 ### Task 6: `cmd-build` builds every target
 

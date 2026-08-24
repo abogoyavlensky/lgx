@@ -514,17 +514,24 @@
          "building lginterop" verbose?)
     (let [os-v (or (:os target) "")
           arch-v (or (:arch target) "")
+          ;; The scan mirrors the final build's cgo setting: 0 for a cross
+          ;; build, the platform default for native (empty CGO_ENABLED means
+          ;; default, same as empty GOOS/GOARCH).
+          cgo-v (if target "0" "")
           ;; cd first: the tool resolves non-stdlib packages through the
           ;; module in its working directory. Positional params keep every
           ;; path out of shell quoting (the os/sh \"sh\" \"-c\" pattern).
-          script (str "cd \"$1\" && GOOS=\"$2\" GOARCH=\"$3\" exec \"$4\" "
-                      "-packages \"$5\" -opaque-structs "
+          script (str "cd \"$1\" && "
+                      "GOOS=\"$2\" GOARCH=\"$3\" CGO_ENABLED=\"$4\" "
+                      "exec \"$5\" -packages \"$6\" -opaque-structs "
                       "-out-pkg interop -out interop")
           pkg-list (str/join "," pkgs)]
       (when verbose?
         (write! *err* (str "+ GOOS=" os-v " GOARCH=" arch-v
+                           " CGO_ENABLED=" cgo-v
                            " lginterop-tool -packages " pkg-list "\n")))
-      (let [r (os/sh "sh" "-c" script "sh" dir os-v arch-v tool pkg-list)]
+      (let [r (os/sh "sh" "-c" script "sh" dir os-v arch-v cgo-v tool
+                     pkg-list)]
         (when-not (zero? (:exit r))
           (write! *err* (str (:out r) (:err r)))
           (die! (str "lginterop failed (exited " (:exit r) ")")))
@@ -546,8 +553,9 @@
   (let [pkgs (interop-packages go-pairs)]
     (when (seq pkgs)
       (run-lginterop! dir pkgs target verbose?)))
-  ;; Only the final build is cross-aware: go get / tidy / lginterop resolve
-  ;; and generate on the host, and their results are platform-independent.
+  ;; go get and tidy run host-side (module resolution is platform-independent);
+  ;; lginterop scans under the target env above; the final build is where
+  ;; GOOS/GOARCH select the output format.
   (go! (target-env-args target) ["-C" dir "build" "-o" out "."]
        "go build" verbose?))
 

@@ -17,3 +17,4 @@ Issues filed (or to be filed) against
 | [http-request-method-string.md](./http-request-method-string.md) | `http` server delivers `:request-method` as a String, not a Keyword (breaks Ring routers) | draft |
 | [interop-slice-boxing.md](./interop-slice-boxing.md) | `[]any` crosses the Go/let-go boundary as opaque boxes, and a vector containing `nil` fails to convert to `[]any` | implemented on `fix/vm-boxing-symmetry` |
 | [aero-compat.md](./aero-compat.md) | Run juxt/aero under let-go — TaggedLiteral type + `edn/read` tag dispatch, static-field-in-call-position, syntax-quote qualification, namespaced `:keys`, seq metadata | prototyped (throwaway), not upstreamed |
+| [windows-build-unix-only-term.md](./windows-build-unix-only-term.md) | `pkg/rt/term.go` uses `x/sys/unix` unguarded, so `GOOS=windows` builds fail — blocks windows targets in lgx cross-compilation | draft |
