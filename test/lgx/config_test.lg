@@ -412,14 +412,36 @@
                                                  {:os "darwin" :arch "arm64"}]}}})
         e (first (:errors r))]
     (is (= [:targets :bin :out] (:path e)))
-    (is (str/includes? (:msg e) "{{os}}"))
-    (is (str/includes? (:msg e) "{{arch}}")))
-  ;; One placeholder is enough only if it disambiguates; either placeholder
-  ;; satisfies the rule.
+    (is (str/includes? (:msg e) "\"bin/app\""))
+    (is (str/includes? (:msg e) "overwrite")))
+  ;; A placeholder is enough only when it actually disambiguates.
   (let [cfg {:targets {:bin {:out "dist/{{os}}/app"
                              :platforms [{:os "linux" :arch "amd64"}
                                          {:os "darwin" :arch "arm64"}]}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-a-placeholder-that-does-not-disambiguate
+  ;; Placeholder *presence* is not the rule — rendered-path uniqueness is.
+  ;; {{os}} alone cannot separate two arches of one os.
+  (let [r (load-cfg {:targets {:bin {:out "dist/{{os}}/app"
+                                     :platforms [{:os "linux" :arch "amd64"}
+                                                 {:os "linux" :arch "arm64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :out] (:path e)))
+    (is (str/includes? (:msg e) "\"dist/linux/app\""))
+    (is (str/includes? (:msg e) "linux/amd64"))
+    (is (str/includes? (:msg e) "linux/arm64"))))
+
+(deftest expand-out-substitutes-placeholders
+  (is (= "dist/app_linux_amd64"
+         (config/expand-out "dist/app_{{os}}_{{arch}}"
+                            {:os "linux" :arch "amd64"})))
+  ;; No placeholders: unchanged — the backward-compatible case.
+  (is (= "bin/app" (config/expand-out "bin/app" {:os "linux" :arch "amd64"})))
+  ;; A placeholder may appear more than once.
+  (is (= "out/arm64/app-arm64"
+         (config/expand-out "out/{{arch}}/app-{{arch}}"
+                            {:os "darwin" :arch "arm64"}))))
 
 (deftest platforms-accessor
   (is (= [{:os "linux" :arch "amd64"}]

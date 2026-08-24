@@ -196,6 +196,8 @@ lgx repo (`/Users/andrew/Projects/lgx`):
 
 - [x] **Step 5: Commit**
   `git commit -m "feat(config): :platforms and templated :out under :targets/:bin"`
+  > Codex review: one P1 — placeholder *presence* was the wrong rule (`dist/{{os}}/app` with linux/amd64 + linux/arm64 still collides). Fixed in a fixup: the check now renders `:out` for every platform and requires the rendered paths to be pairwise distinct, naming the colliding pair in the error.
+  > Deviation: `expand-out` (the `{{os}}`/`{{arch}}` template expander) lives in `lgx/config.lg`, not `lgx/gobuild.lg` as Task 5 sketched — the collision validation needs it at load time, and one definition beats two. Task 5's expansion tests are already covered in `config_test.lg`.
 
 ### Task 4: Build-arg parsing
 

@@ -600,21 +600,33 @@
                (conj seen k)
                (if (contains? seen k) (conj dups k) dups))))))
 
-(defn- out-template?
-  "True when :out carries an {{os}} or {{arch}} placeholder."
-  [out]
-  (or (str/includes? out "{{os}}") (str/includes? out "{{arch}}")))
+(defn expand-out
+  "Render an :out template for one platform: every {{os}} and {{arch}}
+   substituted. A template with no placeholders comes back unchanged, which is
+   what keeps a plain :out backward compatible."
+  [out platform]
+  (str/replace (str/replace out "{{os}}" (:os platform))
+               "{{arch}}" (:arch platform)))
 
 (defn- bin-out-collision-errors
-  "Cross-key rule over the :bin map: more than one platform with a
-   placeholder-free :out means every build lands on the same path."
+  "Cross-key rule over the :bin map: every declared platform must render
+   :out to a distinct path. Placeholder *presence* is not enough — with
+   {{os}} alone, linux/amd64 and linux/arm64 still land on one file."
   [bin]
-  (when (and (> (count (or (:platforms bin) [])) 1)
-             (not (out-template? (:out bin))))
-    {:path [:out]
-     :msg (str "needs an {{os}} or {{arch}} placeholder when :platforms has "
-               "more than one entry - the artifacts would overwrite each "
-               "other")}))
+  (let [ps (or (:platforms bin) [])]
+    (loop [i 0
+           seen {}]
+      (when (< i (count ps))
+        (let [p (nth ps i)
+              label (str (:os p) "/" (:arch p))
+              rendered (expand-out (:out bin) p)]
+          (if-let [prev (get seen rendered)]
+            {:path [:out]
+             :msg (str "renders " (pr-str rendered) " for both " prev
+                       " and " label " - the artifacts would overwrite each "
+                       "other; add an {{os}} or {{arch}} placeholder that "
+                       "distinguishes them")}
+            (recur (inc i) (assoc seen rendered label))))))))
 
 (def ^:private targets-schema
   [:map {:closed true}
