@@ -4,6 +4,8 @@ A package and project manager for [let-go](https://github.com/nooga/let-go): git
 dependency manager, runner, build tool, test runner, scaffolder, and task
 runner, in one binary.
 
+Questions or feedback? Join the [lgx Discord channel](https://discord.gg/qr6CNNQcFh).
+
 ```sh
 lgx new myapp        # scaffold a project
 cd myapp
