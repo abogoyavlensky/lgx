@@ -89,7 +89,8 @@
                                      "(e.g. linux/arm64), got "
                                      (pr-str spec))
                                 {})))
-              {:os (first parts) :arch (second parts)}))
+              {:os (first parts)
+               :arch (second parts)}))
           specs)))
 
 (defn parse-build-args

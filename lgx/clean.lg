@@ -100,7 +100,9 @@
   [dir]
   (let [stat (os/stat dir)]
     (if (or (nil? stat) (not (:dir? stat)))
-      {:bytes 0 :entries 0 :paths []}
+      {:bytes 0
+       :entries 0
+       :paths []}
       (let [paths (mapv (fn [name] (path/join dir name)) (os/ls dir))]
         {:bytes (reduce + 0 (map entry-size paths))
          :entries (count paths)
@@ -117,7 +119,8 @@
     (when-not dry-run?
       (doseq [abs paths]
         (syscall/rm-rf abs)))
-    {:bytes bytes :entries entries}))
+    {:bytes bytes
+     :entries entries}))
 
 (defn- category-dir [category]
   (case category
