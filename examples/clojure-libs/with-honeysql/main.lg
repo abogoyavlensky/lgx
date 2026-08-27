@@ -1,0 +1,73 @@
+(ns main
+  (:require [honey.sql :as sql]
+            [honey.sql.helpers :as h]))
+
+;; HoneySQL running under let-go. `format` turns a data-structure DSL into
+;; [sql-string & params] — the shape sql.core/execute! (letgo-packages)
+;; takes directly. Each section below formats a query and prints the result.
+
+(defn demo [label value]
+  (println (str label ":")) (prn value))
+
+;; --- The map DSL: data in, parameterized SQL out ---
+(demo "select-where"
+      (sql/format {:select [:id :name]
+                   :from   [:users]
+                   :where  [:= :status "active"]}))
+(demo "joins"
+      (sql/format {:select    [:o.id :u.name]
+                   :from      [[:orders :o]]
+                   :left-join [[:users :u] [:= :o.user-id :u.id]]
+                   :where     [:> :o.total 100]}))
+(demo "group-order-limit"
+      (sql/format {:select   [:status [[:count :*] :n]]
+                   :from     [:orders]
+                   :group-by [:status]
+                   :order-by [[:n :desc]]
+                   :limit    10}))
+
+;; --- Writes ---
+;; NOTE: column order inside a row map follows let-go's small-map iteration
+;; order, which is not insertion order yet (upstream PR #764 aligns it with
+;; Clojure's array-map semantics). The values stay paired with their columns
+;; either way, so the SQL is equivalent.
+(demo "insert"
+      (sql/format {:insert-into :users
+                   :values      [{:name "Ada" :age 36}]}))
+(demo "update"
+      (sql/format {:update :users
+                   :set    {:age 37}
+                   :where  [:= :name "Ada"]}))
+(demo "delete"
+      (sql/format {:delete-from :users
+                   :where       [:in :id [1 2 3]]}))
+
+;; --- Expressions: nested logic, subqueries, functions ---
+(demo "nested-where"
+      (sql/format {:select [:*]
+                   :from   [:t]
+                   :where  [:and [:>= :age 21] [:or [:= :city "PDX"] [:= :city "NYC"]]]}))
+(demo "subquery"
+      (sql/format {:select [:name]
+                   :from   [:users]
+                   :where  [:in :id {:select [:user-id] :from [:orders]}]}))
+(demo "sql-functions"
+      (sql/format {:select [[[:coalesce :nickname :name] :display]]
+                   :from   [:users]}))
+
+;; --- The helpers API: threading instead of one big map ---
+(demo "helpers-thread"
+      (-> (h/select :u.name [[:count :o.id] :orders])
+          (h/from [:users :u])
+          (h/left-join [:orders :o] [:= :o.user-id :u.id])
+          (h/group-by :u.name)
+          (h/having [:> [:count :o.id] 5])
+          (sql/format)))
+
+;; --- Dialects: quoting strategy per database ---
+(demo "mysql-dialect"
+      (sql/format {:select [:*] :from [:table] :where [:= :id 1]}
+                  {:dialect :mysql}))
+(demo "inline-values"
+      (sql/format {:select [:*] :from [:t] :where [:= :id 1]}
+                  {:inline true}))

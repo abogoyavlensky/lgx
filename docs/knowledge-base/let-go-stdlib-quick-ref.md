@@ -67,9 +67,18 @@ Motivated by metosin/malli; general and available to any library.
   so they work on any collection: `.valAt` (ILookup), `.iterator` +
   `.hasNext`/`.next` (Iterable/Iterator), `.assoc`, `.cons` (append/prepend per
   type), `.nth`, `.count`, `.hashCode`, `.longValue`.
-- Mutable shims: `(java.util.HashMap.)` (`.putAll`/`.get`) and
-  `(java.util.ArrayDeque.)` (`.push`/`.pop`/`.peek`/`.isEmpty`) — real mutable
-  types for libs that use JVM mutable collections internally.
+- Mutable shims: `(java.util.HashMap.)` (`.putAll`/`.get`),
+  `(java.util.ArrayDeque.)` (`.push`/`.pop`/`.peek`/`.isEmpty`), and
+  `(StringBuilder.)` (`.append` — returns the builder, `.toString`, `.length`)
+  — real mutable types for libs that use JVM mutable types internally.
+- `java.lang.String` methods on native strings (motivated by honeysql):
+  `.toString` `.length` `.isEmpty` `.charAt` `.indexOf` (string/char/codepoint,
+  optional fromIndex) `.concat` `.substring` `.startsWith` `.endsWith`
+  `.contains` `.toUpperCase`/`.toLowerCase` (optional locale arg, ignored)
+  `.trim` — rune indices (= Java UTF-16 units for BMP text). Keyword accessors
+  `.sym`/`.getName`/`.getNamespace`; `.toString` works on ANY non-nil value
+  (str semantics). `unchecked-long/int/short/byte` accept chars (Java char→int
+  widening). `Locale/US`/`ROOT`/`ENGLISH` resolve as opaque markers.
 - `(instance? Class x)` markers: `java.util.Map`, `CharSequence`, bare `Pattern`.
 - Static factories: `LazilyPersistentVector/createOwning`,
   `PersistentArrayMap/createWithCheck`, `System/arraycopy`, `Array/newInstance`,
