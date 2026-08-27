@@ -21,6 +21,10 @@ read them only when relevant. Do not preload.
   [`docs/knowledge-base/lgx-go-runtimes.md`](docs/knowledge-base/lgx-go-runtimes.md).
 - Setting up a dev iteration loop (`LGX_LG`, cache management) →
   [`docs/knowledge-base/lgx-dev-workflow.md`](docs/knowledge-base/lgx-dev-workflow.md).
+- Verifying `:go/*` support while its let-go PRs are still open (building a
+  combined `lg`, the sqlite/HoneySQL checks) →
+  [`docs/go-deps-pr-verification.md`](docs/go-deps-pr-verification.md)
+  (temporary; delete once the PRs merge).
 - Filing or referencing upstream let-go work →
   [`docs/issues/`](docs/issues/).
 
