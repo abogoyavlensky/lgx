@@ -107,6 +107,60 @@ honeysql's `alphanumeric?` state machine feeds `.charAt` results straight into
 **Fix (`pkg/rt/lang.go`, Go):** `unchecked-long/int/short/byte` accept `Char`
 as its codepoint.
 
+## G7 — `#_` discard drops a comment instead of the next form (reader bug)
+
+`#_ ;; note<newline> (form)` left `(form)` alive: `Read()` surfaces a line
+comment as VOID and `readFormComment` discarded that instead of the form.
+honeysql's suite hit this with a `#_`-disabled test that then executed.
+Clojure's `#_` skips whitespace and comments before the form it discards.
+
+**Fix (`pkg/compiler/reader.go`, Go compiler):** loop past VOID in
+`readFormComment` (same pattern the reader-conditional value path uses).
+Tests: `test/reader_discard_comment_test.lg`.
+
+## G8 — Clojure 1.11 trailing-map kwargs
+
+`(f :dialect :mysql {:pretty true})` into `[& {:as opts}]` threw
+`hash-map requires an even number of arguments`. This is the known gap
+mparrett flagged on #760, and honeysql's suite gates the test on
+`(clojure-version)` being 1.11+ — which resolves once `clojure-version`
+exists (see below).
+
+**Fix (`pkg/rt/core/core.lg`, .lg):** `seq-to-map-for-destructuring`
+(Clojure 1.11's name): pairs assoc'd in order, a single trailing map's
+entries assoc'd in place (so they win on collision), empty kwargs binds
+`nil` (matching Clojure), odd count without a trailing map still throws.
+`fn-expand` emits it instead of `(apply hash-map …)`. Defined early in the
+bootstrap, so the body sticks to primitives that exist there.
+Tests: `test/kwargs_trailing_map_test.lg`.
+
+## G9 — smaller suite unblocks
+
+- `clojure-version` / `*clojure-version*` (`pkg/rt/core/core.lg`, .lg):
+  reports the tracked language level (1.11.0); an unresolvable
+  `clojure-version` stopped `honey.sql-test` from loading.
+- `Locale/getDefault`/`setDefault`/`forLanguageTag` as honest no-ops
+  (`host_jvm_statics.go`): a default-locale change genuinely cannot affect
+  let-go's case mapping, which is what the Turkish-locale regression test
+  asserts.
+- `java.net.URLEncoder/encode` (`host_jvm_statics.go`): Go's
+  `url.QueryEscape` implements the same form-urlencoded rules.
+
+## Not let-go's to fix (honeysql `:lg` branches)
+
+honeysql upstream **already ships `:lg` reader-conditional branches** (e.g.
+`formatv` is disabled under `:lg` because `clojure.template` doesn't exist;
+`inline-str` substitutes a plain `"'"` for the `#"(?<!\\)'"` lookbehind
+regex Go's re2 can't express). Two suite consequences to route to honeysql,
+not let-go:
+
+- `issue-495-formatv` is gated `#?(:clj …)` only, but `formatv` is `:lg`-
+  disabled in src — the test needs an `:lg` gate too.
+- The 8 "inline quote CVE" failures (mysql / non-conforming-postgres) come
+  from the `:lg` `inline-str` branch double-escaping already-escaped `\'`.
+  A lookbehind-free rewrite (sentinel-swap `\'` before doubling) would fix
+  the `:lg` branch upstream.
+
 ## Also fixed while here
 
 Universal `.toString`: every JVM object answers it, so `invokeMethodFallback`
@@ -117,6 +171,10 @@ loudly like the NPE it would be on the JVM. (`honey.sql.util/str`'s 1- and
 > **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**
 > `pkg/vm/string.go` (String.InvokeMethod), `pkg/vm/keyword.go`
 > (Keyword.InvokeMethod), `pkg/vm/meta_value.go` (MetaValue.InvokeMethod),
-> `pkg/rt/host_stringbuilder.go`, `pkg/rt/host_jvm_statics.go` (Locale),
-> `invokeMethodFallback` and the `unchecked-*` coercions in `pkg/rt/lang.go`,
-> and `test/host_string_interop_test.go`.
+> `pkg/rt/host_stringbuilder.go`, `pkg/rt/host_jvm_statics.go` (Locale,
+> URLEncoder), `invokeMethodFallback` and the `unchecked-*` coercions in
+> `pkg/rt/lang.go`, `readFormComment` in `pkg/compiler/reader.go`,
+> `seq-to-map-for-destructuring` and `clojure-version` in
+> `pkg/rt/core/core.lg`, and the tests `test/host_string_interop_test.go`,
+> `test/host_jvm_statics_test.go`, `test/reader_discard_comment_test.lg`,
+> `test/kwargs_trailing_map_test.lg`, `test/clojure_version_test.lg`.

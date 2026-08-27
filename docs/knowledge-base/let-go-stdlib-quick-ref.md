@@ -78,7 +78,12 @@ Motivated by metosin/malli; general and available to any library.
   `.trim` — rune indices (= Java UTF-16 units for BMP text). Keyword accessors
   `.sym`/`.getName`/`.getNamespace`; `.toString` works on ANY non-nil value
   (str semantics). `unchecked-long/int/short/byte` accept chars (Java char→int
-  widening). `Locale/US`/`ROOT`/`ENGLISH` resolve as opaque markers.
+  widening). `Locale/US`/`ROOT`/`ENGLISH` resolve as opaque markers;
+  `Locale/getDefault`/`setDefault`/`forLanguageTag` are honest no-ops (Go's
+  casing is locale-independent). `URLEncoder/encode` = Go's `url.QueryEscape`.
+- Clojure 1.11 kwargs trailing map: `(f :a 1 {:b 2})` into `[& {:as opts}]`
+  binds `{:a 1 :b 2}` (empty call binds nil, like Clojure).
+  `(clojure-version)`/`*clojure-version*` report the tracked level (1.11.0).
 - `(instance? Class x)` markers: `java.util.Map`, `CharSequence`, bare `Pattern`.
 - Static factories: `LazilyPersistentVector/createOwning`,
   `PersistentArrayMap/createWithCheck`, `System/arraycopy`, `Array/newInstance`,
