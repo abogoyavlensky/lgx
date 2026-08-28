@@ -94,9 +94,41 @@ runtime conflict there. Two things help:
   go generate ./... && git add -A && git commit --no-edit
   ```
 
-- `make test` does **not** run the manifest gate. The check CI actually runs is
-  `make test && make check-generated`, so run both before declaring a branch
-  clean.
+- `make test` does **not** run the manifest gate, and it does **not** run lint.
+  The full pre-push sequence, in order, is:
+
+  ```bash
+  make generate SMOKE-BOOT-BUDGET-MS=40   # refresh bundle + manifest
+  make test SMOKE-BOOT-BUDGET-MS=40
+  go run ./cmd/check-generated
+  make lint GO=$(command -v go)
+  ```
+
+### Quirk: `go generate` is not `make generate`
+
+`go generate ./...` rebuilds the bundle but does not refresh the manifest's
+output-readiness records, and a local `check-generated` can still pass because
+the gitignored `pkg/rt/core_go_lowered/` tree exists on your machine. CI starts
+without it and fails the `build` and `generated-artifacts` jobs with
+`dependency manifest stale for 2 output(s)`. Always use `make generate`.
+
+Note also which edits stale the manifest: **not just `.lg` files**. Most of
+`pkg/vm/*.go`, plus `pkg/compiler/` and `pkg/bytecode/`, are registered bundle
+generators, so a one-line Go change there requires `make generate` and a
+manifest commit exactly like an `.lg` edit does.
+
+### Quirk: `make lint` needs GO passed explicitly
+
+`$(GO)` is only defined when the Makefile auto-installs a toolchain, which it
+skips when `go` is already on PATH. `make lint` then shells out to coreutils
+`install` and fails with `install: missing destination file operand`. Run
+`make lint GO=$(command -v go)`.
+
+Lint is a separate CI job, so a green `make test` says nothing about it. One
+trap worth knowing: the `sync/atomic` wrapper types (`atomic.Bool`,
+`atomic.Int32`, ...) embed `noCopy`, so putting one in a struct that is ever
+copied by value trips govet's `copylocks`. Use a bare `uint32` with
+`atomic.CompareAndSwapUint32` instead.
 
 ## Pointing lgx at the patched runtime
 
