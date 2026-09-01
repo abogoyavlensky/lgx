@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>let-go x Wails</title></head>
+  <body>
+    <h1>let-go + Wails v3</h1>
+    <p id="greeting">…</p>
+    <pre id="stats">…</pre>
+    <script type="module">
+      import { Call } from "/wails/runtime.js";
+
+      // One bound Go method dispatches every handler by name, so there is
+      // no generated bindings module to import.
+      const BRIDGE = "github.com/abogoyavlensky/letgo-packages/wails/shim.Bridge.Call";
+      const call = (name, ...args) => Call.ByName(BRIDGE, name, args);
+
+      document.getElementById("greeting").textContent = await call("greet", "world");
+      document.getElementById("stats").textContent =
+        JSON.stringify(await call("stats"), null, 2);
+    </script>
+  </body>
+</html>

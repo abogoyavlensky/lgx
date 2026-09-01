@@ -569,6 +569,9 @@ clone.
   library using `:local/root`.
 - [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real
   Clojure libraries on let-go.
+- [`examples/wails-desktop/`](./examples/wails-desktop) - desktop app with
+  a webview UI, via a Go dep (`:go/*`) and the letgo-packages `wails`
+  wrapper.
 
 ## Projects using lgx
 

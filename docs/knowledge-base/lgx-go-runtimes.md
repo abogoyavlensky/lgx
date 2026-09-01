@@ -162,6 +162,23 @@ build. So lgx builds `lginterop-tool` for the host with no target env,
 then runs it under the target's `GOOS`/`GOARCH` plus the same cgo
 setting the final build uses.
 
+**`:go/interop` cannot carry a framework-shaped API.** Two limits
+compound: `-opaque-structs` emits no struct constructors (below), and
+`generic?` in `cmd/lginterop/lginterop.lg` skips generic exports
+*silently*. A package configured by struct literal and parameterised by
+generics — Wails v3 is the worked case — loses most of its API with no
+diagnostic. Write a `:go/local` shim instead of trying to make interop
+work first; see
+[`lgx-wails-desktop.md`](./lgx-wails-desktop.md).
+
+**`lginterop`'s `-build-tags` does not affect the scan.** It only emits a
+`//go:build` line into the generated file. The scan selects files by
+`GOOS`/`GOARCH`/`CGO_ENABLED` read from the environment at process start
+and honours no tags, so a package whose API is tag-selected cannot be
+scanned correctly. lgx has no way to pass build tags to the build either
+(`GOFLAGS` is the workaround; see
+[`../issues/lgx-no-go-build-tags.md`](../issues/lgx-no-go-build-tags.md)).
+
 **`-opaque-structs` is not optional.** Without it `lginterop` flattens
 struct types into field-only Records, and every method call fails with
 `no method Query on record sql/DB`. Every interesting Go API is used
@@ -179,6 +196,14 @@ bogus version.
 works with literal arguments, but a wrapper holding its parameters in a
 vector cannot spread them - there is no `(apply .Query ...)`. The fix
 belongs in a Go shim that takes a slice and spreads it.
+
+**A let-go map does not cross as a Go map.** `[]any` works (below), but
+a `map[string]any` parameter is rejected with `reflect: Call using
+*vm.PersistentMap as type map[string]interface {}`. Shims take `vm.Value`
+and convert; converting has its own trap, since a map's `Seq` yields
+`vm.MapEntry` and a type switch on `vm.Map` alone silently produces a list
+of pairs. See
+[`../issues/interop-map-boxing.md`](../issues/interop-map-boxing.md).
 
 **`[]any` needs a let-go carrying the boxing-symmetry fix.** On older
 let-go versions, `vm.BoxValue` walks a slice by its *static* element

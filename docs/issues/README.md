@@ -1,7 +1,10 @@
-# Upstream issues
+# Issues
 
 Issues filed (or to be filed) against
-[nooga/let-go](https://github.com/nooga/let-go).
+[nooga/let-go](https://github.com/nooga/let-go), plus a second table for
+the ones that belong to lgx itself.
+
+## Upstream (nooga/let-go)
 
 | File | Subject | Status |
 |---|---|---|
@@ -18,3 +21,15 @@ Issues filed (or to be filed) against
 | [interop-slice-boxing.md](./interop-slice-boxing.md) | `[]any` crosses the Go/let-go boundary as opaque boxes, and a vector containing `nil` fails to convert to `[]any` | implemented on `fix/vm-boxing-symmetry` |
 | [aero-compat.md](./aero-compat.md) | Run juxt/aero under let-go — TaggedLiteral type + `edn/read` tag dispatch, static-field-in-call-position, syntax-quote qualification, namespaced `:keys`, seq metadata | prototyped (throwaway), not upstreamed |
 | [windows-build-unix-only-term.md](./windows-build-unix-only-term.md) | `pkg/rt/term.go` uses `x/sys/unix` unguarded, so `GOOS=windows` builds fail — blocks windows targets in lgx cross-compilation | draft |
+| [interop-map-boxing.md](./interop-map-boxing.md) | A let-go map does not cross the boundary as a Go map — the map-shaped sibling of `interop-slice-boxing`, and the naive hand-conversion silently yields pairs | draft |
+
+## lgx's own
+
+Not upstream. Kept here so the two lists stay in one place.
+
+| File | Subject | Status |
+|---|---|---|
+| [mise-attestation-tsa.md](./mise-attestation-tsa.md) | `mise install` fails GitHub attestation on a rotated TSA cert (jdx/mise) | open, worked around in `.mise.toml` |
+| [lgx-deps-root-ignores-package-paths.md](./lgx-deps-root-ignores-package-paths.md) | `:deps/root` was used verbatim as the source path, ignoring the package's own `:paths` — made every letgo-package unusable by git coord | fixed on `go-deps` |
+| [lgx-no-go-build-tags.md](./lgx-no-go-build-tags.md) | No `:go/build-tags` key, so `-tags production` / `-tags server` are only reachable through `GOFLAGS` | draft |
+| [lgx-go-local-stdlib-heuristic.md](./lgx-go-local-stdlib-heuristic.md) | A dot-less `:go/local` module path is rejected as standard-library, with a message that is wrong and unactionable | draft |

@@ -21,6 +21,10 @@ read them only when relevant. Do not preload.
   [`docs/knowledge-base/lgx-go-runtimes.md`](docs/knowledge-base/lgx-go-runtimes.md).
 - Setting up a dev iteration loop (`LGX_LG`, cache management) →
   [`docs/knowledge-base/lgx-dev-workflow.md`](docs/knowledge-base/lgx-dev-workflow.md).
+- Wrapping a framework-shaped Go library, or anything desktop/Wails →
+  [`docs/knowledge-base/lgx-wails-desktop.md`](docs/knowledge-base/lgx-wails-desktop.md)
+  (why `:go/interop` cannot carry struct-literal or generic APIs, and what
+  a `:go/local` shim looks like instead).
 - Verifying `:go/*` support while its let-go PRs are still open (building a
   combined `lg`, the sqlite/HoneySQL checks) →
   [`docs/go-deps-pr-verification.md`](docs/go-deps-pr-verification.md)
