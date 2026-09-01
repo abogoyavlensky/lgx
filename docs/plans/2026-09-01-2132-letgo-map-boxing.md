@@ -327,7 +327,7 @@ The nested map arrives as a native `map[string]any` holding a native `[]any`, an
 >
 > Deviation: the issue doc's "what the shim can drop" section says `ToGo` stays — see the Task 5 note. The plan assumed it would go.
 
-### Task 7: Update the pull request
+### Task 7: Update the pull request ⚠️ partially blocked
 
 - [ ] **Step 1: Retitle #778**
   `[]any` no longer describes the change. Use:
@@ -336,6 +336,118 @@ The nested map arrives as a native `map[string]any` holding a native `[]any`, an
 - [ ] **Step 2: Rewrite the description**
   Cover both shapes and nesting as one thesis: values cross the boundary as native values, recursively, in both directions. Name the two wrappers that found the gaps (`database/sql`, Wails v3), keep #778's rationale for why `dynamicBoxSafe` is an allowlist, and state the key-coercion decision explicitly so a reviewer does not have to infer it.
 
-- [ ] **Step 3: Push**
+- [x] **Step 3: Push**
   Run: `cd ../let-go && git push origin fix/vm-boxing-symmetry`
   Never force-push: existing commits stay as they are, and the new work reads as commits on top.
+
+**Steps 1 and 2 are blocked, step 3 is done.** The nine commits are pushed to `abogoyavlensky/let-go@fix/vm-boxing-symmetry` — appended, never force-pushed, `9538c75` still the parent of the new work.
+
+Retitling and rewriting the description failed: the PR lives on `nooga/let-go`, and the available token cannot edit it —
+
+```
+GraphQL: Resource not accessible by personal access token (updatePullRequest)
+```
+
+The prepared text is below; it needs a hand with write access to #778.
+
+**Title:**
+
+```
+fix(vm): make collections cross the Go/let-go boundary as native values
+```
+
+**Description:**
+
+<details>
+<summary>PR body (click to expand)</summary>
+
+Resolves: #777
+
+Values cross the Go/let-go boundary as **native values, recursively, in both directions** — slices and maps alike. Two shapes of the same bug, found the same way: by building real wrappers. `[]any` came from a `database/sql` wrapper (#777); maps came from a [Wails v3](https://v3.wails.io) wrapper, whose every options parameter had to declare `vm.Value` and convert by hand.
+
+Maps land as commits on top rather than a second PR, because the nesting fix edits code this PR itself introduces — reviewing that once in final form beats reviewing a patch to it in a second diff.
+
+## What changes
+
+**Boxing (Go to let-go).** `BoxValue` walked slices and maps by their *static* element type. For a `[]any` or a `map[string]any` that kind is `Interface`, so every element missed the scalar fast paths and became an opaque `vm.Boxed` — printing as `<go.string Ada>` and comparing equal to nothing. Elements are now boxed by their **dynamic** type.
+
+**Unboxing (let-go to Go).** Converting a let-go vector into a `[]any` gave up when an element had no Go counterpart and handed the whole slice over as `[]vm.Value`; a let-go map had no map conversion at all:
+
+```
+reflect: Call using []vm.Value as type []interface {}
+reflect: Call using *vm.PersistentMap as type map[string]interface {}
+```
+
+Conversion into `any` is now total, and a new `unboxMapInto` converts a let-go map into any Go map, wired into both `unboxInto` and `boxArgForReflect`.
+
+**Nesting.** A collection reaching an `any` target converts into its natural Go shape instead of arriving as a let-go value. Without this the fix only worked one level deep and a wrapper author would still have written the recursive converter.
+
+## Review this part: unwrapping is an allowlist, not an opt-out
+
+It routes elements into `BoxValue` paths the wrapped form never reached, and three are hostile. The worst is `ChanType.Box`, which spawns a goroutine calling `Recv`; on a send-only channel that panics in another goroutine and kills the process, uncatchable at the call site. The paths recurse, so only a positive list is safe: predeclared scalars, `[]byte`/`[]int64`/`[]float64`, `[]any`, and now exactly `map[string]any` — a string key and the empty interface, nothing else. Everything else boxes as before.
+
+## The key-coercion decision, stated rather than inferred
+
+**Keyword keys become string keys, and do not come back as keywords.** `{:a 1}` round-trips as `{"a" 1}`.
+
+Going to Go this is not a new rule: `unboxInto`'s `reflect.String` case already accepts a `Keyword`, and a keyword stores its name without the leading colon. Coming back, a Go string key boxes to a let-go **string**. Auto-keywordising would be wrong — Go map keys may hold spaces and dots, which do not make valid keywords. Lossy but predictable, and it matches `clojure.data.json` with no `:key-fn`.
+
+One rejection follows from it: a **numeric key into a string-keyed Go map errors** rather than converting. Go reports `int64` as `ConvertibleTo` `string` and converts it to a rune, so the generic fallback would silently turn the let-go key `65` into the Go key `"A"`. The rejection is local to the map path.
+
+## Three details that carried the map work
+
+- **Maps are identified by type, not by duck-typing.** Every let-go map returns `EmptyList` from `Seq()` when empty, so an empty map and an empty vector are indistinguishable by inspecting the first element for a `MapEntry`. The switch is on `vm.Map`, `*vm.PersistentMap`, `*vm.SortedMap`.
+
+- **Maps are tested before sequences**, because every let-go map is also `Sequable` and the sequential branch would otherwise turn a map into a vector of entries.
+
+- **The nesting rule is keyed on what `Unbox()` already produces — a `[]Value` — not on `Sequable`.** `Sequable` is far too broad: `String` implements it, and so does `NIL`, whose `Seq()` returns itself and whose `First()` is itself, giving unbounded recursion. Keying on the `Unbox` result also excludes a `Seq`, which may be infinite: a `LazySeq` over an infinite range is handed over unrealized, as before, rather than iterated until memory runs out.
+
+A Go map key must also be hashable, and `reflect.Type.Comparable` cannot decide it — a `struct{ X any }` holding a slice reports comparable and still panics when hashed. The insert runs behind a localized recover, so an unhashable key is a conversion error rather than a panic; that matters because `unboxMapInto` is reachable from `RecordToStruct`, which has no recover of its own.
+
+## Verified
+
+Against two real wrappers, same shim, runtimes differing only in this change.
+
+**`database/sql` / sqlite.** Without it, #777's reflect error. With it, rows read native, `nil` inserts SQL NULL, a NULL column reads back `nil`.
+
+**Wails v3.** A let-go map reaches a `map[string]any` parameter as a native Go map, with a nested map arriving as `map[string]any` holding a native `[]any`; a returned Go map is a real let-go map read with `(get m "runtime")` — string keys, so keyword lookup correctly misses. The example app is unchanged: its `stats` handler still returns `{"count":3,"items":["a","b","c"],"runtime":"let-go","ui":"wails v3"}`.
+
+The shim's hand-written `asMap` and its `vm.Value` options parameters are no longer needed. Its `ToGo` still is — `Bridge.Call` lowers a return value outside any reflect boundary, and let-go exports no deep let-go→Go converter. That is a separate gap. The simplification itself is left to a change in the wrapper.
+
+The guide's `database/sql` sketches are corrected here, and its collections section now covers maps and nesting, since they describe this behavior.
+
+</details>
+
+---
+
+## Plan complete
+
+**Implemented.** A let-go map now crosses into Go as a native Go map, a Go map arrives in let-go as a real map, and either works nested inside another collection — so a wrapper author never has to hand-write the recursive converter. Nine commits on `fix/vm-boxing-symmetry`, on top of the untouched `[]any` work:
+
+| commit | what |
+|---|---|
+| `46ee6a9` … `cfb6da2` | box map keys/values by dynamic type; convert a let-go map into a Go map parameter; reject an unhashable key by value rather than by type |
+| `6041229` … `9fc4df9` | convert nested collections reaching an `any` target, without realizing a lazy seq |
+| `4a3c276` | regenerated artifacts |
+| `cc60203`, `f044968` | the guide's collections section |
+
+**Gates:** `make test` green (the two `FAIL (= 1 2)` lines in the log are the test framework's own self-tests asserting a failing case), `check-generated: OK`, lint 0 issues. Verified end to end through lgx's custom-runtime path in both directions, and the `examples/wails-desktop` `stats` handler is unchanged.
+
+### Issues encountered
+
+Codex review caught four real defects across the tasks, all fixed:
+
+1. An unhashable let-go key (a vector into `map[any]any`) panicked in `SetMapIndex` instead of failing the conversion.
+2. The first fix for that checked `reflect.Type.Comparable`, which a `struct{ X any }` holding a slice passes and still panics on. The guard became value-level.
+3. Admitting a `Seq` to the nesting conversion would have hung on an infinite `LazySeq`. Narrowed to an already-materialized `[]Value`.
+4. The regression test for (3) was vacuous — `InfiniteRange.Unbox()` returns nil, so it never reached the branch. Rewritten with a `LazySeq` and verified by reverting the fix and watching it fail.
+5. The guide overstated nested map conversion: only exactly `map[string]any` unwraps out of an `any` slot, so a nested `map[string]string` stays opaque. Both the guide and the lgx knowledge base were corrected.
+
+One thing the plan did not anticipate at all: keying the nesting rule on `Sequable`, which its wording implies, stack-overflows immediately — `NIL` is `Sequable` and its `Seq()`/`First()` are both itself.
+
+### What the plan could have specified better
+
+**The `Sequable` trap.** The plan wrote "a sequential collection into `[]any` via `unboxSliceInto`" and named only the map-before-sequence ordering constraint. The real hazard is that `Sequable` is not a collection predicate at all: `String` and `NIL` both implement it, and `NIL` self-recurses. A plan that had checked what actually implements `Sequable` would have specified the discriminator instead of leaving it to be discovered by stack overflow.
+
+Two smaller ones. It pinned `int64(1)` for a nested value where `vm.Int.Unbox()` yields `int` — a detail its own sibling test already establishes. And it assumed the Wails shim's `ToGo` would become unnecessary; only `asMap` and the options parameters do, because `Bridge.Call` lowers a return value outside any reflect boundary and let-go exports no deep let-go→Go converter.
+
