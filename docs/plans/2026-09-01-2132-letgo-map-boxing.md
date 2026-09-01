@@ -299,29 +299,33 @@ The nested map arrives as a native `map[string]any` holding a native `[]any`, an
 >
 > Deviation (step 5, narrower than the plan assumed): `asMap` and the `vm.Value` options parameters on `New`/`NewWindow` can go — they become `map[string]any` directly. **`ToGo` cannot.** `Bridge.Call` lowers `fn.Invoke`'s return value and `Emit` lowers its `data`, and neither crosses a reflect boundary, so no automatic conversion applies; let-go still exports no deep let-go→Go converter (only `vm.ToLetGo`, the other direction). Making `ToGo` unnecessary is a separate gap, not one this change closes.
 
-### Task 6: Documentation
+### Task 6: Documentation ✅
 
 **Files:**
 - Modify: `../let-go/docs/guide/go-interop.md`
 - Modify: `docs/issues/interop-map-boxing.md`, `docs/issues/README.md`, `docs/knowledge-base/lgx-go-runtimes.md` (lgx)
 
-- [ ] **Step 1: Extend the let-go guide**
+- [x] **Step 1: Extend the let-go guide**
   Extend the collections section #778 added rather than starting a new one. State what a map converts to in each direction, that keyword keys become string keys and do not come back as keywords, and that nesting works.
 
-- [ ] **Step 2: Update the lgx issue doc**
+- [x] **Step 2: Update the lgx issue doc**
   In `docs/issues/interop-map-boxing.md`, move the status from draft to implemented on `fix/vm-boxing-symmetry`, matching how `interop-slice-boxing.md` reads. Replace the "Open question" section with the decision taken and its rationale. Update the matching row in `docs/issues/README.md`.
 
-- [ ] **Step 3: Update the lgx knowledge base**
+- [x] **Step 3: Update the lgx knowledge base**
   In `docs/knowledge-base/lgx-go-runtimes.md`, the map gotcha currently tells wrapper authors to take `vm.Value` and convert by hand. Say instead that the fix landed and what a shim can now declare directly.
 
-- [ ] **Step 4: Verify lgx docs still lint**
+- [x] **Step 4: Verify lgx docs still lint**
   Run: `cd <lgx> && mise exec -- cljfmt check`
   Expected: `All source files formatted correctly`
 
-- [ ] **Step 5: Commit both repos**
+- [x] **Step 5: Commit both repos**
   Separate commits: the guide in let-go, the notes in lgx.
 
 ---
+
+> Deviation: the guide's section heading changed from "How `[]any` crosses the boundary" to "How collections cross the boundary", with maps and nesting as subsections. Extending the existing section, as the plan asked, but the old title no longer described its contents. No inbound links to that anchor exist in the repo.
+>
+> Deviation: the issue doc's "what the shim can drop" section says `ToGo` stays — see the Task 5 note. The plan assumed it would go.
 
 ### Task 7: Update the pull request
 

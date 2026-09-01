@@ -208,11 +208,15 @@ a list of pairs. The fix landed on `fix/vm-boxing-symmetry`
 Go map it wants — `map[string]any`, `map[string]string` — in either
 direction, and nesting converts recursively.
 
-Two things to know when writing against it. Keyword keys become **string**
+Three things to know when writing against it. Keyword keys become **string**
 keys and do not come back as keywords, so a returned Go map is read with
-`(get m "name")`, not `(:name m)`. And a lazy sequence nested inside an
-`any` slot is handed over unrealized rather than converted, because it may
-be infinite — `vec` it in let-go first if the Go side wants a slice. See
+`(get m "name")`, not `(:name m)`. Coming back from Go, only exactly
+`map[string]any` unwraps out of an `any` slot — a nested `map[string]string`
+stays opaque, though the same map converts fine when it is the whole return
+value — so return `map[string]any` if a map has to survive nesting. And a
+lazy sequence nested inside an `any` slot is handed over unrealized rather
+than converted, because it may be infinite — `vec` it in let-go first if the
+Go side wants a slice. See
 [`../issues/interop-map-boxing.md`](../issues/interop-map-boxing.md).
 
 **`[]any` needs a let-go carrying the boxing-symmetry fix.** On older
