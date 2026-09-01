@@ -126,7 +126,12 @@ The one rule: call it from the entry fn, not from a spawned thread.
 its own goroutines, and the shim invokes let-go fns from them. That is the
 same thing `pkg/rt/http.go` already does for `http/serve` handlers.
 
-**The dev loop.** Measured on linux/amd64 with warm Go caches: about 0.3s
+**The dev loop.** A running app can reload its handlers from disk with no
+restart, which `wails3 dev` cannot do — a Go backend has to rebuild and
+relaunch. See [`lgx-live-reload.md`](./lgx-live-reload.md) for the watcher
+and for why an nREPL cannot attach to a running app yet.
+
+Build times, measured on linux/amd64 with warm Go caches: about 0.3s
 when only `.lg` files changed, about 1.4s after a Go edit to the shim (a
 full recompile and relink of the ~24 MB runtime). `:go/local` makes lgx
 re-run the build steps every time, but Go's build cache absorbs it.

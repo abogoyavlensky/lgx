@@ -85,4 +85,6 @@ Both env vars are needed: a few of Wails' internal packages gate on
   Go methods to generate from.
 
 See [`docs/knowledge-base/lgx-wails-desktop.md`](../../docs/knowledge-base/lgx-wails-desktop.md)
-for how the pieces fit and what the limits are.
+for how the pieces fit and what the limits are, and
+[`lgx-live-reload.md`](../../docs/knowledge-base/lgx-live-reload.md) for
+editing handlers without restarting the app.

@@ -25,6 +25,9 @@ read them only when relevant. Do not preload.
   [`docs/knowledge-base/lgx-wails-desktop.md`](docs/knowledge-base/lgx-wails-desktop.md)
   (why `:go/interop` cannot carry struct-literal or generic APIs, and what
   a `:go/local` shim looks like instead).
+- Reloading code in a long-running let-go program without restarting it,
+  or asking why `lgx nrepl` cannot attach to one →
+  [`docs/knowledge-base/lgx-live-reload.md`](docs/knowledge-base/lgx-live-reload.md).
 - Verifying `:go/*` support while its let-go PRs are still open (building a
   combined `lg`, the sqlite/HoneySQL checks) →
   [`docs/go-deps-pr-verification.md`](docs/go-deps-pr-verification.md)
