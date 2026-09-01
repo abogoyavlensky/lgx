@@ -33,3 +33,4 @@ Not upstream. Kept here so the two lists stay in one place.
 | [lgx-deps-root-ignores-package-paths.md](./lgx-deps-root-ignores-package-paths.md) | `:deps/root` was used verbatim as the source path, ignoring the package's own `:paths` — made every letgo-package unusable by git coord | fixed on `go-deps` |
 | [lgx-no-go-build-tags.md](./lgx-no-go-build-tags.md) | No `:go/build-tags` key, so `-tags production` / `-tags server` are only reachable through `GOFLAGS` | draft |
 | [lgx-go-local-stdlib-heuristic.md](./lgx-go-local-stdlib-heuristic.md) | A dot-less `:go/local` module path is rejected as standard-library, with a message that is wrong and unactionable | draft |
+| [lgx-mobile-targets-buildmode.md](./lgx-mobile-targets-buildmode.md) | `--target ios/*` and `android/*` are accepted then fail: a mobile app needs `-buildmode=c-archive`/`c-shared` and an exported entry point, not an executable | draft |
