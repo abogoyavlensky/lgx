@@ -197,12 +197,22 @@ works with literal arguments, but a wrapper holding its parameters in a
 vector cannot spread them - there is no `(apply .Query ...)`. The fix
 belongs in a Go shim that takes a slice and spreads it.
 
-**A let-go map does not cross as a Go map.** `[]any` works (below), but
-a `map[string]any` parameter is rejected with `reflect: Call using
-*vm.PersistentMap as type map[string]interface {}`. Shims take `vm.Value`
-and convert; converting has its own trap, since a map's `Seq` yields
-`vm.MapEntry` and a type switch on `vm.Map` alone silently produces a list
-of pairs. See
+**Maps need a let-go carrying the map-boxing fix.** Against an older
+let-go, a `map[string]any` parameter is rejected with `reflect: Call using
+*vm.PersistentMap as type map[string]interface {}`, so shims take
+`vm.Value` and convert — which has its own trap, since a map's `Seq`
+yields `vm.MapEntry` and a type switch on `vm.Map` alone silently produces
+a list of pairs. The fix landed on `fix/vm-boxing-symmetry`
+([#778](https://github.com/nooga/let-go/pull/778), unreleased as of
+2026-09-01) alongside the `[]any` work below. With it, a shim declares the
+Go map it wants — `map[string]any`, `map[string]string` — in either
+direction, and nesting converts recursively.
+
+Two things to know when writing against it. Keyword keys become **string**
+keys and do not come back as keywords, so a returned Go map is read with
+`(get m "name")`, not `(:name m)`. And a lazy sequence nested inside an
+`any` slot is handed over unrealized rather than converted, because it may
+be infinite — `vec` it in let-go first if the Go side wants a slice. See
 [`../issues/interop-map-boxing.md`](../issues/interop-map-boxing.md).
 
 **`[]any` needs a let-go carrying the boxing-symmetry fix.** On older

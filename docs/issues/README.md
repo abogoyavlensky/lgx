@@ -21,7 +21,7 @@ the ones that belong to lgx itself.
 | [interop-slice-boxing.md](./interop-slice-boxing.md) | `[]any` crosses the Go/let-go boundary as opaque boxes, and a vector containing `nil` fails to convert to `[]any` | implemented on `fix/vm-boxing-symmetry` |
 | [aero-compat.md](./aero-compat.md) | Run juxt/aero under let-go — TaggedLiteral type + `edn/read` tag dispatch, static-field-in-call-position, syntax-quote qualification, namespaced `:keys`, seq metadata | prototyped (throwaway), not upstreamed |
 | [windows-build-unix-only-term.md](./windows-build-unix-only-term.md) | `pkg/rt/term.go` uses `x/sys/unix` unguarded, so `GOOS=windows` builds fail — blocks windows targets in lgx cross-compilation | draft |
-| [interop-map-boxing.md](./interop-map-boxing.md) | A let-go map does not cross the boundary as a Go map — the map-shaped sibling of `interop-slice-boxing`, and the naive hand-conversion silently yields pairs | draft |
+| [interop-map-boxing.md](./interop-map-boxing.md) | A let-go map does not cross the boundary as a Go map — the map-shaped sibling of `interop-slice-boxing`, and the naive hand-conversion silently yields pairs | implemented on `fix/vm-boxing-symmetry` |
 
 ## lgx's own
 
