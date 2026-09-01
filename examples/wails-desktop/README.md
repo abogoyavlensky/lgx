@@ -19,6 +19,21 @@ closes that gap; this example only ever sees let-go.
 await call("greet", "world");   // => "Hello, world!"
 ```
 
+## Prerequisites
+
+Wails is a `:go/*` dep, so this needs a `lg` carrying the still-open
+out-of-tree-interop work. A prebuilt branch with all of it merged is on
+[`abogoyavlensky/let-go@go-deps-combined`](https://github.com/abogoyavlensky/let-go/tree/go-deps-combined):
+
+```sh
+git clone https://github.com/abogoyavlensky/let-go.git
+cd let-go && git checkout go-deps-combined && make build SMOKE-BOOT-BUDGET-MS=40
+cd /path/to/lgx && make build LG=/path/to/let-go/bin/lg
+```
+
+Then every command below wants `LGX_LETGO_REPLACE=/path/to/let-go` in its
+environment. See [`docs/go-deps-pr-verification.md`](../../docs/go-deps-pr-verification.md).
+
 ## Running it
 
 Wails is cgo on the Unix desktops, so this example needs more than a Go

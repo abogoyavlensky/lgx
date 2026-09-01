@@ -42,8 +42,27 @@ examples and for HoneySQL):
 
 ## Building a combined `lg`
 
-No single PR branch is enough; the stack needs them merged together. Build a
-throwaway integration branch and never open a PR from it:
+No single PR branch is enough; the stack needs them merged together.
+
+**A prebuilt branch exists.** All ten PRs below are merged, with generated
+artifacts refreshed, on
+[`abogoyavlensky/let-go@go-deps-combined`](https://github.com/abogoyavlensky/let-go/tree/go-deps-combined)
+(`3913860`, pushed 2026-09-01). `make test`, `check-generated` and the sqlite
+end-to-end check were green on that commit. Unless you need a different PR
+set, skip the merge dance:
+
+```bash
+git clone https://github.com/abogoyavlensky/let-go.git
+cd let-go && git checkout go-deps-combined
+make build SMOKE-BOOT-BUDGET-MS=40
+```
+
+It is a throwaway integration branch: never open a PR from it, and rebuild it
+from scratch rather than rebasing when the underlying PRs move.
+
+### Rebuilding it from the PR branches
+
+Build a throwaway integration branch and never open a PR from it:
 
 ```bash
 cd ../let-go
