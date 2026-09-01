@@ -281,7 +281,7 @@
                                  (pending-warning via via-installed? warn-about
                                                   (:error fetched)))
                            go-seen go-pairs)
-                    (let [{:keys [path dir installed?]} (:ok fetched)
+                    (let [{:keys [paths dir installed?]} (:ok fetched)
                         ;; :deps/root relocates where the dep's lgx.edn is
                         ;; read (config/dep-config-dir) — and the children it
                         ;; yields resolve their relative :local/root and
@@ -312,7 +312,7 @@
                           split (gobuild/split-go-coords (:children found)
                                                          go-seen)
                           row {:lib lib
-                               :path path
+                               :paths paths
                                :installed? installed?}]
                       (doseq [w (:warnings split)] (write! *err* w))
                       (recur (vec (concat rest-q (:src split)))
@@ -342,11 +342,14 @@
   (let [new-installs (filter :installed? results)]
     (when (seq new-installs)
       (println "installing" (count new-installs) "dep(s)...")
-      (doseq [{:keys [lib path via via-source]} new-installs]
-        (if via
-          (println " " lib "->" path
-                   (str " (via " via " " (via-label via-source) ")"))
-          (println " " lib "->" path)))
+      ;; A monorepo package can contribute more than one source path, so the
+      ;; line reports every path the dep put on the search path.
+      (doseq [{:keys [lib paths via via-source]} new-installs]
+        (let [shown (str/join " " paths)]
+          (if via
+            (println " " lib "->" shown
+                     (str " (via " via " " (via-label via-source) ")"))
+            (println " " lib "->" shown))))
       (println "done"))))
 
 (defn- with->overlay!
@@ -486,7 +489,7 @@
   [project coords raw-paths raw-resource-paths]
   (let [{:keys [installs go-coords]} (ensure-all! project coords false)
         own-paths (resolve-project-paths ":paths" project raw-paths)
-        paths (vec (concat own-paths (mapv :path installs)))
+        paths (vec (concat own-paths (mapcat :paths installs)))
         resource-paths (resolve-project-paths ":resource-paths" project
                                               raw-resource-paths)]
     {:project project
