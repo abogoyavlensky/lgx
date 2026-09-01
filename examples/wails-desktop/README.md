@@ -45,10 +45,24 @@ toolchain:
 | macOS | Xcode command line tools |
 | Windows | not supported — let-go does not build for `GOOS=windows` yet |
 
+Confirmed working on macOS (Wails v3.0.0-beta.16). The Linux GTK path
+should work but has not been run.
+
 ```sh
-lgx run                     # first run builds the custom runtime, ~1 min
+export LGX_LETGO_REPLACE=/abs/path/to/let-go   # see Prerequisites
+lgx run                     # first run builds the custom runtime
 lgx build && ./bin/app      # or a single binary
 ```
+
+Give `LGX_LETGO_REPLACE` an absolute path. It resolves against the current
+directory, and you run these from inside this one, so `../let-go` means
+`examples/let-go` and fails with a wall of `go mod tidy` output about a
+missing replacement directory.
+
+The first build takes a few minutes on macOS (the Objective-C compile of
+Wails' Cocoa layer) and is cached afterwards. Run from this directory
+either way — `assets-dir` is resolved against the process working
+directory.
 
 Without the platform webview headers you can still exercise everything but
 the window, using Wails' cgo-free server mode — an HTTP server and your

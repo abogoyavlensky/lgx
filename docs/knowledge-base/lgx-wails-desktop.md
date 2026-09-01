@@ -7,19 +7,26 @@ example. This note records how the pieces fit, what was actually
 verified, and where the edges are — the things that are not obvious from
 either project's docs.
 
-## What was verified, and what was not
+## What was verified
 
-Verified end to end on linux/amd64: Wails linked into an lgx-built
-runtime, an app and window created from let-go, frontend calls dispatched
-to let-go handlers, values crossing both ways, errors propagating, custom
-assets served, and `lgx build` producing a standalone binary.
+**A native window, on macOS** (2026-09-01, Wails v3.0.0-beta.16): a real
+WKWebView window created from let-go, both handlers answering
+`Call.ByName`, and a let-go map arriving in the frontend as a JSON object
+with its nested vector intact. cgo, the Cocoa platform layer and the
+webview are all exercised. Nothing needed packaging into a `.app` —
+`ActivationPolicyRegular` is the zero value, so the bare binary shows and
+focuses a window.
 
-**Not verified: the native window.** The verification machine had no
+**The rest, on linux/amd64:** Wails linked into an lgx-built runtime,
+values crossing both ways, errors propagating, custom assets served, and
+`lgx build` producing a standalone binary. That machine had no
 GTK4/WebKitGTK, so it ran in Wails' cgo-free `-tags server` mode — an HTTP
-server and a browser instead of a webview. Everything above the platform
-layer is the same code; the platform layer itself is untested. Treat
-"desktop app" as well-founded but not demonstrated until someone runs it
-on a machine with the headers.
+server and a browser instead of a webview.
+
+**Still untested: the Linux GTK4/WebKitGTK window.** macOS covers the
+"desktop app" claim, and the two platform layers share everything above
+them, but the GTK path has not been run. Say so rather than generalising
+from macOS.
 
 ## The shape that works
 
@@ -138,8 +145,18 @@ building a combined `lg`. Then:
 
 ```bash
 cd examples/wails-desktop
-LGX_LETGO_REPLACE=/path/to/let-go lgx run            # native, needs GTK4 + WebKitGTK 6.0
+LGX_LETGO_REPLACE=/abs/path/to/let-go lgx run
 ```
+
+Native needs Xcode command line tools on macOS, or GTK4 + WebKitGTK 6.0
+dev packages on Linux. Give `LGX_LETGO_REPLACE` an **absolute** path: it
+is resolved against the current directory, and the command is run from
+inside `examples/wails-desktop`, so a relative path aimed at a sibling of
+the repo silently becomes `examples/<name>` and surfaces as a wall of
+`go mod tidy` output about a missing replacement directory.
+
+On macOS the first build takes a few minutes — the Objective-C compile of
+Wails' Cocoa layer — and is cached afterwards.
 
 Without the platform headers, in server mode:
 
