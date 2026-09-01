@@ -297,7 +297,8 @@
          (load-cfg {:targets {:bin {}}}))))
 
 (deftest load-rejects-unknown-bin-key
-  (is (= {:errors [{:path [:targets :bin] :msg "unknown key :foo (allowed: :out)"}]}
+  (is (= {:errors [{:path [:targets :bin]
+                    :msg "unknown key :foo (allowed: :out, :platforms)"}]}
          (load-cfg {:targets {:bin {:out "bin/app" :foo 1}}}))))
 
 (deftest load-rejects-bad-out
@@ -309,6 +310,146 @@
   (is (= {:errors [{:path [:targets :bin :out]
                     :msg "must not contain .. segments"}]}
          (load-cfg {:targets {:bin {:out "bin/../app"}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :targets :bin :platforms
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-bin-with-platforms
+  (let [cfg {:targets {:bin {:out "dist/app_{{os}}_{{arch}}"
+                             :platforms [{:os "linux" :arch "amd64"}
+                                         {:os "darwin" :arch "arm64"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-one-platform-without-a-placeholder
+  ;; A single platform cannot collide with anything, so a plain :out is fine.
+  (let [cfg {:targets {:bin {:out "bin/app"
+                             :platforms [{:os "linux" :arch "arm64"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-platforms-not-a-vector
+  (is (= {:errors [{:path [:targets :bin :platforms]
+                    :msg "must be a vector, got {:os \"linux\"}"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms {:os "linux"}}}}))))
+
+(deftest load-rejects-a-platform-entry-that-is-not-a-map
+  (is (= {:errors [{:path [:targets :bin :platforms 0]
+                    :msg "must be a map, got \"linux/amd64\""}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms ["linux/amd64"]}}}))))
+
+(deftest load-rejects-a-platform-entry-missing-a-key
+  (is (= {:errors [{:path [:targets :bin :platforms 0]
+                    :msg "missing required key :arch"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os "linux"}]}}}))))
+
+(deftest load-rejects-an-unknown-platform-key
+  ;; :closed, matching the surrounding schemas — room for per-platform keys
+  ;; later means adding them to the schema, not accepting anything now.
+  (is (= {:errors [{:path [:targets :bin :platforms 0]
+                    :msg "unknown key :cc (allowed: :os, :arch)"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os "linux" :arch "amd64"
+                                                 :cc "zig"}]}}}))))
+
+(deftest load-rejects-a-non-string-or-blank-platform-value
+  (is (= {:errors [{:path [:targets :bin :platforms 0 :os]
+                    :msg "must be a string, got :linux"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os :linux :arch "amd64"}]}}})))
+  (is (= {:errors [{:path [:targets :bin :platforms 0 :arch]
+                    :msg "must be non-blank"}]}
+         (load-cfg {:targets {:bin {:out "bin/app"
+                                    :platforms [{:os "linux" :arch " "}]}}}))))
+
+(deftest load-rejects-an-unknown-os
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "template"
+                                                  :arch "amd64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms 0 :os] (:path e)))
+    (is (str/includes? (:msg e) "must be one of:"))
+    (is (str/includes? (:msg e) "linux"))
+    (is (str/includes? (:msg e) "\"template\""))))
+
+(deftest load-rejects-an-unknown-arch
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "linux"
+                                                  :arch "x64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms 0 :arch] (:path e)))
+    (is (str/includes? (:msg e) "must be one of:"))
+    (is (str/includes? (:msg e) "amd64"))
+    (is (str/includes? (:msg e) "\"x64\""))))
+
+(deftest load-rejects-a-valid-os-with-a-wrong-arch
+  ;; Both names exist, but Go has no such pair.
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "darwin"
+                                                  :arch "386"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms 0] (:path e)))
+    (is (str/includes? (:msg e) "darwin/386"))
+    (is (str/includes? (:msg e) "go tool dist list"))))
+
+(deftest load-rejects-duplicate-platforms
+  (let [r (load-cfg {:targets {:bin {:out "dist/app_{{os}}_{{arch}}"
+                                     :platforms [{:os "linux" :arch "amd64"}
+                                                 {:os "darwin" :arch "arm64"}
+                                                 {:os "linux" :arch "amd64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :platforms] (:path e)))
+    (is (str/includes? (:msg e) "duplicate"))
+    (is (str/includes? (:msg e) "linux/amd64"))))
+
+(deftest load-rejects-multiple-platforms-without-a-placeholder
+  ;; The artifacts would overwrite each other; catch it at load time rather
+  ;; than after four builds.
+  (let [r (load-cfg {:targets {:bin {:out "bin/app"
+                                     :platforms [{:os "linux" :arch "amd64"}
+                                                 {:os "darwin" :arch "arm64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :out] (:path e)))
+    (is (str/includes? (:msg e) "\"bin/app\""))
+    (is (str/includes? (:msg e) "overwrite")))
+  ;; A placeholder is enough only when it actually disambiguates.
+  (let [cfg {:targets {:bin {:out "dist/{{os}}/app"
+                             :platforms [{:os "linux" :arch "amd64"}
+                                         {:os "darwin" :arch "arm64"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-a-placeholder-that-does-not-disambiguate
+  ;; Placeholder *presence* is not the rule — rendered-path uniqueness is.
+  ;; {{os}} alone cannot separate two arches of one os.
+  (let [r (load-cfg {:targets {:bin {:out "dist/{{os}}/app"
+                                     :platforms [{:os "linux" :arch "amd64"}
+                                                 {:os "linux" :arch "arm64"}]}}})
+        e (first (:errors r))]
+    (is (= [:targets :bin :out] (:path e)))
+    (is (str/includes? (:msg e) "\"dist/linux/app\""))
+    (is (str/includes? (:msg e) "linux/amd64"))
+    (is (str/includes? (:msg e) "linux/arm64"))))
+
+(deftest expand-out-substitutes-placeholders
+  (is (= "dist/app_linux_amd64"
+         (config/expand-out "dist/app_{{os}}_{{arch}}"
+                            {:os "linux" :arch "amd64"})))
+  ;; No placeholders: unchanged — the backward-compatible case.
+  (is (= "bin/app" (config/expand-out "bin/app" {:os "linux" :arch "amd64"})))
+  ;; A placeholder may appear more than once.
+  (is (= "out/arm64/app-arm64"
+         (config/expand-out "out/{{arch}}/app-{{arch}}"
+                            {:os "darwin" :arch "arm64"}))))
+
+(deftest platforms-accessor
+  (is (= [{:os "linux" :arch "amd64"}]
+         (config/platforms {:targets {:bin {:out "a"
+                                            :platforms [{:os "linux"
+                                                         :arch "amd64"}]}}})))
+  (is (= [] (config/platforms {:targets {:bin {:out "a"}}})))
+  (is (= [] (config/platforms {}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :tasks
@@ -1279,3 +1420,273 @@
                     (str "(defproject foo \"1.0\" :dependencies"
                          " [bare [] [no/version] [x/y 5] [a/b \"1.2\"]])")}
            (fn [dir] (mapv first (config/project-clj-deps-at dir)))))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :go/* coord family
+;;
+;; A go coord's lib symbol IS the Go package path, so the rules that depend on
+;; it (stdlib vs external, the lginterop alias) are checked at the :deps level
+;; where the lib name is in scope, not inside the per-coord check.
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-go-version-coord
+  (let [cfg {:deps {'modernc.org/sqlite {:go/version "v1.38.0"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-local-coord
+  (let [cfg {:deps {'github.com/you/pkgs/shim {:go/local "shim"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-interop-stdlib-coord
+  (let [cfg {:deps {'database/sql {:go/interop "sql"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-single-segment-stdlib-coord
+  (let [cfg {:deps {'strconv {:go/interop "strconv"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-version-plus-interop-coord
+  (let [cfg {:deps {'modernc.org/sqlite {:go/version "v1.38.0"
+                                         :go/interop "sqlite"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-local-plus-interop-coord
+  (let [cfg {:deps {'github.com/you/pkgs/shim {:go/local "shim"
+                                               :go/interop "shim"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-stdlib-go-coord-with-version
+  (let [errors (:errors (load-cfg {:deps {'database/sql
+                                          {:go/interop "sql"
+                                           :go/version "v1.0.0"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'database/sql] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "standard-library package"))
+    (is (str/includes? (:msg (first errors)) ":go/version"))))
+
+(deftest load-rejects-stdlib-go-coord-with-local
+  (let [errors (:errors (load-cfg {:deps {'database/sql
+                                          {:go/interop "sql"
+                                           :go/local "shim"}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors)) "standard-library package"))))
+
+(deftest load-rejects-blank-go-interop
+  (is (= {:errors [{:path [:deps 'database/sql :go/interop]
+                    :msg "must be non-blank"}]}
+         (load-cfg {:deps {'database/sql {:go/interop "  "}}}))))
+
+(deftest load-rejects-external-go-coord-without-version-or-local
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/interop "sqlite"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'modernc.org/sqlite] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) ":go/version"))
+    (is (str/includes? (:msg (first errors)) ":go/local"))))
+
+(deftest load-rejects-go-coord-mixed-with-git
+  (doseq [coord [{:go/version "v1.0.0" :git/url "https://github.com/foo/bar"}
+                 {:go/interop "sqlite" :git/sha "abc"}
+                 {:go/local "shim" :local/root "../x"}]]
+    (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite coord}}))]
+      (is (= 1 (count errors)))
+      (is (str/includes? (:msg (first errors))
+                         "cannot mix :go/* with :git/* or :local/root")))))
+
+(deftest load-rejects-go-version-with-go-local
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.0.0"
+                                           :go/local "vendor/sqlite"}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors))
+                       "cannot mix :go/version with :go/local"))))
+
+(deftest load-rejects-blank-go-version
+  (is (= {:errors [{:path [:deps 'modernc.org/sqlite :go/version]
+                    :msg "must be non-blank"}]}
+         (load-cfg {:deps {'modernc.org/sqlite {:go/version "  "}}}))))
+
+(deftest load-rejects-non-string-go-local
+  (is (= {:errors [{:path [:deps 'modernc.org/sqlite :go/local]
+                    :msg "must be a string, got 5"}]}
+         (load-cfg {:deps {'modernc.org/sqlite {:go/local 5}}}))))
+
+(deftest load-rejects-go-interop-alias-mismatch
+  ;; cmd/lginterop derives the namespace alias from the package path's last
+  ;; segment and has no per-package alias flag, so any other value would name
+  ;; a namespace the generated code never registers.
+  (let [errors (:errors (load-cfg {:deps {'database/sql {:go/interop "db"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'database/sql :go/interop] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "\"sql\""))))
+
+(deftest load-accepts-go-coord-in-context-extra-deps
+  (let [cfg {:contexts {:dev {:extra-deps {'database/sql {:go/interop "sql"}}}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-bad-go-coord-in-context-extra-deps
+  (let [errors (:errors (load-cfg {:contexts
+                                   {:dev {:extra-deps
+                                          {'database/sql
+                                           {:go/interop "db"}}}}}))]
+    (is (= [:contexts :dev :extra-deps 'database/sql :go/interop]
+           (:path (first errors))))))
+
+(deftest load-accepts-go-coord-in-task-extra-deps
+  (let [cfg {:tasks {'lint {:do [{:sh "echo hi"}]
+                            :extra-deps {'modernc.org/sqlite
+                                         {:go/version "v1.38.0"}}}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+;; ---------------------------------------------------------------------------
+;; coords-at: the lenient dep-config schema accepts go coords too, so a dep's
+;; own go deps flow up through transitive resolution.
+;; ---------------------------------------------------------------------------
+
+(deftest coords-at-accepts-go-coords
+  (let [dir (str "/tmp/lgx-go-coords-at-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn")
+          (pr-str {:paths ["src"]
+                   :deps {'database/sql {:go/interop "sql"}
+                          'modernc.org/sqlite {:go/version "v1.38.0"}}}))
+    (let [pairs (config/coords-at dir)]
+      (os/sh "rm" "-rf" dir)
+      (is (= ['database/sql 'modernc.org/sqlite] (mapv first pairs)))
+      (is (= [{:go/interop "sql"} {:go/version "v1.38.0"}]
+             (mapv second pairs))))))
+
+(deftest coords-at-rejects-invalid-go-coord
+  (let [dir (str "/tmp/lgx-go-coords-at-bad-" (rand-int 100000000))]
+    (mkdir dir)
+    (spit (str dir "/lgx.edn")
+          (pr-str {:deps {'database/sql {:go/version "v1.0.0"}}}))
+    (let [r (threw? (fn [] (config/coords-at dir)))]
+      (os/sh "rm" "-rf" dir)
+      (is (= :threw r)))))
+
+;; ---------------------------------------------------------------------------
+;; go-coord? / go-default-alias
+;; ---------------------------------------------------------------------------
+
+(deftest go-coord?-detects-the-family
+  (is (config/go-coord? {:go/version "v1.0.0"}))
+  (is (config/go-coord? {:go/interop "sql"}))
+  (is (config/go-coord? {:go/local "shim"}))
+  (is (not (config/go-coord? {:git/url "u" :git/sha "s"})))
+  (is (not (config/go-coord? {:local/root "../x"})))
+  (is (not (config/go-coord? {}))))
+
+(deftest go-default-alias-is-the-last-path-segment
+  (is (= "sql" (config/go-default-alias 'database/sql)))
+  (is (= "sqlite" (config/go-default-alias 'modernc.org/sqlite)))
+  (is (= "shim" (config/go-default-alias 'github.com/you/pkgs/sqlite/shim)))
+  (is (= "strconv" (config/go-default-alias 'strconv))))
+
+(deftest load-rejects-unknown-go-key
+  ;; A misspelled :go/* key would otherwise classify as a go coord and then
+  ;; generate nothing, so the namespace is closed even though coords are open.
+  (let [errors (:errors (load-cfg {:deps {'database/sql
+                                          {:go/interops "sql"}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'database/sql] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "unknown key :go/interops"))))
+
+(deftest load-rejects-deps-root-on-go-coord
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.38.0"
+                                           :deps/root "src"}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors)) ":deps/root does not apply"))))
+
+(deftest load-rejects-exclusions-on-go-coord
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.38.0"
+                                           :exclusions ['a/b]}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors)) ":exclusions does not apply"))))
+
+(deftest load-tolerates-non-keyword-coord-keys
+  ;; Coord maps are open, and a third-party deps.edn can carry a string key.
+  ;; The :go/* family check must not throw out of `namespace` on one.
+  (let [cfg {:deps {'foo/bar {:git/url "u" :git/sha "s"}}}]
+    (is (= :no-throw
+           (threw? (fn [] (load-cfg {:deps {'foo/bar {:git/url "u"
+                                                      :git/sha "s"
+                                                      "note" true}}})))))
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-colliding-go-interop-aliases
+  ;; cmd/lginterop writes one interop_<alias>.go per package and refuses a run
+  ;; where two collide — better caught here than minutes into a runtime build.
+  (let [errors (:errors (load-cfg {:deps {'example.com/a/log
+                                          {:go/version "v1" :go/interop "log"}
+                                          'example.org/b/log
+                                          {:go/version "v1"
+                                           :go/interop "log"}}}))]
+    (is (= 2 (count errors)))
+    (is (= [:deps 'example.com/a/log :go/interop] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "example.org/b/log"))))
+
+(deftest load-accepts-distinct-go-interop-aliases
+  (let [cfg {:deps {'example.com/a/log {:go/version "v1" :go/interop "log"}
+                    'example.org/b/trace {:go/version "v1"
+                                          :go/interop "trace"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest go-coord?-ignores-unknown-go-namespaced-keys
+  ;; This predicate also sees coords synthesized from a third-party deps.edn,
+  ;; which are never validated: a stranger's :go/note must not reclassify
+  ;; their source dep as a Go package and drop it from resolution.
+  (is (not (config/go-coord? {:local/root "../x" :go/note "hi"})))
+  (is (config/go-coord? {:go/version "v1"})))
+
+;; ---------------------------------------------------------------------------
+;; dep-config-dir — where a dep's lgx.edn is read from
+;; ---------------------------------------------------------------------------
+
+;; Build a throwaway checkout tree, run f on its root, clean up.
+(defn- with-checkout [layout f]
+  (let [dir (str "/tmp/lgx-dep-config-test-" (rand-int 100000000))]
+    (mkdir dir)
+    (doseq [[rel content] layout]
+      (let [abs (str dir "/" rel)
+            parent (subs abs 0 (- (count abs) (count (last (str/split abs "/"))) 1))]
+        (mkdir parent)
+        (spit abs content)))
+    (let [r (f dir)]
+      (os/sh "rm" "-rf" dir)
+      r)))
+
+(deftest dep-config-dir-without-deps-root-is-the-checkout-root
+  (is (= :root
+         (with-checkout {"lgx.edn" "{}"}
+           (fn [dir]
+             (if (= dir (config/dep-config-dir dir {:git/url "u"}))
+               :root
+               :other))))))
+
+(deftest dep-config-dir-relocates-into-deps-root
+  ;; The monorepo-package layout: the package's own lgx.edn lives beside its
+  ;; sources under :deps/root, and must not be silently ignored.
+  (is (= :sub
+         (with-checkout {"pkg/lgx.edn" "{}"}
+           (fn [dir]
+             (let [r (config/dep-config-dir dir {:local/root "x"
+                                                 :deps/root "pkg"})]
+               (cond
+                 (= r (str dir "/pkg")) :sub
+                 (= r dir) :root
+                 :else :other)))))))
+
+(deftest dep-config-dir-falls-back-to-the-checkout-root
+  ;; The tools.cli layout: :deps/root points at sources, the metadata stays
+  ;; at the repo root. The fallback is what keeps this backward compatible.
+  (is (= :root
+         (with-checkout {"lgx.edn" "{}"
+                         "pkg/keep" ""}
+           (fn [dir]
+             (if (= dir (config/dep-config-dir
+                          dir {:git/url "u" :deps/root "pkg"}))
+               :root
+               :other))))))

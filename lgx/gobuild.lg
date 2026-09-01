@@ -1,0 +1,719 @@
+;; lgx.gobuild — the Go side of dependency resolution.
+;;
+;; A :go/* coord names a Go package, not a let-go source tree: it produces no
+;; source path and no gitlibs clone. Instead the coords a project resolves —
+;; its own and every one a dependency declares — are collected here and turned
+;; into a small Go module that links them into a custom `lg` binary, cached
+;; under $LGX_HOME/runtimes/<hash>/.
+;;
+;; Everything in this file is pure; the subprocess pipeline that builds the
+;; module lives further down and is the only side-effecting part.
+(ns lgx.gobuild
+  (:require [hash]
+            [lgx.config :as config]
+            [lgx.home :as home]
+            [lgx.path :as path]
+            [lgx.style :as style]
+            [string :as str]))
+
+;; ---------------------------------------------------------------------------
+;; Partitioning go coords out of transitive resolution
+;; ---------------------------------------------------------------------------
+
+(defn go-coord-label
+  "How a go coord reads in a resolution warning."
+  [c]
+  (let [base (cond
+               (:go/version c) (:go/version c)
+               (:go/local c) (str "local:" (:go/local c))
+               :else "interop-only")]
+    (if (:go/interop c)
+      (str base " +interop")
+      base)))
+
+(defn- absolutize-go-local
+  "Resolve a coord's relative :go/local against `base`. The declaring file's
+   directory is the base — the project root for a top-level coord, the dep's
+   own directory for a transitive one — and it is only in scope here, which is
+   why normalization happens at collection time (the rule coord-id already
+   applies to :local/root)."
+  [base c]
+  (if-let [local (:go/local c)]
+    (assoc c :go/local (if (path/absolute? local)
+                         (path/normalize local)
+                         (path/normalize (path/join base local))))
+    c))
+
+(defn split-go-coords
+  "Pure. Partition one queue level of resolution entries ({:lib :coord :base})
+   into the source coords the resolver fetches and the Go coords it only
+   collects.
+
+   `seen-go` is the lib -> coord map accumulated over the walk so far. A lib
+   already in it is dropped (first-wins, matching the source-coord rule, so a
+   top-level coord always beats one a dep declares), with a warning line when
+   the later coord differs. Version conflicts beyond that are Go's own MVS
+   problem: lgx writes what it has and `go mod tidy` settles it.
+
+   Returns {:src [entry ...] :go-pairs [[lib coord] ...] :seen-go {...}
+   :warnings [line ...]}, where each accepted coord has had its :go/local
+   normalized to an absolute path against the entry's :base."
+  [entries seen-go]
+  (loop [es (seq entries)
+         src []
+         go-pairs []
+         seen seen-go
+         warnings []]
+    (if (nil? es)
+      {:src src
+       :go-pairs go-pairs
+       :seen-go seen
+       :warnings warnings}
+      (let [{:keys [lib coord base]} (first es)]
+        (cond
+          (not (config/go-coord? coord))
+          (recur (next es) (conj src (first es)) go-pairs seen warnings)
+
+          (contains? seen lib)
+          (let [prev (get seen lib)
+                id (absolutize-go-local base coord)]
+            (recur (next es) src go-pairs seen
+                   (if (= prev id)
+                     warnings
+                     (conj warnings
+                           (str "warning: " lib " already resolved as "
+                                (go-coord-label prev) "; ignoring "
+                                (go-coord-label id) "\n")))))
+
+          :else
+          (let [id (absolutize-go-local base coord)]
+            (recur (next es) src (conj go-pairs [lib id])
+                   (assoc seen lib id) warnings)))))))
+
+;; ---------------------------------------------------------------------------
+;; The runtime cache key
+;;
+;; A runtime is fully determined by two things: which let-go it links, and
+;; which Go packages it links. Both are folded into one hash, and the built
+;; binary lives at $LGX_HOME/runtimes/<hash>/lg — so two projects with the same
+;; declaration share one build, and changing any part of the declaration lands
+;; on a different path rather than invalidating one in place.
+;; ---------------------------------------------------------------------------
+
+(def letgo-module "github.com/nooga/let-go")
+
+(defn letgo-ref
+  "The let-go identity the runtime is built against, as it enters the cache
+   key: the pinned :lg-version, or `replace:<abs-path>` when LGX_LETGO_REPLACE
+   points the build at a local checkout. The replace target's *content* is
+   deliberately not hashed — ensure-runtime! rebuilds unconditionally in that
+   mode instead."
+  [lg-version replace-path]
+  (if (str/blank? (or replace-path ""))
+    (str lg-version)
+    (str "replace:" replace-path)))
+
+(defn- coord-line
+  "One go coord as a canonical line: lib|version|interop|local, empty slots for
+   absent keys. Sorting these is what makes the hash order-independent."
+  [[lib c]]
+  (str/join "|" [(str lib)
+                 (or (:go/version c) "")
+                 (or (:go/interop c) "")
+                 (or (:go/local c) "")]))
+
+(defn- hex64
+  "Render a 64-bit hash as 16 unsigned hex digits. xxh3-64-str hands back Go's
+   uint64 as a signed integer, so half the values would otherwise format with a
+   leading minus and land in a directory name like `-b3b8c4cbc702fe1`. Masking
+   each 32-bit half sidesteps the sign entirely."
+  [n]
+  (format "%08x%08x"
+          (bit-and (bit-shift-right n 32) 0xffffffff)
+          (bit-and n 0xffffffff)))
+
+(defn runtime-hash
+  "Hex xxh3-64 of the let-go ref crossed with the sorted canonical coord lines.
+   `lg-ref` is either a bare :lg-version or a letgo-ref result. `target` is a
+   {:os :arch} platform for a cross-build, or nil for native — nil adds
+   nothing to the hashed body, so native builds keep the cache entries they
+   had before targets existed."
+  ([go-pairs lg-ref] (runtime-hash go-pairs lg-ref nil))
+  ([go-pairs lg-ref target]
+   (let [body (str/join "\n"
+                        (concat [(str "letgo|" lg-ref)]
+                                (if target
+                                  [(str "target|" (:os target) "/"
+                                        (:arch target))]
+                                  [])
+                                (sort (map coord-line go-pairs))))]
+     (hex64 (hash/xxh3-64-str body)))))
+
+;; ---------------------------------------------------------------------------
+;; Rendering the generated module
+;; ---------------------------------------------------------------------------
+
+(def runtime-module "lgx.local/runtime")
+(def interop-package (str runtime-module "/interop"))
+
+(defn- interop? [[_ c]] (some? (:go/interop c)))
+
+(defn- external? [[lib _]] (not (config/go-stdlib? lib)))
+
+(defn- mod-path
+  "A filesystem path as go.mod wants it. The directive grammar splits on
+   whitespace, so an unquoted `=> /tmp/sp ace` parses as a path plus a bogus
+   version; Go-quoting restores it. Quoted only when it has to be, so the
+   generated file stays readable in the common case."
+  [p]
+  (if (nil? (re-find #"[\s\"\\]" p))
+    p
+    (str "\"" (str/replace (str/replace p "\\" "\\\\") "\"" "\\\"") "\"")))
+
+(defn placeholder-version
+  "The version a `replace`d requirement is pinned at. v0.0.0 normally, but a
+   module path carrying a major suffix must agree with it — Go rejects
+   `require example.com/mod/v2 v0.0.0` outright, replacement or not."
+  [module-path]
+  (let [seg (last (str/split module-path "/"))]
+    ;; v0 and v1 are not major suffixes in Go's module grammar — v1 is
+    ;; implied — so the pattern starts at v2 and admits v10 and up.
+    (if (re-find #"^v([2-9]|[1-9][0-9]+)$" seg)
+      (str seg ".0.0")
+      "v0.0.0")))
+
+(defn render-go-mod
+  "Pure. The generated module's go.mod.
+
+   No `require` line is emitted for a :go/version coord: a coord symbol is a Go
+   *package* path, which is not always a *module* path (golang.org/x/crypto/ssh
+   lives in module golang.org/x/crypto), so `go get <pkg>@<version>` is left to
+   resolve the owning module itself. let-go gets the same treatment
+   (letgo-get-args), so :lg-version can name a branch or sha — except under a
+   replace, which `go get` cannot express, so that case keeps its placeholder
+   require plus the replace directive.
+
+   `local-modules` is a vector of [coord module-path] pairs — reading the
+   module path out of a :go/local target's own go.mod is the side-effecting
+   caller's job, so this stays pure."
+  [go-pairs replace-path local-modules]
+  (let [replace? (not (str/blank? (or replace-path "")))]
+    (str "module " runtime-module "\n"
+         "\n"
+         ;; Matches let-go's own minimum; `go mod tidy` raises it if a
+         ;; dependency ever needs more.
+         "go 1.26\n"
+         "\n"
+         (if replace?
+           (str "require " letgo-module " v0.0.0\n")
+           "")
+         (str/join "" (map (fn [[_ mod]]
+                             (str "require " mod " "
+                                  (placeholder-version mod) "\n"))
+                           local-modules))
+         (if replace?
+           (str "\nreplace " letgo-module " => " (mod-path replace-path) "\n")
+           "")
+         (str/join "" (map (fn [[c mod]]
+                             (str "replace " mod " => "
+                                  (mod-path (:go/local c)) "\n"))
+                           local-modules)))))
+
+(defn letgo-version-parts
+  "Pure. The [version commit] pair cli.Main reports, from the let-go version
+   the build selected. A semver pin has no commit to name. A resolved
+   pseudo-version (vX.Y.Z-<n>.<timestamp>-<12hex>) splits into its version
+   (v stripped) and its trailing commit segment. Under a replace there is no
+   released version at all, so the pair reads dev/replace — honest about being
+   unreleased, and distinguishable from the old hardcoded dev/none."
+  [resolved-version replace?]
+  (if replace?
+    ["dev" "replace"]
+    (let [v (str resolved-version)
+          v (if (str/starts-with? v "v") (subs v 1) v)
+          ;; The timestamp follows "." in the tagged form (v1.2.3-0.<ts>-<sha>)
+          ;; and "-" in the untagged one (v0.0.0-<ts>-<sha>).
+          m (re-find #"[.-][0-9]{14}-([0-9a-f]{12})$" v)]
+      [v (if m (second m) "")])))
+
+(defn- go-string-literal
+  "Escape `s` into a double-quoted Go string literal."
+  [s]
+  (str "\"" (str/replace (str/replace (str s) "\\" "\\\\") "\"" "\\\"") "\""))
+
+(defn render-main-go
+  "Pure. The generated module's main.go: a binary that IS `lg`, with the
+   declared packages linked in. `version` and `commit` fill cli.Main's two
+   slots (letgo-version-parts), so the runtime — and any binary bundled from
+   it — answers `lg -v` with the let-go it actually contains.
+
+   Blank imports go to link-only coords — drivers and self-registering shims
+   that export nothing anyone calls. A coord with :go/interop needs none: its
+   generated binding package imports the package itself, and blank-importing
+   that binding package is what registers every namespace."
+  [go-pairs version commit]
+  (let [links (sort (map (fn [[lib _]] (str lib))
+                         (filter #(and (external? %) (not (interop? %)))
+                                 go-pairs)))
+        any-interop? (boolean (some interop? go-pairs))]
+    (str "package main\n"
+         "\n"
+         "import (\n"
+         "\t\"os\"\n"
+         "\n"
+         "\t\"" letgo-module "/pkg/cli\"\n"
+         (if any-interop?
+           (str "\n\t_ \"" interop-package "\"\n")
+           "")
+         (if (seq links)
+           (str "\n" (str/join "" (map #(str "\t_ \"" % "\"\n") links)))
+           "")
+         ")\n"
+         "\n"
+         "func main() { os.Exit(cli.Main(" (go-string-literal version) ", "
+         (go-string-literal commit) ")) }\n")))
+
+(defn interop-packages
+  "The package paths for cmd/lginterop's -packages flag, sorted so the
+   generated files (and any regeneration) stay stable."
+  [go-pairs]
+  (vec (sort (map (fn [[lib _]] (str lib)) (filter interop? go-pairs)))))
+
+(defn render-interop-doc-go
+  "The interop package's placeholder, written before generation and left in
+   place beside the generated files afterwards.
+
+   The blank imports are load-bearing, not documentation. main.go imports the
+   interop package but nothing imports the *wrapped* packages until lginterop
+   has run — so `go mod tidy`, which runs first, would prune the requirement
+   `go get` just added, and lginterop would then fail to resolve the package it
+   was asked to scan. Naming them here keeps them required across tidy."
+  [go-pairs]
+  (let [pkgs (interop-packages go-pairs)]
+    (str "// Package interop holds the bindings cmd/lginterop generates.\n"
+         "// This placeholder exists so the module resolves before generation;\n"
+         "// its imports keep the wrapped packages required across go mod tidy.\n"
+         "package interop\n"
+         (if (seq pkgs)
+           (str "\nimport (\n"
+                (str/join "" (map #(str "\t_ \"" % "\"\n") pkgs))
+                ")\n")
+           ""))))
+
+(defn go-get-args
+  "One `go get <pkg>@<version>` argv per :go/version coord, in a deterministic
+   order."
+  [go-pairs]
+  (mapv (fn [[lib c]] ["get" (str lib "@" (:go/version c))])
+        (sort-by (fn [[lib _]] (str lib))
+                 (filter (fn [[_ c]] (some? (:go/version c))) go-pairs))))
+
+(defn semver-version?
+  "A bare semver pin like \"1.11.1\" — the form lgx.edn has always taken.
+   Public because callers that only work against a released version (the
+   editor-source fetch clones tag v<version>) use it to skip other ref forms."
+  [v]
+  (some? (re-find #"^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$" (str v))))
+
+(defn- commit-sha?
+  [v]
+  (some? (re-find #"^[0-9a-f]{40}$" (str v))))
+
+(defn letgo-module-ref
+  "The ref `go get`/`go list` sees for :lg-version: a bare semver gets the `v`
+   Go's module grammar requires; anything else — a branch, a sha, an
+   already-resolved pseudo-version — passes through verbatim."
+  [lg-version]
+  (if (semver-version? lg-version)
+    (str "v" lg-version)
+    (str lg-version)))
+
+(defn letgo-get-args
+  "The `go get` argv that pins let-go itself in the generated module, or nil
+   under LGX_LETGO_REPLACE — `go get` cannot express a replace directive, so
+   the rendered go.mod carries the pin there instead."
+  [lg-version replace-path]
+  (when (str/blank? (or replace-path ""))
+    ["get" (str letgo-module "@" (letgo-module-ref lg-version))]))
+
+(defn mutable-letgo-ref?
+  "True when :lg-version names something that can move over time — a branch or
+   tag — rather than a semver or a full commit sha. A mutable ref must be
+   resolved to the commit it points at before it enters the cache key: hashing
+   the literal string would reuse the first build forever, and two machines
+   could cache different commits under one hash."
+  [lg-version]
+  (and (not (semver-version? lg-version))
+       (not (commit-sha? lg-version))))
+
+;; ---------------------------------------------------------------------------
+;; Building the runtime
+;;
+;; Everything below shells out. The Go toolchain is invoked with `go -C <dir>`
+;; rather than a `cd` in a shell, so no path ever passes through shell quoting.
+;; ---------------------------------------------------------------------------
+
+(def ^:private letgo-replace-env "LGX_LETGO_REPLACE")
+
+(defn letgo-replace-path
+  "LGX_LETGO_REPLACE as an absolute path, or nil when unset. Pointing it at a
+   let-go checkout builds the runtime against that working tree instead of a
+   released version — the lever that makes the whole pipeline testable before
+   a release carrying pkg/cli and cmd/lginterop exists."
+  []
+  (let [v (os/getenv letgo-replace-env)]
+    (when-not (str/blank? v)
+      (if (path/absolute? v)
+        (path/normalize v)
+        (path/normalize (path/join (os/cwd) v))))))
+
+(defn go-available?
+  "True when a `go` binary resolves on PATH. Passed as an argument, never
+   interpolated into the script (same shape as runner/lg-resolved-path)."
+  []
+  (let [r (try (os/sh "sh" "-c" "command -v -- \"$1\"" "sh" "go")
+               (catch e nil))]
+    (boolean (and r (zero? (:exit r)) (not (str/blank? (:out r)))))))
+
+(defn- die! [msg]
+  (write! *err* (str "error: " msg "\n"))
+  (os/exit 1))
+
+(defn preflight!
+  "Check what building a custom runtime needs before any work starts: the Go
+   toolchain, and a let-go to build against. Exits 1 with a message naming the
+   fix. A no-op when there are no go coords."
+  [go-pairs lg-version]
+  (when (seq go-pairs)
+    (when-not (go-available?)
+      (die! (str "lgx.edn declares Go deps, which need the Go toolchain, but "
+                 "`go` is not on PATH.\n"
+                 "  install it with `mise use -g go@latest`, "
+                 "or from https://go.dev/dl")))
+    (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
+      (die! (str "lgx.edn declares Go deps but no :lg-version.\n"
+                 "  the custom runtime links let-go itself, so the version has "
+                 "to be pinned: add :lg-version \"<version>\" to lgx.edn")))))
+
+(defn target-env-args
+  "Pure. The env(1) prefix a cross-build's `go build` runs under. GOOS/GOARCH
+   select the target; CGO_ENABLED=0 rides along because a cgo dependency
+   cannot cross-compile without a target C toolchain, and failing at the Go
+   linker produces a far worse message than a build that requires a pure-Go
+   driver. Empty for native (nil target): the host build keeps host defaults,
+   cgo included."
+  [target]
+  (if (nil? target)
+    []
+    ["env"
+     (str "GOOS=" (:os target))
+     (str "GOARCH=" (:arch target))
+     "CGO_ENABLED=0"]))
+
+(defn- go!
+  "Run one `go` subprocess, optionally under an env(1) prefix
+   (target-env-args). On failure the captured output is printed as-is — the
+   toolchain's own diagnostics are the useful part — and lgx exits 1."
+  ([args what verbose?] (go! [] args what verbose?))
+  ([env-prefix args what verbose?]
+   (when verbose?
+     (write! *err* (str "+ " (str/join " " (concat env-prefix ["go"] args))
+                        "\n")))
+   (let [r (apply os/sh (concat env-prefix ["go"] args))]
+     (when-not (zero? (:exit r))
+       (write! *err* (str (:out r) (:err r)))
+       (die! (str what " failed (go exited " (:exit r) ")")))
+     r)))
+
+(defn- module-path-at
+  "The `module` line of the go.mod in `dir`. A :go/local target has to be a Go
+   module: its module path is what the generated go.mod requires and replaces,
+   and it cannot be derived from the package path."
+  [dir]
+  (let [p (path/join dir "go.mod")]
+    (when-not (file-exists? p)
+      (die! (str ":go/local " dir " is not a Go module (no go.mod there)")))
+    ;; Split on whitespace rather than matching a literal "module " prefix:
+    ;; go.mod's grammar allows a tab (or any run of spaces) after the keyword.
+    (or (some (fn [line]
+                (let [toks (filter #(not (str/blank? %))
+                                   (str/split (str/trim line) #"\s+"))]
+                  (when (and (= "module" (first toks)) (second toks))
+                    (second toks))))
+              (str/split (slurp p) "\n"))
+        (die! (str ":go/local " dir " has a go.mod with no module line")))))
+
+(defn- local-coords [go-pairs]
+  (filter (fn [[_ c]] (some? (:go/local c))) go-pairs))
+
+(defn runtimes-dir []
+  (home/runtimes-dir))
+
+(defn- resolve-letgo-version!
+  "Resolve a mutable :lg-version (a branch or tag) to the pseudo-version it
+   points at right now, via `go list -m`. The cache key hashes the result, so
+   the cached runtime's identity is the commit rather than the name pointing at
+   it — the name would reuse the first build forever. Runs in the runtimes dir:
+   the module query needs no go.mod, but the user's cwd might hold one whose
+   replace directives would skew the answer."
+  [lg-version verbose?]
+  (let [dir (runtimes-dir)
+        _ (mkdir dir)
+        r (go! ["-C" dir "list" "-m"
+                (str letgo-module "@" (letgo-module-ref lg-version))]
+               (str "resolving let-go@" lg-version) verbose?)
+        ver (second (filter #(not (str/blank? %))
+                            (str/split (str/trim (:out r)) #"\s+")))]
+    (when (str/blank? (or ver ""))
+      (die! (str "resolving let-go@" lg-version
+                 " returned no version (go list output: "
+                 (str/trim (:out r)) ")")))
+    ver))
+
+(defn- write-module! [dir go-pairs replace-path version commit]
+  (mkdir dir)
+  (let [locals (mapv (fn [[_ c]] [c (module-path-at (:go/local c))])
+                     (local-coords go-pairs))]
+    (spit (path/join dir "go.mod")
+          (render-go-mod go-pairs replace-path locals))
+    (spit (path/join dir "main.go") (render-main-go go-pairs version commit))
+    (when (seq (interop-packages go-pairs))
+      (mkdir (path/join dir "interop"))
+      (spit (path/join dir "interop" "doc.go")
+            (render-interop-doc-go go-pairs)))))
+
+(defn- rewrite-main-with-selected-version!
+  "Re-render main.go from the let-go version Go actually selected, read out of
+   the tidied go.mod. The pre-tidy main.go embeds the *requested* version, but
+   MVS may have picked a newer one (a Go dep can require a later let-go), and
+   a sha pin only gets its pseudo-version here — so the honest values exist
+   only after tidy. Offline: `go list -m` reads the module graph, no network."
+  [dir go-pairs verbose?]
+  (let [r (go! ["-C" dir "list" "-m" "-f" "{{.Version}}" letgo-module]
+               "go list -m let-go" verbose?)
+        [ver com] (letgo-version-parts (str/trim (:out r)) false)]
+    (spit (path/join dir "main.go") (render-main-go go-pairs ver com))))
+
+(defn- run-lginterop!
+  "Generate the interop bindings — for the *target* platform. `go run` would
+   scan whatever the host is: lginterop's source importer selects files and
+   symbols by GOOS/GOARCH (read from the environment at process start), so a
+   linux host scanning `syscall` for a darwin target would emit linux-only
+   symbols and the target build would fail. So the tool is built for the host
+   (no target env) and then *run* under the target's GOOS/GOARCH. Empty values
+   fall back to host defaults, which keeps the native path identical.
+
+   -opaque-structs keeps struct types boxed and dispatching methods
+   reflectively instead of flattening them to field-only Records. Every
+   interesting Go API is used through its methods — `database/sql` is all
+   (.Query db ...) / (.Next rows) — and without this those calls fail with
+   \"no method Query on record sql/DB\"."
+  [dir pkgs target verbose?]
+  (let [tool (path/join dir "lginterop-tool")]
+    (go! ["-C" dir "build" "-o" tool (str letgo-module "/cmd/lginterop")]
+         "building lginterop" verbose?)
+    (let [os-v (or (:os target) "")
+          arch-v (or (:arch target) "")
+          ;; The scan mirrors the final build's cgo setting: 0 for a cross
+          ;; build, the platform default for native (empty CGO_ENABLED means
+          ;; default, same as empty GOOS/GOARCH).
+          cgo-v (if target "0" "")
+          ;; cd first: the tool resolves non-stdlib packages through the
+          ;; module in its working directory. Positional params keep every
+          ;; path out of shell quoting (the os/sh \"sh\" \"-c\" pattern).
+          script (str "cd \"$1\" && "
+                      "GOOS=\"$2\" GOARCH=\"$3\" CGO_ENABLED=\"$4\" "
+                      "exec \"$5\" -packages \"$6\" -opaque-structs "
+                      "-out-pkg interop -out interop")
+          pkg-list (str/join "," pkgs)]
+      (when verbose?
+        (write! *err* (str "+ GOOS=" os-v " GOARCH=" arch-v
+                           " CGO_ENABLED=" cgo-v
+                           " lginterop-tool -packages " pkg-list "\n")))
+      (let [r (os/sh "sh" "-c" script "sh" dir os-v arch-v cgo-v tool
+                     pkg-list)]
+        (when-not (zero? (:exit r))
+          (write! *err* (str (:out r) (:err r)))
+          (die! (str "lginterop failed (exited " (:exit r) ")")))
+        r))))
+
+(defn- build-runtime! [dir out go-pairs lg-version replace-path target
+                       verbose?]
+  ;; let-go's own `go get` runs with the coord ones, before tidy: the rendered
+  ;; go.mod carries no require for it in the pinned case.
+  (when-let [args (letgo-get-args lg-version replace-path)]
+    (go! (vec (concat ["-C" dir] args)) (str "go " (second args)) verbose?))
+  (doseq [args (go-get-args go-pairs)]
+    (go! (vec (concat ["-C" dir] args)) (str "go " (second args)) verbose?))
+  (go! ["-C" dir "mod" "tidy"] "go mod tidy" verbose?)
+  ;; Under a replace there is no selected version to report — main.go already
+  ;; says dev/replace and stays that way.
+  (when (str/blank? (or replace-path ""))
+    (rewrite-main-with-selected-version! dir go-pairs verbose?))
+  (let [pkgs (interop-packages go-pairs)]
+    (when (seq pkgs)
+      (run-lginterop! dir pkgs target verbose?)))
+  ;; go get and tidy run host-side (module resolution is platform-independent);
+  ;; lginterop scans under the target env above; the final build is where
+  ;; GOOS/GOARCH select the output format.
+  (go! (target-env-args target) ["-C" dir "build" "-o" out "."]
+       "go build" verbose?))
+
+(defn ensure-runtime!
+  "Build (or reuse) the custom `lg` that links this project's Go deps, and
+   return its absolute path.
+
+   The binary is cached at $LGX_HOME/runtimes/<hash>/lg and a hit short-circuits
+   everything — except when a :go/local coord or LGX_LETGO_REPLACE is in play.
+   Those point at working trees whose *content* is not in the hash, so the
+   build steps re-run every time; `go build` is incremental, so that costs
+   about a second.
+
+   `target` is a {:os :arch} platform for a cross-build — it joins the hash
+   (one cached binary per platform) and sets GOOS/GOARCH/CGO_ENABLED=0 on the
+   final `go build`. nil means native."
+  ([go-pairs lg-version verbose?]
+   (ensure-runtime! go-pairs lg-version nil verbose?))
+  ([go-pairs lg-version target verbose?]
+   (let [replace-path (letgo-replace-path)
+         ;; A branch or tag resolves to its pseudo-version before anything
+         ;; else: the hash, go get, and (later) the version the binary reports
+         ;; all see the commit, not the name. This costs one `go list -m` per
+         ;; invocation for mutable refs — the price of the cache key staying
+         ;; honest.
+         lg-version (if (and (nil? replace-path)
+                             (mutable-letgo-ref? lg-version))
+                      (resolve-letgo-version! lg-version verbose?)
+                      lg-version)
+         ref (letgo-ref lg-version replace-path)
+         dir (path/join (runtimes-dir) (runtime-hash go-pairs ref target))
+         src (path/join dir "src")
+         out (path/join dir "lg")
+         live? (or (some? replace-path) (seq (local-coords go-pairs)))]
+     (if (and (file-exists? out) (not live?))
+       out
+       (let [;; The pre-tidy main.go embeds the *requested* version; after
+             ;; `go mod tidy` the build rewrites it from the version Go
+             ;; actually selected (rewrite-main-with-selected-version!), which
+             ;; is when a sha pin's pseudo-version and any MVS upgrade exist.
+             [ver com] (letgo-version-parts lg-version (some? replace-path))
+             label (if target
+                     (str "Building custom lg runtime for " (:os target) "/"
+                          (:arch target) "...")
+                     "Building custom lg runtime...")]
+         (write! *err* (str (style/header label) "\n"))
+         (write-module! src go-pairs replace-path ver com)
+         ;; -o is resolved relative to the -C directory, so out has to be
+         ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
+         (build-runtime! src out go-pairs lg-version replace-path target
+                         verbose?)
+         out)))))
+
+;; ---------------------------------------------------------------------------
+;; Wiring the runtime into the commands
+;; ---------------------------------------------------------------------------
+
+(defn resolve-build-targets
+  "Pure. The target list one `lgx build` works through, from the parsed CLI
+   targets, the --all flag, and lgx.edn's :platforms. An explicit --target
+   list wins outright; --all takes every declared platform; neither is the
+   native build — one entry, nil target, no Go involvement. Returns
+   {:targets [...]} or {:error msg}."
+  [cli-targets all? platforms]
+  (cond
+    (seq cli-targets) {:targets (vec cli-targets)}
+
+    all?
+    (if (seq platforms)
+      {:targets (vec platforms)}
+      {:error (str "build --all builds every declared platform, but lgx.edn "
+                   "declares none - add :platforms under :targets :bin, or "
+                   "name one with --target <os>/<arch>")})
+
+    :else {:targets [nil]}))
+
+(defn target-out
+  "Pure. The :out path one target's artifact lands on: the template expanded
+   for a cross target, byte-for-byte :out for native (nil) — which is what
+   keeps an existing config producing exactly the file it always did."
+  [out target]
+  (if target
+    (config/expand-out out target)
+    out))
+
+(defn duplicate-target-out
+  "Pure. The first :out path two targets in `targets` both render to, or nil
+   when all are distinct. lgx.edn's :platforms get this check at load time;
+   an ad-hoc --target list only meets it here."
+  [out targets]
+  (loop [ts (seq targets)
+         seen #{}]
+    (when ts
+      (let [rendered (target-out out (first ts))]
+        (if (contains? seen rendered)
+          rendered
+          (recur (next ts) (conj seen rendered)))))))
+
+(defn cross-preflight!
+  "What any cross-build needs before work starts, Go deps or not: the Go
+   toolchain (the target-platform lg is generated even for a stock runtime)
+   and a let-go to build it from. Exits 1 with a message naming the fix."
+  [lg-version]
+  (when-not (go-available?)
+    (die! (str "cross-compiling builds a target-platform lg, which needs the "
+               "Go toolchain, but `go` is not on PATH.\n"
+               "  install it with `mise use -g go@latest`, "
+               "or from https://go.dev/dl")))
+  (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
+    (die! (str "cross-compiling builds a target-platform lg, so the let-go "
+               "version has to be pinned: add :lg-version \"<version>\" "
+               "to lgx.edn"))))
+
+(defn runtime-action
+  "Pure. What to do with a freshly ensured runtime, given whether the user set
+   LGX_LG themselves. lgx normally points LGX_LG at the runtime so runner.lg
+   picks it up unchanged; an explicit LGX_LG is the user overriding on purpose,
+   so it wins and lgx only says why the custom runtime is not in play."
+  [user-lg-set? runtime-path]
+  (if user-lg-set?
+    {:warn (str "warning: lgx.edn declares Go deps, but LGX_LG is set - using "
+                "that lg instead of a custom runtime, so the Go namespaces "
+                "will not resolve\n")}
+    {:setenv runtime-path}))
+
+(defn inject-bundle-base
+  "Pure. `lg -b` copies the running binary as the bundle base, which would
+   produce an app without the linked Go natives. Point it at the custom runtime
+   instead — unless the user passed a -bundle-base of their own, which is how
+   cross-compiling works and so wins."
+  [forward-args runtime-path]
+  (if (or (nil? runtime-path)
+          (some #(= "-bundle-base" %) forward-args))
+    (vec forward-args)
+    (vec (concat forward-args ["-bundle-base" runtime-path]))))
+
+;; ---------------------------------------------------------------------------
+;; LGX_LG ownership
+;;
+;; Pointing LGX_LG at the runtime is what makes runner.lg pick it up with no
+;; changes, but the child inherits it — and a program or :sh task that invokes
+;; lgx again would read its parent's runtime as an explicit user override,
+;; skip building one for its own Go deps, and fail to resolve them. So lgx
+;; stamps the value it set alongside it: LGX_LG matching LGX_LG_AUTO is lgx's
+;; own, anything else is the user's.
+;; ---------------------------------------------------------------------------
+
+(def ^:private lg-auto-env "LGX_LG_AUTO")
+
+(defn user-set-lg?
+  "True when LGX_LG is set to something lgx did not put there."
+  []
+  (let [lg (os/getenv "LGX_LG")]
+    (and (not (str/blank? lg))
+         (not= lg (os/getenv lg-auto-env)))))
+
+(defn select-runtime!
+  "Point LGX_LG at `path` and record that lgx owns that value."
+  [path]
+  (os/setenv "LGX_LG" path)
+  (os/setenv lg-auto-env path))

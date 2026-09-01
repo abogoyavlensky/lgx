@@ -1,5 +1,7 @@
 # lgx Go Deps Pipeline Implementation Plan
 
+**Status: COMPLETE** (2026-08-23)
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let lgx projects declare Go package dependencies in `lgx.edn`, build a cached custom `lg` runtime that links them, wire it through every command transparently, and prove it end-to-end with a thin sqlite wrapper in the `letgo-packages` monorepo.
@@ -101,22 +103,28 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 - Modify: `lgx/config.lg`
 - Test: the existing config test file under `test/lgx/` (locate it first; create `test/lgx/config_test.lg` if none covers coords)
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   Cases: valid external link-only (`:go/version`); valid external with `:go/local`; valid stdlib (`:go/interop` only); valid external with both `:go/version` and `:go/interop`; error on stdlib with `:go/version`; error on external with neither `:go/version` nor `:go/local`; error mixing `:go/version` with `:git/url`; error on `:go/interop` alias not equal to the default (last path segment); go coords accepted in `:extra-deps` (contexts/tasks) and by the lenient dep-config schema.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lgx test test/lgx/<file>` in `/Users/andrew/Projects/lgx`.
   Expected: FAIL on the new cases.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `coord-errors` (`lgx/config.lg:64`): detect the `:go/*` family (any key with namespace `"go"`), branch before the git/local logic, apply the rules from the Design. Add public helpers: `(go-coord? c)` and `(go-default-alias lib-sym)` (last `/` segment) — `lgx.lg` and `gobuild` share them. Stdlib detection: first `/`-segment of the symbol string contains no `.`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
   Run: `lgx test`
   Expected: PASS, full suite green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat(config): :go/* coord family for Go package deps"`
+
+> Deviation: the rules that need the lib symbol (stdlib detection, lginterop
+> alias) can't live in `coord-errors` — `[:fn coord-errors]` only receives the
+> coord value. They moved to a `:deps`-level cross-check, `deps-schema` becoming
+> `[:and [:map-of :symbol coord-schema] [:fn go-deps-errors]]`, which covers
+> `:deps`, `:extra-deps`, and the lenient dep-config schema alike.
 
 ### Task 2: Partition go coords through resolution
 
@@ -124,18 +132,29 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 - Modify: `lgx.lg` (`ensure-all!`, `basis`, `cmd-install`)
 - Test: `test/lgx/gobuild_test.lg` (start it here) or the existing resolution test file
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   `ensure-all!` is currently private and side-effecting; extract the partition/dedup decision into a pure helper (e.g. `split-go-coords` taking `[lib coord base]` entries → `{:src-pairs [...] :go-pairs [...]}`) and test that: go coords split out; first-wins dedup with warning on a differing duplicate go coord; git/local pairs untouched; a relative `:go/local` is rewritten to absolute against the entry's `base` (transitive case: a dep declaring `{:go/local "shim"}` yields `<dep-dir>/shim`).
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `ensure-all!` (`lgx.lg:71`): partition each queue level with the helper; go coords never reach `cache/ensure-lib!` but ARE collected across the transitive walk (a dep's `lgx.edn` go coords flow up via the same `coords-at!` read). Return shape changes to `{:installs [...] :go-coords [[lib coord] ...]}`; update `basis` (thread `:go-coords` into its return map) and `cmd-install`/`print-installs!` call sites.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: collect :go/* coords through transitive resolution"`
+
+> Deviation: `split-go-coords` lives in the new `lgx/gobuild.lg` rather than
+> `lgx.lg` — everything `:go/*` in one namespace, and `lgx.lg`'s fns are
+> private so a helper there would not be unit-testable. It splits one queue
+> level at a time (taking the accumulated `seen-go` map) rather than the whole
+> entry list at once, which is what preserves breadth-first first-wins.
+>
+> Codex review of Task 1 found two real gaps, fixed before Task 2's commit:
+> the `:go/*` key namespace is now closed (a misspelled `:go/interops` used to
+> validate as a go coord that generates nothing), and `:deps/root` /
+> `:exclusions` are rejected on go coords instead of silently ignored.
 
 ### Task 3: gobuild pure functions — cache key and file rendering
 
@@ -143,22 +162,35 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 - Create: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
   - Cache key: stable across coord order; changes with any of lib/version/interop/local and with the let-go ref; `LGX_LETGO_REPLACE` ref renders as `replace:<abs-path>`.
   - `render-go-mod`: module line `lgx.local/runtime`; let-go require with pinned version; `v0.0.0` + replace when a replace path is given; one `require ... v0.0.0` + `replace` pair per `:go/local` coord using a caller-supplied module path (the fn takes `[coord module-path]` pairs — reading the target's `go.mod` is the side-effecting caller's job); NO require lines for `:go/version` coords (they're added via `go get` — see Design); stdlib coords absent.
   - `render-main-go`: `pkg/cli` import + `cli.Main` call; blank imports only for link-only external coords; `lgx.local/runtime/interop` blank import iff any interop coords; no interop import otherwise.
   - `interop-packages`: ordered list of package paths for the `-packages` flag.
   - `go-get-args`: `["get" "<sym>@<version>"]` per `:go/version` coord, deterministic order.
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Pure string-rendering fns in `lgx.gobuild`; hash via let-go's bundled hash ns (confirm the fn in `pkg/rt/core/hash.lg` of the pinned let-go — e.g. xxh3 — and render hex). Canonical coord line: `lib|version|interop|local` with empty slots for absent keys, sorted.
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS.
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat(gobuild): cache key and runtime module rendering"`
+
+> Deviation: `hash/xxh3-64-str` returns Go's uint64 as a *signed* integer, so
+> `(format "%016x" h)` renders half of all hashes with a leading minus — a
+> `-b3b8...` directory name. `hex64` masks each 32-bit half instead;
+> `runtime-hash-is-16-unsigned-hex-digits` pins it.
+>
+> The generated go.mod carries `go 1.26` (let-go's own minimum); `go mod tidy`
+> raises it if a dependency ever needs more.
+>
+> Verified beyond the unit tests: the rendered module was written to a scratch
+> dir and driven through the real `go mod tidy` -> lginterop -> `go build`
+> pipeline against the integration branch. The resulting binary reports
+> `lg dev` and resolves `sql/Open`.
 
 ### Task 4: gobuild side-effecting pipeline
 
@@ -167,17 +199,30 @@ letgo-packages repo (`/Users/andrew/Projects/letgo-packages`):
 
 No unit tests (subprocess orchestration; covered by Task 8 e2e). Follow the existing subprocess conventions in `lgx/cache.lg` (`git!`-style error wrapping) and `lgx/runner.lg`.
 
-- [ ] **Step 1: Implement preflight**
+- [x] **Step 1: Implement preflight**
   `go-available?` via `command -v` (the `sh -c "command -v -- \"$1\""` pattern from `runner/lg-resolved-path`, `lgx/runner.lg:37`). On missing: stderr error naming the fix (`mise use -g go@latest` or https://go.dev/dl) and exit 1. On go coords present with no `:lg-version` and no `LGX_LETGO_REPLACE`: error explaining `:lg-version` pins the runtime's let-go.
 
-- [ ] **Step 2: Implement `ensure-runtime!`**
+- [x] **Step 2: Implement `ensure-runtime!`**
   Signature: `(ensure-runtime! go-pairs lg-version verbose?)` → absolute path of the built `lg`. Logic per Design: hash → `$LGX_HOME/runtimes/<hash>/`; cache hit returns immediately unless a local replace is active; else: read the `module` line from each `:go/local` target's `go.mod` (error if the target isn't a module), write `src/go.mod` + `src/main.go` + placeholder `src/interop/doc.go` (when interop coords), then with cwd `src/`: `go get <sym>@<version>` per `:go/version` coord → `go mod tidy` → (when interop coords) `go run github.com/nooga/let-go/cmd/lginterop -packages <csv> -out-pkg interop -out interop` → `go build -o ../lg .` — each failure printing the captured output and exiting 1. `--verbose` traces each subprocess command (match the `+ ...` trace style in `runner.lg`). Print a one-line `Building custom lg runtime...` header (via `lgx.style`) on cold builds so the first-run pause is explained.
 
-- [ ] **Step 3: Manual smoke (no commit gate)**
+- [x] **Step 3: Manual smoke (no commit gate)**
   With `LGX_LETGO_REPLACE` pointed at the integration worktree and a scratch project declaring `{database/sql {:go/interop "sql"}}`, confirm a binary appears under `$LGX_HOME/runtimes/` and `<runtime>/lg -v` runs. (Full verification is Task 8.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -m "feat(gobuild): build and cache the custom lg runtime"`
+
+> Deviation: the toolchain is invoked as `go -C <dir> ...` rather than through
+> a shell `cd`, so no generated path passes through shell quoting. `os/sh`
+> takes no cwd, and the plan's alternative would have.
+>
+> Smoke results (Step 3, `LGX_LETGO_REPLACE` at the integration worktree,
+> `{database/sql {:go/interop "sql"}}`): cold build produced
+> `<LGX_HOME>/runtimes/0f4d4db73b9bb951/lg`, which reports `lg dev` and
+> resolves `sql/Open`; the replace-active rebuild re-ran and took 0.7s; a
+> pinned coord set with a pre-existing binary short-circuited with no
+> subprocesses. A genuinely pinned build correctly fails today — no let-go
+> release contains `pkg/cli` yet (v1.12.2 checked) — surfacing go's own
+> diagnostic and exiting 1, which is exactly why LGX_LETGO_REPLACE exists.
 
 ### Task 5: Wire the runtime into commands
 
@@ -185,19 +230,43 @@ No unit tests (subprocess orchestration; covered by Task 8 e2e). Follow the exis
 - Modify: `lgx.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write failing tests for the pure decisions**
+- [x] **Step 1: Write failing tests for the pure decisions**
   - LGX_LG override: helper deciding `{:setenv path}` vs `{:warn ...}` given (user-LGX_LG-set?, go-coords-present?).
   - Bundle-base injection: given forward-args and a runtime path, argv gains `["-bundle-base" path]` before `-b` only when the user's args don't already contain `"-bundle-base"`.
 
-- [ ] **Step 2: Verify fail** — `lgx test`, expected FAIL.
+- [x] **Step 2: Verify fail** — `lgx test`, expected FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   A shared helper in `lgx.lg` called right after each command's basis: when `:go-coords` non-empty → preflight, `ensure-runtime!`, then setenv-or-warn per the helper. Skip `check-lg-version!` when the custom runtime is active (call sites at `lgx.lg:305,330,357,374,422` — restructure so the check runs only in the no-go-deps path). `cmd-install` calls the same helper after `print-installs!`. `cmd-build` uses the injection helper for its argv (`lgx.lg:388`).
 
-- [ ] **Step 4: Verify pass** — `lgx test`, expected PASS (existing suite must stay green — no-go-deps projects take the unchanged path).
+- [x] **Step 4: Verify pass** — `lgx test`, expected PASS (existing suite must stay green — no-go-deps projects take the unchanged path).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -m "feat: custom runtime wired through run/repl/test/build/install"`
+
+> Deviation: `apply-runtime!` checks the LGX_LG override *before* building
+> rather than after — an explicit LGX_LG discards the runtime, and building one
+> cold takes minutes. `runtime-action` therefore decides from the flag alone
+> and the warning no longer names a path.
+>
+> The `check-lg-version!` calls moved from before the basis to inside
+> `apply-runtime!` (the plan's restructure): the transitive `:go/*` coords are
+> only known once resolution has run. For a no-go-deps project the check now
+> fires after deps are fetched instead of before — the only user-visible change
+> on that path.
+>
+> Also fixed here, found by review of Task 3: lginterop needs
+> `-opaque-structs`. Without it the wrapped structs flatten to field-only
+> Records and every method call fails (`no method Query on record sql/DB`),
+> which would have made the whole sqlite wrapper unusable.
+>
+> Verified end-to-end against the integration branch with a scratch project
+> declaring `{database/sql {:go/interop "sql"} modernc.org/sqlite {:go/version
+> "v1.38.0"}}`: `lgx run` opened a sqlite db and ran create/insert/select;
+> `lgx --verbose build` showed `-bundle-base` pointing at the runtimes-cache
+> binary and the standalone `bin/app` produced identical output; `lgx install`
+> warmed the runtime; `LGX_LG` set warned and skipped the build; a no-go-deps
+> example still runs unchanged.
 
 ### Task 6: Docs
 
@@ -205,40 +274,142 @@ No unit tests (subprocess orchestration; covered by Task 8 e2e). Follow the exis
 - Modify: `README.md` (coord family reference, end-user requirements: go on PATH via mise, `:lg-version`), `docs/ARCHITECTURE.md` (resolution data flow + runtimes cache in the `$LGX_HOME` layout section)
 - Create: `docs/knowledge-base/lgx-go-runtimes.md` (cache layout, hash inputs, `LGX_LETGO_REPLACE`, rebuild policy, troubleshooting `go` failures) with a `Verify against: lgx/gobuild.lg, lgx.lg` footer
 
-- [ ] **Step 1: Write the docs** (use /writing-clearly)
-- [ ] **Step 2: Commit** — `git commit -m "docs: Go deps pipeline"`
+- [x] **Step 1: Write the docs** (use /writing-clearly)
+- [x] **Step 2: Commit** — `git commit -m "docs: Go deps pipeline"`
+
+> Deviation: also updated `AGENTS.md` (routing entry for the new note) and
+> `docs/knowledge-base/lgx-dev-workflow.md`, whose smoke-test section still
+> pointed at `examples/with-lib/`, which no longer exists — and which now says
+> that `LGX_LG` is the wrong lever for a Go-deps project.
 
 ### Task 7: sqlite wrapper in letgo-packages
 
 **Files (repo `/Users/andrew/Projects/letgo-packages`):**
 - Create: `sqlite/lgx.edn`, `sqlite/src/sqlite/core.lg`, `sqlite/shim/go.mod`, `sqlite/shim/shim.go`, `sqlite/example/lgx.edn`, `sqlite/example/main.lg`; fill `sqlite/README.md`
 
-- [ ] **Step 1: Shim module**
+- [x] **Step 1: Shim module**
   Module path: from `git -C /Users/andrew/Projects/letgo-packages remote get-url origin` (fallback `github.com/abogoyavlensky/letgo-packages`) + `/sqlite/shim`. `shim.go`: the `ScanRow` implementation from let-go's `docs/guide/go-interop.md` verbatim, plus the init registering `sqlite.shim/ScanRow` (`vm.NewNamespace` + `vm.MustBox` + `rt.RegisterNS`). `go.mod` requires let-go at a placeholder (root-module replace governs during dev; note in README it must pin a real release before tagging). Sanity: `go vet ./...` inside `shim/` with a temporary replace, or defer compile-checking to Task 8's pipeline build.
 
-- [ ] **Step 2: Wrapper `lgx.edn` + veneer**
+- [x] **Step 2: Wrapper `lgx.edn` + veneer**
   `lgx.edn`: `:paths ["src"]`; deps `database/sql {:go/interop "sql"}`, `modernc.org/sqlite {:go/version "<current release — check pkg.go.dev>"}`, shim via `{:go/local "shim"}` for now. `src/sqlite/core.lg`: `open` / `close!` / `query` / `execute!` per the Design (realize with `doall` before closing rows; keywordize columns).
 
-- [ ] **Step 3: Example app**
+- [x] **Step 3: Example app**
   `example/lgx.edn`: dep on the wrapper `{:local/root ".."}`, `:main "main.lg"`, `:lg-version` matching the integration branch's version token, `:targets {:bin {:out "bin/app"}}`. `main.lg`: open a file db in a temp path, `create table`, two inserts (parameterized), `query` and print the row maps, print `:rows-affected` — output deterministic enough to eyeball.
 
-- [ ] **Step 4: Commit (letgo-packages repo)**
+- [x] **Step 4: Commit (letgo-packages repo)**
   `git -C /Users/andrew/Projects/letgo-packages add -A && git -C /Users/andrew/Projects/letgo-packages commit -m "Add sqlite wrapper: shim, veneer, example"`
+
+> Deviation: the shim carries two more functions than the plan specified, both
+> forced by let-go semantics the design did not anticipate:
+>
+> - `Query`/`Exec` taking a parameter slice. Methods are not first-class values
+>   in let-go, so `(apply sql/Query db q params)` — the shape the let-go guide
+>   sketches — cannot work: `(.Query db q p1 p2)` needs literal arguments, and a
+>   veneer holding its parameters in a vector has no way to spread them.
+> - Value conversion at both boundaries. `vm.BoxValue` walks a Go slice by its
+>   *static* element type, so the guide's `ScanRow() ([]any, error)` returns
+>   every column as an opaque `vm.Boxed` printing `<go.string Ada>` and equal to
+>   nothing; returning `[]vm.Value` converted with `vm.ToLetGo` fixes it. The
+>   same asymmetry runs the other way — a let-go vector containing `nil` fails
+>   to convert to `[]any` and arrives as `[]vm.Value`, so `Query`/`Exec` take
+>   `[]vm.Value` and unbox them.
+>
+> Driver pinned at `modernc.org/sqlite v1.57.0` (current release). The example
+> depends on the wrapper via `{:local/root ".."}` rather than `:deps/root`,
+> which is the natural spelling for a sibling directory.
 
 ### Task 8: End-to-end verification
 
 Prereqs: `go` on PATH; the let-go worktree `/Users/andrew/Projects/let-go-interop` on `integration/go-interop` (built per the upstream plan, Task 8 there). If absent, stop and report — do not fake the verification.
 
-- [ ] **Step 1: Run path**
+- [x] **Step 1: Run path**
   In `sqlite/example/`: `LGX_LETGO_REPLACE=/Users/andrew/Projects/let-go-interop lgx run` (lgx itself per the dev-workflow doc — `docs/knowledge-base/lgx-dev-workflow.md`).
   Expected: cold build header, then the example's printed rows. Re-run: because the shim is `:go/local` (and `LGX_LETGO_REPLACE` is set), the second run takes the incremental-rebuild path, NOT the cache-hit skip — verify it re-runs `go build` and stays fast (a few seconds). The pure cache-hit skip only applies to fully pinned coord sets.
 
-- [ ] **Step 2: Build path**
+- [x] **Step 2: Build path**
   Same env: `lgx build`, then run `bin/app` directly.
   Expected: identical output from the standalone binary; confirm with `lgx build --verbose` that `-bundle-base` pointed at the runtimes-cache binary.
 
-- [ ] **Step 3: Regression**
+- [x] **Step 3: Regression**
   In `/Users/andrew/Projects/lgx`: `lgx test` — full suite green (no-go-deps path unchanged).
 
-- [ ] **Step 4: Record findings**
+- [x] **Step 4: Record findings**
   Append gotchas discovered (registration timing, tidy/network behavior, alias issues) to `docs/knowledge-base/lgx-go-runtimes.md`; commit in the owning repo(s).
+
+---
+
+## Completion summary
+
+All eight tasks landed. `lgx` projects declare Go packages as a third coord
+family in `:deps`; lgx collects them through transitive resolution, builds a
+custom `lg` that links them, caches it under `$LGX_HOME/runtimes/<hash>/`, and
+routes `run`/`repl`/`nrepl`/`test`/`build`/`install`/tasks through it. The
+sqlite wrapper in `letgo-packages` exercises the whole stack.
+
+**Verification.** 608 unit tests, 933 assertions, green. End-to-end from a cold
+`$LGX_HOME` against the `integration/go-interop` branch: the sqlite example
+built its runtime and ran create/insert/select in 3.2s warm-Go-cache; `lgx
+build` produced a standalone `bin/app` with identical output and
+`-bundle-base` pointing at the runtimes-cache binary; `lgx install` warmed the
+runtime; a nested `lgx` correctly built its own rather than inheriting the
+parent's; `LGX_LG` set warned and skipped the build entirely.
+
+Three `examples/` projects fail to run (`local-dep`, `clojure-libs/with-aero`,
+`clojure-libs/with-hiccup`), all identically on the released lgx 0.1.2 — they
+predate this branch and are not regressions.
+
+**Not done:** the wrapper cannot be tagged yet. `pkg/cli` and `cmd/lginterop
+-out-pkg` exist only on the integration branch, so a pinned `:lg-version`
+build fails (checked against v1.12.2) and `LGX_LETGO_REPLACE` is required.
+Once let-go releases them, `sqlite/shim/go.mod` needs a real let-go require and
+`sqlite/lgx.edn` needs `{:go/version "vX.Y.Z"}` in place of `{:go/local
+"shim"}`. Both are noted in the wrapper README.
+
+### Deviations
+
+Recorded per task above. The load-bearing ones:
+
+- `split-go-coords` and the wiring decisions live in `lgx/gobuild.lg`, not
+  `lgx.lg` — `lgx.lg`'s fns are private and so not unit-testable.
+- Lib-symbol-dependent coord rules moved from `coord-errors` to a `:deps`-level
+  cross-check, because `[:fn coord-errors]` only receives the coord value.
+- `apply-runtime!` checks the `LGX_LG` override before building, not after.
+- lginterop is always given `-opaque-structs`.
+- The sqlite shim carries `Query`/`Exec` and converts values at both
+  boundaries, neither of which the plan anticipated.
+
+### Defects the plan's design did not cover
+
+Six, all found by review or by running the real toolchain, all fixed and
+regression-tested:
+
+1. `go mod tidy` pruned an interop coord's requirement before lginterop could
+   scan it. The interop placeholder now blank-imports each wrapped package.
+2. Without `-opaque-structs`, wrapped structs flatten to field-only Records and
+   every method call fails.
+3. `require <mod>/v2 v0.0.0` is rejected outright by Go.
+4. Unquoted `replace` paths containing a space make go.mod unparsable.
+5. `LGX_LG` leaked to nested `lgx` invocations, which read it as a user
+   override. Fixed with an `LGX_LG_AUTO` stamp.
+6. `namespace` throws on a non-Named coord key, turning the resolver's
+   warn-and-continue path into an aborted command.
+
+Plus two let-go boxing asymmetries that shaped the shim: a `[]any` return
+arrives as opaque boxed values, and a let-go vector containing `nil` fails to
+convert to `[]any`. Both are recorded in
+`docs/knowledge-base/lgx-go-runtimes.md`. **The `ScanRow` example in let-go's
+own `docs/guide/go-interop.md` has the first bug** — worth an upstream fix.
+
+### What the plan could have specified better
+
+It designed the generated Go module without ever running the Go toolchain
+against a rendered one, and four of the six defects above are exactly what that
+missed: tidy's pruning, `-opaque-structs`, major-version suffixes, and path
+quoting. A plan that generates input for an external tool should include one
+"render it and feed it to the real tool" step *before* the tasks that build on
+it, not only in the end-to-end task at the end.
+
+It also treated let-go's `go-interop.md` guide as a specification. Two of its
+sketches do not work as written (`(apply sql/Query db q params)`, and
+`ScanRow` returning `[]any`), which surfaced only at Task 7. Prose guides are a
+starting point to verify, not a contract.

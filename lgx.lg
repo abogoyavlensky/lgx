@@ -1,9 +1,11 @@
 (ns lgx.main
   (:require [lgx.args :as args]
             [lgx.cache :as cache]
+            [lgx.clean :as clean]
             [lgx.cli :as cli]
             [lgx.completion :as completion]
             [lgx.config :as config]
+            [lgx.gobuild :as gobuild]
             [lgx.new :as new]
             [lgx.path :as path]
             [lgx.registry :as registry]
@@ -32,10 +34,12 @@
        "  lgx nrepl [--port N]         Start a REPL with an nREPL server\n"
        "                               (free port unless --port given; auto-applies :dev and :test contexts)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
-       "                               (extra args forwarded to `lg` before -b)\n"
+       "                               (--target <os>/<arch>[,...] or --all cross-compile; other args forwarded to `lg`)\n"
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
        "                               (one file if given, else walk test/; auto-applies :test context)\n"
        "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli`, `lib` or git URL)\n"
+       "  lgx clean <--cache...>       Remove caches under ~/.lgx: --runtimes, --gitlibs, --templates, or --all\n"
+       "                               (--dry-run only reports; reports bytes reclaimed)\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"))
 
@@ -212,80 +216,117 @@
    Entries discovered through third-party metadata also carry :via provenance,
    which reaches the install output and marks them as fail-soft.
 
+   :go/* coords are partitioned out of this same walk (gobuild/split-go-coords):
+   they name Go packages, so they produce no source path and no clone, but they
+   are collected — including the ones a dep declares in its own lgx.edn — and
+   returned for the custom-runtime build.
+
    `warn-all?` shows every unresolved declared dep instead of only those
-   surfacing from a fresh install (see emit-warnings!)."
+   surfacing from a fresh install (see emit-warnings!).
+
+   Returns {:installs [...] :go-coords [[lib coord] ...]}."
   [project coords warn-all?]
-  (loop [queue (mapv (fn [[lib c]] {:lib lib
-                                    :coord c
-                                    :base project}) coords)
-         seen {}
-         out []
-         pending []]
-    (if (empty? queue)
-      (do (emit-warnings! seen pending warn-all?)
-          out)
-      (let [{:keys [lib coord base via via-source via-installed? declared]}
-            (first queue)
-            rest-q (vec (rest queue))
+  (let [split0 (gobuild/split-go-coords
+                 (mapv (fn [[lib c]] {:lib lib
+                                      :coord c
+                                      :base project}) coords)
+                 {})]
+    (doseq [w (:warnings split0)] (write! *err* w))
+    (loop [queue (:src split0)
+           seen {}
+           out []
+           pending []
+           go-seen (:seen-go split0)
+           go-pairs (:go-pairs split0)]
+      (if (empty? queue)
+        (do (emit-warnings! seen pending warn-all?)
+            {:installs out
+             :go-coords go-pairs})
+        (let [{:keys [lib coord base via via-source via-installed? declared]}
+              (first queue)
+              rest-q (vec (rest queue))
             ;; Everything that can throw on a coord reached through a dep's
             ;; metadata sits inside this boundary, normalization included:
             ;; coord-id resolves a relative :local/root, and third-party
             ;; metadata can hold a value that is truthy but not a path.
-            soft? (some? via)
+              soft? (some? via)
             ;; A warning names what the dep wrote, not the coord synthesized
             ;; from it, so a registry tag miss still shows the :mvn/version.
-            warn-about (or declared [lib coord])
-            attempt (fn [f]
-                      (if soft?
-                        (try {:ok (f)} (catch e {:error (ex-message e)}))
-                        {:ok (f)}))
-            normalized (attempt (fn [] (coord-id base coord)))]
-        (if (:error normalized)
-          (recur rest-q seen out
-                 (conj pending (pending-warning via via-installed? warn-about
-                                                (:error normalized))))
-          (let [id (:ok normalized)]
-            (if (contains? seen lib)
-              (do
-                (when (not= (get seen lib) id)
-                  (write! *err*
-                          (str "warning: " lib " already resolved as "
-                               (coord-label (get seen lib)) "; ignoring "
-                               (coord-label id) "\n")))
-                (recur rest-q seen out pending))
+              warn-about (or declared [lib coord])
+              attempt (fn [f]
+                        (if soft?
+                          (try {:ok (f)} (catch e {:error (ex-message e)}))
+                          {:ok (f)}))
+              normalized (attempt (fn [] (coord-id base coord)))]
+          (if (:error normalized)
+            (recur rest-q seen out
+                   (conj pending (pending-warning via via-installed? warn-about
+                                                  (:error normalized)))
+                   go-seen go-pairs)
+            (let [id (:ok normalized)]
+              (if (contains? seen lib)
+                (do
+                  (when (not= (get seen lib) id)
+                    (write! *err*
+                            (str "warning: " lib " already resolved as "
+                                 (coord-label (get seen lib)) "; ignoring "
+                                 (coord-label id) "\n")))
+                  (recur rest-q seen out pending go-seen go-pairs))
               ;; A fetch failure aborts only when the coord is the user's own;
               ;; one reached through a dep's metadata degrades to a warning.
-              (let [fetched (attempt (fn [] (cache/ensure-lib! coord base)))]
-                (if (:error fetched)
-                  (recur rest-q seen out
-                         (conj pending
-                               (pending-warning via via-installed? warn-about
-                                                (:error fetched))))
-                  (let [{:keys [path dir installed?]} (:ok fetched)
-                        lgx-edn? (file-exists? (path/join dir
-                                                          config/config-name))
+                (let [fetched (attempt (fn [] (cache/ensure-lib! coord base)))]
+                  (if (:error fetched)
+                    (recur rest-q seen out
+                           (conj pending
+                                 (pending-warning via via-installed? warn-about
+                                                  (:error fetched)))
+                           go-seen go-pairs)
+                    (let [{:keys [paths dir installed?]} (:ok fetched)
+                        ;; :deps/root relocates where the dep's lgx.edn is
+                        ;; read (config/dep-config-dir) — and the children it
+                        ;; yields resolve their relative :local/root and
+                        ;; :go/local against that same directory, so a
+                        ;; monorepo package's siblings resolve against the
+                        ;; package, not the repo root.
+                          cfg-dir (config/dep-config-dir dir id)
+                          lgx-edn? (file-exists? (path/join cfg-dir
+                                                            config/config-name))
                         ;; Rung 1: a dep's own lgx.edn is authoritative and its
-                        ;; deps.edn/project.clj go unread.
-                        found (if lgx-edn?
-                                {:children (mapv (fn [[clib cc]]
-                                                   {:lib clib
-                                                    :coord cc
-                                                    :base dir})
-                                                 (coords-at! dir))
-                                 :pending []}
-                                (declared-children lib coord dir installed?))
-                        row {:lib lib
-                             :path path
-                             :installed? installed?}]
-                    (recur (vec (concat rest-q (:children found)))
-                           (assoc seen lib id)
-                           (conj out (if via
-                                       (assoc row
-                                              :via via
-                                              :via-source via-source)
-                                       row))
-                           (vec (concat pending
-                                        (:pending found))))))))))))))
+                        ;; deps.edn/project.clj go unread. The other rungs
+                        ;; (declared-children) stay on the checkout root —
+                        ;; deps.edn/project.clj belong to tools with their own
+                        ;; conventions.
+                          found (if lgx-edn?
+                                  {:children (mapv (fn [[clib cc]]
+                                                     {:lib clib
+                                                      :coord cc
+                                                      :base cfg-dir})
+                                                   (coords-at! cfg-dir))
+                                   :pending []}
+                                  (declared-children lib coord dir installed?))
+                        ;; A dep's own go coords flow up through the same read.
+                        ;; Splitting each batch as it is discovered (rather
+                        ;; than the whole queue up front) is what keeps
+                        ;; first-wins breadth-first: the root's batch is split
+                        ;; before any dep's.
+                          split (gobuild/split-go-coords (:children found)
+                                                         go-seen)
+                          row {:lib lib
+                               :paths paths
+                               :installed? installed?}]
+                      (doseq [w (:warnings split)] (write! *err* w))
+                      (recur (vec (concat rest-q (:src split)))
+                             (assoc seen lib id)
+                             (conj out (if via
+                                         (assoc row
+                                                :via via
+                                                :via-source via-source)
+                                         row))
+                             (vec (concat pending
+                                          (:pending found)))
+                             (:seen-go split)
+                             (vec (concat go-pairs
+                                          (:go-pairs split)))))))))))))))
 
 (defn- via-label
   "How a provenance source reads in install output."
@@ -301,11 +342,14 @@
   (let [new-installs (filter :installed? results)]
     (when (seq new-installs)
       (println "installing" (count new-installs) "dep(s)...")
-      (doseq [{:keys [lib path via via-source]} new-installs]
-        (if via
-          (println " " lib "->" path
-                   (str " (via " via " " (via-label via-source) ")"))
-          (println " " lib "->" path)))
+      ;; A monorepo package can contribute more than one source path, so the
+      ;; line reports every path the dep put on the search path.
+      (doseq [{:keys [lib paths via via-source]} new-installs]
+        (let [shown (str/join " " paths)]
+          (if via
+            (println " " lib "->" shown
+                     (str " (via " via " " (via-label via-source) ")"))
+            (println " " lib "->" shown))))
       (println "done"))))
 
 (defn- with->overlay!
@@ -339,13 +383,67 @@
 (defn- install-letgo-source! [cfg]
   (when-let [version (and (cache/letgo-source-fetch-enabled?)
                           (config/lg-version cfg))]
-    (try
-      (let [r (cache/ensure-letgo-source! version)]
-        (when (:installed? r)
-          (println (str "Fetched let-go " version " source"))))
-      (catch e
-             (write! *err* (str "warning: failed to fetch let-go " version
-                                " source: " (ex-message e) "\n"))))))
+    ;; Only a released version has the v<version> tag the fetch clones; a
+    ;; branch or sha pin (valid for the runtime build) has no matching tag,
+    ;; so trying would only warn about a nonexistent vmain.
+    (if-not (gobuild/semver-version? version)
+      (write! *err* (str "warning: :lg-version " version " is not a released "
+                         "version; skipping let-go source fetch\n"))
+      (try
+        (let [r (cache/ensure-letgo-source! version)]
+          (when (:installed? r)
+            (println (str "Fetched let-go " version " source"))))
+        (catch e
+               (write! *err* (str "warning: failed to fetch let-go " version
+                                  " source: " (ex-message e) "\n")))))))
+
+;; Preflight: when :lg-version is pinned, compare it to the lg on PATH. Warn for
+;; iteration commands (run/nrepl), fail for build/test. LGX_SKIP_VERSION_CHECK
+;; bypasses both; a dev/unknown installed version is skipped, not warned.
+(defn- check-lg-version! [cfg severity]
+  (when-let [pinned (config/lg-version cfg)]
+    ;; os/getenv returns "" (truthy) when unset, so gate on a non-blank value.
+    (when (str/blank? (os/getenv "LGX_SKIP_VERSION_CHECK"))
+      (let [installed (version/installed)]
+        (when (= :mismatch (version/check pinned installed))
+          (let [msg (str "lg " installed " on PATH does not match :lg-version "
+                         pinned " in lgx.edn (update the pin or the installed lg)")]
+            (if (= severity :fail)
+              (do (write! *err* (str "error: " msg "\n")) (os/exit 1))
+              (write! *err* (str "warning: " msg "\n")))))))))
+
+(defn- apply-runtime!
+  "The single place the custom Go runtime enters a command. Called right after
+   the basis resolves, because only then are the transitive :go/* coords known.
+
+   With no Go deps this is just the :lg-version preflight, unchanged. With Go
+   deps it builds (or reuses) the runtime and points LGX_LG at it, so runner.lg
+   picks it up with no changes of its own — and the version check is skipped,
+   because a runtime built from the pin matches it by construction and the
+   check would only be probing whichever lg happens to be on PATH.
+
+   Returns the runtime path when one is in play, else nil (the value cmd-build
+   needs for -bundle-base)."
+  [cfg basis severity verbose?]
+  (let [go-pairs (:go-coords basis)
+        action (gobuild/runtime-action (gobuild/user-set-lg?) nil)]
+    (cond
+      (empty? go-pairs)
+      (do (check-lg-version! cfg severity) nil)
+
+      ;; Decided before the build, not after: an explicit LGX_LG means the
+      ;; runtime would only be discarded, and building one cold takes minutes.
+      (:warn action)
+      (do (write! *err* (:warn action)) nil)
+
+      :else
+      (let [lg-version (config/lg-version cfg)
+            _ (gobuild/preflight! go-pairs lg-version)
+            path (gobuild/ensure-runtime! go-pairs lg-version verbose?)]
+        (gobuild/select-runtime! path)
+        (when verbose?
+          (write! *err* (str "+ custom lg runtime " path "\n")))
+        path))))
 
 (defn- cmd-install [with]
   (let [project (config/find-project!)
@@ -358,10 +456,13 @@
       (println "no deps in lgx.edn")
       ;; The deliberate dependency-management moment: show every pending
       ;; warning, including ones a warm cache would otherwise keep quiet.
-      (let [results (ensure-all! project coords true)]
-        (if (some :installed? results)
-          (print-installs! results)
-          (println "all deps up to date"))))
+      (let [{:keys [installs go-coords]} (ensure-all! project coords true)]
+        (if (some :installed? installs)
+          (print-installs! installs)
+          (println "all deps up to date"))
+        ;; Warm the custom runtime here too, so `lgx install` leaves nothing
+        ;; for the first run to discover — the CI-friendly shape.
+        (apply-runtime! cfg {:go-coords go-coords} :warn false)))
     (install-letgo-source! cfg)))
 
 (defn- cmd-version []
@@ -386,13 +487,14 @@
    root list. Source paths include resolved dep dirs; resource paths are
    project-only (deps never contribute resource roots)."
   [project coords raw-paths raw-resource-paths]
-  (let [results (ensure-all! project coords false)
+  (let [{:keys [installs go-coords]} (ensure-all! project coords false)
         own-paths (resolve-project-paths ":paths" project raw-paths)
-        paths (vec (concat own-paths (mapv :path results)))
+        paths (vec (concat own-paths (mapcat :paths installs)))
         resource-paths (resolve-project-paths ":resource-paths" project
                                               raw-resource-paths)]
     {:project project
-     :results results
+     :results installs
+     :go-coords go-coords
      :paths paths
      :resource-paths resource-paths}))
 
@@ -469,21 +571,6 @@
         (write! *err* (str "+ auto context " nm "\n"))))
     (vec (concat auto with))))
 
-;; Preflight: when :lg-version is pinned, compare it to the lg on PATH. Warn for
-;; iteration commands (run/nrepl), fail for build/test. LGX_SKIP_VERSION_CHECK
-;; bypasses both; a dev/unknown installed version is skipped, not warned.
-(defn- check-lg-version! [cfg severity]
-  (when-let [pinned (config/lg-version cfg)]
-    ;; os/getenv returns "" (truthy) when unset, so gate on a non-blank value.
-    (when (str/blank? (os/getenv "LGX_SKIP_VERSION_CHECK"))
-      (let [installed (version/installed)]
-        (when (= :mismatch (version/check pinned installed))
-          (let [msg (str "lg " installed " on PATH does not match :lg-version "
-                         pinned " in lgx.edn (update the pin or the installed lg)")]
-            (if (= severity :fail)
-              (do (write! *err* (str "error: " msg "\n")) (os/exit 1))
-              (write! *err* (str "warning: " msg "\n")))))))))
-
 (defn- cmd-run [forward-args verbose? with]
   (let [project (config/find-project!)
         cfg (config/load-config! project)
@@ -498,9 +585,10 @@
         plan (runner/plan-run-args forward-args main-script)
         _ (when-let [reason (:error plan)]
             (run-target-error! reason))
-        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg [:dev] with verbose?)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
+        basis (overlay-basis project cfg with nil)
+        {:keys [results paths resource-paths]} basis
+        _ (apply-runtime! cfg basis :warn verbose?)]
     (when (:inject? plan)
       (resolve-main-script! project main-script))
     ;; No status header for `run`: it is the dev-time stand-in for the built
@@ -523,9 +611,10 @@
             (os/exit 1)))
         project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg [:dev :test] with verbose?)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+        basis (overlay-basis project cfg with nil)
+        {:keys [results paths resource-paths]} basis
+        _ (apply-runtime! cfg basis :warn verbose?)
         ;; No --port: ask lgx's own runtime (let-go >= 1.11.0) for a free
         ;; port via os/free-port, then pass it as the literal -p value lg
         ;; writes to .nrepl-port. The OS vets it as free, so unlike the old
@@ -550,9 +639,10 @@
     (os/exit 1))
   (let [project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :warn)
         with (auto-with! cfg [:dev :test] with verbose?)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)]
+        basis (overlay-basis project cfg with nil)
+        {:keys [results paths resource-paths]} basis
+        _ (apply-runtime! cfg basis :warn verbose?)]
     (print-installs! results)
     ;; Empty forward-args: with no script, no -e, and no -n, lg drops into its
     ;; terminal REPL. Like cmd-nrepl, no LGX_RUN for a REPL session.
@@ -565,12 +655,27 @@
     abs))
 
 (defn- cmd-build [forward-args verbose? with]
-  (let [project (config/find-project!)
+  (let [{:keys [targets all? forward]}
+        (try
+          (cli/parse-build-args (vec forward-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :fail)
-        {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+        resolved (gobuild/resolve-build-targets targets all?
+                                                (config/platforms cfg))
+        _ (when (:error resolved)
+            (write! *err* (str "lgx: " (:error resolved) "\n"))
+            (os/exit 1))
+        target-list (:targets resolved)
+        cross? (boolean (some some? target-list))
         main-script (config/main cfg)
-        bin (:bin (config/targets cfg))]
+        bin (:bin (config/targets cfg))
+        user-base? (boolean (some #(= "-bundle-base" %) forward))]
+    ;; Cheap validation first, before deps resolve or any runtime builds — a
+    ;; bad invocation must never spend minutes building things it will not
+    ;; use (mirrors cmd-test's test-dir check).
     (when (nil? main-script)
       (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
       (os/exit 1))
@@ -579,15 +684,76 @@
                          "(set :targets {:bin {:out \"...\"}} in lgx.edn)\n"))
       (os/exit 1))
     (resolve-main-script! project main-script)
-    (let [abs-out (ensure-out-dir! project (:out bin))
-          abs-main (path/join project main-script)
-          args (vec (concat forward-args ["-b" abs-out abs-main]))]
-      (write! *err* (str (style/header (str "Building " (:out bin) "...")) "\n"))
+    ;; :platforms gets this collision check at config load; an ad-hoc
+    ;; --target list only meets it here.
+    (when-let [dup (gobuild/duplicate-target-out (:out bin) target-list)]
+      (write! *err*
+              (str "lgx: more than one target renders :out to " (pr-str dup)
+                   " - the artifacts would overwrite each other; add an "
+                   "{{os}} or {{arch}} placeholder to :out\n"))
+      (os/exit 1))
+    ;; One hand-picked base binary cannot serve two platforms: every bundle
+    ;; would carry the base's platform under a different file name.
+    (when (and user-base? (> (count target-list) 1))
+      (write! *err*
+              (str "lgx: -bundle-base names one base binary, but this build "
+                   "has " (count target-list) " targets - drop -bundle-base "
+                   "and let lgx build a runtime per target, or build one "
+                   "--target at a time\n"))
+      (os/exit 1))
+    ;; A user-supplied base skips runtime generation entirely, so the Go
+    ;; toolchain and :lg-version are only required when lgx builds the base.
+    (when (and cross? (not user-base?))
+      (gobuild/cross-preflight! (config/lg-version cfg)))
+    (let [basis (overlay-basis project cfg with nil)
+          {:keys [results paths resource-paths]} basis
+          go-pairs (:go-coords basis)]
+      ;; Decided before any building — a cold runtime build takes many
+      ;; seconds and would only be thrown away.
+      (when (and cross? (seq go-pairs) (gobuild/user-set-lg?))
+        (write! *err*
+                (str "error: LGX_LG is set, but a cross-build of a project "
+                     "with Go deps needs the host runtime lgx builds - the "
+                     "LGX_LG lg cannot resolve the project's Go namespaces "
+                     "while bundling. unset LGX_LG to cross-build.\n"))
+        (os/exit 1))
+      ;; The host half of the two-runtimes rule: the lg that *executes*
+      ;; `lg -b` (and must resolve the project's Go namespaces at compile
+      ;; time). With Go deps that is a host-platform custom runtime; without,
+      ;; the PATH lg.
       (print-installs! results)
-      (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
-        (when (zero? exit)
-          (println "built" abs-out))
-        (os/exit exit)))))
+      (let [runtime (apply-runtime! cfg basis :fail verbose?)
+            abs-main (path/join project main-script)]
+        (doseq [target target-list]
+          (let [out-rel (gobuild/target-out (:out bin) target)
+                abs-out (ensure-out-dir! project out-rel)
+                ;; The target half: `lg -b` copies the running binary as the
+                ;; bundle base, so a cross target needs a target-platform
+                ;; runtime as -bundle-base — built even with no Go deps (the
+                ;; empty coord set renders a stock module). Native keeps the
+                ;; host runtime (or none). A user-supplied -bundle-base wins
+                ;; and skips the build outright.
+                base (cond
+                       user-base? nil
+                       target (gobuild/ensure-runtime!
+                                go-pairs (config/lg-version cfg) target
+                                verbose?)
+                       :else runtime)
+                args (vec (concat (gobuild/inject-bundle-base forward base)
+                                  ["-b" abs-out abs-main]))
+                label (str "Building " out-rel
+                           (if target
+                             (str " (" (:os target) "/" (:arch target) ")")
+                             "")
+                           "...")]
+            (write! *err* (str (style/header label) "\n"))
+            (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
+              (if (zero? exit)
+                (println "built" abs-out)
+                (os/exit exit)))))
+        (when (> (count target-list) 1)
+          (println (str "built " (count target-list) " targets")))
+        (os/exit 0)))))
 
 (defn- validate-error-line [reason user-path]
   (case reason
@@ -615,7 +781,6 @@
     (os/exit 1))
   (let [project (config/find-project!)
         cfg (config/load-config! project)
-        _ (check-lg-version! cfg :fail)
         test-dir (path/join project "test")
         stat (os/stat test-dir)]
     ;; Cheap validation first: a missing test/ must error before the basis is
@@ -625,7 +790,9 @@
       (write! *err* "lgx: no test/ directory in project\n")
       (os/exit 1))
     (let [with (auto-with! cfg [:test] with verbose?)
-          {:keys [results paths resource-paths]} (overlay-basis project cfg with nil)
+          basis (overlay-basis project cfg with nil)
+          {:keys [results paths resource-paths]} basis
+          _ (apply-runtime! cfg basis :fail verbose?)
           single? (= 1 (count forward-args))
           entries (if single?
                     (single-file-entries! test-dir (first forward-args) project)
@@ -682,7 +849,9 @@
         (write! *err* (str "lgx: " task-name ": " msg "\n")))
       (write! *err* (str (args/usage-line task-name decls) "\n"))
       (os/exit 1))
-    (let [{:keys [results paths resource-paths]} (overlay-basis project cfg with task)]
+    (let [basis (overlay-basis project cfg with task)
+          {:keys [results paths resource-paths]} basis]
+      (apply-runtime! cfg basis :warn verbose?)
       (print-installs! results)
       (tasks/run-task! task-name task paths resource-paths verbose?
                        (:bindings bound)))))
@@ -764,6 +933,7 @@
     "build" (cmd-build (vec rest-args) verbose? with)
     "test" (cmd-test (vec rest-args) verbose? with)
     "new" (new/cmd-new! (vec rest-args) verbose?)
+    "clean" (clean/cmd-clean! (vec rest-args))
     "version" (cmd-version)
     "-v" (cmd-version)
     "--version" (cmd-version)

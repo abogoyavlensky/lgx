@@ -63,6 +63,67 @@
       :else
       (throw (ex-info nrepl-args-error {})))))
 
+(def ^:private target-value-error
+  "lgx: --target requires a value in <os>/<arch> form (e.g. linux/arm64)")
+
+(def ^:private all-target-conflict-error
+  "lgx: --all and --target cannot be combined")
+
+(defn- parse-target-value
+  "One --target value: a comma-separated list of os/arch pairs, each becoming
+   the {:os :arch} map the rest of the pipeline (and lgx.edn) uses. Only the
+   CLI surface speaks slash form."
+  [value]
+  (when (nil? value)
+    (throw (ex-info target-value-error {})))
+  (let [specs (vec (filter (fn [s] (not (str/blank? s)))
+                           (map str/trim (str/split value ","))))]
+    (when (empty? specs)
+      (throw (ex-info target-value-error {})))
+    (mapv (fn [spec]
+            (let [parts (str/split spec "/")]
+              (when (or (not= 2 (count parts))
+                        (str/blank? (first parts))
+                        (str/blank? (second parts)))
+                (throw (ex-info (str "lgx: --target expects <os>/<arch> "
+                                     "(e.g. linux/arm64), got "
+                                     (pr-str spec))
+                                {})))
+              {:os (first parts)
+               :arch (second parts)}))
+          specs)))
+
+(defn parse-build-args
+  "Parse the `build` command's rest-args, splitting lgx's own flags from the
+   args forwarded to `lg`. `--target <os>/<arch>[,...]` (repeatable) and
+   `--all` may appear anywhere; every other token forwards in order. Returns
+   {:targets [{:os :arch} ...] :all? bool :forward [str ...]}. Throws ex-info
+   on a missing/unparseable target value or on --all combined with --target —
+   one says \"everything declared\", the other names a list."
+  [args]
+  (loop [targets []
+         all? false
+         forward []
+         xs (seq args)]
+    (if (nil? xs)
+      (do
+        (when (and all? (seq targets))
+          (throw (ex-info all-target-conflict-error {})))
+        {:targets targets
+         :all? all?
+         :forward forward})
+      (let [tok (first xs)]
+        (cond
+          (= tok "--target")
+          (recur (vec (concat targets (parse-target-value (first (next xs)))))
+                 all? forward (next (next xs)))
+
+          (= tok "--all")
+          (recur targets true forward (next xs))
+
+          :else
+          (recur targets all? (conj forward tok) (next xs)))))))
+
 (def ^:private template-value-error
   "lgx: --template requires a value (built-in name or git URL)")
 

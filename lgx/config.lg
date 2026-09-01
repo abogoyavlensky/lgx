@@ -24,12 +24,28 @@
 
 (def ^:private git-keys #{:git/url :git/sha :git/tag})
 
+(def ^:private go-value-keys [:go/version :go/interop :go/local])
+(def ^:private go-key-set (set go-value-keys))
+
+;; Family marker, kept ahead of coord-errors so the coord check can branch on
+;; it. The public go-coord? below is the same test.
+(defn- go-ns-key?
+  "True for a :go/* keyword. Guarded on keyword? because coord maps are open
+   and third-party deps.edn/project.clj coords reach this unvalidated — a
+   coord like {:local/root \"../x\" \"note\" true} would otherwise throw out of
+   `namespace` and abort a resolution that is supposed to fail soft."
+  [k]
+  (and (keyword? k) (= "go" (namespace k))))
+
+(defn- go-key? [c]
+  (boolean (some go-ns-key? (keys c))))
+
 ;; Built-in CLI commands that may not be shadowed by a project task. Includes
 ;; subcommands that don't exist yet (add, update, tasks) but that are reserved
 ;; so the namespace is available for future use.
 (def reserved-task-names
   #{"run" "repl" "nrepl" "install" "new" "add" "update" "tasks" "help" "version"
-    "build" "test" "completion" "__complete"})
+    "build" "test" "clean" "completion" "__complete"})
 
 ;; ---------------------------------------------------------------------------
 ;; lgx.edn format as one schema value (see lgx.spec for the schema language)
@@ -101,6 +117,7 @@
   [c]
   (let [has-local? (contains? c :local/root)
         has-git? (some #(contains? c %) git-keys)
+        has-go? (go-key? c)
         deps-root (if (contains? c :deps/root)
                     (at-key :deps/root (rel-path-errors (:deps/root c)))
                     [])
@@ -112,6 +129,45 @@
       ;; and the shape checks below would only bury it.
       (contains? c :mvn/version)
       mvn-version-msg
+
+      ;; The :go/* family before the git/local shapes: a go coord has neither
+      ;; :git/url nor :local/root, so the generic checks below would only
+      ;; report the wrong missing key.
+      (and has-go? (or has-local? has-git?))
+      "cannot mix :go/* with :git/* or :local/root keys"
+
+      (and has-go? (contains? c :go/version) (contains? c :go/local))
+      "cannot mix :go/version with :go/local (pick a released or a local module)"
+
+      has-go?
+      (vec (concat
+             ;; Unlike :git/* and :local/root, the :go/* namespace is lgx's
+             ;; own — no other tool writes it — so an unrecognized key here is
+             ;; a typo, not tools.deps forward-compat. Closing it is what keeps
+             ;; {:go/interops "sql"} from validating as a coord that then
+             ;; generates nothing.
+             (let [unknown (sort (map str (filter #(and (go-ns-key? %)
+                                                        (not (contains?
+                                                               go-key-set %)))
+                                                  (keys c))))]
+               (if (seq unknown)
+                 [(str "unknown key " (str/join ", " unknown)
+                       " (allowed: :go/version, :go/interop, :go/local)")]
+                 []))
+             (mapcat (fn [k]
+                       (if (contains? c k)
+                         (at-key k (non-blank-string-errors (get c k)))
+                         []))
+                     go-value-keys)
+             ;; Both name parts of a Clojure source tree a Go package does not
+             ;; have. Accepting them would advertise an option the Go pipeline
+             ;; silently ignores.
+             (if (contains? c :deps/root)
+               [":deps/root does not apply to a :go/* coord (a Go package has no source root)"]
+               [])
+             (if (contains? c :exclusions)
+               [":exclusions does not apply to a :go/* coord (Go versions are settled by go mod tidy)"]
+               [])))
 
       (and has-local? has-git?)
       "cannot mix :local/root with :git/* keys"
@@ -132,7 +188,114 @@
 
 (def ^:private coord-schema [:and :map [:fn coord-errors]])
 
-(def ^:private deps-schema [:map-of :symbol coord-schema])
+;; ---------------------------------------------------------------------------
+;; :go/* coords
+;;
+;; A go coord's lib symbol IS the Go package path, so half the rules need the
+;; key, not just the value: whether the package is standard library (Go's own
+;; test — no dot in the first path segment) and what alias cmd/lginterop will
+;; derive for it. coord-errors only ever sees the coord map, so those two rules
+;; live in a :deps-level cross-check instead, anchored back at [lib].
+;; ---------------------------------------------------------------------------
+
+(defn go-coord?
+  "True when `c` declares a Go package dep.
+
+   Deliberately narrower than the check coord-errors uses: this one also runs
+   over coords synthesized from a third-party deps.edn or project.clj, which
+   are never validated and may carry arbitrary namespaced keys. Requiring a
+   *known* :go/* key means a stranger's :go/note cannot quietly reclassify
+   their source dep as a Go package. Inside lgx's own validated config the two
+   checks agree, because an unknown :go/* key is rejected outright."
+  [c]
+  (and (map? c) (boolean (some #(contains? go-key-set %) (keys c)))))
+
+(defn go-default-alias
+  "The let-go namespace cmd/lginterop generates for a Go package path: its
+   last `/`-separated segment (cmd/lginterop's defaultAlias)."
+  [lib]
+  (last (str/split (str lib) "/")))
+
+(defn go-stdlib?
+  "True when `lib` names a Go standard-library package. Go's own rule: a module
+   path's first segment is a domain and so contains a dot; a stdlib path's does
+   not (`database/sql`, `strconv`)."
+  [lib]
+  (not (str/includes? (first (str/split (str lib) "/")) ".")))
+
+(defn- go-alias-collisions
+  "Libs whose :go/interop alias is shared with another lib. cmd/lginterop
+   writes one interop_<alias>.go per package and refuses a run where two
+   collide, so catching it here turns a failure that surfaces minutes into a
+   runtime build into a config error."
+  [deps]
+  (let [pairs (filter (fn [[_ c]] (contains? c :go/interop)) deps)
+        by-alias (reduce (fn [acc [lib _]]
+                           (let [a (go-default-alias lib)]
+                             (assoc acc a (conj (or (get acc a) []) lib))))
+                         {}
+                         pairs)]
+    (vec (mapcat (fn [[a libs]]
+                   (if (< (count libs) 2)
+                     []
+                     (mapv (fn [lib]
+                             {:path [lib :go/interop]
+                              :msg (str "alias " (pr-str a) " is also used by "
+                                        (str/join ", "
+                                                  (map str
+                                                       (sort (filter
+                                                               #(not= % lib)
+                                                               libs))))
+                                        " - cmd/lginterop writes one file per "
+                                        "alias and refuses a collision")})
+                           (sort-by str libs))))
+                 by-alias))))
+
+(defn- go-deps-errors
+  "Cross-key rule over a whole :deps / :extra-deps map: the parts of the :go/*
+   contract that need the lib symbol. Runs only after every coord passed
+   coord-errors, so the shapes below hold."
+  [deps]
+  (vec (concat (go-alias-collisions deps) (mapcat
+                                            (fn [[lib c]]
+                                              (when (go-coord? c)
+                                                (let [stdlib? (go-stdlib? lib)
+                                                      interop (:go/interop c)
+                                                      alias (go-default-alias lib)]
+                                                  (cond
+                 ;; A stdlib package takes :go/interop and nothing else: there
+                 ;; is no module to require, and bindings are the only reason
+                 ;; to name it at all.
+                                                    (and stdlib?
+                                                         (not= #{:go/interop}
+                                                               (set (filter go-ns-key? (keys c)))))
+                                                    [{:path [lib]
+                                                      :msg (str lib " is a standard-library package: it has no "
+                                                                "module requirement, so :go/version/:go/local do "
+                                                                "not apply - declare :go/interop " (pr-str alias)
+                                                                " only")}]
+
+                                                    (and (not stdlib?)
+                                                         (not (contains? c :go/version))
+                                                         (not (contains? c :go/local)))
+                                                    [{:path [lib]
+                                                      :msg (str "must specify :go/version (or :go/local for a "
+                                                                "module checked out on disk)")}]
+
+                 ;; cmd/lginterop derives the namespace from the package path
+                 ;; and its -packages flag takes no per-package alias, so any
+                 ;; other value would name a namespace nothing registers.
+                                                    (and (string? interop) (not= interop alias))
+                                                    [{:path [lib :go/interop]
+                                                      :msg (str "must be " (pr-str alias) " - cmd/lginterop "
+                                                                "derives the namespace from the package path's "
+                                                                "last segment and takes no per-package alias")}]
+
+                                                    :else []))))
+                                            deps))))
+
+(def ^:private deps-schema
+  [:and [:map-of :symbol coord-schema] [:fn go-deps-errors]])
 
 (defn- placeholder-kw?
   "True for an :arg/<name> placeholder keyword in a step vector."
@@ -358,11 +521,122 @@
    [:extra-paths {:optional true} [:vector rel-path-schema]]
    [:extra-resource-paths {:optional true} [:vector rel-path-schema]]])
 
+;; Platform pairs from `go tool dist list` (go1.26.6). Refresh by re-running
+;; the command against a newer Go and pasting the output.
+(def ^:private go-platform-pairs
+  [["aix" "ppc64"]
+   ["android" "386"] ["android" "amd64"] ["android" "arm"] ["android" "arm64"]
+   ["darwin" "amd64"] ["darwin" "arm64"]
+   ["dragonfly" "amd64"]
+   ["freebsd" "386"] ["freebsd" "amd64"] ["freebsd" "arm"] ["freebsd" "arm64"]
+   ["illumos" "amd64"]
+   ["ios" "amd64"] ["ios" "arm64"]
+   ["js" "wasm"]
+   ["linux" "386"] ["linux" "amd64"] ["linux" "arm"] ["linux" "arm64"]
+   ["linux" "loong64"] ["linux" "mips"] ["linux" "mips64"] ["linux" "mips64le"]
+   ["linux" "mipsle"] ["linux" "ppc64"] ["linux" "ppc64le"] ["linux" "riscv64"]
+   ["linux" "s390x"]
+   ["netbsd" "386"] ["netbsd" "amd64"] ["netbsd" "arm"] ["netbsd" "arm64"]
+   ["openbsd" "386"] ["openbsd" "amd64"] ["openbsd" "arm"] ["openbsd" "arm64"]
+   ["openbsd" "ppc64"] ["openbsd" "riscv64"]
+   ["plan9" "386"] ["plan9" "amd64"] ["plan9" "arm"]
+   ["solaris" "amd64"]
+   ["wasip1" "wasm"]
+   ["windows" "386"] ["windows" "amd64"] ["windows" "arm64"]])
+
+(def ^:private go-os-names
+  (vec (sort (distinct (map first go-platform-pairs)))))
+
+(def ^:private go-arch-names
+  (vec (sort (distinct (map second go-platform-pairs)))))
+
+(def ^:private go-platform-set (set go-platform-pairs))
+
+(defn- platform-known-errors
+  "Post-structural check: :os and :arch each against Go's real names, then the
+   pair against the real pair list — darwin and 386 both exist, darwin/386
+   does not."
+  [p]
+  (let [os (:os p)
+        arch (:arch p)]
+    (cond
+      (not (contains? (set go-os-names) os))
+      {:path [:os]
+       :msg (str "must be one of: " (str/join ", " go-os-names)
+                 ", got " (pr-str os))}
+
+      (not (contains? (set go-arch-names) arch))
+      {:path [:arch]
+       :msg (str "must be one of: " (str/join ", " go-arch-names)
+                 ", got " (pr-str arch))}
+
+      (not (contains? go-platform-set [os arch]))
+      (str os "/" arch " is not a platform Go can build "
+           "(see `go tool dist list`)")
+
+      :else nil)))
+
+(def ^:private platform-schema
+  [:and
+   [:map {:closed true}
+    [:os [:fn non-blank-string-errors]]
+    [:arch [:fn non-blank-string-errors]]]
+   [:fn platform-known-errors]])
+
+(defn- platform-dup-errors
+  "Runs after every entry validated. Duplicate platforms would build the same
+   artifact twice, and with a templated :out the second build would silently
+   overwrite the first."
+  [ps]
+  (loop [i 0
+         seen #{}
+         dups []]
+    (if (>= i (count ps))
+      (when (seq dups)
+        (str "duplicate platform entries: " (str/join ", " (distinct dups))))
+      (let [p (nth ps i)
+            k (str (:os p) "/" (:arch p))]
+        (recur (inc i)
+               (conj seen k)
+               (if (contains? seen k) (conj dups k) dups))))))
+
+(defn expand-out
+  "Render an :out template for one platform: every {{os}} and {{arch}}
+   substituted. A template with no placeholders comes back unchanged, which is
+   what keeps a plain :out backward compatible."
+  [out platform]
+  (str/replace (str/replace out "{{os}}" (:os platform))
+               "{{arch}}" (:arch platform)))
+
+(defn- bin-out-collision-errors
+  "Cross-key rule over the :bin map: every declared platform must render
+   :out to a distinct path. Placeholder *presence* is not enough — with
+   {{os}} alone, linux/amd64 and linux/arm64 still land on one file."
+  [bin]
+  (let [ps (or (:platforms bin) [])]
+    (loop [i 0
+           seen {}]
+      (when (< i (count ps))
+        (let [p (nth ps i)
+              label (str (:os p) "/" (:arch p))
+              rendered (expand-out (:out bin) p)]
+          (if-let [prev (get seen rendered)]
+            {:path [:out]
+             :msg (str "renders " (pr-str rendered) " for both " prev
+                       " and " label " - the artifacts would overwrite each "
+                       "other; add an {{os}} or {{arch}} placeholder that "
+                       "distinguishes them")}
+            (recur (inc i) (assoc seen rendered label))))))))
+
 (def ^:private targets-schema
   [:map {:closed true}
    [:bin {:optional true}
-    [:map {:closed true}
-     [:out rel-path-schema]]]])
+    [:and
+     [:map {:closed true}
+      [:out rel-path-schema]
+      [:platforms {:optional true}
+       [:and [:vector platform-schema] [:fn platform-dup-errors]]]]
+     [:fn bin-out-collision-errors]]]])
 
 (defn- with-refs-errors
   "Root-level cross-key rule: every task :with entry must name a defined
@@ -532,21 +806,38 @@
 ;; keys this version doesn't know. The open :map (no :closed) encodes exactly
 ;; that.
 (def ^:private dep-config-schema
-  [:map [:deps {:optional true} deps-schema]])
+  [:map
+   [:deps {:optional true} deps-schema]
+   ;; :paths is read for a monorepo package (see paths-at), so it is validated
+   ;; here rather than passed through with the rest of the build-time keys.
+   [:paths {:optional true} [:vector rel-path-schema]]])
 
-(defn coords-at
-  "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
-   is absent. Unlike the project's own lgx.edn, a missing file is not an
-   error: most deps ship no lgx.edn, and only a dep's :deps matters for
-   transitive resolution.
+(defn dep-config-dir
+  "The directory a dep's lgx.edn is read from, given the checkout dir and the
+   consuming coord. :deps/root relocates the read when the package keeps its
+   config there — the monorepo-package layout, where <repo>/<pkg>/lgx.edn
+   describes the package. A repo whose metadata stays at the root while
+   :deps/root only points at sources (org.clojure/tools.cli with
+   :deps/root \"src/main/clojure\") falls back to the checkout root, which is
+   what keeps this backward compatible. The fallback covers a missing
+   *config*, never a missing directory: cache/resolve-source-path throws on a
+   nonexistent :deps/root long before this decision is reached."
+  [dir coord]
+  (let [root (:deps/root coord)]
+    (if (and root (file-exists? (path/join dir root config-name)))
+      (path/join dir root)
+      dir)))
+
+(defn- dep-config-at
+  "Parse and validate the lgx.edn in dir, returning its map, or nil when the
+   file is absent. A missing file is not an error: most deps ship no lgx.edn.
 
    On invalid content throws ex-info whose message is the rendered error
    report naming dir, with {:lgx/invalid-dep-config dir} in ex-data so the
    caller can print it and exit without a stack trace."
   [dir]
   (let [config-path (path/join dir config-name)]
-    (if-not (file-exists? config-path)
-      []
+    (when (file-exists? config-path)
       (let [parsed (try
                      {:value (edn/read-string (slurp config-path))}
                      (catch e
@@ -558,7 +849,29 @@
         (if (seq errors)
           (throw (ex-info (errors-report (str "lgx.edn in " dir) errors)
                           {:lgx/invalid-dep-config dir}))
-          (sorted-pairs (or (:deps (:value parsed)) {})))))))
+          (:value parsed))))))
+
+(defn coords-at
+  "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
+   is absent. Unlike the project's own lgx.edn, a missing file is not an
+   error: most deps ship no lgx.edn, and only a dep's :deps matters for
+   transitive resolution.
+
+   On invalid content throws ex-info whose message is the rendered error
+   report naming dir, with {:lgx/invalid-dep-config dir} in ex-data so the
+   caller can print it and exit without a stack trace."
+  [dir]
+  (sorted-pairs (or (:deps (dep-config-at dir)) {})))
+
+(defn paths-at
+  "Return the :paths vector from an lgx.edn located in dir, or [] when the
+   file is absent or declares none.
+
+   Read for the monorepo-package layout, where <repo>/<pkg>/lgx.edn describes
+   the package: its :paths say where that package's namespaces live, which the
+   package directory alone does not."
+  [dir]
+  (vec (or (:paths (dep-config-at dir)) [])))
 
 ;; ---------------------------------------------------------------------------
 ;; Declared deps from a dependency's own tools.deps / Leiningen metadata
@@ -805,3 +1118,8 @@
   "Return the :targets map from a loaded cfg map, or {} if absent."
   [cfg]
   (or (:targets cfg) {}))
+
+(defn platforms
+  "Return the :platforms vector under :targets :bin, or [] if absent."
+  [cfg]
+  (or (:platforms (:bin (targets cfg))) []))

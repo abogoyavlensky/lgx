@@ -1,0 +1,571 @@
+;; Unit tests for lgx.gobuild — Go coord partitioning, runtime cache key, and
+;; the generated module's file rendering. Everything here is pure; the
+;; subprocess pipeline (go get / go mod tidy / lginterop / go build) is covered
+;; by the end-to-end verification instead.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.gobuild-test
+  (:require [lgx.gobuild :as gobuild]
+            [string :as str]
+            [clojure.test :refer [deftest is]]))
+
+;; ---------------------------------------------------------------------------
+;; split-go-coords
+;; ---------------------------------------------------------------------------
+
+(defn- entry [lib coord base]
+  {:lib lib :coord coord :base base})
+
+(deftest split-partitions-go-coords-out-of-source-coords
+  (let [git (entry 'foo/bar {:git/url "u" :git/sha "s"} "/proj")
+        loc (entry 'my/lib {:local/root "../mylib"} "/proj")
+        go (entry 'modernc.org/sqlite {:go/version "v1.38.0"} "/proj")
+        r (gobuild/split-go-coords [git loc go] {})]
+    (is (= [git loc] (:src r)))
+    (is (= [['modernc.org/sqlite {:go/version "v1.38.0"}]] (:go-pairs r)))
+    (is (= [] (:warnings r)))))
+
+(deftest split-leaves-non-go-entries-untouched
+  (let [entries [(entry 'foo/bar {:git/url "u" :git/tag "v1"} "/proj")]
+        r (gobuild/split-go-coords entries {})]
+    (is (= entries (:src r)))
+    (is (= [] (:go-pairs r)))
+    (is (= {} (:seen-go r)))))
+
+(deftest split-normalizes-relative-go-local-against-the-entry-base
+  ;; A dep declaring {:go/local "shim"} means "relative to the dep", so the
+  ;; base has to be applied here, while it is still in scope.
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim {:go/local "shim"}
+                    "/home/u/.lgx/gitlibs/x/y/abc")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim
+             {:go/local "/home/u/.lgx/gitlibs/x/y/abc/shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-leaves-absolute-go-local-alone
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim {:go/local "/abs/shim"} "/proj")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim {:go/local "/abs/shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-normalizes-dot-relative-go-local
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim {:go/local "./shim"} "/proj")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim {:go/local "/proj/shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-preserves-other-go-keys-when-normalizing
+  (let [r (gobuild/split-go-coords
+            [(entry 'github.com/you/pkgs/shim
+                    {:go/local "shim" :go/interop "shim"} "/proj")]
+            {})]
+    (is (= [['github.com/you/pkgs/shim
+             {:go/local "/proj/shim" :go/interop "shim"}]]
+           (:go-pairs r)))))
+
+(deftest split-dedups-first-wins-without-warning-when-identical
+  (let [c {:go/version "v1.38.0"}
+        r (gobuild/split-go-coords
+            [(entry 'modernc.org/sqlite c "/proj")
+             (entry 'modernc.org/sqlite c "/dep")]
+            {})]
+    (is (= [['modernc.org/sqlite c]] (:go-pairs r)))
+    (is (= [] (:warnings r)))))
+
+(deftest split-warns-when-a-duplicate-go-coord-differs
+  (let [r (gobuild/split-go-coords
+            [(entry 'modernc.org/sqlite {:go/version "v1.38.0"} "/proj")
+             (entry 'modernc.org/sqlite {:go/version "v1.30.0"} "/dep")]
+            {})]
+    (is (= [['modernc.org/sqlite {:go/version "v1.38.0"}]] (:go-pairs r)))
+    (is (= 1 (count (:warnings r))))
+    (let [w (first (:warnings r))]
+      (is (str/includes? w "modernc.org/sqlite"))
+      (is (str/includes? w "v1.38.0"))
+      (is (str/includes? w "v1.30.0")))))
+
+(deftest split-honors-already-seen-go-coords
+  ;; The transitive walk splits one queue level at a time, so a coord accepted
+  ;; at the root must suppress the same lib reached later through a dep.
+  (let [r (gobuild/split-go-coords
+            [(entry 'modernc.org/sqlite {:go/version "v1.30.0"} "/dep")]
+            {'modernc.org/sqlite {:go/version "v1.38.0"}})]
+    (is (= [] (:go-pairs r)))
+    (is (= 1 (count (:warnings r))))))
+
+(deftest split-accumulates-seen-go
+  (let [r (gobuild/split-go-coords
+            [(entry 'database/sql {:go/interop "sql"} "/proj")]
+            {'modernc.org/sqlite {:go/version "v1.38.0"}})]
+    (is (= {'modernc.org/sqlite {:go/version "v1.38.0"}
+            'database/sql {:go/interop "sql"}}
+           (:seen-go r)))))
+
+(deftest split-handles-an-empty-batch
+  (let [r (gobuild/split-go-coords [] {})]
+    (is (= [] (:src r)))
+    (is (= [] (:go-pairs r)))
+    (is (= [] (:warnings r)))
+    (is (= {} (:seen-go r)))))
+
+;; ---------------------------------------------------------------------------
+;; runtime-hash
+;; ---------------------------------------------------------------------------
+
+(def ^:private sqlite ['modernc.org/sqlite {:go/version "v1.38.0"}])
+(def ^:private sql ['database/sql {:go/interop "sql"}])
+(def ^:private shim ['github.com/you/pkgs/shim {:go/local "/proj/shim"}])
+
+(deftest runtime-hash-is-stable-across-coord-order
+  (is (= (gobuild/runtime-hash [sqlite sql shim] "1.11.1")
+         (gobuild/runtime-hash [shim sqlite sql] "1.11.1"))))
+
+(deftest runtime-hash-is-16-unsigned-hex-digits
+  ;; xxh3-64-str hands back Go's uint64 as a signed integer, so this guards
+  ;; against a hash whose top bit is set rendering as "-b3b8..." and becoming
+  ;; a leading-dash directory name. The three-coord set below is one such.
+  (doseq [pairs [[sqlite] [sql] [shim] [sqlite sql shim] []]]
+    (let [h (gobuild/runtime-hash pairs "1.11.1")]
+      (is (string? h))
+      (is (= 16 (count h)))
+      (is (nil? (re-find #"[^0-9a-f]" h))))))
+
+(deftest runtime-hash-changes-with-the-let-go-ref
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [sqlite] "1.12.0"))))
+
+(deftest runtime-hash-changes-with-the-lib-symbol
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [['modernc.org/sqlite3
+                                    {:go/version "v1.38.0"}]] "1.11.1"))))
+
+(deftest runtime-hash-changes-with-the-version
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [['modernc.org/sqlite
+                                    {:go/version "v1.30.0"}]] "1.11.1"))))
+
+(deftest runtime-hash-changes-when-interop-is-added
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [['modernc.org/sqlite
+                                    {:go/version "v1.38.0"
+                                     :go/interop "sqlite"}]] "1.11.1"))))
+
+(deftest runtime-hash-changes-with-the-local-path
+  (is (not= (gobuild/runtime-hash [shim] "1.11.1")
+            (gobuild/runtime-hash [['github.com/you/pkgs/shim
+                                    {:go/local "/other/shim"}]] "1.11.1"))))
+
+(deftest runtime-hash-distinguishes-an-empty-coord-set
+  (is (not= (gobuild/runtime-hash [] "1.11.1")
+            (gobuild/runtime-hash [sqlite] "1.11.1"))))
+
+(deftest runtime-hash-includes-the-target
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "arm64"})
+            (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "darwin" :arch "arm64"})))
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "arm64"})
+            (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "amd64"}))))
+
+(deftest runtime-hash-is-stable-for-a-target
+  (is (= (gobuild/runtime-hash [sqlite] "1.11.1" {:os "linux" :arch "arm64"})
+         (gobuild/runtime-hash [sqlite] "1.11.1" {:os "linux" :arch "arm64"}))))
+
+(deftest runtime-hash-nil-target-keeps-todays-inputs
+  ;; A native build must land on the same cache entry it did before targets
+  ;; existed — nil adds nothing to the hashed body.
+  (is (= (gobuild/runtime-hash [sqlite] "1.11.1")
+         (gobuild/runtime-hash [sqlite] "1.11.1" nil))))
+
+(deftest runtime-hash-native-differs-from-an-explicit-target
+  ;; Even the host's own platform, named explicitly, is a different cache
+  ;; entry: the native binary was built without GOOS/GOARCH/CGO_ENABLED=0.
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [sqlite] "1.11.1"
+                                  {:os "linux" :arch "arm64"}))))
+
+;; ---------------------------------------------------------------------------
+;; target-env-args — how GOOS/GOARCH reach the go build subprocess
+;; ---------------------------------------------------------------------------
+
+(deftest target-env-args-for-a-cross-build
+  ;; CGO_ENABLED=0 rides along: a cgo dep cannot cross-compile without a
+  ;; target C toolchain, and lgx's message beats the Go linker's.
+  (is (= ["env" "GOOS=darwin" "GOARCH=arm64" "CGO_ENABLED=0"]
+         (gobuild/target-env-args {:os "darwin" :arch "arm64"}))))
+
+(deftest target-env-args-empty-for-native
+  (is (= [] (gobuild/target-env-args nil))))
+
+;; ---------------------------------------------------------------------------
+;; resolve-build-targets / target-out — cmd-build's pure decisions
+;; ---------------------------------------------------------------------------
+
+(def ^:private linux-arm64 {:os "linux" :arch "arm64"})
+(def ^:private darwin-arm64 {:os "darwin" :arch "arm64"})
+
+(deftest resolve-targets-explicit-cli-targets-win
+  ;; --target names an ad-hoc list; :platforms is not consulted.
+  (is (= {:targets [linux-arm64]}
+         (gobuild/resolve-build-targets [linux-arm64] false
+                                        [darwin-arm64]))))
+
+(deftest resolve-targets-all-takes-every-declared-platform
+  (is (= {:targets [linux-arm64 darwin-arm64]}
+         (gobuild/resolve-build-targets [] true
+                                        [linux-arm64 darwin-arm64]))))
+
+(deftest resolve-targets-all-without-platforms-is-an-error
+  (let [r (gobuild/resolve-build-targets [] true [])]
+    (is (nil? (:targets r)))
+    (is (str/includes? (:error r) ":platforms"))))
+
+(deftest resolve-targets-neither-means-one-native-build
+  ;; One entry, nil target: the native path, no Go involvement.
+  (is (= {:targets [nil]}
+         (gobuild/resolve-build-targets [] false [linux-arm64]))))
+
+(deftest target-out-expands-the-template-for-a-target
+  (is (= "dist/app_linux_arm64"
+         (gobuild/target-out "dist/app_{{os}}_{{arch}}" linux-arm64))))
+
+(deftest duplicate-target-out-finds-a-collision
+  ;; An ad-hoc --target list bypasses the load-time :platforms check, so
+  ;; cmd-build re-checks rendered outputs before building anything.
+  (is (= "bin/app"
+         (gobuild/duplicate-target-out "bin/app" [linux-arm64 darwin-arm64])))
+  (is (= "dist/linux/app"
+         (gobuild/duplicate-target-out
+           "dist/{{os}}/app" [linux-arm64 {:os "linux" :arch "amd64"}]))))
+
+(deftest duplicate-target-out-nil-when-distinct
+  (is (nil? (gobuild/duplicate-target-out "dist/app_{{os}}_{{arch}}"
+                                          [linux-arm64 darwin-arm64])))
+  (is (nil? (gobuild/duplicate-target-out "bin/app" [linux-arm64])))
+  ;; The native build: one entry, nil target.
+  (is (nil? (gobuild/duplicate-target-out "bin/app" [nil]))))
+
+(deftest target-out-is-identity-for-native
+  ;; The native build keeps :out byte-for-byte — backward compatibility.
+  (is (= "dist/app_{{os}}_{{arch}}"
+         (gobuild/target-out "dist/app_{{os}}_{{arch}}" nil)))
+  (is (= "bin/app" (gobuild/target-out "bin/app" nil))))
+
+;; ---------------------------------------------------------------------------
+;; letgo-ref — what the hash and go.mod see for let-go itself
+;; ---------------------------------------------------------------------------
+
+(deftest letgo-ref-is-the-pinned-version
+  (is (= "1.11.1" (gobuild/letgo-ref "1.11.1" nil))))
+
+(deftest letgo-ref-renders-a-replace-path
+  (is (= "replace:/Users/x/let-go" (gobuild/letgo-ref "1.11.1"
+                                                      "/Users/x/let-go"))))
+
+(deftest letgo-ref-replace-wins-over-the-pin
+  (is (not= (gobuild/letgo-ref "1.11.1" nil)
+            (gobuild/letgo-ref "1.11.1" "/Users/x/let-go"))))
+
+;; ---------------------------------------------------------------------------
+;; render-go-mod
+;; ---------------------------------------------------------------------------
+
+(deftest render-go-mod-emits-no-let-go-require-when-pinned
+  ;; The pinned case leaves let-go entirely to `go get` (letgo-get-args), the
+  ;; same way every other :go/version coord is resolved — so a branch or sha
+  ;; ref works without go.mod having to guess a version string for it.
+  (let [out (gobuild/render-go-mod [sqlite sql] nil [])]
+    (is (str/includes? out "module lgx.local/runtime"))
+    (is (not (str/includes? out "github.com/nooga/let-go")))
+    (is (not (str/includes? out "replace")))))
+
+(deftest render-go-mod-emits-a-replace-for-a-local-let-go
+  ;; A replace target still needs its v0.0.0 placeholder require: `go get`
+  ;; cannot express a replace directive.
+  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [])]
+    (is (str/includes? out "require github.com/nooga/let-go v0.0.0"))
+    (is (str/includes? out
+                       "replace github.com/nooga/let-go => /Users/x/let-go"))))
+
+(deftest render-go-mod-never-requires-go-version-coords
+  ;; A coord symbol is a *package* path, which is not always a *module* path
+  ;; (golang.org/x/crypto/ssh lives in golang.org/x/crypto), so lgx lets
+  ;; `go get <pkg>@<version>` resolve the owning module instead.
+  (let [out (gobuild/render-go-mod [sqlite] nil [])]
+    (is (not (str/includes? out "modernc.org/sqlite")))))
+
+(deftest render-go-mod-omits-stdlib-coords
+  (let [out (gobuild/render-go-mod [sql] nil [])]
+    (is (not (str/includes? out "database/sql")))))
+
+(deftest render-go-mod-requires-and-replaces-each-local-module
+  ;; The module path can't be derived from the package path, so the caller
+  ;; reads it from the target's own go.mod and passes it in.
+  (let [out (gobuild/render-go-mod
+              [shim] nil
+              [[{:go/local "/proj/shim"} "github.com/you/pkgs/sqlite/shim"]])]
+    (is (str/includes? out "require github.com/you/pkgs/sqlite/shim v0.0.0"))
+    (is (str/includes?
+          out "replace github.com/you/pkgs/sqlite/shim => /proj/shim"))))
+
+(deftest render-go-mod-ends-with-a-newline
+  (is (str/ends-with? (gobuild/render-go-mod [sqlite] nil []) "\n")))
+
+;; ---------------------------------------------------------------------------
+;; render-main-go
+;; ---------------------------------------------------------------------------
+
+(deftest render-main-go-wraps-cli-main
+  (let [out (gobuild/render-main-go [] "1.11.1" "")]
+    (is (str/includes? out "package main"))
+    (is (str/includes? out "\"github.com/nooga/let-go/pkg/cli\""))
+    (is (str/includes? out "os.Exit(cli.Main("))))
+
+(deftest render-main-go-embeds-the-real-version-and-commit
+  ;; `lg -v` on the built runtime (and on any binary bundled from it) has to
+  ;; report the let-go it actually contains, not "dev".
+  (let [out (gobuild/render-main-go
+              [] "1.12.3-0.20260820193935-a6657612002b" "a6657612002b")]
+    (is (str/includes?
+          out
+          (str "cli.Main(\"1.12.3-0.20260820193935-a6657612002b\", "
+               "\"a6657612002b\")")))
+    (is (not (str/includes? out "\"dev\"")))
+    (is (not (str/includes? out "\"none\"")))))
+
+(deftest render-main-go-pins-the-semver-case
+  (let [out (gobuild/render-main-go [sqlite] "1.11.1" "")]
+    (is (str/includes? out "cli.Main(\"1.11.1\", \"\")"))))
+
+(deftest render-main-go-escapes-the-version-strings
+  ;; Both arguments land inside Go string literals, so a quote or backslash in
+  ;; a hostile value must not escape the literal.
+  (let [out (gobuild/render-main-go [] "1.0\"x" "a\\b")]
+    (is (str/includes? out "cli.Main(\"1.0\\\"x\", \"a\\\\b\")"))))
+
+(deftest render-main-go-blank-imports-link-only-coords
+  ;; A coord with :go/interop needs none: its generated binding package
+  ;; imports the package itself.
+  (let [out (gobuild/render-main-go [sqlite sql] "1.11.1" "")]
+    (is (str/includes? out "_ \"modernc.org/sqlite\""))
+    (is (not (str/includes? out "_ \"database/sql\"")))))
+
+(deftest render-main-go-skips-a-blank-import-for-interop-coords
+  (let [out (gobuild/render-main-go [['modernc.org/sqlite
+                                      {:go/version "v1.38.0"
+                                       :go/interop "sqlite"}]] "1.11.1" "")]
+    (is (not (str/includes? out "_ \"modernc.org/sqlite\"")))))
+
+(deftest render-main-go-imports-the-interop-package-when-any-exist
+  (is (str/includes? (gobuild/render-main-go [sql sqlite] "1.11.1" "")
+                     "_ \"lgx.local/runtime/interop\"")))
+
+(deftest render-main-go-omits-the-interop-import-otherwise
+  (is (not (str/includes? (gobuild/render-main-go [sqlite] "1.11.1" "")
+                          "lgx.local/runtime/interop"))))
+
+(deftest render-main-go-orders-blank-imports-deterministically
+  (let [a (gobuild/render-main-go [sqlite shim] "1.11.1" "")
+        b (gobuild/render-main-go [shim sqlite] "1.11.1" "")]
+    (is (= a b))))
+
+;; ---------------------------------------------------------------------------
+;; letgo-version-parts — what cli.Main reports
+;; ---------------------------------------------------------------------------
+
+(deftest version-parts-of-a-semver-pin
+  (is (= ["1.11.1" ""] (gobuild/letgo-version-parts "1.11.1" false))))
+
+(deftest version-parts-of-a-resolved-pseudo-version
+  ;; A mutable ref resolves to a pseudo-version before the build; its trailing
+  ;; segment is the commit, so both cli.Main slots can be filled honestly.
+  (is (= ["1.12.3-0.20260820193935-a6657612002b" "a6657612002b"]
+         (gobuild/letgo-version-parts
+           "v1.12.3-0.20260820193935-a6657612002b" false))))
+
+(deftest version-parts-under-a-replace
+  ;; No released version to name — honest about being unreleased, and
+  ;; distinguishable from the old hardcoded ("dev", "none").
+  (is (= ["dev" "replace"] (gobuild/letgo-version-parts "1.11.1" true))))
+
+;; ---------------------------------------------------------------------------
+;; interop-packages / go-get-args
+;; ---------------------------------------------------------------------------
+
+(deftest interop-packages-lists-only-interop-coords
+  (is (= ["database/sql"] (gobuild/interop-packages [sql sqlite shim]))))
+
+(deftest interop-packages-is-sorted
+  (is (= ["database/sql" "modernc.org/sqlite"]
+         (gobuild/interop-packages
+           [['modernc.org/sqlite {:go/version "v1" :go/interop "sqlite"}]
+            sql]))))
+
+(deftest interop-packages-is-empty-without-interop-coords
+  (is (= [] (gobuild/interop-packages [sqlite shim]))))
+
+(deftest go-get-args-one-per-version-coord
+  (is (= [["get" "modernc.org/sqlite@v1.38.0"]]
+         (gobuild/go-get-args [sqlite sql shim]))))
+
+(deftest go-get-args-is-deterministic
+  (let [a ['a.com/x {:go/version "v1"}]
+        b ['b.com/y {:go/version "v2"}]]
+    (is (= (gobuild/go-get-args [a b]) (gobuild/go-get-args [b a])))
+    (is (= [["get" "a.com/x@v1"] ["get" "b.com/y@v2"]]
+           (gobuild/go-get-args [b a])))))
+
+(deftest go-get-args-is-empty-without-version-coords
+  (is (= [] (gobuild/go-get-args [sql shim]))))
+
+;; ---------------------------------------------------------------------------
+;; letgo-get-args / mutable-letgo-ref? — :lg-version through go get
+;; ---------------------------------------------------------------------------
+
+(deftest letgo-get-args-prefixes-a-bare-semver-with-v
+  (is (= ["get" "github.com/nooga/let-go@v1.11.1"]
+         (gobuild/letgo-get-args "1.11.1" nil))))
+
+(deftest letgo-get-args-passes-a-branch-through-verbatim
+  (is (= ["get" "github.com/nooga/let-go@main"]
+         (gobuild/letgo-get-args "main" nil))))
+
+(deftest letgo-get-args-passes-a-sha-through-verbatim
+  (let [sha "a6657612002b4f6f0316f4f0316f4f0316f4f031"]
+    (is (= ["get" (str "github.com/nooga/let-go@" sha)]
+           (gobuild/letgo-get-args sha nil)))))
+
+(deftest letgo-get-args-passes-a-pseudo-version-through-verbatim
+  ;; A mutable ref is resolved to its pseudo-version before the build, and the
+  ;; resolved form already carries the v — no second prefix.
+  (is (= ["get" "github.com/nooga/let-go@v1.12.3-0.20260820193935-a6657612002b"]
+         (gobuild/letgo-get-args "v1.12.3-0.20260820193935-a6657612002b" nil))))
+
+(deftest letgo-get-args-is-nil-under-a-replace
+  ;; `go get` cannot express a replace directive; the rendered go.mod pins the
+  ;; local checkout instead.
+  (is (nil? (gobuild/letgo-get-args "1.11.1" "/Users/x/let-go"))))
+
+(deftest mutable-letgo-ref-is-true-for-a-branch
+  (is (gobuild/mutable-letgo-ref? "main"))
+  (is (gobuild/mutable-letgo-ref? "integration-go-interop")))
+
+(deftest mutable-letgo-ref-is-false-for-immutable-refs
+  ;; A semver pin and a full commit sha already name one commit forever, so
+  ;; hashing them literally is safe and skips a network resolution.
+  (is (not (gobuild/mutable-letgo-ref? "1.11.1")))
+  (is (not (gobuild/mutable-letgo-ref?
+             "a6657612002b4f6f0316f4f0316f4f0316f4f031"))))
+
+(deftest split-tolerates-non-keyword-coord-keys
+  ;; Transitive coords synthesized from a third-party deps.edn reach the split
+  ;; unvalidated and pass through whole, so a string key must not abort the
+  ;; walk — the resolver's contract there is warn-and-continue.
+  (let [e (entry 'foo/bar {:local/root "../x" "note" true} "/proj")
+        r (gobuild/split-go-coords [e] {})]
+    (is (= [e] (:src r)))
+    (is (= [] (:go-pairs r)))))
+
+;; ---------------------------------------------------------------------------
+;; Wiring decisions
+;; ---------------------------------------------------------------------------
+
+(deftest runtime-action-sets-lgx-lg-when-the-user-has-not
+  (is (= {:setenv "/rt/lg"} (gobuild/runtime-action false "/rt/lg"))))
+
+(deftest runtime-action-warns-when-the-user-set-lgx-lg
+  ;; Decided without a path, because the caller asks before building one.
+  (doseq [p [nil "/rt/lg"]]
+    (let [r (gobuild/runtime-action true p)]
+      (is (nil? (:setenv r)))
+      (is (str/includes? (:warn r) "LGX_LG")))))
+
+(deftest inject-bundle-base-appends-the-runtime
+  (is (= ["-bundle-base" "/rt/lg"] (gobuild/inject-bundle-base [] "/rt/lg"))))
+
+(deftest inject-bundle-base-keeps-existing-forward-args
+  (is (= ["-x" "-bundle-base" "/rt/lg"]
+         (gobuild/inject-bundle-base ["-x"] "/rt/lg"))))
+
+(deftest inject-bundle-base-defers-to-a-user-supplied-one
+  ;; A cross-compile override is the whole point of passing it by hand.
+  (is (= ["-bundle-base" "/their/lg"]
+         (gobuild/inject-bundle-base ["-bundle-base" "/their/lg"] "/rt/lg"))))
+
+(deftest inject-bundle-base-is-identity-without-a-runtime
+  (is (= ["-x"] (gobuild/inject-bundle-base ["-x"] nil))))
+
+;; ---------------------------------------------------------------------------
+;; Regressions found by review
+;; ---------------------------------------------------------------------------
+
+(deftest interop-doc-blank-imports-keep-packages-across-tidy
+  ;; Without these, `go mod tidy` prunes the requirement `go get` just added
+  ;; (nothing imports the package until lginterop has run), and lginterop then
+  ;; cannot resolve the package it was asked to scan.
+  (let [out (gobuild/render-interop-doc-go
+              [['modernc.org/sqlite {:go/version "v1.38.0"
+                                     :go/interop "sqlite"}]
+               sql])]
+    (is (str/includes? out "package interop"))
+    (is (str/includes? out "_ \"modernc.org/sqlite\""))
+    (is (str/includes? out "_ \"database/sql\""))))
+
+(deftest interop-doc-has-no-import-block-without-interop-coords
+  (let [out (gobuild/render-interop-doc-go [sqlite])]
+    (is (str/includes? out "package interop"))
+    (is (not (str/includes? out "import (")))))
+
+(deftest placeholder-version-matches-a-module-major-suffix
+  ;; Go rejects `require example.com/mod/v2 v0.0.0` outright, replace or not.
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/mod")))
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/mod/shim")))
+  (is (= "v2.0.0" (gobuild/placeholder-version "example.com/mod/v2")))
+  (is (= "v11.0.0" (gobuild/placeholder-version "example.com/mod/v11")))
+  ;; /v0 and /v1 are not major suffixes in Go's module grammar.
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/mod/v1")))
+  (is (= "v0.0.0" (gobuild/placeholder-version "example.com/verbose"))))
+
+(deftest render-go-mod-uses-the-major-aware-placeholder-version
+  (let [out (gobuild/render-go-mod
+              [shim] nil
+              [[{:go/local "/proj/shim"} "example.com/mod/v2"]])]
+    (is (str/includes? out "require example.com/mod/v2 v2.0.0"))))
+
+(deftest render-go-mod-quotes-a-replace-path-with-spaces
+  ;; The directive grammar splits on whitespace, so an unquoted path parses as
+  ;; a path plus a bogus version and go.mod fails to load.
+  (let [out (gobuild/render-go-mod [sqlite] "/tmp/sp ace" [])]
+    (is (str/includes? out "=> \"/tmp/sp ace\""))))
+
+(deftest render-go-mod-quotes-a-local-module-path-with-spaces
+  (let [out (gobuild/render-go-mod
+              [shim] nil
+              [[{:go/local "/tmp/sp ace/shim"} "example.com/mod"]])]
+    (is (str/includes? out "=> \"/tmp/sp ace/shim\""))))
+
+(deftest render-go-mod-leaves-ordinary-paths-unquoted
+  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [])]
+    (is (str/includes? out "=> /Users/x/let-go\n"))))
+
+(deftest split-ignores-unknown-go-keys-on-third-party-coords
+  (let [e (entry 'foo/bar {:local/root "../x" :go/note "hi"} "/proj")
+        r (gobuild/split-go-coords [e] {})]
+    (is (= [e] (:src r)))
+    (is (= [] (:go-pairs r)))))
+
+(deftest user-set-lg?-is-false-for-a-value-lgx-set-itself
+  ;; A nested lgx inherits LGX_LG from its parent; treating that as a user
+  ;; override would make it skip building a runtime for its own Go deps.
+  (gobuild/select-runtime! "/rt/lg")
+  (is (not (gobuild/user-set-lg?)))
+  (os/setenv "LGX_LG" "/their/lg")
+  (is (gobuild/user-set-lg?))
+  (os/setenv "LGX_LG" "")
+  (os/setenv "LGX_LG_AUTO" "")
+  (is (not (gobuild/user-set-lg?))))
