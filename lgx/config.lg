@@ -806,7 +806,11 @@
 ;; keys this version doesn't know. The open :map (no :closed) encodes exactly
 ;; that.
 (def ^:private dep-config-schema
-  [:map [:deps {:optional true} deps-schema]])
+  [:map
+   [:deps {:optional true} deps-schema]
+   ;; :paths is read for a monorepo package (see paths-at), so it is validated
+   ;; here rather than passed through with the rest of the build-time keys.
+   [:paths {:optional true} [:vector rel-path-schema]]])
 
 (defn dep-config-dir
   "The directory a dep's lgx.edn is read from, given the checkout dir and the
@@ -824,19 +828,16 @@
       (path/join dir root)
       dir)))
 
-(defn coords-at
-  "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
-   is absent. Unlike the project's own lgx.edn, a missing file is not an
-   error: most deps ship no lgx.edn, and only a dep's :deps matters for
-   transitive resolution.
+(defn- dep-config-at
+  "Parse and validate the lgx.edn in dir, returning its map, or nil when the
+   file is absent. A missing file is not an error: most deps ship no lgx.edn.
 
    On invalid content throws ex-info whose message is the rendered error
    report naming dir, with {:lgx/invalid-dep-config dir} in ex-data so the
    caller can print it and exit without a stack trace."
   [dir]
   (let [config-path (path/join dir config-name)]
-    (if-not (file-exists? config-path)
-      []
+    (when (file-exists? config-path)
       (let [parsed (try
                      {:value (edn/read-string (slurp config-path))}
                      (catch e
@@ -848,7 +849,29 @@
         (if (seq errors)
           (throw (ex-info (errors-report (str "lgx.edn in " dir) errors)
                           {:lgx/invalid-dep-config dir}))
-          (sorted-pairs (or (:deps (:value parsed)) {})))))))
+          (:value parsed))))))
+
+(defn coords-at
+  "Return [lib coord] pairs from an lgx.edn located in dir, or [] when the file
+   is absent. Unlike the project's own lgx.edn, a missing file is not an
+   error: most deps ship no lgx.edn, and only a dep's :deps matters for
+   transitive resolution.
+
+   On invalid content throws ex-info whose message is the rendered error
+   report naming dir, with {:lgx/invalid-dep-config dir} in ex-data so the
+   caller can print it and exit without a stack trace."
+  [dir]
+  (sorted-pairs (or (:deps (dep-config-at dir)) {})))
+
+(defn paths-at
+  "Return the :paths vector from an lgx.edn located in dir, or [] when the
+   file is absent or declares none.
+
+   Read for the monorepo-package layout, where <repo>/<pkg>/lgx.edn describes
+   the package: its :paths say where that package's namespaces live, which the
+   package directory alone does not."
+  [dir]
+  (vec (or (:paths (dep-config-at dir)) [])))
 
 ;; ---------------------------------------------------------------------------
 ;; Declared deps from a dependency's own tools.deps / Leiningen metadata
