@@ -144,9 +144,9 @@ through `:tasks`.
 
 ## Reproducing the verification
 
-Wails is a `:go/*` dep, so it needs the whole go-deps stack; see
-[`../go-deps-pr-verification.md`](../go-deps-pr-verification.md) for
-building a combined `lg`. Then:
+Wails is a `:go/*` dep, so it needs a let-go carrying the merged interop
+work - pin `:lg-version` to a main sha, see
+[`lgx-go-wrappers.md`](./lgx-go-wrappers.md). Then:
 
 ```bash
 cd examples/wails-desktop

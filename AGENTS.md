@@ -28,10 +28,9 @@ read them only when relevant. Do not preload.
 - Reloading code in a long-running let-go program without restarting it,
   or asking why `lgx nrepl` cannot attach to one →
   [`docs/knowledge-base/lgx-live-reload.md`](docs/knowledge-base/lgx-live-reload.md).
-- Verifying `:go/*` support while its let-go PRs are still open (building a
-  combined `lg`, the sqlite/HoneySQL checks) →
-  [`docs/go-deps-pr-verification.md`](docs/go-deps-pr-verification.md)
-  (temporary; delete once the PRs merge).
+- Building a Go wrapper package (where they live, generated-bindings vs
+  shim-only, how to verify) →
+  [`docs/knowledge-base/lgx-go-wrappers.md`](docs/knowledge-base/lgx-go-wrappers.md).
 - Filing or referencing upstream let-go work →
   [`docs/issues/`](docs/issues/).
 
