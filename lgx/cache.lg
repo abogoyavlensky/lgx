@@ -1,5 +1,6 @@
 (ns lgx.cache
-  (:require [lgx.home :as home]
+  (:require [lgx.config :as config]
+            [lgx.home :as home]
             [lgx.path :as path]
             [string :as str]))
 
@@ -143,10 +144,10 @@
 ;; Source path resolution
 ;; ---------------------------------------------------------------------------
 
-(defn- resolve-source-path [dir root url ref]
+(defn- resolve-source-paths [dir root url ref]
   (if root
-    ;; :deps/root overrides the default probe. Path is used verbatim;
-    ;; the directory must exist after clone, else hard error.
+    ;; :deps/root overrides the default probe. The directory must exist after
+    ;; clone, else hard error.
     (let [resolved (path/join dir root)]
       (when-not (file-exists? resolved)
         (throw (ex-info (str ":deps/root " root " not found in " url)
@@ -154,11 +155,22 @@
                          :ref ref
                          :root root
                          :resolved resolved})))
-      resolved)
+      ;; A monorepo package keeps its own lgx.edn beside its sources
+      ;; (<repo>/<pkg>/lgx.edn), and its :paths — not the package directory
+      ;; itself — say where its namespaces live. Honoring them is the source
+      ;; path half of the relocation config/dep-config-dir already does for
+      ;; :deps; without it a package laid out as <pkg>/src is unloadable
+      ;; through a git coord. A :deps/root that only points at sources
+      ;; (org.clojure/tools.cli with :deps/root "src/main/clojure") carries no
+      ;; lgx.edn, declares no :paths, and keeps using the directory verbatim.
+      (let [declared (config/paths-at resolved)]
+        (if (seq declared)
+          (mapv (fn [p] (path/join resolved p)) declared)
+          [resolved])))
     ;; Convention: if the lib has a src/ dir, that's where namespaces live
     ;; (matches tools.deps default :paths ["src"]). Otherwise use the repo root.
     (let [src (path/join dir "src")]
-      (if (file-exists? src) src dir))))
+      [(if (file-exists? src) src dir)])))
 
 (defn- resolve-local-base [project local]
   (if (str/starts-with? local "/")
@@ -171,10 +183,11 @@
 
 (defn ensure-lib!
   "Fetch the coord into the gitlibs cache if missing. Returns
-   {:path <source dir> :dir <checkout root> :installed? <true if this call
-   cloned>}. :path is what goes on -source-paths (honoring :deps/root); :dir
-   is the repo/local root, where the dep's own lgx.edn lives (used for
-   transitive resolution)."
+   {:paths [<source dir> ...] :dir <checkout root> :installed? <true if this
+   call cloned>}. :paths is what goes on -source-paths (honoring :deps/root
+   and, for a monorepo package, the :paths its own lgx.edn declares); :dir is
+   the repo/local root, where the dep's own lgx.edn lives (used for transitive
+   resolution)."
   [coord project]
   (let [root (:deps/root coord)
         local (:local/root coord)]
@@ -184,7 +197,7 @@
           (throw (ex-info (str ":local/root " local " not found")
                           {:local local
                            :resolved dir})))
-        {:path (resolve-source-path dir root local nil)
+        {:paths (resolve-source-paths dir root local nil)
          :dir dir
          :installed? false})
       (let [url (:git/url coord)
@@ -197,7 +210,7 @@
           (if sha
             (clone-sha! url sha dir)
             (clone-tag! url tag dir)))
-        {:path (resolve-source-path dir root url ref)
+        {:paths (resolve-source-paths dir root url ref)
          :dir dir
          :installed? installed?}))))
 

@@ -66,7 +66,7 @@
         src-dir (str dir "/src")]
     (os/setenv "LGX_HOME" home)
     (mkdir src-dir)
-    (is (= {:path src-dir
+    (is (= {:paths [src-dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:git/url url
@@ -82,7 +82,7 @@
         dir (str home "/gitlibs/github.com/example/nosrc/" sha)]
     (os/setenv "LGX_HOME" home)
     (mkdir dir)
-    (is (= {:path dir
+    (is (= {:paths [dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:git/url url
@@ -98,7 +98,7 @@
         src-dir (str dir "/src")]
     (os/setenv "LGX_HOME" home)
     (mkdir src-dir)
-    (is (= {:path src-dir
+    (is (= {:paths [src-dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:git/url url
@@ -113,7 +113,7 @@
         dir (str home "/gitlibs/_local/_/lgx-missing-release-repo/release_1.0")]
     (os/setenv "LGX_HOME" home)
     (mkdir dir)
-    (is (= {:path dir
+    (is (= {:paths [dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:git/url url
@@ -129,7 +129,66 @@
         root-dir (str dir "/src/main/clojure")]
     (os/setenv "LGX_HOME" home)
     (mkdir root-dir)
-    (is (= {:path root-dir
+    (is (= {:paths [root-dir]
+            :installed? false
+            :dir dir}
+           (cache/ensure-lib! {:git/url url
+                               :git/sha sha
+                               :deps/root "src/main/clojure"}
+                              "/tmp/project")))
+    (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-deps-root-package-honors-its-own-paths
+  ;; The monorepo-package layout: <repo>/<pkg>/lgx.edn beside <pkg>/src. The
+  ;; package's :paths, not the package directory, name the source root.
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha "4444444444444444444444444444444444444444"
+        url "https://github.com/example/monorepo"
+        dir (str home "/gitlibs/github.com/example/monorepo/" sha)
+        pkg-dir (str dir "/wails")
+        src-dir (str pkg-dir "/src")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir src-dir)
+    (spit (str pkg-dir "/lgx.edn") "{:paths [\"src\"]}")
+    (is (= {:paths [src-dir]
+            :installed? false
+            :dir dir}
+           (cache/ensure-lib! {:git/url url
+                               :git/sha sha
+                               :deps/root "wails"}
+                              "/tmp/project")))
+    (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-deps-root-package-honors-multiple-paths
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha "5555555555555555555555555555555555555555"
+        url "https://github.com/example/multipath"
+        dir (str home "/gitlibs/github.com/example/multipath/" sha)
+        pkg-dir (str dir "/pkg")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir (str pkg-dir "/src"))
+    (mkdir (str pkg-dir "/extra"))
+    (spit (str pkg-dir "/lgx.edn") "{:paths [\"src\" \"extra\"]}")
+    (is (= {:paths [(str pkg-dir "/src") (str pkg-dir "/extra")]
+            :installed? false
+            :dir dir}
+           (cache/ensure-lib! {:git/url url
+                               :git/sha sha
+                               :deps/root "pkg"}
+                              "/tmp/project")))
+    (os/sh "rm" "-rf" home)))
+
+(deftest ensure-lib-deps-root-without-lgx-edn-stays-verbatim
+  ;; org.clojure/tools.cli shape: :deps/root points at sources only, no
+  ;; lgx.edn in it, so the directory itself remains the source path.
+  (let [home (str "/tmp/lgx-ensure-test-" (rand-int 100000000))
+        sha "6666666666666666666666666666666666666666"
+        url "https://github.com/example/noconfig"
+        dir (str home "/gitlibs/github.com/example/noconfig/" sha)
+        root-dir (str dir "/src/main/clojure")]
+    (os/setenv "LGX_HOME" home)
+    (mkdir root-dir)
+    (is (= {:paths [root-dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:git/url url
@@ -159,14 +218,14 @@
         root-dir (str dir "/lib/core")]
     (os/setenv "LGX_HOME" home)
     (mkdir root-dir)
-    (is (= {:path root-dir
+    (is (= {:paths [root-dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:git/url url
                                :git/sha sha
                                :deps/root "lib/core/"}
                               "/tmp/project")))
-    (is (= {:path root-dir
+    (is (= {:paths [root-dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:git/url url
@@ -179,7 +238,7 @@
   (let [project (str "/tmp/lgx-local-test-" (rand-int 100000000))
         src-dir (str project "/lib/src")]
     (mkdir src-dir)
-    (is (= {:path src-dir
+    (is (= {:paths [src-dir]
             :installed? false
             :dir (str project "/lib")}
            (cache/ensure-lib! {:local/root "lib"} project)))
@@ -189,7 +248,7 @@
   (let [dir (str "/tmp/lgx-abs-local-test-" (rand-int 100000000))
         src-dir (str dir "/src")]
     (mkdir src-dir)
-    (is (= {:path src-dir
+    (is (= {:paths [src-dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:local/root dir} "/tmp/project")))
@@ -199,7 +258,7 @@
   (let [project (str "/tmp/lgx-local-root-test-" (rand-int 100000000))
         root-dir (str project "/lib/src/main")]
     (mkdir root-dir)
-    (is (= {:path root-dir
+    (is (= {:paths [root-dir]
             :installed? false
             :dir (str project "/lib")}
            (cache/ensure-lib! {:local/root "lib"
@@ -225,7 +284,7 @@
   (let [project (str "/tmp/lgx-local-nosrc-test-" (rand-int 100000000))
         dir (str project "/lib")]
     (mkdir dir)
-    (is (= {:path dir
+    (is (= {:paths [dir]
             :installed? false
             :dir dir}
            (cache/ensure-lib! {:local/root "lib"} project)))
