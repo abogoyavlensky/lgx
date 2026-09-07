@@ -1,0 +1,178 @@
+;; lgx.clean — explicit cache cleanup: `lgx clean` removes the runtimes,
+;; gitlibs, and templates caches under $LGX_HOME, never automatically and
+;; never anything else. Cross-compilation is what makes this necessary rather
+;; than nice: a four-platform release is four ~25MB runtimes, and every
+;; :lg-version or driver bump orphans the previous set.
+(ns lgx.clean
+  (:require [lgx.home :as home]
+            [lgx.path :as path]
+            [string :as str]))
+
+;; Canonical category order — parsing normalizes to it, output follows it.
+(def ^:private category-order [:runtimes :gitlibs :templates])
+
+(def ^:private usage-error
+  (str "lgx: clean needs at least one cache to act on: "
+       "--runtimes, --gitlibs, --templates, or --all "
+       "(add --dry-run to only report)"))
+
+(defn parse-clean-args
+  "Parse the `clean` command's rest-args. Category flags are additive and may
+   be combined; --all means every category; --dry-run rides along anywhere.
+   Returns {:categories [kw ...] :dry-run? bool} with categories deduped in
+   canonical order. Throws ex-info on an unknown token — and on no category
+   at all: a bare command that deletes everything is the wrong default for a
+   destructive operation."
+  [args]
+  (loop [xs (seq args)
+         chosen #{}
+         dry-run? false]
+    (if (nil? xs)
+      (if (empty? chosen)
+        (throw (ex-info usage-error {}))
+        {:categories (vec (filter chosen category-order))
+         :dry-run? dry-run?})
+      (let [tok (first xs)]
+        (case tok
+          "--runtimes" (recur (next xs) (conj chosen :runtimes) dry-run?)
+          "--gitlibs" (recur (next xs) (conj chosen :gitlibs) dry-run?)
+          "--templates" (recur (next xs) (conj chosen :templates) dry-run?)
+          "--all" (recur (next xs) (set category-order) dry-run?)
+          "--dry-run" (recur (next xs) chosen true)
+          (throw (ex-info (str "lgx: clean does not understand " (pr-str tok)
+                               "\n" usage-error)
+                          {})))))))
+
+(defn format-bytes
+  "Render a byte count the way a human reads disk usage: whole bytes under a
+   KB, one decimal place above."
+  [n]
+  (cond
+    (< n 1024) (str n " B")
+    (< n (* 1024 1024)) (format "%.1f KB" (/ (* 1.0 n) 1024))
+    (< n (* 1024 1024 1024)) (format "%.1f MB" (/ (* 1.0 n) 1024 1024))
+    :else (format "%.1f GB" (/ (* 1.0 n) 1024 1024 1024))))
+
+(defn safe-dir?
+  "True when `dir` sits strictly inside `root` and root is a real directory
+   path — the guard that keeps a misconfigured LGX_HOME failing loudly
+   instead of deleting a home directory. Prefix-checked on normalized paths
+   with the separator attached, so a sibling like ~/.lgx-evil never passes."
+  [dir root]
+  (let [nroot (path/normalize (or root ""))
+        ndir (path/normalize (or dir ""))]
+    (and (not (str/blank? nroot))
+         (not= "/" nroot)
+         (str/starts-with? ndir (str nroot "/")))))
+
+(defn- symlink?
+  "True when `p` is itself a symlink. os/stat follows links, so this asks
+   test(1) instead — the check that keeps a symlinked cache root (pointing
+   anywhere) from being cleaned *through*."
+  [p]
+  (let [r (try (os/sh "sh" "-c" "test -L \"$1\"" "sh" p)
+               (catch e nil))]
+    (boolean (and r (zero? (:exit r))))))
+
+(defn- entry-size
+  "Disk usage of one filesystem entry in bytes, via du -sk (POSIX). du does
+   not follow symlinks, so a cached repo containing a link cycle cannot loop
+   the sizing and a link pointing outside the cache counts as the link, not
+   its target. KB granularity — an honest match for what deletion frees.
+   A sizing failure throws rather than reading as 0 B: deleting content the
+   report cannot account for is worse than stopping."
+  [abs]
+  (let [r (try (os/sh "du" "-sk" abs) (catch e nil))
+        kb (when (and r (zero? (:exit r)))
+             (parse-long (first (str/split (str/trim (:out r)) #"\s+"))))]
+    (when (nil? kb)
+      (throw (ex-info (str "could not size " abs
+                           (if r (str " (du exited " (:exit r) ")")
+                               " (du unavailable)")
+                           " - nothing was removed")
+                      {:path abs})))
+    (* 1024 kb)))
+
+(defn- plan-category
+  "Size every entry directly under `dir` without removing anything. Returns
+   {:bytes n :entries n :paths [abs ...]}; a missing dir is zero of each.
+   Throws (via entry-size) when an entry cannot be sized."
+  [dir]
+  (let [stat (os/stat dir)]
+    (if (or (nil? stat) (not (:dir? stat)))
+      {:bytes 0
+       :entries 0
+       :paths []}
+      (let [paths (mapv (fn [name] (path/join dir name)) (os/ls dir))]
+        {:bytes (reduce + 0 (map entry-size paths))
+         :entries (count paths)
+         :paths paths}))))
+
+(defn clean-category!
+  "Size and remove every entry directly under `dir` (the cache root itself
+   stays). With dry-run? nothing is removed. Returns {:bytes n :entries n}
+   for what was (or would be) reclaimed; a missing dir is zero of both.
+   Every entry is sized before anything is removed, so a sizing failure
+   (entry-size throws) aborts with the cache intact."
+  [dir dry-run?]
+  (let [{:keys [bytes entries paths]} (plan-category dir)]
+    (when-not dry-run?
+      (doseq [abs paths]
+        (syscall/rm-rf abs)))
+    {:bytes bytes
+     :entries entries}))
+
+(defn- category-dir [category]
+  (case category
+    :runtimes (home/runtimes-dir)
+    :gitlibs (home/gitlibs-dir)
+    :templates (home/templates-dir)))
+
+(defn cmd-clean!
+  "The `lgx clean` command. Reports what was (or, with --dry-run, would be)
+   removed per cache and in total, in bytes reclaimed. Refuses to touch any
+   path that does not sit strictly inside $LGX_HOME."
+  [rest-args]
+  (let [{:keys [categories dry-run?]}
+        (try
+          (parse-clean-args (vec rest-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        root (home/root)
+        verb (if dry-run? "would remove" "removed")
+        ;; Guard and size EVERY selected category before removing anything,
+        ;; so a sizing failure in the last category still leaves the first
+        ;; one intact — the whole command is preflight-then-delete.
+        plans
+        (try
+          (mapv
+            (fn [category]
+              (let [dir (category-dir category)]
+                (when-not (safe-dir? dir root)
+                  (write! *err*
+                          (str "error: refusing to clean " dir " - it is not "
+                               "inside LGX_HOME (" root "); check LGX_HOME\n"))
+                  (os/exit 1))
+                ;; A symlinked cache root would be cleaned *through*: os/ls
+                ;; follows the link, so the entries removed would live in the
+                ;; link's target — possibly far outside LGX_HOME.
+                (when (symlink? dir)
+                  (write! *err*
+                          (str "error: refusing to clean " dir " - it is a "
+                               "symlink; clean its target directly\n"))
+                  (os/exit 1))
+                (assoc (plan-category dir) :category category)))
+            categories)
+          (catch e
+                 (write! *err* (str "error: " (ex-message e) "\n"))
+            (os/exit 1)))]
+    (doseq [{:keys [category bytes entries paths]} plans]
+      (when-not dry-run?
+        (doseq [abs paths]
+          (syscall/rm-rf abs)))
+      (println (str (name category) ": " verb " " entries
+                    " entr" (if (= 1 entries) "y" "ies")
+                    ", " (format-bytes bytes))))
+    (println (str "total: " verb " "
+                  (format-bytes (reduce + 0 (map :bytes plans)))))))

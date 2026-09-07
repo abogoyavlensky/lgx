@@ -1,6 +1,7 @@
 (ns lgx.main
   (:require [lgx.args :as args]
             [lgx.cache :as cache]
+            [lgx.clean :as clean]
             [lgx.cli :as cli]
             [lgx.completion :as completion]
             [lgx.config :as config]
@@ -37,6 +38,8 @@
        "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
        "                               (one file if given, else walk test/; auto-applies :test context)\n"
        "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli`, `lib` or git URL)\n"
+       "  lgx clean <--cache...>       Remove caches under ~/.lgx: --runtimes, --gitlibs, --templates, or --all\n"
+       "                               (--dry-run only reports; reports bytes reclaimed)\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"))
 
@@ -927,6 +930,7 @@
     "build" (cmd-build (vec rest-args) verbose? with)
     "test" (cmd-test (vec rest-args) verbose? with)
     "new" (new/cmd-new! (vec rest-args) verbose?)
+    "clean" (clean/cmd-clean! (vec rest-args))
     "version" (cmd-version)
     "-v" (cmd-version)
     "--version" (cmd-version)

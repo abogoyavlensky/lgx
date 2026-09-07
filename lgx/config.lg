@@ -45,7 +45,7 @@
 ;; so the namespace is available for future use.
 (def reserved-task-names
   #{"run" "repl" "nrepl" "install" "new" "add" "update" "tasks" "help" "version"
-    "build" "test" "completion" "__complete"})
+    "build" "test" "clean" "completion" "__complete"})
 
 ;; ---------------------------------------------------------------------------
 ;; lgx.edn format as one schema value (see lgx.spec for the schema language)

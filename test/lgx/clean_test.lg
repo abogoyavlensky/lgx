@@ -1,0 +1,144 @@
+;; Unit tests for lgx.clean — flag parsing, byte formatting, the delete-safety
+;; guard, and cache-directory removal against a throwaway tree.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.clean-test
+  (:require [lgx.clean :as clean]
+            [string :as str]
+            [clojure.test :refer [deftest is]]))
+
+(defn- threw? [f]
+  (try (f) :no-throw (catch e :threw)))
+
+;; ---------------------------------------------------------------------------
+;; parse-clean-args — the flag contract
+;; ---------------------------------------------------------------------------
+
+(deftest clean-single-category
+  (is (= {:categories [:runtimes] :dry-run? false}
+         (clean/parse-clean-args ["--runtimes"]))))
+
+(deftest clean-categories-are-additive
+  (is (= {:categories [:runtimes :templates] :dry-run? false}
+         (clean/parse-clean-args ["--runtimes" "--templates"])))
+  ;; Output order is the canonical category order, not flag order.
+  (is (= {:categories [:runtimes :templates] :dry-run? false}
+         (clean/parse-clean-args ["--templates" "--runtimes"]))))
+
+(deftest clean-all-means-every-category
+  (is (= {:categories [:runtimes :gitlibs :templates] :dry-run? false}
+         (clean/parse-clean-args ["--all"]))))
+
+(deftest clean-dry-run-rides-along
+  (is (= {:categories [:gitlibs] :dry-run? true}
+         (clean/parse-clean-args ["--gitlibs" "--dry-run"])))
+  (is (= {:categories [:gitlibs] :dry-run? true}
+         (clean/parse-clean-args ["--dry-run" "--gitlibs"]))))
+
+(deftest clean-repeated-flags-dedupe
+  (is (= {:categories [:runtimes] :dry-run? false}
+         (clean/parse-clean-args ["--runtimes" "--runtimes"]))))
+
+(deftest bare-clean-is-an-error
+  ;; A no-argument command that deletes everything is the wrong default for a
+  ;; destructive operation; the error teaches the category flags.
+  (is (= :threw (threw? #(clean/parse-clean-args []))))
+  (is (= :threw (threw? #(clean/parse-clean-args ["--dry-run"]))))
+  (let [msg (try (clean/parse-clean-args []) nil (catch e (ex-message e)))]
+    (is (str/includes? msg "--runtimes"))
+    (is (str/includes? msg "--gitlibs"))
+    (is (str/includes? msg "--templates"))
+    (is (str/includes? msg "--all"))))
+
+(deftest clean-unknown-flag-is-an-error
+  (is (= :threw (threw? #(clean/parse-clean-args ["--caches"]))))
+  (is (= :threw (threw? #(clean/parse-clean-args ["--runtimes" "extra"])))))
+
+;; ---------------------------------------------------------------------------
+;; format-bytes
+;; ---------------------------------------------------------------------------
+
+(deftest format-bytes-units
+  (is (= "0 B" (clean/format-bytes 0)))
+  (is (= "512 B" (clean/format-bytes 512)))
+  (is (= "2.0 KB" (clean/format-bytes 2048)))
+  (is (= "1.5 KB" (clean/format-bytes 1536)))
+  (is (= "5.0 MB" (clean/format-bytes (* 5 1024 1024))))
+  (is (= "1.2 GB" (clean/format-bytes (+ (* 1 1024 1024 1024)
+                                         (* 214 1024 1024))))))
+
+;; ---------------------------------------------------------------------------
+;; safe-dir? — the never-outside-LGX_HOME guard
+;; ---------------------------------------------------------------------------
+
+(deftest safe-dir-accepts-a-cache-under-home
+  (is (clean/safe-dir? "/home/u/.lgx/runtimes" "/home/u/.lgx")))
+
+(deftest safe-dir-rejects-a-dir-outside-home
+  (is (not (clean/safe-dir? "/home/u/other" "/home/u/.lgx")))
+  ;; A sibling whose name shares the prefix is still outside.
+  (is (not (clean/safe-dir? "/home/u/.lgx-evil/runtimes" "/home/u/.lgx"))))
+
+(deftest safe-dir-rejects-a-degenerate-home
+  ;; A misconfigured LGX_HOME must fail loudly, not delete a filesystem.
+  (is (not (clean/safe-dir? "/runtimes" "/")))
+  (is (not (clean/safe-dir? "/runtimes" ""))))
+
+;; ---------------------------------------------------------------------------
+;; clean-category! — removal against a throwaway tree
+;; ---------------------------------------------------------------------------
+
+(defn- make-tree []
+  (let [root (str "/tmp/lgx-clean-test-" (rand-int 100000000))]
+    (mkdir (str root "/runtimes/aaa"))
+    (spit (str root "/runtimes/aaa/lg") "0123456789")
+    (mkdir (str root "/runtimes/bbb"))
+    (spit (str root "/runtimes/bbb/lg") "01234")
+    (mkdir (str root "/templates/t1"))
+    (spit (str root "/templates/t1/x") "abc")
+    root))
+
+(defn- rm-tree! [root]
+  (os/sh "rm" "-rf" root))
+
+(deftest clean-category-removes-entries-and-reports-bytes
+  ;; Sizes come from du -sk, so assert on presence and consistency rather
+  ;; than exact bytes (block sizes are filesystem-dependent).
+  (let [root (make-tree)
+        r (clean/clean-category! (str root "/runtimes") false)]
+    (is (> (:bytes r) 0))
+    (is (= 2 (:entries r)))
+    (is (= [] (vec (os/ls (str root "/runtimes")))))
+    ;; The other cache is untouched.
+    (is (= ["t1"] (vec (os/ls (str root "/templates")))))
+    (rm-tree! root)))
+
+(deftest clean-category-dry-run-changes-nothing
+  (let [root (make-tree)
+        dry (clean/clean-category! (str root "/runtimes") true)]
+    (is (> (:bytes dry) 0))
+    (is (= 2 (:entries dry)))
+    (is (= ["aaa" "bbb"] (vec (sort (os/ls (str root "/runtimes"))))))
+    ;; The real run reclaims exactly what the dry run promised.
+    (is (= dry (clean/clean-category! (str root "/runtimes") false)))
+    (rm-tree! root)))
+
+(deftest clean-category-handles-a-missing-dir
+  (is (= {:bytes 0 :entries 0}
+         (clean/clean-category! "/tmp/lgx-clean-test-does-not-exist" false))))
+
+(deftest clean-category-unlinks-a-symlink-without-following-it
+  ;; A cached entry that is a symlink must be unlinked, never descended:
+  ;; whatever it points at — even outside the cache — survives.
+  (let [root (make-tree)
+        outside (str root "/outside")]
+    (mkdir outside)
+    (spit (str outside "/precious") "keep me")
+    (os/sh "ln" "-s" outside (str root "/runtimes/link"))
+    ;; A self-referential link must not loop the sizing either.
+    (os/sh "ln" "-s" "." (str root "/runtimes/aaa/loop"))
+    (let [r (clean/clean-category! (str root "/runtimes") false)]
+      (is (= 3 (:entries r)))
+      (is (= [] (vec (os/ls (str root "/runtimes")))))
+      (is (= "keep me" (slurp (str outside "/precious")))))
+    (rm-tree! root)))
