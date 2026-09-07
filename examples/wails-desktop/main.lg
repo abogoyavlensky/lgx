@@ -1,0 +1,26 @@
+;; End-to-end exercise of the wails package: handlers registered from
+;; let-go, reached from the frontend through the one bound Go method.
+(ns main
+  (:require [wails.core :as w]))
+
+(defn- greet [name]
+  (str "Hello, " name "! (from let-go)"))
+
+(defn- stats []
+  {:runtime "let-go" :ui "wails v3" :items ["a" "b" "c"] :count 3})
+
+(defn -main []
+  (w/handler! "greet" greet)
+  (w/handler! "stats" stats)
+
+  (let [app (w/new-app {"name" "lgx-wails-desktop"
+                        "description" "let-go driving a Wails v3 app"
+                        "assets-dir" "frontend"})]
+    (w/new-window app {"title" "let-go x Wails" "width" 800 "height" 600})
+    (println "starting the wails event loop; ^C to stop")
+    (w/run! app)))
+
+;; lg -b runs top-level forms at compile time, so without this guard
+;; `lgx build` would construct the app and start the event loop while
+;; bundling. Everything with an effect lives inside -main.
+(when-not *compiling-aot* (-main))

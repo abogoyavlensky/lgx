@@ -1,0 +1,9 @@
+{:paths []
+ :main "main.lg"
+ :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"
+ :targets {:bin {:out "bin/app"}}
+
+ :deps {abogoyavlensky/letgo-wails
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/sha "f4beb9b9d2bf77a3408a4261469bd48922f89f82"
+         :deps/root "wails"}}}
