@@ -367,13 +367,19 @@
 (defn- install-letgo-source! [cfg]
   (when-let [version (and (cache/letgo-source-fetch-enabled?)
                           (config/lg-version cfg))]
-    (try
-      (let [r (cache/ensure-letgo-source! version)]
-        (when (:installed? r)
-          (println (str "Fetched let-go " version " source"))))
-      (catch e
-             (write! *err* (str "warning: failed to fetch let-go " version
-                                " source: " (ex-message e) "\n"))))))
+    ;; Only a released version has the v<version> tag the fetch clones; a
+    ;; branch or sha pin (valid for the runtime build) has no matching tag,
+    ;; so trying would only warn about a nonexistent vmain.
+    (if-not (gobuild/semver-version? version)
+      (write! *err* (str "warning: :lg-version " version " is not a released "
+                         "version; skipping let-go source fetch\n"))
+      (try
+        (let [r (cache/ensure-letgo-source! version)]
+          (when (:installed? r)
+            (println (str "Fetched let-go " version " source"))))
+        (catch e
+               (write! *err* (str "warning: failed to fetch let-go " version
+                                  " source: " (ex-message e) "\n")))))))
 
 ;; Preflight: when :lg-version is pinned, compare it to the lg on PATH. Warn for
 ;; iteration commands (run/nrepl), fail for build/test. LGX_SKIP_VERSION_CHECK
