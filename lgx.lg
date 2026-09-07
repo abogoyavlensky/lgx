@@ -279,16 +279,26 @@
                                                   (:error fetched)))
                            go-seen go-pairs)
                     (let [{:keys [path dir installed?]} (:ok fetched)
-                          lgx-edn? (file-exists? (path/join dir
+                        ;; :deps/root relocates where the dep's lgx.edn is
+                        ;; read (config/dep-config-dir) — and the children it
+                        ;; yields resolve their relative :local/root and
+                        ;; :go/local against that same directory, so a
+                        ;; monorepo package's siblings resolve against the
+                        ;; package, not the repo root.
+                          cfg-dir (config/dep-config-dir dir id)
+                          lgx-edn? (file-exists? (path/join cfg-dir
                                                             config/config-name))
                         ;; Rung 1: a dep's own lgx.edn is authoritative and its
-                        ;; deps.edn/project.clj go unread.
+                        ;; deps.edn/project.clj go unread. The other rungs
+                        ;; (declared-children) stay on the checkout root —
+                        ;; deps.edn/project.clj belong to tools with their own
+                        ;; conventions.
                           found (if lgx-edn?
                                   {:children (mapv (fn [[clib cc]]
                                                      {:lib clib
                                                       :coord cc
-                                                      :base dir})
-                                                   (coords-at! dir))
+                                                      :base cfg-dir})
+                                                   (coords-at! cfg-dir))
                                    :pending []}
                                   (declared-children lib coord dir installed?))
                         ;; A dep's own go coords flow up through the same read.
