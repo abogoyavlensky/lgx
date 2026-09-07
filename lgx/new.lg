@@ -142,7 +142,7 @@
                       {:template template})))))
 
 (defn- templates-root []
-  (path/join (home/root) "templates"))
+  (home/templates-dir))
 
 (defn- template-dir [url sha]
   (let [[host owner repo] (cache/parse-git-url url)]
