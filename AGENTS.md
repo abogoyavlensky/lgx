@@ -16,8 +16,21 @@ read them only when relevant. Do not preload.
   [`docs/knowledge-base/let-go-bundling.md`](docs/knowledge-base/let-go-bundling.md).
 - Touching `(:require)` resolution, `.cljc` discovery, ns layout →
   [`docs/knowledge-base/let-go-resolver.md`](docs/knowledge-base/let-go-resolver.md).
+- Touching `:go/*` coords, the custom `lg` runtime cache, or the
+  `go`/lginterop subprocess pipeline →
+  [`docs/knowledge-base/lgx-go-runtimes.md`](docs/knowledge-base/lgx-go-runtimes.md).
 - Setting up a dev iteration loop (`LGX_LG`, cache management) →
   [`docs/knowledge-base/lgx-dev-workflow.md`](docs/knowledge-base/lgx-dev-workflow.md).
+- Wrapping a framework-shaped Go library, or anything desktop/Wails →
+  [`docs/knowledge-base/lgx-wails-desktop.md`](docs/knowledge-base/lgx-wails-desktop.md)
+  (why `:go/interop` cannot carry struct-literal or generic APIs, and what
+  a `:go/local` shim looks like instead).
+- Reloading code in a long-running let-go program without restarting it,
+  or asking why `lgx nrepl` cannot attach to one →
+  [`docs/knowledge-base/lgx-live-reload.md`](docs/knowledge-base/lgx-live-reload.md).
+- Building a Go wrapper package (where they live, generated-bindings vs
+  shim-only, how to verify) →
+  [`docs/knowledge-base/lgx-go-wrappers.md`](docs/knowledge-base/lgx-go-wrappers.md).
 - Filing or referencing upstream let-go work →
   [`docs/issues/`](docs/issues/).
 

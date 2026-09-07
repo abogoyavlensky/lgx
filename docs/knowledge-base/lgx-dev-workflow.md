@@ -39,13 +39,23 @@ user-script invocation changes.
 ## Smoke testing examples
 
 ```
-cd examples/with-lib
-LGX_LG=/path/to/let-go/lg /path/to/lgx/bin/lgx run main.lg
+cd examples/clojure-libs/with-malli
+/path/to/lgx/bin/lgx run
 ```
 
-`examples/with-lib/` uses let-go itself as a "lib" (because no
-third-party let-go libraries exist yet) and proves the
-fetch-and-require flow end-to-end.
+`examples/clojure-libs/` holds one project per Clojure library running
+under let-go; each proves the fetch-and-require flow end-to-end.
+`examples/local-dep/` covers `:local/root`.
+
+For a project with `:go/*` deps, `LGX_LG` is the wrong lever - it
+overrides the custom runtime entirely. Use `LGX_LETGO_REPLACE` to point
+the runtime build at a let-go checkout instead:
+
+```
+LGX_LETGO_REPLACE=/path/to/let-go lgx run
+```
+
+See [`lgx-go-runtimes.md`](lgx-go-runtimes.md).
 
 ## Cache management
 
