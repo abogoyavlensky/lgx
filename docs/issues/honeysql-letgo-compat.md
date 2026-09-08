@@ -148,18 +148,105 @@ Tests: `test/kwargs_trailing_map_test.lg`.
 
 ## Not let-go's to fix (honeysql `:lg` branches)
 
+**Status: implemented (2026-09-08) on `lg/inline-str-and-formatv-gate` in the
+fork ([abogoyavlensky/honeysql](https://github.com/abogoyavlensky/honeysql)),
+branched from `develop`.** Not pushed and no PR opened yet — update this when
+the PR opens, and again when it merges.
+
 honeysql upstream **already ships `:lg` reader-conditional branches** (e.g.
 `formatv` is disabled under `:lg` because `clojure.template` doesn't exist;
 `inline-str` substitutes a plain `"'"` for the `#"(?<!\\)'"` lookbehind
-regex Go's re2 can't express). Two suite consequences to route to honeysql,
-not let-go:
+regex Go's re2 can't express). Three gaps remained, all fixed in the fork.
+Measured against let-go `main` (`dc310b6`) across all twelve test namespaces:
 
-- `issue-495-formatv` is gated `#?(:clj …)` only, but `formatv` is `:lg`-
-  disabled in src — the test needs an `:lg` gate too.
-- The 8 "inline quote CVE" failures (mysql / non-conforming-postgres) come
-  from the `:lg` `inline-str` branch double-escaping already-escaped `\'`.
-  A lookbehind-free rewrite (sentinel-swap `\'` before doubling) would fix
-  the `:lg` branch upstream.
+| | Tests | Pass | Fail |
+|---|---|---|---|
+| fork `develop` as-is | — | — | nothing loads (H0) |
+| + H0 fixed | 156 | 663 | 0 |
+| + H1 fixed | 173 | 761 | 8 |
+| + H2 fixed | **173** | **769** | **0** |
+
+The JVM suite is unchanged by all three (177 tests, 2841 assertions, 0
+failures, byte-identical before and after) — every edit is confined to a
+`:lg` branch.
+
+### H0 — `with-inline` breaks `honey.sql` entirely (regression vs v2.7.1437)
+
+**The one a future reader is most likely to hit again**, because it is *not*
+in any release: it arrived with upstream PR
+[#609](https://github.com/seancorfield/honeysql/pull/609) (`4fa833b`,
+"[perf] Promote `:inline` to a separate dynvar"), which is on `develop` only.
+
+`with-inline` is defined `#?(:clj …)` and selected at five call sites with
+`#?(:clj with-inline :default binding)`. let-go matches `:clj`, so it takes
+`with-inline`, whose expansion needs `push-thread-bindings` /
+`pop-thread-bindings` — which let-go does not have:
+
+```
+caused by: Can't resolve push-thread-bindings in this context
+```
+
+`honey.sql` then fails to compile and **nothing loads at all** — which also
+makes the baseline misleading, since the rest of the suite is absent rather
+than failing.
+
+**Fix (honeysql):** route `:lg` to `binding` at the five call sites, which is
+what `:default` (ClojureScript) already does and is semantically identical —
+`with-inline` is a performance shortcut, not a behaviour change. The
+`defmacro` needs no change: its body is syntax-quoted, so
+`push-thread-bindings` is never resolved at definition time.
+
+Adding `push-thread-bindings`/`pop-thread-bindings` to let-go is the
+alternative, and remains a legitimate gap worth filing on its own.
+
+### H1 — `issue-495-formatv` not gated for `:lg` (predicted below, now fixed)
+
+`issue-495-formatv` was gated `#?(:clj …)` only, but `formatv` is
+`:lg`-disabled in src. let-go's reader matches `:clj`, so it read a test for a
+macro `:lg` deliberately leaves undefined; `honey.sql-test` — most of the
+suite — failed to compile with `Can't resolve sut/formatv`, taking ~17 tests
+and ~98 assertions with it.
+
+**Fix (honeysql):** `#?(:lg () :clj (deftest issue-495-formatv …))`, matching
+the style `src/honey/sql.cljc` already uses for `formatv` itself.
+
+### H2 — `inline-str` doubles already-escaped quotes (predicted below, now fixed)
+
+The 8 "inline quote CVE" failures (mysql / non-conforming-postgres) came from
+the `:lg` `inline-str` branch double-escaping already-escaped `\'`.
+
+**Fix (honeysql):** an alternation that consumes `\'` as a unit, so only bare
+quotes reach the replacement. Left-to-right alternation prefers `\'`, so an
+escaped quote is matched whole and returned unchanged — and no lookbehind, so
+re2 accepts it:
+
+```clojure
+(str \' #?(:lg (str/replace s #"\\'|'" (fn [m] (if (= m "'") "''" m)))
+           :default (str/replace s #"(?<!\\)'" "''"))
+     \')
+```
+
+The conditional moves up to wrap the whole `str/replace` because the branches
+now need different *replacements* as well as different patterns. `:default`
+stays byte-identical: the alternation was measured equivalent to the
+lookbehind on 11 inputs (including `\\'` and runs of consecutive quotes), so
+unifying them would be safe — but it would change code every honeysql user
+runs for no behavioural gain.
+
+### Still out of reach: two namespaces, not honeysql's fault
+
+`honey.cache-test` and `honey.sql-alphanumeric-test` remain unloadable, and
+git coords will not recover them — the blocker is JVM host interop inside the
+dependencies themselves, verified by putting the libraries' source directly on
+`-source-paths` and watching them fail to compile:
+
+| namespace | needs | fails on |
+|---|---|---|
+| `honey.cache-test` | `core.cache` → `data.priority-map` | `java.util.SortedMap` / `Map.Entry` interop |
+| `honey.sql-alphanumeric-test` | `test.check` → `test.check.random` | `JavaUtilSplittableRandom.`, a deftype over `java.util.SplittableRandom` |
+
+Both fail identically before and after, so they are noise rather than signal.
+Porting either library is its own project.
 
 ## Also fixed while here
 
