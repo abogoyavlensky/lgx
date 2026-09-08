@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make [seancorfield/honeysql](https://github.com/seancorfield/honeysql) pass its own test suite under let-go with zero failures, by fixing the two remaining gaps in its existing `:lg` support.
+**Goal:** Make [seancorfield/honeysql](https://github.com/seancorfield/honeysql) pass its own test suite under let-go with zero failures, by fixing three gaps in its existing `:lg` support.
 
 **Tech Stack:** Clojure (`.cljc`), let-go, lgx. Work happens in the **honeysql fork** (`~/Projects/honeysql`, `abogoyavlensky/honeysql`), branching from `develop`. This plan document lives in lgx.
 
@@ -12,16 +12,18 @@
 
 ### Where things stand
 
-HoneySQL already ships `:lg` reader conditionals upstream — let-go support landed in an earlier round. Two gaps remain. Measured against let-go `main` (`dc310b6`) across **all twelve** test namespaces:
+HoneySQL already ships `:lg` reader conditionals upstream — let-go support landed in an earlier round. Three gaps remain, one of them new since v2.7.1436. Measured against let-go `main` (`dc310b6`) across **all twelve** test namespaces:
 
 | | Tests | Pass | Fail | Error |
 |---|---|---|---|---|
-| baseline | 156 | 663 | 0 | 0 |
-| target | **173** | **769** | 0 | 0 |
+| `develop` as-is | — | — | — | nothing loads (Gap 0) |
+| + Gap 0 fixed | 156 | 663 | 0 | 0 |
+| + Gap 1 fixed | 173 | 761 | **8** | 0 |
+| + Gap 2 fixed (target) | **173** | **769** | **0** | 0 |
 
 The baseline is misleading twice over: `honey.sql-test` — most of the suite — does not load, so its assertions are absent rather than failing; and its eight genuine failures never get the chance to run.
 
-Both figures were measured, not derived. Do not expect `706`/`714`: those come from a six-namespace runner used in an earlier round, which is not the full suite.
+Every figure was measured on the fork's `develop`, not derived. Do not expect `134`/`706`/`714`: those come from a six-namespace runner used in an earlier round against v2.7.1437, which is neither the full suite nor the branch being worked on.
 
 **Two namespaces are excluded, and adding git coords will not recover them.** The blocker is JVM host interop inside the dependencies themselves, not dependency resolution — verified by putting the libraries' source directly on `-source-paths` and watching them fail to compile:
 
@@ -31,6 +33,36 @@ Both figures were measured, not derived. Do not expect `706`/`714`: those come f
 | `honey.sql-alphanumeric-test` | `clojure.test.check.generators` → `test.check.random` | `JavaUtilSplittableRandom.` — a deftype over `java.util.SplittableRandom` |
 
 `honey.sql-alphanumeric-test` additionally needs `com.gfredericks/test.chuck`. Both fail identically before and after this change, so they are noise rather than signal here. Porting either library is its own project, well outside this plan. Every other namespace runs, `honey.unhashable-test` included.
+
+### Gap 0: `with-inline` breaks `honey.sql` entirely on current `develop`
+
+**This is the blocker; the other two do not matter until it is fixed.** It is also *not* present in v2.7.1437 — it arrived with upstream PR #609 (`4fa833b`, "[perf] Promote `:inline` to a separate dynvar"), which is on `develop` but not in any release.
+
+`src/honey/sql.cljc:203` defines a `:clj`-only macro:
+
+```clojure
+#?(:clj (defmacro ^:private with-inline [bindings & body]
+          `(do (push-thread-bindings inline-true-map)
+               (try ~@body (finally (pop-thread-bindings))))))
+```
+
+and five call sites select it:
+
+```clojure
+(#?(:clj with-inline :default binding) [*inline* true] ...)
+```
+
+let-go matches `:clj`, so it takes `with-inline`, whose expansion needs `push-thread-bindings` and `pop-thread-bindings`. let-go has `binding` but neither of those, so `honey.sql` fails to compile with `Can't resolve push-thread-bindings in this context` and **nothing loads at all**.
+
+Fix: route `:lg` to `binding`, which is what `:default` (ClojureScript) already does and is semantically identical — `with-inline` is a performance shortcut, not a behaviour change.
+
+```clojure
+(#?(:lg binding :clj with-inline :default binding) [*inline* true] ...)
+```
+
+Five identical one-line edits at lines 1462, 1541, 1791, 2271, 2304. The `defmacro` itself needs no change: its body is syntax-quoted, so `push-thread-bindings` is never resolved at definition time — only the call sites fail.
+
+The alternative is adding `push-thread-bindings`/`pop-thread-bindings` to let-go. That is a legitimate gap worth filing separately, but it is a bigger change and does not belong in this plan.
 
 ### Gap 1: `issue-495-formatv` is not gated for `:lg`
 
@@ -108,7 +140,7 @@ That equivalence is the point of the change: it makes `:lg` behave like `:clj` r
 
 ### Scope
 
-Two commits on a local branch in the fork: the test gate, then `inline-str`. They are intended as one PR against `seancorfield/honeysql` — both are "make the existing `:lg` support correct" — but **this plan does not push or open it**. It ends with a verified branch and a drafted description; the user takes it from there.
+Three commits on a local branch in the fork: the `with-inline` gate, the test gate, then `inline-str`. They are intended as one PR against `seancorfield/honeysql` — both are "make the existing `:lg` support correct" — but **this plan does not push or open it**. It ends with a verified branch and a drafted description; the user takes it from there.
 
 No new tests. The 8 assertions that currently fail already cover this precisely; adding more would be noise.
 
@@ -118,6 +150,7 @@ In the **honeysql fork** (`~/Projects/honeysql`):
 
 | File | Change |
 |---|---|
+| `src/honey/sql.cljc` | route 5 `with-inline` call sites to `binding` under `:lg` (5 lines) |
 | `test/honey/sql_test.cljc` | gate `issue-495-formatv` with `:lg` (1 line) |
 | `src/honey/sql.cljc` | `inline-str`: alternation for the `:lg` branch (~4 lines) |
 
@@ -137,7 +170,7 @@ Nothing in `examples/clojure-libs/with-honeysql/` changes — it is a consumer, 
 
 - [ ] **Step 1: Branch the fork**
   Run: `cd ~/Projects/honeysql && git checkout develop && git pull && git checkout -b lg/inline-str-and-formatv-gate`
-  Expected: a clean branch off `develop`.
+  Expected: a clean branch off `develop`. Note `develop` is 22 commits past v2.7.1436 and includes PR #609, which is what introduced Gap 0.
 
 - [ ] **Step 2: Confirm the toolchain**
   Run: `cd /home/agent/Projects/let-go && git log --oneline -1 && ./bin/lg -v | head -1`
@@ -145,8 +178,8 @@ Nothing in `examples/clojure-libs/with-honeysql/` changes — it is a consumer, 
   A JVM Clojure is also required for Tasks 1 and 4: `mise exec -- clojure --version`.
 
 - [ ] **Step 3: Record the let-go baseline**
-  Use the runner from Task 3 against the unmodified fork.
-  Expected: three `LOAD FAIL` lines (`honey.sql-test`, plus the two JVM-interop-blocked ones) and `Tests: 156 Pass: 663 Fail: 0 Error: 0`.
+  Use the runner from Task 4 against the unmodified fork.
+  Expected on current `develop`: **every namespace fails to load**, because `honey.sql` itself does not compile (Gap 0). Confirm the root cause is `Can't resolve push-thread-bindings in this context`. If instead you see `Tests: 156 …`, `develop` has moved and Gap 0 is already fixed — re-read the Design before continuing.
 
 - [ ] **Step 4: Record the JVM baseline — before any edit**
   Run: `cd ~/Projects/honeysql && mise exec -- clojure -X:test 2>&1 | tail -5` and save the output to `/tmp/hsq/jvm-baseline.txt`.
@@ -180,7 +213,38 @@ Done first and separately: if the two disagree on any input, the whole approach 
 
 ---
 
-### Task 2: Gate `issue-495-formatv` for `:lg`
+### Task 2: Route `with-inline` to `binding` under `:lg`
+
+Do this first of the three edits: until it lands, `honey.sql` does not compile and no other change can be observed.
+
+**Files:**
+- Modify: `~/Projects/honeysql/src/honey/sql.cljc`
+
+- [ ] **Step 1: Confirm the failure**
+  Run: `cd /home/agent/Projects/let-go && LG_READ_CLJ=1 ./bin/lg -source-paths "$HOME/Projects/honeysql/src" -e "(require 'honey.sql)"`
+  Expected: FAIL, ending in `Can't resolve push-thread-bindings in this context`.
+
+- [ ] **Step 2: Add the `:lg` branch at all five call sites**
+  Lines 1462, 1541, 1791, 2271, 2304 are byte-identical; change each from
+  `(#?(:clj with-inline :default binding) [*inline* true]` to
+  `(#?(:lg binding :clj with-inline :default binding) [*inline* true]`.
+  Leave the `defmacro` at line 203 alone — its body is syntax-quoted, so it compiles fine and only the call sites fail.
+  Verify the count: `grep -c '#?(:lg binding :clj with-inline' src/honey/sql.cljc` should print `5`.
+
+- [ ] **Step 3: Confirm it loads**
+  Re-run Step 1's command.
+  Expected: no error.
+
+- [ ] **Step 4: Confirm the new baseline**
+  Run the full runner from Task 4 Step 1.
+  Expected: `Tests: 156 Pass: 663 Fail: 0 Error: 0`, with three `LOAD FAIL` lines.
+
+- [ ] **Step 5: Commit**
+  `git commit -m "Use binding rather than with-inline under :lg"`
+
+---
+
+### Task 3: Gate `issue-495-formatv` for `:lg`
 
 **Files:**
 - Modify: `~/Projects/honeysql/test/honey/sql_test.cljc`
@@ -201,13 +265,13 @@ Done first and separately: if the two disagree on any input, the whole approach 
 
 ---
 
-### Task 3: Fix `inline-str` for `:lg`
+### Task 4: Fix `inline-str` for `:lg`
 
 **Files:**
 - Modify: `~/Projects/honeysql/src/honey/sql.cljc`
 
 - [ ] **Step 1: See the 8 failures**
-  Create the suite runner at `/tmp/hsq/suite.lg`. The `try`/`catch` around each `require` is load-bearing: a namespace that fails to compile otherwise takes the whole run down, and `require` failures are quiet enough to miss.
+  Create the suite runner at `/tmp/hsq/suite.lg` (Task 2 Step 4 already used it). The `try`/`catch` around each `require` is load-bearing: a namespace that fails to compile otherwise takes the whole run down, and `require` failures are quiet enough to miss.
   ```clojure
   (require 'test)
   (doseq [n '[honey.sql-test honey.sql.helpers-test honey.sql.pg-ops-test
@@ -242,7 +306,7 @@ Done first and separately: if the two disagree on any input, the whole approach 
 
 ---
 
-### Task 4: Confirm the JVM is unaffected
+### Task 5: Confirm the JVM is unaffected
 
 `:default` is untouched, so this should be a formality — which is exactly why it is worth running rather than assuming.
 
@@ -257,7 +321,7 @@ Done first and separately: if the two disagree on any input, the whole approach 
 
 ---
 
-### Task 5: Verify the lgx example still works
+### Task 6: Verify the lgx example still works
 
 The example is the downstream consumer; it exercises `sql/format` through lgx rather than through the raw `lg` binary.
 
@@ -281,30 +345,30 @@ The example is the downstream consumer; it exercises `sql/format` through lgx ra
 
 ---
 
-### Task 6: Leave the branch ready, do not push
+### Task 7: Leave the branch ready, do not push
 
 The PR is the user's to open. This task stops at a clean local branch.
 
 - [ ] **Step 1: Confirm the two commits**
   Run: `cd ~/Projects/honeysql && git log --oneline develop..HEAD && git status --short`
-  Expected: exactly two commits (the gate, then `inline-str`), a clean tree, and no other files touched. `git diff develop..HEAD --stat` should show only `src/honey/sql.cljc` and `test/honey/sql_test.cljc`.
+  Expected: exactly three commits (`with-inline`, the test gate, then `inline-str`), a clean tree, and no other files touched. `git diff develop..HEAD --stat` should show only `src/honey/sql.cljc` and `test/honey/sql_test.cljc`.
 
 - [ ] **Step 2: Do not push and do not open a PR**
   Leave `lg/inline-str-and-formatv-gate` local. Report the branch name and the two commit subjects so the user can push and open the PR themselves.
 
 - [ ] **Step 3: Draft the PR description for them**
-  Write it to `/tmp/hsq/pr-body.md` (not committed) so it can be pasted. It should state: both changes are confined to the existing `:lg` branches and `:default` is untouched; the alternation is equivalent to the lookbehind, with the table from Task 1 as evidence; and the result across all twelve test namespaces is `173 tests / 769 assertions / 0 failures`, where the baseline was `156 / 663` with `honey.sql-test` failing to load.
+  Write it to `/tmp/hsq/pr-body.md` (not committed) so it can be pasted. It should state: all three changes are confined to `:lg` branches and leave `:clj`/`:default` untouched; the alternation is equivalent to the lookbehind, with the table from Task 1 as evidence; and the result across all twelve test namespaces is `173 tests / 769 assertions / 0 failures`, where the baseline was `156 / 663` with `honey.sql-test` failing to load.
   Mention that two namespaces remain unloadable under let-go for reasons outside HoneySQL — `core.cache` and `test.check` use JVM host interop — so the maintainer is not left wondering why the count is not all twelve.
 
 ---
 
-### Task 7: Update the lgx issue doc
+### Task 8: Update the lgx issue doc
 
 **Files:**
 - Modify: `docs/issues/honeysql-letgo-compat.md`
 
 - [ ] **Step 1: Record the outcome**
-  Add both gaps and their fixes, with the before/after numbers and a link to the PR. The doc's existing "two related upstream items" note predicted exactly these two; mark them addressed rather than leaving the prediction dangling.
+  Add all three gaps and their fixes, with the before/after numbers. Call out that Gap 0 (`with-inline`) is a regression relative to v2.7.1437 introduced by upstream PR #609, since that is the one a future reader is most likely to hit again. The doc's existing "two related upstream items" note predicted Gaps 1 and 2; mark them addressed rather than leaving the prediction dangling. Gap 0 is new and unpredicted.
   Word the status as **implemented on a local branch in the fork** — not "fixed upstream", and not "PR submitted". This plan deliberately stops short of pushing; the user opens the PR. This repo's issue docs already make that distinction (see `interop-slice-boxing.md`, which says "implemented on `<branch>`"). Update the status again when the PR opens, and again when it merges.
 
 - [ ] **Step 2: Check formatting and commit**
