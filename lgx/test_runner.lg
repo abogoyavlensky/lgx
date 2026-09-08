@@ -6,11 +6,11 @@
 (def ^:private harness-prefix "lgx-test-")
 (def ^:private harness-suffix ".lg")
 
-;; The harness writes this marker to *err* as its first body action, after
-;; the (ns ... :require ...) form has loaded every test namespace. It marks
-;; the boundary in lg's captured stderr between lg's pre-harness load
-;; diagnostics and any stderr the tests themselves emit. No regex
-;; metacharacters, so it is safe as a str/split separator.
+;; The harness writes this marker to *err* at the end of its load phase,
+;; once it has tried to require every test namespace. It marks the boundary
+;; in lg's captured stderr between lg's pre-harness load diagnostics and any
+;; stderr the tests themselves emit. No regex metacharacters, so it is safe
+;; as a str/split separator.
 (def harness-ready-marker "<<<lgx-test-harness-ready>>>")
 
 (defn- test-file? [name]
@@ -122,9 +122,6 @@
 ;; and hand it to `lg` like any other script.
 ;; ---------------------------------------------------------------------------
 
-(defn- require-line [entry]
-  (str "            [" (second entry) "]"))
-
 (defn- entry-line [entry]
   (str "  [" (pr-str (first entry)) " '" (second entry) "]"))
 
@@ -138,9 +135,30 @@
 (def ^:private harness-body
   (str
     "\n\n"
-    ;; First body form: emit the ready marker once the ns :require above
-    ;; has loaded every test ns. Everything lg printed to stderr before
-    ;; this point is a load diagnostic; everything after is test output.
+    "(def test-plan\n"
+    "  [\n"
+    "__TEST_ENTRIES__\n"
+    "  ])\n"
+    "\n"
+    ;; Load phase: require the test namespaces one at a time, inside a
+    ;; try, so a file that fails to load costs one reported failure
+    ;; instead of the whole run. Collects [display-file ns-sym message].
+    ;; Nothing is printed here — the report comes after the marker, so it
+    ;; is never mistaken for a pre-harness load diagnostic.
+    "(def load-failures\n"
+    "  (reduce\n"
+    "    (fn [acc entry]\n"
+    "      (try (require (second entry))\n"
+    "           acc\n"
+    "           (catch e\n"
+    "             (conj acc\n"
+    "                   [(first entry) (second entry) (ex-message e)]))))\n"
+    "    []\n"
+    "    test-plan))\n"
+    "\n"
+    ;; Emit the ready marker once the load phase has run to completion.
+    ;; Everything lg printed to stderr before this point is a load
+    ;; diagnostic; everything after is test output.
     "(write! *err* \"" harness-ready-marker "\\n\")\n\n"
     "(defn- color [code s]\n"
     "  (str \"\\u001b[38;5;\" code \"m\" s \"\\u001b[0m\"))\n"
@@ -179,11 +197,6 @@
     "(defn- var-name [tv]\n"
     "  ;; let-go vars print as #'<ns>/<name>; pull the last segment.\n"
     "  (last (str/split (str tv) \"/\")))\n"
-    "\n"
-    "(def test-plan\n"
-    "  [\n"
-    "__TEST_ENTRIES__\n"
-    "  ])\n"
     "\n"
     "(doseq [entry test-plan]\n"
     "  (let [file-name (first entry)\n"
@@ -235,14 +248,10 @@
    The `Running tests in ...` banner is printed by lgx (green, on stderr),
    not the harness."
   [entries]
-  (let [extra (if (empty? entries)
-                ""
-                (str "\n"
-                     (str/join "\n" (map require-line entries))))
-        entry-src (str/join "\n" (map entry-line entries))
+  (let [entry-src (str/join "\n" (map entry-line entries))
         body (-> harness-body
                  (str/replace "__TEST_ENTRIES__" entry-src))]
-    (str harness-header extra "))" body)))
+    (str harness-header "))" body)))
 
 (defn- temp-path [version]
   (let [dir (home/test-runner-dir)
