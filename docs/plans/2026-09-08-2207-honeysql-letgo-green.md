@@ -23,7 +23,14 @@ The baseline is misleading twice over: `honey.sql-test` — most of the suite �
 
 Both figures were measured, not derived. Do not expect `706`/`714`: those come from a six-namespace runner used in an earlier round, which is not the full suite.
 
-**Two namespaces are excluded, and the exclusion is about dependencies, not let-go.** `honey.cache-test` requires `clojure.core.cache.wrapped` and `honey.sql-alphanumeric-test` requires `clojure.test.check.generators`; both are Maven deps that lgx does not resolve. They fail to load identically before and after this change. Every other namespace runs, `honey.unhashable-test` included.
+**Two namespaces are excluded, and adding git coords will not recover them.** The blocker is JVM host interop inside the dependencies themselves, not dependency resolution — verified by putting the libraries' source directly on `-source-paths` and watching them fail to compile:
+
+| namespace | needs | fails on |
+|---|---|---|
+| `honey.cache-test` | `clojure.core.cache.wrapped` → `data.priority-map` | `(.. sc comparator (compare (. sc entryKey e) key))` — `java.util.SortedMap` / `Map.Entry` interop |
+| `honey.sql-alphanumeric-test` | `clojure.test.check.generators` → `test.check.random` | `JavaUtilSplittableRandom.` — a deftype over `java.util.SplittableRandom` |
+
+`honey.sql-alphanumeric-test` additionally needs `com.gfredericks/test.chuck`. Both fail identically before and after this change, so they are noise rather than signal here. Porting either library is its own project, well outside this plan. Every other namespace runs, `honey.unhashable-test` included.
 
 ### Gap 1: `issue-495-formatv` is not gated for `:lg`
 
@@ -101,7 +108,7 @@ That equivalence is the point of the change: it makes `:lg` behave like `:clj` r
 
 ### Scope
 
-One PR against `seancorfield/honeysql`, two commits: the test gate, then `inline-str`. They are separable, and a maintainer who wants them split can say so — but both are "make the existing `:lg` support correct", so they belong together.
+Two commits on a local branch in the fork: the test gate, then `inline-str`. They are intended as one PR against `seancorfield/honeysql` — both are "make the existing `:lg` support correct" — but **this plan does not push or open it**. It ends with a verified branch and a drafted description; the user takes it from there.
 
 No new tests. The 8 assertions that currently fail already cover this precisely; adding more would be noise.
 
@@ -139,7 +146,7 @@ Nothing in `examples/clojure-libs/with-honeysql/` changes — it is a consumer, 
 
 - [ ] **Step 3: Record the let-go baseline**
   Use the runner from Task 3 against the unmodified fork.
-  Expected: three `LOAD FAIL` lines (`honey.sql-test`, plus the two dependency-blocked ones) and `Tests: 156 Pass: 663 Fail: 0 Error: 0`.
+  Expected: three `LOAD FAIL` lines (`honey.sql-test`, plus the two JVM-interop-blocked ones) and `Tests: 156 Pass: 663 Fail: 0 Error: 0`.
 
 - [ ] **Step 4: Record the JVM baseline — before any edit**
   Run: `cd ~/Projects/honeysql && mise exec -- clojure -X:test 2>&1 | tail -5` and save the output to `/tmp/hsq/jvm-baseline.txt`.
@@ -211,10 +218,10 @@ Done first and separately: if the two disagree on any input, the whole approach 
          (catch Throwable e (println "LOAD FAIL" n (ex-message e)))))
   (test/run-tests)
   ```
-  All twelve namespaces are listed. `honey.cache-test` and `honey.sql-alphanumeric-test` will report `LOAD FAIL` for missing Maven deps both before and after — leave them in the list so the exclusion stays visible rather than silently assumed.
+  All twelve namespaces are listed. `honey.cache-test` and `honey.sql-alphanumeric-test` will report `LOAD FAIL` both before and after, because their dependencies use JVM host interop let-go does not support (see Design). Leave them in the list so the exclusion stays visible rather than silently assumed.
   Run: `cd /home/agent/Projects/let-go && LG_READ_CLJ=1 ./bin/lg -source-paths "$HOME/Projects/honeysql/src:$HOME/Projects/honeysql/test" /tmp/hsq/suite.lg 2>&1 | grep -v 'reflection warning'`
   `LG_READ_CLJ=1` is mandatory when invoking `lg` directly: it makes `.clj`/`.cljc` resolve and `:clj` conditionals match. lgx sets it for you.
-  Expected: `Tests: 173 Pass: 761 Fail: 8 Error: 0`, with all 8 under `{:dialect :mysql}` or `{:standard-conforming-strings false}`, plus the two dependency `LOAD FAIL` lines.
+  Expected: `Tests: 173 Pass: 761 Fail: 8 Error: 0`, with all 8 under `{:dialect :mysql}` or `{:standard-conforming-strings false}`, plus the two JVM-interop `LOAD FAIL` lines.
   Judge from the printed summary, not the exit code. If the failure count is not exactly 8, stop and report — the two changes are meant to be additive, and anything else means something outside this plan moved.
 
 - [ ] **Step 2: Apply the fix**
@@ -228,7 +235,7 @@ Done first and separately: if the two disagree on any input, the whole approach 
 
 - [ ] **Step 3: Confirm zero failures**
   Re-run Step 1's command.
-  Expected: `Tests: 173 Pass: 769 Fail: 0 Error: 0`, and only the two dependency `LOAD FAIL` lines.
+  Expected: `Tests: 173 Pass: 769 Fail: 0 Error: 0`, and only the two JVM-interop `LOAD FAIL` lines.
 
 - [ ] **Step 4: Commit**
   `git commit -m "Fix inline-str under :lg: match \\' as a unit instead of doubling it"`
@@ -274,15 +281,20 @@ The example is the downstream consumer; it exercises `sql/format` through lgx ra
 
 ---
 
-### Task 6: Open the PR
+### Task 6: Leave the branch ready, do not push
 
-- [ ] **Step 1: Push the branch**
-  Run: `cd ~/Projects/honeysql && git push -u origin lg/inline-str-and-formatv-gate`
+The PR is the user's to open. This task stops at a clean local branch.
 
-- [ ] **Step 2: Open one PR against `seancorfield/honeysql`**
-  Base `develop`. Two commits, kept separate.
-  The description should state: both changes are confined to the existing `:lg` branches and `:default` is untouched; the alternation is equivalent to the lookbehind, with the table from Task 1 as evidence; and the result across all twelve test namespaces is `173 tests / 769 assertions / 0 failures`, where the baseline was `156 / 663` with `honey.sql-test` failing to load.
-  Note that a fine-grained PAT scoped to the fork cannot open PRs against `seancorfield/honeysql` — if `gh` refuses, generate a prefilled link or hand the step to the user.
+- [ ] **Step 1: Confirm the two commits**
+  Run: `cd ~/Projects/honeysql && git log --oneline develop..HEAD && git status --short`
+  Expected: exactly two commits (the gate, then `inline-str`), a clean tree, and no other files touched. `git diff develop..HEAD --stat` should show only `src/honey/sql.cljc` and `test/honey/sql_test.cljc`.
+
+- [ ] **Step 2: Do not push and do not open a PR**
+  Leave `lg/inline-str-and-formatv-gate` local. Report the branch name and the two commit subjects so the user can push and open the PR themselves.
+
+- [ ] **Step 3: Draft the PR description for them**
+  Write it to `/tmp/hsq/pr-body.md` (not committed) so it can be pasted. It should state: both changes are confined to the existing `:lg` branches and `:default` is untouched; the alternation is equivalent to the lookbehind, with the table from Task 1 as evidence; and the result across all twelve test namespaces is `173 tests / 769 assertions / 0 failures`, where the baseline was `156 / 663` with `honey.sql-test` failing to load.
+  Mention that two namespaces remain unloadable under let-go for reasons outside HoneySQL — `core.cache` and `test.check` use JVM host interop — so the maintainer is not left wondering why the count is not all twelve.
 
 ---
 
@@ -293,7 +305,7 @@ The example is the downstream consumer; it exercises `sql/format` through lgx ra
 
 - [ ] **Step 1: Record the outcome**
   Add both gaps and their fixes, with the before/after numbers and a link to the PR. The doc's existing "two related upstream items" note predicted exactly these two; mark them addressed rather than leaving the prediction dangling.
-  Word the status as **fixed in the fork, PR submitted** — not "fixed upstream". Opening a PR is not merging one, and this repo's issue docs distinguish the two (see `interop-slice-boxing.md`, which says "implemented on `<branch>`"). Update again when it merges.
+  Word the status as **implemented on a local branch in the fork** — not "fixed upstream", and not "PR submitted". This plan deliberately stops short of pushing; the user opens the PR. This repo's issue docs already make that distinction (see `interop-slice-boxing.md`, which says "implemented on `<branch>`"). Update the status again when the PR opens, and again when it merges.
 
 - [ ] **Step 2: Check formatting and commit**
   Run: `cd /home/agent/Projects/lgx && mise exec -- cljfmt check`
