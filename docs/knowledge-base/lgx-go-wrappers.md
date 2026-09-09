@@ -72,7 +72,8 @@ methods are not first-class so a variadic one cannot be `apply`-ed, and
 `*sql.DB`/`*sql.Tx` share no declared interface.
 
 **Shape B - a shim and nothing generated.** Fits a framework: anything
-configured by struct literals or parameterised by generics.
+configured by struct literals, parameterised by generics, or driven by
+callbacks the caller supplies.
 
 `wails` is the worked case, and it declares no `:go/interop` at all. Two
 properties put the API out of reach: lgx always passes `-opaque-structs`, so no
@@ -81,9 +82,24 @@ struct constructors are emitted and let-go cannot build an
 `application.NewService[T]` - the whole backend - would vanish with no
 diagnostic. See [`lgx-wails-desktop.md`](./lgx-wails-desktop.md).
 
-**Pick by asking how the library is configured.** Function calls with scalar
-arguments generate well. Struct literals and generics do not, and no amount of
-work on the interop side changes that - go straight to a `:go/local` shim.
+**Callbacks only cross the boundary one way.** A Go func *returned* by a
+package boxes into a let-go fn (`pkg/vm/value.go:200`, `reflect.Func` ->
+`NativeFnType.Box`), but nothing converts a let-go fn into a Go func: let-go's
+`pkg/` calls `reflect.MakeFunc` nowhere. So a generated binding for a parameter
+of func type is emitted and then uncallable - there is nothing to hand it. This
+is the most common of the three triggers in Go, where "pass me a closure" is
+the idiomatic API for transactions, iteration and comparators. buntdb is the
+clean illustration: every operation lives inside `db.Update(func(tx *Tx) error)`
+and `tx.Ascend(index, func(k, v string) bool)`, so generation buys nothing.
+
+A shim can do what generation cannot: hold the let-go fn and `Invoke` it from
+Go. `pkg/rt/http.go:48,102` is the pattern - a struct field of type `vm.Fn`,
+called with `h.fn.Invoke([]vm.Value{req})` from inside a Go callback.
+
+**Pick by asking how the library is configured and driven.** Function calls
+with scalar arguments generate well. Struct literals, generics and func-typed
+parameters do not, and no amount of work on the interop side changes that - go
+straight to a `:go/local` shim.
 
 ## Building one
 
@@ -176,3 +192,8 @@ note these, none of which are obvious:
 > **In [letgo-packages](https://github.com/abogoyavlensky/letgo-packages):**
 > `sql/shim/shim.go` (Shape A), `wails/shim/shim.go` (Shape B),
 > each package's `README.md` and `example/`.
+>
+> **In [let-go](https://github.com/nooga/let-go):** `pkg/vm/value.go`
+> (`reflect.Func` boxing, Go -> let-go only), `pkg/rt/http.go` (the
+> `vm.Fn` field a Go callback invokes), `cmd/lginterop/lginterop.lg`
+> (`simple-type?`, `smartable?`, `generic?`).
