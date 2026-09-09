@@ -198,7 +198,22 @@
     "  ;; let-go vars print as #'<ns>/<name>; pull the last segment.\n"
     "  (last (str/split (str tv) \"/\")))\n"
     "\n"
-    "(doseq [entry test-plan]\n"
+    "(def failed-namespaces (set (map second load-failures)))\n"
+    "\n"
+    "(def runnable-plan\n"
+    "  (filter #(not (contains? failed-namespaces (second %))) test-plan))\n"
+    "\n"
+    ;; Report every namespace that would not load, once, before any test
+    ;; output. the-ns throws for a namespace lg never published, so the run
+    ;; phase below sees only the entries that loaded.
+    "(doseq [failure load-failures]\n"
+    "  (println (first failure))\n"
+    "  (println (str \"  \" (red \"\\u2717\") \" failed to load\"))\n"
+    "  (doseq [line (nonblank-lines (last failure))]\n"
+    "    (println (str \"    \" (str/trim line))))\n"
+    "  (println))\n"
+    "\n"
+    "(doseq [entry runnable-plan]\n"
     "  (let [file-name (first entry)\n"
     "        ns-sym (second entry)\n"
     "        test-vars (get *registered-tests* (the-ns ns-sym) [])]\n"
@@ -232,19 +247,29 @@
     "              (println (str \"    ERROR: \" (:error result))))))))\n"
     "    (println)))\n"
     "\n"
+    ;; A load failure is not a failed assertion, so it is counted on its
+    ;; own rather than folded into the assertion totals. The summary colour,
+    ;; the OK/FAIL line and the exit code all read failed?, so a run cannot
+    ;; print a green OK and still exit 1.
     "(let [c *report-counters*\n"
     "      asserts (+ (:pass c) (:fail c))\n"
     "      failures (+ (:fail c) (:error c))\n"
+    "      load-count (count load-failures)\n"
+    "      failed? (or (pos? failures) (seq load-failures))\n"
     "      summary (str (:test c) \" tests, \" asserts \" assertions, \"\n"
-    "                   failures \" failures\")]\n"
-    "  (println ((if (zero? failures) green red) summary))\n"
-    "  (println (if (zero? failures) \"OK\" \"FAIL\"))\n"
-    "  (os/exit (if (zero? failures) 0 1)))\n"))
+    "                   failures \" failures\"\n"
+    "                   (if (pos? load-count)\n"
+    "                     (str \", \" load-count \" load failures\")\n"
+    "                     \"\"))]\n"
+    "  (println ((if failed? red green) summary))\n"
+    "  (println (if failed? \"FAIL\" \"OK\"))\n"
+    "  (os/exit (if failed? 1 0)))\n"))
 
 (defn harness-source
   "Return a .lg source string for a test harness that loads each test
-   entry and runs every registered test sequentially, printing file
-   names, per-test ✓/✗ marks, testing contexts, and failing details.
+   entry in turn, reports the ones that fail to load, and runs every
+   registered test of the rest sequentially, printing file names,
+   per-test ✓/✗ marks, testing contexts, and failing details.
    The `Running tests in ...` banner is printed by lgx (green, on stderr),
    not the harness."
   [entries]
@@ -271,13 +296,16 @@
 ;; ---------------------------------------------------------------------------
 ;; Swallowed load-error detection
 ;;
-;; let-go's `require` prints `error: failed to load <path>: CompileError ...`
-;; to stderr but does NOT throw or set a non-zero exit, so a test file that
-;; fails to compile would otherwise be reported as 0 tests / 0 failures and
-;; pass silently. The harness writes harness-ready-marker to stderr right
-;; after its requires, so the captured stderr splits cleanly into lg's
-;; pre-harness load diagnostics (before the marker) and test-emitted stderr
-;; (after it). We only inspect the former.
+;; This covers the load failure the harness cannot see for itself. Through
+;; lg 1.11.x `require` swallows a test file's compile error: it prints
+;; `error: failed to load <path>: CompileError ...` to stderr, does not throw
+;; and exits 0, so the harness's try never fires and the run would otherwise
+;; be reported as 0 tests / 0 failures and pass silently. (From 1.12.x
+;; `require` throws, the harness catches it in its load phase, and it is the
+;; harness that names the file.) The harness writes harness-ready-marker to
+;; stderr at the end of that load phase, so the captured stderr splits
+;; cleanly into lg's pre-harness load diagnostics (before the marker) and
+;; test-emitted stderr (after it). We only inspect the former.
 ;; ---------------------------------------------------------------------------
 
 (defn strip-ready-marker
@@ -288,16 +316,19 @@
     (str/replace err (str harness-ready-marker "\n") "")))
 
 (defn harness-ready?
-  "True if the harness reached its first body form, i.e. the (ns … :require …)
-   above it loaded every test namespace.
+  "True if the harness's load phase ran to completion, i.e. it tried every
+   test namespace and got as far as writing the marker. It does NOT mean every
+   require succeeded — the harness catches and reports those itself.
 
    This is the version-independent half of load-failure detection. let-go
    changed behaviour here: through 1.11.x `require` swallowed a test file's
    compile error and carried on, so the harness still ran and the only trace
-   was a diagnostic line on stderr; from 1.12.x it throws, so the harness never
-   starts and there is no `error: failed to load` line to match. Asking whether
-   the marker arrived covers both, and asks about our own harness rather than
-   about lg's wording. nil-safe."
+   was a diagnostic line on stderr; from 1.12.x it throws, which the load phase
+   now catches. What is left for this function is the load failure no `catch`
+   can reach — the harness itself, or one of its own dependencies, failing to
+   load, so the process dies before the marker and there is no
+   `error: failed to load` line to match either. Asking whether the marker
+   arrived covers that without depending on lg's wording. nil-safe."
   [err]
   (and (some? err) (str/includes? err harness-ready-marker)))
 
