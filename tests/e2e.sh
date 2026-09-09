@@ -1703,7 +1703,7 @@ assert_contains "$out" '("world")' "task :run: app-level -- dropped, app sees (\
 rm -rf "$proj_tdd" "$home_tdd"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 68: lgx test fails when a test file does not compile"
+echo "==> Scenario 68: a test file that does not compile is reported, the rest still run"
 if supports_source_paths; then
     proj_brk="$(mktemp -d)"
     home_brk="$(mktemp -d)"
@@ -1742,8 +1742,17 @@ EOF
         "broken test: the offending file is named"
     assert_contains "$out" "totally-undefined-symbol" \
         "broken test: lg's diagnostic is surfaced"
-    assert_contains "$out" "a test file failed to load" \
-        "broken test: lgx explains the failure"
+    # Who says "failed to load" also depends on the version: from 1.12 the
+    # harness catches the throw and names the file itself; through 1.11 lg
+    # prints its own "error: failed to load <path>" and lgx turns that into
+    # the failure. Assert the phrase both paths carry.
+    assert_contains "$out" "failed to load" \
+        "broken test: the load failure is reported"
+    # The point of loading each namespace separately: a file that will not
+    # compile no longer hides the results of the files that do. Match the
+    # test's own name so incidental output cannot satisfy this.
+    assert_contains "$out" "pass-1" \
+        "broken test: the file that loads still runs"
     rm -rf "$proj_brk" "$home_brk"
 else
     skip "lgx test requires lg with -source-paths support"
@@ -1811,8 +1820,11 @@ EOF
     pass "syntax error: lgx test exits non-zero"
     assert_contains "$out" "Syntax error reading source" \
         "syntax error: lg's reader error is surfaced"
-    assert_contains "$out" "a test file failed to load" \
-        "syntax error: lgx explains the failure"
+    # As in scenario 68: from lg 1.12 the harness catches the throw and
+    # reports the file, through 1.11 lg's own diagnostic is what lgx turns
+    # into the failure. "failed to load" is the phrase both paths carry.
+    assert_contains "$out" "failed to load" \
+        "syntax error: the load failure is reported"
     rm -rf "$proj_syn" "$home_syn"
 else
     skip "lgx test requires lg with -source-paths support"

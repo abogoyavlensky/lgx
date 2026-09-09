@@ -104,16 +104,64 @@
     (is (str/includes? src "[os :as os]"))
     (is (str/includes? src "(os/exit"))))
 
+(defn- ns-form
+  "The generated harness's (ns ...) form: everything before the first
+   blank line, which is where the body starts."
+  [src]
+  (first (str/split src "\n\n")))
+
+(defn- before?
+  "True if needle a occurs in src before needle b, and both occur."
+  [src a b]
+  (let [ia (str/index-of src a)
+        ib (str/index-of src b)]
+    (and (some? ia) (some? ib) (< ia ib))))
+
 (deftest harness-source-includes-each-ns
   (let [src (tr/harness-source [[(path/join "test" "lgx" "config_test.lg")
                                  'lgx.config-test]
                                 [(path/join "test" "lgx" "path_test.lg")
                                  'lgx.path-test]])]
     (is (parses? src))
-    (is (str/includes? src "[lgx.config-test]"))
-    (is (str/includes? src "[lgx.path-test]"))
+    ;; Test namespaces reach the harness through the test plan, which the
+    ;; load phase requires one at a time. They must NOT be in the ns form:
+    ;; there, one file that fails to compile takes the whole harness down.
+    (is (str/includes? src "'lgx.config-test"))
+    (is (str/includes? src "'lgx.path-test"))
     (is (str/includes? src (pr-str (path/join "test" "lgx" "config_test.lg"))))
-    (is (str/includes? src "'lgx.config-test"))))
+    (is (str/includes? src (pr-str (path/join "test" "lgx" "path_test.lg"))))
+    (is (not (str/includes? (ns-form src) "lgx.config-test")))
+    (is (not (str/includes? (ns-form src) "lgx.path-test")))))
+
+(deftest harness-source-load-phase-is-guarded-and-precedes-the-marker
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
+    (is (parses? src))
+    (is (str/includes? src "(def load-failures"))
+    (is (str/includes? src "(try (require"))
+    (is (str/includes? src "(catch e"))
+    ;; The marker still means "the load phase finished", so it has to come
+    ;; after every require, not before.
+    (is (before? src "(def load-failures" tr/harness-ready-marker))
+    (is (before? src "(try (require" tr/harness-ready-marker))))
+
+(deftest harness-source-reports-load-failures-after-the-marker
+  ;; Collected before the marker (the load phase), reported after it — a
+  ;; report emitted before the marker would look like a load diagnostic.
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])
+        after-marker (second (str/split src tr/harness-ready-marker))]
+    (is (parses? src))
+    (is (before? src "(def load-failures" tr/harness-ready-marker))
+    (is (str/includes? after-marker "load-failures"))
+    (is (str/includes? after-marker "failed to load"))))
+
+(deftest harness-source-run-phase-skips-namespaces-that-failed-to-load
+  ;; the-ns throws for a namespace that never loaded, so the run phase must
+  ;; reach it only for entries absent from the failure set.
+  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
+    (is (parses? src))
+    (is (str/includes? src "(def failed-namespaces"))
+    (is (str/includes? src "(contains? failed-namespaces"))
+    (is (before? src "(contains? failed-namespaces" "(the-ns ns-sym)"))))
 
 (deftest harness-source-emits-ready-marker
   (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
@@ -130,9 +178,15 @@
     (is (str/includes? src "tests, "))
     (is (str/includes? src "assertions, "))
     (is (str/includes? src "failures"))
+    ;; Load failures are counted separately from assertions, and the summary
+    ;; colour, the OK/FAIL line and the exit code all read one condition, so
+    ;; they cannot disagree — a green OK alongside exit 1 would be a lie.
+    (is (str/includes? src "load failures"))
     (is (str/includes? src
-                       "(println ((if (zero? failures) green red) summary))"))
-    (is (str/includes? src "(os/exit (if (zero? failures) 0 1))"))))
+                       "failed? (or (pos? failures) (seq load-failures))"))
+    (is (str/includes? src "(println ((if failed? red green) summary))"))
+    (is (str/includes? src "(println (if failed? \"FAIL\" \"OK\"))"))
+    (is (str/includes? src "(os/exit (if failed? 1 0))"))))
 
 (deftest harness-source-omits-running-tests-banner
   ;; The "Running tests in ..." banner now comes from lgx (green, on stderr),

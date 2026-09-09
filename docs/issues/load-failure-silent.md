@@ -44,26 +44,42 @@ diagnostic and set a non-zero exit), not vanish.
 
 ## lgx-side status
 
-`lgx test` detects everything it still can (`lgx.lg` `cmd-test`,
-`lgx/test-runner`):
+`lgx test` no longer lets one unloadable file hide the rest of the suite. The
+generated harness requires each test namespace on its own, inside a `try`, and
+reports the ones that fail — file name, lg's message, and a count kept separate
+from the assertion totals in the summary line — while running every namespace
+that did load. The exit code is non-zero on any assertion failure, test error,
+or load failure ([`lgx/test_runner.lg`](../../lgx/test_runner.lg)).
 
-- `harness-ready?` — the harness writes a marker as its first body form, so
-  a thrown load error (1.12 compile path) is caught as "the harness never
-  started", independent of lg's wording;
+Two detection functions in `cmd-test` still back that up, because the harness
+can only catch what lg throws:
+
+- `harness-ready?` — the harness writes a marker to stderr at the end of its
+  load phase. Its meaning moved with the requires: it now says "the load phase
+  ran to completion", not "every require succeeded". What it still catches is
+  the load failure no `catch` can reach — the harness itself, or one of its own
+  dependencies, failing to load, so the process dies before the marker.
 - `load-error-before-harness?` — matches both the wrapped
   `error: failed to load <path>: …` form and 1.12's bare
-  `error: Syntax error reading source at (<file>:L:C).`, for lg versions
-  that still print one.
+  `error: Syntax error reading source at (<file>:L:C).`, in the stderr that
+  precedes the marker. This is the live path on lg ≤ 1.11, where `require`
+  neither throws nor exits non-zero: the harness's `try` never fires, lg's
+  diagnostic is the only evidence, and lgx is what forces exit 1.
 
-Together these cover every shape lg still reports, on both versions, so
-`tests/e2e.sh` scenarios 68 and 70 pass under each — scenario 68 now asserts
-the offending file and symbol rather than one version's phrasing.
+`tests/e2e.sh` scenarios 68 and 70 pass under both versions. They assert the
+offending file, lg's diagnostic, the phrase `failed to load` (which the harness
+carries on 1.12 and lg's own diagnostic carries on 1.11), and a non-zero exit —
+plus, now that the harness no longer aborts, that the passing file beside the
+broken one still runs.
 
-What remains uncovered is narrower than the table above suggests: only a
-reader error that leaves lg with *nothing* to report. `(def y #)` still
-produces `error: Syntax error reading source at (…)` and a non-zero exit on
-1.12, and is caught. An unterminated form running to EOF produces no output
-at all, and is not detectable by any means available to lgx.
+What remains uncovered is unchanged by any of this, and narrower than the table
+above suggests: only a reader error that leaves lg with *nothing* to report.
+`(def y #)` throws on 1.12 and the load phase catches it. An unterminated form
+running to EOF stays invisible from every angle — probed against lg 1.12.2,
+`require` returns normally, `find-ns` returns a live ns with the `deftest`s
+that preceded the EOF registered, lg writes nothing to stderr, and the process
+exits 0. The harness cannot see it from inside, and lgx cannot see it from
+outside.
 
 ## Problem (as originally filed, against lg ≤ 1.11)
 
@@ -138,12 +154,14 @@ Option 2 is the smallest behavior change that closes the CI hole.
 ## lgx-side workaround (until upstream lands)
 
 If 2 above is adopted, `lgx test`'s harness will inherit the exit
-code naturally. Until then, lgx can either:
+code naturally. Until then lgx does both of these — see "lgx-side
+status" above:
 
-- Wrap each `:require` in the generated harness with `try`/`catch`,
-  set a flag, and exit 1 alongside the summary.
-- Capture stderr from the `lg <harness>` exec and pattern-match
-  `error: failed to load ` lines; force exit 1 if present.
+- the generated harness wraps each `require` in `try`/`catch`, names
+  the files that failed, and exits 1 alongside the summary;
+- `cmd-test` captures stderr from the `lg <harness>` exec and
+  pattern-matches `error: failed to load ` lines that precede the
+  harness marker; forces exit 1 if present.
 
 Both are defensive patches; neither helps non-lgx consumers of the
 resolver.
@@ -157,5 +175,6 @@ resolver.
 - [`lgx/test_runner.lg`](../../lgx/test_runner.lg) — harness
   generator; demonstrates the consumer-side blind spot.
 - E2E coverage for `lgx test` exit codes lives in
-  [`tests/e2e.sh`](../../tests/e2e.sh) (scenarios 39–49) — does
-  *not* currently exercise the compile-error case.
+  [`tests/e2e.sh`](../../tests/e2e.sh): scenarios 39–49 for the
+  ordinary cases, and 68–70 for load failures — compile error,
+  lookalike stderr from a passing test, and reader error.
