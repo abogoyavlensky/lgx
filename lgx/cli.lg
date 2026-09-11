@@ -124,6 +124,40 @@
           :else
           (recur targets all? (conj forward tok) (next xs)))))))
 
+(def ^:private exclude-error
+  "lgx: --exclude requires a comma-separated list of test namespaces")
+
+(defn- parse-exclude-value
+  "One --exclude value: a comma-separated list of test namespace names,
+   trimmed, blanks dropped, each becoming the symbol the test plan carries."
+  [value]
+  (when (nil? value)
+    (throw (ex-info exclude-error {})))
+  (let [names (vec (filter (fn [s] (not (str/blank? s)))
+                           (map str/trim (str/split value ","))))]
+    (when (empty? names)
+      (throw (ex-info exclude-error {})))
+    (mapv symbol names)))
+
+(defn parse-test-args
+  "Parse the `test` command's rest-args. `--exclude <ns,...>` (repeatable,
+   accumulating) may appear anywhere; every other token is a positional, in
+   order. Returns {:exclude [sym ...] :positionals [str ...]}. Throws ex-info
+   on a missing or blank --exclude value. The positional count and the
+   file/--exclude conflict are cmd-test's checks, next to its other errors."
+  [args]
+  (loop [exclude []
+         positionals []
+         xs (seq args)]
+    (if (nil? xs)
+      {:exclude exclude
+       :positionals positionals}
+      (let [tok (first xs)]
+        (if (= tok "--exclude")
+          (recur (vec (concat exclude (parse-exclude-value (first (next xs)))))
+                 positionals (next (next xs)))
+          (recur exclude (conj positionals tok) (next xs)))))))
+
 (def ^:private template-value-error
   "lgx: --template requires a value (built-in name or git URL)")
 

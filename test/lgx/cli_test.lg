@@ -198,3 +198,51 @@
                                                 "linux/arm64"]))))
   (is (= :threw (threw? #(cli/parse-build-args ["--target" "linux/arm64"
                                                 "--all"])))))
+
+;; ---------------------------------------------------------------------------
+;; parse-test-args
+;; ---------------------------------------------------------------------------
+
+(deftest test-args-no-flags-keeps-positionals
+  (is (= {:exclude [] :positionals ["test/x_test.lg"]}
+         (cli/parse-test-args ["test/x_test.lg"])))
+  (is (= {:exclude [] :positionals []}
+         (cli/parse-test-args []))))
+
+(deftest test-args-single-exclude
+  (is (= {:exclude ['a-test] :positionals []}
+         (cli/parse-test-args ["--exclude" "a-test"]))))
+
+(deftest test-args-exclude-comma-list-trims-blanks
+  (is (= {:exclude ['a-test 'b-test] :positionals []}
+         (cli/parse-test-args ["--exclude" "a-test, b-test,,"]))))
+
+(deftest test-args-repeated-exclude-accumulates
+  (is (= {:exclude ['a-test 'b-test 'c-test] :positionals []}
+         (cli/parse-test-args ["--exclude" "a-test,b-test"
+                               "--exclude" "c-test"]))))
+
+(deftest test-args-exclude-anywhere-keeps-positional
+  ;; The flag may follow or precede the positional; the positional survives.
+  (is (= {:exclude ['a-test] :positionals ["test/x_test.lg"]}
+         (cli/parse-test-args ["test/x_test.lg" "--exclude" "a-test"])))
+  (is (= {:exclude ['a-test] :positionals ["test/x_test.lg"]}
+         (cli/parse-test-args ["--exclude" "a-test" "test/x_test.lg"]))))
+
+(deftest test-args-two-positionals-are-both-returned
+  ;; The at-most-one check is cmd-test's job, next to its other errors.
+  (is (= {:exclude [] :positionals ["a.lg" "b.lg"]}
+         (cli/parse-test-args ["a.lg" "b.lg"]))))
+
+(deftest test-args-exclude-missing-value-throws
+  (is (= :threw (threw? #(cli/parse-test-args ["--exclude"])))))
+
+(deftest test-args-exclude-blank-value-throws
+  (is (= :threw (threw? #(cli/parse-test-args ["--exclude" " , "])))))
+
+(deftest test-args-exclude-error-names-the-flag
+  (let [msg (try (cli/parse-test-args ["--exclude"])
+                 nil
+                 (catch e (ex-message e)))]
+    (is (= "lgx: --exclude requires a comma-separated list of test namespaces"
+           msg))))
