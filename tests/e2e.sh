@@ -1128,6 +1128,138 @@ assert_contains "$out" "lgx: test takes at most one argument" \
     "test too-many: clear error"
 rm -rf "$proj_s5" "$home_s5"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 49b: lgx test --exclude skips the named namespaces"
+if supports_source_paths; then
+    proj_x1="$(mktemp -d)"
+    home_x1="$(mktemp -d)"
+    cat > "$proj_x1/lgx.edn" <<'EOF'
+{}
+EOF
+    mkdir -p "$proj_x1/test"
+    cat > "$proj_x1/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-foo
+  (is (= 1 1)))
+EOF
+    cat > "$proj_x1/test/bar_test.lg" <<'EOF'
+(ns bar-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-bar
+  (is (= 2 2)))
+EOF
+    set +e
+    out="$(cd "$proj_x1" && LGX_HOME="$home_x1" "$LGX" test --exclude bar-test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test exclude: expected exit 0, got $rc (output: $out)"
+    pass "test exclude: exits 0"
+    assert_contains "$out" "Running tests in test/" \
+        "test exclude: walk-mode header unchanged"
+    assert_contains "$out" "pass-foo" "test exclude: pass-foo still runs"
+    assert_not_contains "$out" "pass-bar" "test exclude: bar-test skipped"
+    # Repeated flag accumulates; excluding every discovered file is an
+    # empty plan, reported like `No tests found`, not an error.
+    set +e
+    out="$(cd "$proj_x1" && LGX_HOME="$home_x1" "$LGX" test --exclude bar-test --exclude foo-test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test exclude all: expected exit 0, got $rc (output: $out)"
+    pass "test exclude all: exits 0"
+    assert_contains "$out" "All test files excluded" \
+        "test exclude all: reports the empty plan"
+    assert_not_contains "$out" "pass-foo" "test exclude all: nothing runs"
+    rm -rf "$proj_x1" "$home_x1"
+else
+    skip "lgx test --exclude requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 49c: lgx test --exclude rejects an unknown namespace"
+# Fires before the basis and harness, so no lg is needed.
+proj_x2="$(mktemp -d)"
+home_x2="$(mktemp -d)"
+cat > "$proj_x2/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_x2/test"
+cat > "$proj_x2/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-foo
+  (is (= 1 1)))
+EOF
+set +e
+out="$(cd "$proj_x2" && LGX_HOME="$home_x2" "$LGX" test --exclude nope-test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test exclude unknown: expected exit 1, got $rc (output: $out)"
+pass "test exclude unknown: exits 1"
+assert_contains "$out" "lgx: --exclude names no test namespace: nope-test" \
+    "test exclude unknown: names the bad namespace"
+assert_not_contains "$out" "Running tests" \
+    "test exclude unknown: nothing runs"
+# The filter is checked even when test/ is empty: a typo must fail loud
+# rather than print `No tests found in test/` and exit 0.
+proj_x3="$(mktemp -d)"
+cat > "$proj_x3/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_x3/test"
+set +e
+out="$(cd "$proj_x3" && LGX_HOME="$home_x2" "$LGX" test --exclude nope-test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test exclude unknown (empty test/): expected exit 1, got $rc (output: $out)"
+pass "test exclude unknown (empty test/): exits 1"
+assert_contains "$out" "lgx: --exclude names no test namespace: nope-test" \
+    "test exclude unknown (empty test/): names the bad namespace"
+assert_not_contains "$out" "No tests found in test/" \
+    "test exclude unknown (empty test/): unmatched check precedes the empty-plan exit"
+rm -rf "$proj_x2" "$proj_x3" "$home_x2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 49d: lgx test --exclude requires a value"
+proj_x4="$(mktemp -d)"
+home_x4="$(mktemp -d)"
+cat > "$proj_x4/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_x4/test"
+set +e
+out="$(cd "$proj_x4" && LGX_HOME="$home_x4" "$LGX" test --exclude 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test exclude no value: expected exit 1, got $rc (output: $out)"
+pass "test exclude no value: exits 1"
+assert_contains "$out" "lgx: --exclude requires a comma-separated list of test namespaces" \
+    "test exclude no value: clear error"
+rm -rf "$proj_x4" "$home_x4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 49e: lgx test --exclude cannot be combined with a file"
+proj_x5="$(mktemp -d)"
+home_x5="$(mktemp -d)"
+cat > "$proj_x5/lgx.edn" <<'EOF'
+{}
+EOF
+mkdir -p "$proj_x5/test"
+# The file exists, so the only thing wrong with the invocation is the combo.
+cat > "$proj_x5/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-foo
+  (is (= 1 1)))
+EOF
+set +e
+out="$(cd "$proj_x5" && LGX_HOME="$home_x5" "$LGX" test test/foo_test.lg --exclude bar-test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test exclude with file: expected exit 1, got $rc (output: $out)"
+pass "test exclude with file: exits 1"
+assert_contains "$out" "lgx: --exclude cannot be combined with a test file" \
+    "test exclude with file: clear error"
+rm -rf "$proj_x5" "$home_x5"
+
 # Seed a template fixture repo for `lgx new` tests. Sets FIXTURE_REPO_URL
 # (a file:// URL) and FIXTURE_REPO_SHA. The repo mirrors lgx-template-base
 # structure with the `projectname` placeholder so substitution can be

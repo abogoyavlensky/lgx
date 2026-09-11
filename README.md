@@ -91,7 +91,7 @@ lgx run
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). |
-| `lgx test [file]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. |
+| `lgx test [file] [--exclude <ns,...>]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. `--exclude` skips the named test namespaces (repeatable, comma-separated). |
 | `lgx clean <--cache...>` | Remove caches under `$LGX_HOME`: `--runtimes`, `--gitlibs`, `--templates`, or `--all`; `--dry-run` only reports. Prints bytes reclaimed. Never automatic. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. |
 | `lgx` or `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
@@ -231,8 +231,21 @@ Rules that follow from the mechanics:
 ### `lgx test` details
 
 `lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` / `*_test.clj` files, generates
-a one-shot harness under `$LGX_HOME/test-runner/`, and runs every `deftest`
-against the project's resolved `-source-paths`. Prints summary results.
+a one-shot harness under `$LGX_HOME/test-runner/`, and runs every `deftest` in
+the selected files against the project's resolved `-source-paths`. Prints
+summary results.
+
+To skip namespaces, pass `--exclude` with a comma-separated list (the flag is
+repeatable and accumulates):
+
+```bash
+lgx test --exclude lgx.slow-test,lgx.net-test
+```
+
+Names are exact test namespace symbols as printed by the run (no globs or
+prefixes). A name that matches no discovered namespace is an error, so a typo
+fails loud instead of silently running the test you meant to skip. `--exclude`
+cannot be combined with a single `<file>` argument.
 
 ## Configuration: `lgx.edn`
 

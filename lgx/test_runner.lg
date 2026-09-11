@@ -81,6 +81,21 @@
   [(path/join "test" (relative-test-path test-dir abs-path))
    (path->ns test-dir abs-path)])
 
+(defn exclude-entries
+  "Apply `--exclude` to a test plan. entries are [display-file ns-symbol]
+   pairs from test-entry; excluded are the ns symbols to skip. Returns
+   {:entries [kept entries, original order]
+    :unmatched [excluded syms that matched no entry, original order]}.
+   Matching is = on the entry's ns symbol; a duplicated name matches once
+   and is never unmatched."
+  [entries excluded]
+  (let [discovered (set (map second entries))
+        skip (set excluded)]
+    {:entries (vec (filter (fn [[_ ns-sym]] (not (contains? skip ns-sym)))
+                           entries))
+     :unmatched (vec (filter (fn [ns-sym] (not (contains? discovered ns-sym)))
+                             excluded))}))
+
 (defn- has-test-extension? [p]
   (or (str/ends-with? p ".lg")
       (str/ends-with? p ".cljc")

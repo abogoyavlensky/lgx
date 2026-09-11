@@ -53,6 +53,52 @@
                         (path/join "test" "lgx" "config_test.lg")))))
 
 ;; ---------------------------------------------------------------------------
+;; exclude-entries
+;; ---------------------------------------------------------------------------
+
+(def ^:private ab-entries
+  [["test/a_test.lg" 'a-test] ["test/b_test.lg" 'b-test]])
+
+(deftest exclude-nothing-keeps-every-entry
+  (is (= {:entries ab-entries :unmatched []}
+         (tr/exclude-entries ab-entries []))))
+
+(deftest exclude-one-match-drops-it-and-keeps-order
+  (is (= {:entries [["test/a_test.lg" 'a-test]] :unmatched []}
+         (tr/exclude-entries ab-entries ['b-test])))
+  (is (= {:entries [["test/b_test.lg" 'b-test]] :unmatched []}
+         (tr/exclude-entries ab-entries ['a-test]))))
+
+(deftest exclude-unmatched-name-is-reported-entries-untouched
+  (is (= {:entries ab-entries :unmatched ['nope-test]}
+         (tr/exclude-entries ab-entries ['nope-test]))))
+
+(deftest exclude-mixed-reports-only-the-unmatched
+  (is (= {:entries [["test/b_test.lg" 'b-test]] :unmatched ['nope-test]}
+         (tr/exclude-entries ab-entries ['a-test 'nope-test]))))
+
+(deftest exclude-several-unmatched-keep-given-order
+  (is (= ['z-test 'y-test]
+         (:unmatched (tr/exclude-entries ab-entries ['z-test 'a-test 'y-test])))))
+
+(deftest exclude-duplicate-name-drops-once-and-matches
+  (is (= {:entries [["test/b_test.lg" 'b-test]] :unmatched []}
+         (tr/exclude-entries ab-entries ['a-test 'a-test]))))
+
+(deftest exclude-on-empty-entries-reports-every-name
+  (is (= {:entries [] :unmatched ['a-test 'b-test]}
+         (tr/exclude-entries [] ['a-test 'b-test]))))
+
+(deftest exclude-everything-yields-empty-entries
+  (is (= {:entries [] :unmatched []}
+         (tr/exclude-entries ab-entries ['a-test 'b-test]))))
+
+(deftest exclude-returns-vectors
+  (let [r (tr/exclude-entries ab-entries ['a-test 'nope-test])]
+    (is (vector? (:entries r)))
+    (is (vector? (:unmatched r)))))
+
+;; ---------------------------------------------------------------------------
 ;; discover-test-files
 ;; ---------------------------------------------------------------------------
 

@@ -35,8 +35,8 @@
        "                               (free port unless --port given; auto-applies :dev and :test contexts)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (--target <os>/<arch>[,...] or --all cross-compile; other args forwarded to `lg`)\n"
-       "  lgx test [file]              Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
-       "                               (one file if given, else walk test/; auto-applies :test context)\n"
+       "  lgx test [file] [--exclude <ns,...>]  Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
+       "                               (one file if given, else walk test/ skipping --exclude namespaces; auto-applies :test context)\n"
        "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli`, `lib` or git URL)\n"
        "  lgx clean <--cache...>       Remove caches under ~/.lgx: --runtimes, --gitlibs, --templates, or --all\n"
        "                               (--dry-run only reports; reports bytes reclaimed)\n"
@@ -776,34 +776,62 @@
     [(test-runner/test-entry test-dir abs)]))
 
 (defn- cmd-test [forward-args verbose? with]
-  (when (> (count forward-args) 1)
-    (write! *err* "lgx: test takes at most one argument\n")
-    (os/exit 1))
-  (let [project (config/find-project!)
+  (let [{:keys [exclude positionals]}
+        (try
+          (cli/parse-test-args (vec forward-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        _ (when (> (count positionals) 1)
+            (write! *err* "lgx: test takes at most one argument\n")
+            (os/exit 1))
+        single? (= 1 (count positionals))
+        ;; Filtering a one-file plan can only leave nothing to run, so the
+        ;; combination is a mistake worth naming rather than a no-op.
+        _ (when (and single? (seq exclude))
+            (write! *err* "lgx: --exclude cannot be combined with a test file\n")
+            (os/exit 1))
+        project (config/find-project!)
         cfg (config/load-config! project)
         test-dir (path/join project "test")
         stat (os/stat test-dir)]
-    ;; Cheap validation first: a missing test/ must error before the basis is
-    ;; built, so the auto :test context (or --with) never fetches deps for a
-    ;; run that cannot happen.
+    ;; Cheap validation first: flags, the single file, discovery and the
+    ;; --exclude filter all run before the basis is built, so a bad
+    ;; invocation (or an empty plan) never fetches deps for a run that cannot
+    ;; happen. Discovery needs test/ to exist, so that check leads.
     (when (or (nil? stat) (not (:dir? stat)))
       (write! *err* "lgx: no test/ directory in project\n")
       (os/exit 1))
-    (let [with (auto-with! cfg [:test] with verbose?)
+    (let [entries (if single?
+                    (single-file-entries! test-dir (first positionals) project)
+                    (let [files (test-runner/discover-test-files test-dir)
+                          all (mapv #(test-runner/test-entry test-dir %) files)
+                          {:keys [entries unmatched]}
+                          (test-runner/exclude-entries all exclude)]
+                      ;; A typo must fail loud, before either empty-plan exit:
+                      ;; silently running the test the user meant to skip is
+                      ;; the worst outcome.
+                      (when (seq unmatched)
+                        (doseq [ns-sym unmatched]
+                          (write! *err* (str "lgx: --exclude names no test "
+                                             "namespace: " ns-sym "\n")))
+                        (os/exit 1))
+                      (when (empty? all)
+                        (println "No tests found in test/")
+                        (os/exit 0))
+                      (when (empty? entries)
+                        (println "All test files excluded")
+                        (os/exit 0))
+                      entries))
+          with (auto-with! cfg [:test] with verbose?)
           basis (overlay-basis project cfg with nil)
           {:keys [results paths resource-paths]} basis
           _ (apply-runtime! cfg basis :fail verbose?)
-          single? (= 1 (count forward-args))
-          entries (if single?
-                    (single-file-entries! test-dir (first forward-args) project)
-                    (let [files (test-runner/discover-test-files test-dir)]
-                      (when (empty? files)
-                        (println "No tests found in test/")
-                        (os/exit 0))
-                      (mapv #(test-runner/test-entry test-dir %) files)))
           header (if single? (first (first entries)) "test/")
           harness (test-runner/write-harness! entries version)
           source-paths (vec (concat paths [test-dir]))]
+      (when (and verbose? (seq exclude))
+        (write! *err* (str "+ excluded: " (str/join ", " exclude) "\n")))
       (when verbose?
         (write! *err* (str "+ test runner: " harness "\n")))
       (write! *err*
