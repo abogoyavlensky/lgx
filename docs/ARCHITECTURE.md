@@ -310,14 +310,23 @@ shape, the per-target loop, and the required-config / mkdir steps.
 
 Steps 1–2 (project root, config load) match `install`. Then:
 
-3. Resolve `<project-root>/test`. If it does not exist (or is not a
-   directory), exit 1 with `lgx: no test/ directory in project` on
-   stderr. This cheap check runs **before** the basis is built, so a
-   missing `test/` never fetches deps.
+3. Parse the command's args (`cli/parse-test-args`): `--exclude <ns,...>`
+   (repeatable, accumulating; a missing or blank value →
+   `lgx: --exclude requires a comma-separated list of test namespaces`
+   + exit 1) and positionals. Two or more positionals →
+   `lgx: test takes at most one argument` + exit 1; one positional plus
+   `--exclude` → `lgx: --exclude cannot be combined with a test file` +
+   exit 1. Then resolve `<project-root>/test`. If it does not exist (or
+   is not a directory), exit 1 with `lgx: no test/ directory in project`
+   on stderr. These checks, and the file selection in step 5, all run
+   **before** the basis is built, so a bad invocation (or an empty plan)
+   never fetches deps.
 4. Build the basis as in `install` steps 3–4, with a context named
    `:test`, when defined in `:contexts`, prepended to the CLI `--with`
    list (`auto-with!`, as `run` does with `:dev` and `repl`/`nrepl` with
-   both `:dev` and `:test`).
+   both `:dev` and `:test`). In code this step follows step 5: selection
+   depends only on the project root and `test/`, and finishing it first
+   keeps every cheap failure ahead of the dep fetch.
 5. Select the test files. If a positional `<file>` arg is provided,
    resolve it to an absolute path (project-root-relative inputs are
    joined against the project root), then `path/normalize` away any
@@ -331,8 +340,16 @@ Steps 1–2 (project root, config load) match `install`. Then:
      `lgx: test file must be under test/: <path>` + exit 1 if not.
    On success, the test plan is a one-entry vector with that file.
    With no arg, walk `test/` recursively for `*_test.lg`,
-   `*_test.cljc`, and `*_test.clj` files. If the walk returns no files,
-   print `No tests found in test/` and exit 0.
+   `*_test.cljc`, and `*_test.clj` files, map each to its
+   `[display-file ns-symbol]` entry (step 6), then apply `--exclude`
+   (`test-runner/exclude-entries`): drop entries whose ns symbol is
+   named. Any name matching no entry →
+   `lgx: --exclude names no test namespace: <ns>` (one line per name, in
+   the order given) + exit 1. This is checked **before** either
+   empty-plan exit, so a typo in an empty `test/` still fails rather
+   than printing `No tests found`. Then: the walk returned no files →
+   print `No tests found in test/` + exit 0; every discovered entry was
+   excluded → print `All test files excluded` + exit 0.
 6. Map each absolute path to a namespace symbol: strip `test/` prefix
    and the extension, split on `/`, hyphenate `_` per segment, join
    with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
@@ -386,10 +403,19 @@ Steps 1–2 (project root, config load) match `install`. Then:
    That is adversarial and fails loud — a spurious failure, never a silent
    pass — so it is accepted rather than chased with a stricter match.
 
-`lgx test` accepts 0 or 1 positional arg. Passing 2 or more prints
-`lgx: test takes at most one argument` on stderr and exits 1. Under
-`--verbose`, the trace also includes the harness path on stderr so
-the user can inspect the generated file.
+`lgx test` accepts 0 or 1 positional arg plus `--exclude <ns,...>`
+anywhere after `test`. The value is a comma-separated list of exact test
+namespace symbols (trimmed, blanks dropped; no globs or prefixes), and
+the flag repeats and accumulates like `--with`. Its three errors, all
+exit 1 on stderr: `lgx: --exclude requires a comma-separated list of
+test namespaces` (missing/blank value), `lgx: --exclude cannot be
+combined with a test file` (given with a positional `<file>`), and
+`lgx: --exclude names no test namespace: <ns>` (a name that matched
+nothing). Passing 2 or more positionals prints `lgx: test takes at most
+one argument` and exits 1. Under `--verbose`, the trace also includes
+the harness path on stderr so the user can inspect the generated file,
+and, when anything was excluded, a `+ excluded: a.b-test, c.d-test`
+line beside it.
 
 ### `lgx <task>`
 
