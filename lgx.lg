@@ -386,7 +386,7 @@
     ;; Only a released version has the v<version> tag the fetch clones; a
     ;; branch or sha pin (valid for the runtime build) has no matching tag,
     ;; so trying would only warn about a nonexistent vmain.
-    (if-not (gobuild/semver-version? version)
+    (if-not (config/semver-version? version)
       (write! *err* (str "warning: :lg-version " version " is not a released "
                          "version; skipping let-go source fetch\n"))
       (try

@@ -71,6 +71,13 @@
     (str/blank? v) ["must be non-blank"]
     :else []))
 
+(defn semver-version?
+  "A bare semver pin like \"1.11.1\" — the form lgx.edn has always taken.
+   Public because callers that only work against a released version (the
+   editor-source fetch clones tag v<version>) use it to skip other ref forms."
+  [v]
+  (some? (re-find #"^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$" (str v))))
+
 (defn- at-key
   "Anchor errors at sub-path [k]. Accepts plain message strings and
    {:path :msg} maps, whose own relative path is nested under k."
@@ -655,6 +662,29 @@
                                  (or (:with task) []))))
                  (or (:tasks cfg) {})))))
 
+(defn- lg-runtime-errors
+  "Root-level cross-key rule between :lg-runtime and :lg-version. :built
+   links let-go itself, so it has nothing to build without a pin; :installed
+   (the default) checks the pin against `lg -v`, which only a released semver
+   can ever satisfy. Runs after the structural schema passed, so :lg-version
+   is a non-blank string or absent."
+  [cfg]
+  (let [mode (or (:lg-runtime cfg) :installed)
+        pin (:lg-version cfg)]
+    (cond
+      (and (= mode :built) (nil? pin))
+      [{:path [:lg-runtime]
+        :msg (str ":built needs :lg-version - the built lg links let-go "
+                  "itself, so the version has to be pinned")}]
+
+      (and (= mode :installed) pin (not (semver-version? pin)))
+      [{:path [:lg-version]
+        :msg (str (pr-str pin) " is not a released version, and the "
+                  "installed lg is checked with `lg -v`; pin a semver, or "
+                  "set :lg-runtime :built to build let-go at this ref")}]
+
+      :else [])))
+
 (def ^:private lgx-schema
   [:and
    [:map {:closed true}
@@ -663,11 +693,13 @@
     [:resource-paths {:optional true} [:vector rel-path-schema]]
     [:main {:optional true} rel-path-schema]
     [:lg-version {:optional true} [:fn non-blank-string-errors]]
+    [:lg-runtime {:optional true} [:enum :installed :built]]
     [:targets {:optional true} targets-schema]
     [:contexts {:optional true} [:map-of :keyword context-schema]]
     [:tasks {:optional true}
      [:map-of [:fn task-name-errors] task-schema]]]
-   [:fn with-refs-errors]])
+   [:fn with-refs-errors]
+   [:fn lg-runtime-errors]])
 
 (defn- normalize-config
   "Post-validation normalization: a task's single-step-map :do becomes a
@@ -1113,6 +1145,12 @@
   "Return the :lg-version pin from a loaded cfg map, or nil if absent."
   [cfg]
   (:lg-version cfg))
+
+(defn lg-runtime
+  "The runtime mode from a loaded cfg map: :installed (the default when the
+   key is absent) or :built."
+  [cfg]
+  (or (:lg-runtime cfg) :installed))
 
 (defn targets
   "Return the :targets map from a loaded cfg map, or {} if absent."
