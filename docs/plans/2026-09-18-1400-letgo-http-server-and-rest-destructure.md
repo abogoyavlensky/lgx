@@ -173,13 +173,13 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
 - Modify: `test/destructure_comprehensive_test.lg`
 - Regenerate: `pkg/rt/core_compiled.lgb`, `pkg/rt/generated.sums`
 
-- [ ] **Step 1: Branch**
+- [x] **Step 1: Branch**
   `git checkout main && git status --short` (clean) then
   `git checkout -b fix/http-server-and-rest-destructure`.
   `make build` once so `build/lg` exists (the `.lg` test runner and
   `make generate` need it).
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
   In `test/destructure_comprehensive_test.lg`, next to
   `rest-in-destructuring`, add `rest-binding-is-nil-when-exhausted`:
   - `(let [[a & more] [1]] more)` is `nil`
@@ -194,15 +194,15 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
   - `[a b & rest]` on `[1 2 3 4 5]` still gives `(3 4 5)` (already covered
     by `rest-in-destructuring`; leave it).
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
   Run: `go test ./test/ -run TestRunner -count=1 2>&1 | grep -A3 "rest-binding-is-nil"`
   Expected: FAIL, `more` is `()`.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
   In `destructure-vector`, change `(list 'drop i n)` to
   `(list 'seq (list 'drop i n))`. Nothing else in the fn changes.
 
-- [ ] **Step 5: Regenerate and verify**
+- [x] **Step 5: Regenerate and verify**
   Run: `make generate && make check-generated`
   Expected: both succeed; `git status` shows `core_compiled.lgb` and
   `generated.sums` modified (the lowered tree is gitignored and will not
@@ -213,7 +213,15 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
   expected `()` would show up here; fix the test only if `()` was never
   the Clojure answer).
 
-- [ ] **Step 6: Commit**
+> Deviation: `make generate` also rewrites `pkg/rt/generated.manifest`
+> (committed, content hashes); included in the commit alongside the
+> `.lgb` and `generated.sums`.
+> Deviation (codex review): the expansion emits `clojure.core/seq`, not
+> bare `seq`, so a local named `seq` cannot capture it (regression test
+> added); fixup commit `7973696`. `make generate` takes ~15 min here and
+> has to run in the background: a single tool call is capped at 10 min.
+
+- [x] **Step 6: Commit**
   `git add -A && git commit -m "fix(core): [x & more] destructuring binds nil, not (), when exhausted"`
   Body: what `drop` did, why `seq`+`drop` over `nthnext`, the
   `dependency`/integrant symptom, and "make generate after this change".
@@ -224,26 +232,26 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
 - Modify: `pkg/rt/http.go`
 - Test: `pkg/rt/http_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   `TestHandlerResponseAcceptsEmptyHeaders` in `pkg/rt/http_test.go`,
   modelled on `TestHandlerResponseHeadersUseRawStrings`: the handler
   returns `{:status 204 :headers {} :body ""}` with
   `vm.EmptyPersistentMap` as the headers value; assert `rec.Code == 204`.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
   Run: `go test ./pkg/rt/ -run TestHandlerResponseAcceptsEmptyHeaders -count=1`
   Expected: FAIL with a nil-pointer panic from `ServeHTTP`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `ServeHTTP`'s header loop, after `entry := s.First()`, add
   `if entry == vm.NIL { continue }`, exactly as the three client loops
   have it.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
   Run: `go test ./pkg/rt/ -run 'Handler' -count=1`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "fix(http): http/serve accepts an empty :headers map"`
   Body: the panic line, the client-side precedent (#849).
 
@@ -253,7 +261,7 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
 - Modify: `pkg/rt/http.go`, `pkg/rt/types.go`
 - Create: `pkg/rt/http_server_test.go`, `test/http_server_test.lg`
 
-- [ ] **Step 1: Write the failing Go tests**
+- [x] **Step 1: Write the failing Go tests**
   `pkg/rt/http_server_test.go` (build tag `!tinygo && !lg_no_http` like
   its siblings). Helper: a handler `vm.Fn` answering 200 `"ok"`. Tests call
   the unexported Go helpers directly (`startServer`, `stopServer`,
@@ -275,11 +283,11 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
     with a 50 ms timeout, never open the gate; `wait` returns within a
     second and the GET fails.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
   Run: `go test ./pkg/rt/ -run TestServer -count=1`
   Expected: compile error, helpers undefined.
 
-- [ ] **Step 3: Implement the Go side**
+- [x] **Step 3: Implement the Go side**
   In `pkg/rt/types.go`: `HTTPServer` struct (shape in Design) and
   `httpServerMapping = vm.RegisterStruct[HTTPServer]("http/Server")` in
   `initTypeMappings`.
@@ -317,11 +325,11 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
   Registration: `ns.Def` for the three new fns; `serve` and `start` get
   the `scope-cancellation` meta the clients carry.
 
-- [ ] **Step 4: Run the Go tests**
+- [x] **Step 4: Run the Go tests**
   Run: `go test ./pkg/rt/ -run 'TestServer|Handler' -count=1 -race`
   Expected: PASS, no race reports.
 
-- [ ] **Step 5: Write the language-level test**
+- [x] **Step 5: Write the language-level test**
   `test/http_server_test.lg` (ns `test.http-server-test`, `(:require [test :refer :all])`):
   `(http/start handler "127.0.0.1:0")`, assert `(pos? (:port srv))`,
   `(http/get (str "http://" (:addr srv) "/"))` returns status 200 and the
@@ -331,12 +339,19 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
   Run: `go test ./test/ -run TestLanguage -count=1 2>&1 | grep -B2 -A6 "http-server"`
   Expected: PASS.
 
-- [ ] **Step 6: Full gates**
+- [x] **Step 6: Full gates**
   Run: `make check-generated && make test`
   Expected: PASS (no `.lg` in `pkg/rt/core` changed in this task, so
   nothing to regenerate).
 
-- [ ] **Step 7: Commit**
+> Deviation: `unboxServer` checks for the boxed handle before probing a
+> `Lookup`: `*vm.Boxed` is itself a `Lookup` (by reflection) and panics on
+> `ValueAt`. Added `TestServerRecordExposesAddrAndPort` and
+> `TestServerWaitReportsServeError` beyond the plan's list.
+> Deviation: the docs guide was also added to the `docs/README.md` index
+> (`docs_status.py` reports unindexed guides).
+
+- [x] **Step 7: Commit**
   `git add -A && git commit -m "feat(http): http/start, http/stop and http/wait; serve is start + wait"`
   Body: the record shape, the default stop timeout, scope cancellation
   parity with the clients (#848), and that `serve`'s contract is
@@ -349,7 +364,7 @@ the `.lg` suite (`TestRunner` in `test/language_test.go`); narrow it with
 
 Use /writing-clearly.
 
-- [ ] **Step 1: Write the guide**
+- [x] **Step 1: Write the guide**
   Frontmatter as in `docs/guide/os.md` (`status: active`,
   `last-verified: 2026-09-18`, `human-verified:` empty). Sections:
   "Serving" (handler contract: request map keys as `HTTPRequest`
@@ -360,12 +375,12 @@ Use /writing-clearly.
   (`get`/`post`/`request` in three lines; `:as :stream`). Keep it under
   ~120 lines; examples runnable.
 
-- [ ] **Step 2: Check the frontmatter hook**
+- [x] **Step 2: Check the frontmatter hook**
   Run: `python3 scripts/docs_status.py 2>&1 | grep -i http` (and whatever
   `docs/frontmatter-hook.md` names as the check script).
   Expected: the new page listed without a frontmatter complaint.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git add docs/guide/http.md && git commit -m "docs(guide): http namespace - serving, start/stop/wait, clients"`
 
 ### Task 5: End-to-end against the lgx example, then the PR
@@ -373,10 +388,10 @@ Use /writing-clearly.
 **Files:** none committed in let-go; a temp copy of
 `~/Projects/lgx/examples/web-app`.
 
-- [ ] **Step 1: Build the branch's `lg`**
+- [x] **Step 1: Build the branch's `lg`**
   Run: `make build` in `~/Projects/let-go`. Note `build/lg` and `bin/lg`.
 
-- [ ] **Step 2: Restore the three-component shape in a temp copy**
+- [x] **Step 2: Restore the three-component shape in a temp copy**
   `cp -r ~/Projects/lgx/examples/web-app /tmp/web-app-e2e && cd /tmp/web-app-e2e`.
   Edit the copy: `app.routes` gets back an `::handler` component
   (`ig/init-key` taking `{:keys [db]}` and returning `(handler db)`);
@@ -390,7 +405,7 @@ Use /writing-clearly.
   response gets `:headers {}` back. The test file inits `db` + `handler`
   and pulls the handler out of the system.
 
-- [ ] **Step 3: Run it under the branch**
+- [x] **Step 3: Run it under the branch**
   Run: `LGX_LETGO_REPLACE=$HOME/Projects/let-go ~/Projects/lgx/bin/lgx test`
   Expected: 2 tests, 11 assertions, 0 failures (this is the
   three-component `ig/init` that hung before).
@@ -403,18 +418,74 @@ Use /writing-clearly.
   Run a halt check: an `-e` script that `ig/init`s the config, `ig/halt!`s
   it, and then `http/get`s the port expecting a connection error.
 
-- [ ] **Step 4: Open the PR**
+- [x] **Step 4: Open the PR**
   `git push -u origin fix/http-server-and-rest-destructure`, then
   `gh pr create --repo nooga/let-go` with title
   `http: stoppable server, empty :headers fix; core: & rest binds nil`
   and a body listing the three changes, the regenerated artifacts, the
   gates run, and links to the two lgx issue notes. No attribution lines.
   Record the PR URL in this plan.
+  > Deviation: the `gh` token cannot create PRs on `nooga/let-go`
+  > (`Resource not accessible by personal access token`). The branch is
+  > pushed to the fork; a prefilled compare link (title + body) is in
+  > `~/Projects/let-go/.tmp/pr-link.txt` for the user to open. The PR
+  > body's links to the lgx issue notes were dropped: that lgx branch is
+  > not pushed yet, and the repros are inline.
 
-- [ ] **Step 5: Clean up and note the follow-up**
+- [x] **Step 5: Clean up and note the follow-up**
   `rm -rf /tmp/web-app-e2e`. Append to this plan under "Follow-up":
   once the PR merges, in lgx move `examples/web-app`'s `:lg-version` to
   the merged sha, restore the three-component chain and `:headers {}`
   (the edits from Step 2), switch the server component to
   `start`/`stop`, and mark `docs/issues/destructure-rest-empty-seq.md`
   and `docs/issues/http-empty-headers-panic.md` resolved.
+
+## Follow-up (lgx, after the PR merges)
+
+- Move `examples/web-app`'s `:lg-version` to the merged `nooga/let-go` sha.
+- Restore the three-component chain (`::handler` component, `db -> handler -> http`),
+  put `:headers {}` back on the 204, switch `app.server` to `http/start`/`http/stop`
+  with `halt-key!` stopping it, and `main.lg` to `(http/wait ...)`. The exact
+  edits were exercised on the temp copy in Task 5 Step 2.
+- Mark `docs/issues/destructure-rest-empty-seq.md` and
+  `docs/issues/http-empty-headers-panic.md` resolved (PR number).
+
+## Completion summary
+
+**Status: completed** (PR creation pending the user: see Task 5 deviation).
+
+Branch `fix/http-server-and-rest-destructure` on `abogoyavlensky/let-go`,
+six commits on upstream `main` `3bbde90`:
+
+| Commit | Change |
+|---|---|
+| `7be4c40` | `fix(core)`: rest binding is `(seq (drop i n))`; regenerated `core_compiled.lgb`, `generated.sums`, `generated.manifest`; tests |
+| `343c7c3` | `fix(http)`: nil-entry guard in `ServeHTTP`'s header loop; test |
+| `7973696` | `fix(core)`: emit `clojure.core/seq` (codex: a local named `seq` captured it); test |
+| `df202f3` | `feat(http)`: `lgServer`, `http/start`/`stop`/`wait`, `serve` = start + wait, `http/Server` record, scope cancellation; 8 Go tests + `test/http_server_test.lg` |
+| `24d846a` | `docs(guide)`: `docs/guide/http.md`, indexed in `docs/README.md` |
+| `e86d8c1` | `fix(http)`: `stop` waits for the Serve goroutine to exit (port release when stop lands before Serve runs); a failed Serve closes accepted connections (codex round 1); 2 tests |
+
+Gates: `make generate`, `make check-generated`, `make test` (unit + e2e)
+green; `go test ./pkg/rt/ -race -count=3` green. End to end (Task 5): the
+three-component integrant chain inits under the branch, all nine routes
+answer (204 with `:headers {}`, no panic), `ig/halt!` closes the port and
+the process exits; `PORT=0` resolves to a real port.
+
+Codex reviews: Task 1 caught the `seq` capture (fixed); Task 2 clean;
+Task 3 caught the two lifecycle races (fixed, round 2 clean); Task 4 clean.
+
+Deviations, gathered: `generated.manifest` is a third committed artifact;
+`clojure.core/seq` in the expansion; `unboxServer` checks the boxed handle
+before the `Lookup` probe (`*vm.Boxed` is a reflective `Lookup` that
+panics); two extra Go tests beyond the plan's list; the guide indexed in
+`docs/README.md`; `make generate` (~15 min) and `make check-generated`
+(regenerates the lowered tree) must run as background jobs because a tool
+call is capped at 10 min; PR opened via compare link, not `gh`.
+
+**What the plan could have specified better:** that `make generate` and
+`make check-generated` each take 10-15 minutes here and cannot share a
+tool call with anything else; that Go's `Shutdown` before `Serve` has run
+leaves the listener bound until the Serve goroutine exits (the plan's
+`done` contract covered drain but not this); and that `gh` may lack PR
+rights on the upstream repo, so the fallback is a compare link.
