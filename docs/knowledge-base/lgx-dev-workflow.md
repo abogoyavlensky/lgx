@@ -47,9 +47,10 @@ cd examples/clojure-libs/with-malli
 under let-go; each proves the fetch-and-require flow end-to-end.
 `examples/local-dep/` covers `:local/root`.
 
-For a project with `:go/*` deps, `LGX_LG` is the wrong lever - it
-overrides the custom runtime entirely. Use `LGX_LETGO_REPLACE` to point
-the runtime build at a let-go checkout instead:
+For a `:lg-runtime :built` project (any project with `:go/*` deps),
+`LGX_LG` is rejected with an error - the built runtime is the only `lg`
+that resolves the Go namespaces. Use `LGX_LETGO_REPLACE` to point the
+runtime build at a let-go checkout instead:
 
 ```
 LGX_LETGO_REPLACE=/path/to/let-go lgx run

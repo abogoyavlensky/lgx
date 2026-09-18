@@ -15,9 +15,13 @@ bytecode in one ~10 MB binary; users install only `lgx`.
 
 Two `lg` runtimes coexist. The one embedded in the lgx bundle runs
 lgx's own logic. User scripts run under a separate `lg` binary that lgx
-shells out to — usually whatever sits on `PATH`, or whatever `LGX_LG`
-points to. This separates lgx's release cadence from let-go's:
-upgrading let-go does not require rebuilding lgx, and vice versa.
+shells out to. Which one is `lgx.edn`'s `:lg-runtime` decision:
+`:installed` (the default) is whatever sits on `PATH`, or whatever
+`LGX_LG` points to; `:built` is an `lg` lgx builds from `:lg-version`
+with the Go toolchain, cached under `$LGX_HOME/runtimes/`, which is how
+Go deps get linked in. This separates lgx's release cadence from
+let-go's: upgrading let-go does not require rebuilding lgx, and vice
+versa.
 
 For git operations, lgx shells out to the system `git` rather than
 vendoring a git library. Every package manager that started with an
@@ -26,7 +30,7 @@ embedded git library ended up shelling out for edge cases anyway.
 ## Components
 
 ```
-lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring
+lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring, apply-runtime! (the :lg-runtime decision), cmd-info
 lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port, build --target/--all
 lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
@@ -101,8 +105,8 @@ of failing or silently dropping tasks.
    path-prefixed line per error (e.g.
    `:tasks lint :do [0] — unknown key :shh (allowed: :sh, :run)`) — then
    exits 1, with no stack trace. The config is loaded once per invocation;
-   every basis command (`install`/`run`/`repl`/`nrepl`/`build`/`test`/tasks) and
-   the task-name fallback in dispatch go through `load-config!`.
+   every basis command (`install`/`info`/`run`/`repl`/`nrepl`/`build`/`test`/tasks)
+   and the task-name fallback in dispatch go through `load-config!`.
 3. Resolve coords breadth-first. For each unseen lib name, call
    `cache/ensure-lib!`. Git coords compute a cache ref first: the sha
    for `:git/sha`, or the tag with `/` replaced by `_` for `:git/tag`.
@@ -126,6 +130,25 @@ of failing or silently dropping tasks.
    `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
    already cached, print `all deps up to date`. Empty `:deps` prints
    `no deps in lgx.edn`.
+6. `apply-runtime!` (see [Go deps](#go-deps)), with or without deps: under
+   `:built` this is what warms the runtime so the first `run` has nothing
+   left to build, and a deps-less project still needs that.
+
+### `lgx info`
+
+Read-only: the runtime decision, spelled out. Resolves the basis like
+`install` (same `--with` handling, no auto contexts; a cold cache fetches
+deps and prints the install block) but never calls `apply-runtime!`, so
+nothing is built and no branch pin is resolved. `cmd-info` probes the
+environment (`lg -v`, `command -v go`, `go version`, the cache path from
+`gobuild/runtime-paths`, `LGX_LG`, `LGX_LETGO_REPLACE`) and hands the
+values to the pure `info-lines`, which renders aligned `label  value`
+lines on stdout: `project`, `lg-runtime`, `lg-version`, `lg`, then
+`version` (the outcome of `check-lg-version!`) under `:installed` or
+`go`/`let-go`/`LGX_LG` under `:built`, and `go-deps` with each coord's
+origin from `:go-origins`. A branch pin under `:built` prints
+`unresolved`, since its cache path needs `go list -m` (network; exits on
+failure). Exit 1 only for an invalid `lgx.edn` or a failed dep fetch.
 
 ### `lgx run [args...]`
 
@@ -264,10 +287,10 @@ native build (nil target). Then, before anything expensive:
    only covers config, not an ad-hoc `--target` list), and a forwarded
    `-bundle-base` combined with more than one target (one base binary
    cannot serve two platforms).
-4. For a cross-build where lgx generates the base,
-   `gobuild/cross-preflight!` requires the Go toolchain and
-   `:lg-version` - Go deps or not, since even a stock target runtime is
-   generated with Go.
+4. A cross-build under `:installed` without a user-forwarded
+   `-bundle-base` is an error (`gobuild/installed-cross-error`): the
+   target runtime is generated with Go, Go deps or not, which only
+   `:built` does.
 
 Then steps matching `install` resolve the basis, and per target:
 
@@ -276,7 +299,7 @@ Then steps matching `install` resolve the basis, and per target:
    under the project root, and `mkdir` its parent.
 6. Resolve the bundle base: a cross target gets a target-platform
    runtime from `gobuild/ensure-runtime!`; native uses the host runtime
-   (Go deps) or none (stock `lg` copies itself); a user-forwarded
+   (`:built`) or none (`:installed`; `lg` copies itself); a user-forwarded
    `-bundle-base` wins and skips generation.
 7. Exec `lg -source-paths <X> -resource-paths <R> [forwarded-args...]
    [-bundle-base <base>] -b <abs-out> <abs-main>`. With `-b`, `lg`
@@ -290,17 +313,19 @@ Which `lg` runs, and which is shipped, is decided per the two-runtimes
 rule - bundling *executes* the script on the host (compilation runs
 top-level forms), while `-bundle-base` becomes the shipped binary:
 
-| Project / build | `lg` that runs `-b` (host) | `-bundle-base` (shipped) |
+| Mode / build | `lg` that runs `-b` (host) | `-bundle-base` (shipped) |
 |---|---|---|
-| no Go deps, native | PATH `lg` | none (base = itself) |
-| no Go deps, cross | PATH `lg` | generated target runtime |
-| Go deps, native | host custom runtime | same host runtime |
-| Go deps, cross | host custom runtime | generated target runtime |
+| `:installed`, native | PATH `lg` | none (base = itself) |
+| `:installed`, cross | error, unless the user forwards `-bundle-base` | the user's |
+| `:built`, native | host runtime | same host runtime |
+| `:built`, cross | host runtime | generated target runtime |
 
-So a four-platform release of a Go-deps project builds five runtimes:
-one host plus four targets. A cross-build of a Go-deps project with
-`LGX_LG` set fails outright - the override would leave the host side
-unable to resolve the project's Go namespaces at compile time.
+So a four-platform release under `:built` builds five runtimes: one
+host plus four targets. A user `-bundle-base` replaces only the target
+runtime, so under `:built` the host side still needs Go. `LGX_LG` under
+`:built` fails for every command, build included - the override would
+leave the host side unable to resolve the project's Go namespaces at
+compile time.
 
 `lgx build` shares `resolve-main-script!` and the project-basis
 resolution with `lgx run`; the structural differences are the argument
@@ -620,8 +645,8 @@ of the git URL and ref. For `:git/sha` coords, `<ref>` is the sha. For
 leaf is a read-only worktree. The `test-runner` directory holds the
 generated test harness. The `templates/` tree parallels
 gitlibs but uses sha-only keying — populated by `lgx new` on first use
-and reused on subsequent runs. `runtimes/` holds custom `lg` binaries
-built for projects with `:go/*` deps and for cross-build bundle bases,
+and reused on subsequent runs. `runtimes/` holds the `lg` binaries
+built for `:lg-runtime :built` projects and their cross-build bases,
 keyed by a hash of the let-go version, the whole Go coord set, and -
 when cross-compiling - the target platform, so each platform gets its
 own entry while native builds keep their pre-target hashes (see
@@ -678,8 +703,11 @@ partitions each queue level of `ensure-all!` before it is walked, so a
 Go coord produces no source path and no clone but is still collected -
 including from a dependency's own `lgx.edn`, which is how a wrapper
 library's Go deps flow up to its consumer. `ensure-all!` therefore
-returns `{:installs [...] :go-coords [[lib coord] ...]}`, and `basis`
-threads `:go-coords` into its result.
+returns `{:installs [...] :go-coords [[lib coord] ...] :go-origins {...}}`,
+where `:go-origins` maps each Go coord lib to the dep lib whose `lgx.edn`
+declared it (nil for the project's own), and `basis` threads both into
+its result. The origin is what the `:installed` error and `lgx info` use
+to say which dep pulled a Go package in.
 
 Dedup mirrors the source-coord rule: breadth-first, first-wins, with a
 warning when a later coord for the same lib differs. Splitting a level
@@ -688,20 +716,30 @@ that ordering. A relative `:go/local` is made absolute against the
 declaring file's directory at collection time, while that base is still
 known - the same rule `coord-id` applies to `:local/root`.
 
-`apply-runtime!` is the single place the result enters a command. It
+`apply-runtime!` is the single place the runtime enters a command. It
 runs right after the basis, because only then are the transitive Go
-coords known:
+coords known, and it validates `:lg-runtime` against them rather than
+inferring a mode:
 
-- no Go coords: run `check-lg-version!` as before, return nil
-- `LGX_LG` set by the user: warn and return nil, without building
-- otherwise: preflight, `gobuild/ensure-runtime!`, then point `LGX_LG`
-  at the built binary so `runner.lg` picks it up unchanged
+- `:installed` (the default): any Go coord is an error
+  (`gobuild/installed-go-deps-error`, naming each coord and its origin);
+  otherwise run `check-lg-version!` as before and return nil. Go is
+  never invoked.
+- `:built`: a user-set `LGX_LG` is an error
+  (`gobuild/built-lg-override-error`), checked before the Go preflight
+  and before any build; then `gobuild/preflight!` (Go on `PATH`),
+  `gobuild/ensure-runtime!` with the project's Go coords (an empty set
+  renders a stock module at the pin), and `LGX_LG` pointed at the built
+  binary so `runner.lg` picks it up unchanged. Returns the path.
 
-`check-lg-version!` is skipped when a custom runtime is active - it is
-built from the pin by construction, and the check would only be probing
-whichever `lg` happens to be on `PATH`. lgx stamps `LGX_LG_AUTO`
-alongside `LGX_LG` so a nested `lgx` can tell its parent's runtime from
-a genuine user override.
+Config load already guarantees the pin shape per mode
+(`config/lg-runtime-errors`): `:built` requires `:lg-version`, and
+`:installed` accepts only a released semver, since a sha or branch can
+never match `lg -v`. `check-lg-version!` does not run under `:built` -
+the runtime is built from the pin by construction, and the check would
+only be probing whichever `lg` happens to be on `PATH`. lgx stamps
+`LGX_LG_AUTO` alongside `LGX_LG` so a nested `lgx` can tell its parent's
+runtime from a genuine user override.
 
 `lgx build` additionally injects `-bundle-base <runtime>` into the argv
 before `-b`, unless the user passed their own. `lg -b` copies the

@@ -498,12 +498,12 @@ None of these invoke Go. Each scenario uses a fresh `mktemp -d` project and
 Use /writing-clearly. Each doc ends with a `Verify against:` footer; keep it
 accurate.
 
-- [ ] **Step 1: `examples/wails-desktop/lgx.edn`**
+- [x] **Step 1: `examples/wails-desktop/lgx.edn`**
   Add `:lg-runtime :built` after `:lg-version`. Verify with
   `cd examples/wails-desktop && ../../bin/lgx info` (exit 0, `lg-runtime built`;
   the runtime need not be built).
 
-- [ ] **Step 2: README**
+- [x] **Step 2: README**
   - Requirements: Go is needed "only if `lgx.edn` sets `:lg-runtime :built`",
     drop the "declares Go deps" phrasing.
   - Command table and the annotated `lgx.edn` reference: add `lgx info` and
@@ -522,7 +522,7 @@ accurate.
   - Env table, `LGX_LG` row: "Ignored with an error when `:lg-runtime` is
     `:built`."
 
-- [ ] **Step 3: `docs/ARCHITECTURE.md`**
+- [x] **Step 3: `docs/ARCHITECTURE.md`**
   - Runtime model: the mode key decides which of the two `lg`s runs user
     code.
   - Components list: `cmd-info` in `lgx.lg`.
@@ -532,7 +532,7 @@ accurate.
   - `apply-runtime!` bullets: rewrite for the two modes and the
     `:go-origins` map.
 
-- [ ] **Step 4: Knowledge base**
+- [x] **Step 4: Knowledge base**
   - `lgx-go-runtimes.md`: intro sentence ("When a project sets
     `:lg-runtime :built`..."), the Rebuild policy `LGX_LG` bullet (now an
     error), the Troubleshooting rows for `declares Go deps but no :lg-version`
@@ -542,11 +542,15 @@ accurate.
   - `lgx-go-wrappers.md`: both pin snippets gain `:lg-runtime :built`; the
     consumer snippet under "Where wrappers live" too.
 
-- [ ] **Step 5: Check for stale claims**
+> Deviation: `docs/knowledge-base/lgx-wails-desktop.md` (not in the plan's
+> list) also described the Go-dep pin without the mode; one sentence updated.
+> `runner/lg-version`'s `[bin]` arity (Task 5) is internal, no doc change.
+
+- [x] **Step 5: Check for stale claims**
   Run: `grep -rn "declares Go deps\|Go deps, native\|runtime-action\|cross-preflight" README.md docs/`
   Expected: no hits that describe inference as current behaviour.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -am "docs: :lg-runtime mode, lgx info, wails example"`
 
 ### Task 7: Manual verification of the `:built` path
