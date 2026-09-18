@@ -558,11 +558,14 @@ accurate.
 **Files:** none in this repo. Uses `~/Projects/letgo-packages/sqlite/example`
 (separate repo; the edit there is not committed by this plan).
 
-- [ ] **Step 1: The error without the key**
+- [x] **Step 1: The error without the key**
   `cd ~/Projects/letgo-packages/sqlite/example && ~/Projects/lgx/bin/lgx run`
   Expected: exit 1, `Go deps: database/sql (via abogoyavlensky/letgo-sql), github.com/abogoyavlensky/letgo-packages/sql/shim (via abogoyavlensky/letgo-sql), modernc.org/sqlite (via abogoyavlensky/letgo-sqlite)`.
+  > Deviation: the example pins a sha, so the config-load rule fires first
+  > (`is not a released version ... set :lg-runtime :built`). The expected
+  > `Go deps:` line was verified on a temp copy pinned to `1.12.2`.
 
-- [ ] **Step 2: The built path**
+- [x] **Step 2: The built path**
   Add `:lg-runtime :built` to that example's `lgx.edn`. Then:
   `~/Projects/lgx/bin/lgx info` prints `lg-runtime    built`, the `go` line,
   three `go-deps` lines, and the `lg` line with the cache path (built from
@@ -573,13 +576,72 @@ accurate.
   `LGX_LG=/usr/bin/true ~/Projects/lgx/bin/lgx run` exits 1 with the
   `LGX_LG is set to` error and builds nothing.
 
-- [ ] **Step 3: Cross-build under `:built` with no Go deps**
+- [x] **Step 3: Cross-build under `:built` with no Go deps**
   In a temp dir: `{:paths ["."] :main "main.lg" :lg-runtime :built :lg-version "f26eb497299760e93ce430302f13ab3a954eab64" :targets {:bin {:out "bin/app_{{os}}_{{arch}}"}}}`
   with `main.lg` printing `:ok`. `~/Projects/lgx/bin/lgx build --target linux/arm64`
   exits 0 and `file bin/app_linux_arm64` reports an ARM aarch64 binary.
   (A sha pin is required here: the released 1.12.2 predates `pkg/cli`.)
 
-- [ ] **Step 4: Record the outcome**
+- [x] **Step 4: Record the outcome**
   Append a short "Verification" note at the end of this plan with the
   commands run and their results, then
   `git commit -am "docs(plan): record :lg-runtime verification"`.
+
+## Verification
+
+Run on 2026-09-18 against `bin/lgx` built from `9e41bf9`, lg 1.12.2 on
+PATH, go1.26.7, and the sqlite example in `~/Projects/letgo-packages`
+(that repo's `lgx.edn` edit stays uncommitted).
+
+| Command | Result |
+|---|---|
+| `sqlite/example` (sha pin, no key): `lgx run` | exit 1, `:lg-version — "f26eb…" is not a released version … set :lg-runtime :built` |
+| temp copy pinned `1.12.2`, no key: `lgx run` | exit 1, `Go deps: database/sql (via abogoyavlensky/letgo-sql), github.com/abogoyavlensky/letgo-packages/sql/shim (via abogoyavlensky/letgo-sql), modernc.org/sqlite (via abogoyavlensky/letgo-sqlite)` |
+| `sqlite/example` + `:lg-runtime :built`: `lgx info` | exit 0; `lg-runtime built`, `lg 1.12.3-0.20260907055650-f26eb4972997 (~/.lgx/runtimes/4da83e1444a08f27/lg)`, `go go1.26.7 (…/go)`, three `go-deps` lines with origins |
+| `lgx run` | `all checks passed` |
+| `lgx build && ./bin/app \| tail -1` | `built …/bin/app`, `all checks passed` |
+| `LGX_LG=/usr/bin/true lgx run` | exit 1, `LGX_LG is set to /usr/bin/true, but lgx.edn sets :lg-runtime :built …`; nothing built |
+| temp project, `:built` + sha pin, no Go deps: `lgx build --target linux/arm64` | exit 0; `file` reports `ELF 64-bit LSB executable, ARM aarch64, statically linked` |
+| `examples/wails-desktop`: `lgx info` | exit 0, `lg-runtime built`, `lg not built yet (…)`, origin `(via abogoyavlensky/letgo-wails)` |
+| `make test` | 713 unit tests / 1126 assertions, 380 e2e assertions (was 332), all pass |
+
+## Completion summary
+
+**Status: completed.** Branch `lg-runtime-mode`, seven commits on top of
+`master` (plan, Tasks 1-6, one review fixup).
+
+Implemented: the `:lg-runtime` key (`:installed` default, `:built`) with
+two cross-key config rules; `apply-runtime!` rewritten to validate the mode
+instead of inferring it, with `:go-origins` provenance threaded through
+`ensure-all!`/`basis`; three byte-tested error formatters; `cmd-build`
+simplified (the cross-plus-`LGX_LG` case and `cross-preflight!` gone,
+`runtime-action` gone, `preflight!` narrowed); `lgx info` with a pure
+`info-lines` renderer; `go-path`/`go-version` probes and `runtime-paths`
+factored out of `ensure-runtime!`; e2e scenarios 120-126; README,
+ARCHITECTURE and knowledge-base docs; the wails example.
+
+Codex review rounds: Task 1 flagged the (planned) not-yet-wired mode;
+Task 2 caught `go-version` reading the wrong token (fixed in Task 3's
+commit, with a pure `go-version-token` and a test); Task 5 caught `info`
+missing from `reserved-task-names` (fixed in `30d60be`); Tasks 3, 4, 6
+clean.
+
+Deviations, gathered:
+- Task 3/7: both sha-pinned examples now fail at config load rather than
+  with the go-deps error; the go-deps error was verified on semver-pinned
+  temp copies.
+- Task 3: the two `runtime-action` tests the plan assumed absent were
+  deleted with the function.
+- Task 4: scenario 121 lives inside the `supports_source_paths` block
+  (it needs `make_declaring_repo`); 120 and 122-126 sit after it.
+- Task 5: `runner/lg-version` gained a `[bin]` arity so `info` can probe the
+  cached runtime under `:built` without going through `LGX_LG`.
+- Task 6: `lgx-wails-desktop.md` needed one sentence too.
+- TaskCreate/TaskUpdate were unavailable in this harness; the plan document
+  was the only tracking surface.
+
+**What the plan could have specified better:** the config-load rule for a
+sha pin under `:installed` fires before dep resolution, so the smoke tests
+in Tasks 3 and 7 that expected the go-deps error from the sha-pinned
+examples could never see it; and the `go version` output shape
+(`go version go1.26.7 linux/amd64`, third token) should have been pinned.
