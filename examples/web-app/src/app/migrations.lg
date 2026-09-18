@@ -1,0 +1,84 @@
+(ns app.migrations
+  (:require [honey.sql :as sql]
+            [ragtime.protocols :as p]
+            [sqlite.core :as sqlite]))
+
+;; ragtime.core reads Thread/currentThread at compile time, so the stand-in
+;; (src/Thread.lg) has to load first. Required explicitly rather than in the
+;; ns form: cljfmt sorts ns requires, and let-go loads them in its own order
+;; anyway (docs/knowledge-base/let-go-gotchas.md).
+(require 'Thread)
+(require '[ragtime.repl :as repl]
+         '[ragtime.strategy :as strategy])
+
+;; Schema migrations with ragtime's database-independent core. ragtime only
+;; asks for two things: a DataStore that remembers which migration ids have
+;; been applied, and Migrations that know how to run up and down. Both are
+;; small records over sqlite.core here; the migrations themselves are
+;; HoneySQL data, so the whole history is readable as one vector.
+
+(def ^:private migrations-table :ragtime_migrations)
+
+(defrecord SqliteStore [conn]
+  p/DataStore
+  (add-migration-id [_ id]
+    (sqlite/execute! conn (sql/format {:insert-into migrations-table
+                                       :values [{:id id}]})))
+  (remove-migration-id [_ id]
+    (sqlite/execute! conn (sql/format {:delete-from migrations-table
+                                       :where [:= :id id]})))
+  (applied-migration-ids [_]
+    (mapv :id (sqlite/query conn (sql/format {:select [:id]
+                                              :from [migrations-table]
+                                              :order-by [:seq]})))))
+
+(defn store
+  "A ragtime DataStore over `conn`, creating its bookkeeping table if needed."
+  [conn]
+  (sqlite/execute! conn (sql/format {:create-table [migrations-table :if-not-exists]
+                                     :with-columns [[:seq :integer [:primary-key]]
+                                                    [:id :text [:not nil] :unique]]}))
+  (->SqliteStore conn))
+
+;; A migration is an id plus HoneySQL statements for each direction.
+(defrecord Migration [id up down]
+  p/Migration
+  (id [_] id)
+  (run-up! [_ {:keys [conn]}]
+    (doseq [stmt up] (sqlite/execute! conn (sql/format stmt))))
+  (run-down! [_ {:keys [conn]}]
+    (doseq [stmt down] (sqlite/execute! conn (sql/format stmt)))))
+
+(def migrations
+  [(->Migration "001-create-todos"
+                [{:create-table :todos
+                  :with-columns [[:id :integer [:primary-key]]
+                                 [:title :text [:not nil]]
+                                 [:done :integer [:not nil] [:default 0]]]}]
+                [{:drop-table :todos}])
+   (->Migration "002-index-todos-done"
+                [{:create-index [:todos_done_idx [:todos :done]]}]
+                [{:drop-index :todos_done_idx}])])
+
+;; apply-new rather than ragtime's default raise-error: the conflict-detecting
+;; strategies destructure `[[x & coll]]` and test `coll`, which the let-go
+;; this example pins binds to () instead of nil, so they return an empty plan
+;; (docs/issues/destructure-rest-empty-seq.md). Switch to raise-error once the
+;; pin carries the fix.
+(def ^:private config-defaults {:strategy strategy/apply-new})
+
+(defn migrate!
+  "Apply every migration not yet applied, in order."
+  [conn]
+  (repl/migrate (assoc config-defaults
+                       :datastore (store conn)
+                       :migrations migrations)))
+
+(defn rollback!
+  "Roll back the last migration, or the last `n`."
+  ([conn] (rollback! conn 1))
+  ([conn n]
+   (repl/rollback (assoc config-defaults
+                         :datastore (store conn)
+                         :migrations migrations)
+                  n)))

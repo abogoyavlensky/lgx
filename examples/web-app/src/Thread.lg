@@ -1,0 +1,17 @@
+;; A stand-in for java.lang.Thread's static currentThread, which
+;; ragtime.core/migrate-all polls between migrations
+;; ((.isInterrupted (Thread/currentThread))). let-go has no thread
+;; interruption, so "not interrupted" is the honest answer. The namespace is
+;; named Thread so the static call resolves; it has to be required before
+;; ragtime.core compiles. Goes away once let-go ships the stub
+;; (docs/issues/ragtime-thread-current-thread.md).
+(ns Thread)
+
+(defprotocol Interruptible
+  (isInterrupted [t]))
+
+(deftype CurrentThread []
+  Interruptible
+  (isInterrupted [_] false))
+
+(defn currentThread [] (->CurrentThread))
