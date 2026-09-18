@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todos</title>
+  <style>
+    :root {
+      --bg: #f4f4f2; --card: #ffffff; --fg: #1c1c1a; --muted: #8a8a85;
+      --line: #e6e6e2; --accent: #2f6df6; --danger: #d64545;
+      --shadow: 0 1px 2px rgba(0,0,0,.05), 0 12px 32px -12px rgba(0,0,0,.15);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121214; --card: #1c1c20; --fg: #ececec; --muted: #85858c;
+        --line: #2a2a30; --accent: #6b9bff; --danger: #ff6b6b;
+        --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px -12px rgba(0,0,0,.6);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: start center;
+      padding: 12vh 16px 48px; background: var(--bg); color: var(--fg);
+      font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+    }
+    main { width: 100%; max-width: 480px; }
+    h1 { font-size: 15px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+         color: var(--muted); margin: 0 0 12px 4px; display: flex; justify-content: space-between; }
+    h1 span { font-weight: 400; letter-spacing: 0; text-transform: none; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+            box-shadow: var(--shadow); overflow: hidden; }
+    form { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); }
+    input[type=text] {
+      flex: 1; min-width: 0; font: inherit; color: inherit; background: transparent;
+      border: 0; outline: 0; padding: 8px 6px;
+    }
+    input::placeholder { color: var(--muted); }
+    button.add {
+      font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0;
+      border-radius: 8px; padding: 8px 14px; cursor: pointer; transition: opacity .15s;
+    }
+    button.add:disabled { opacity: .4; cursor: default; }
+    .error { color: var(--danger); font-size: 13px; padding: 0 18px 10px; }
+    ul { list-style: none; margin: 0; padding: 4px 0; }
+    li { display: flex; align-items: center; gap: 12px; padding: 10px 16px; transition: background .15s; }
+    li:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+    li input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; flex: none; }
+    li input[type=checkbox]:disabled { cursor: default; }
+    li .title { flex: 1; overflow-wrap: anywhere; transition: color .2s; }
+    li.done .title { color: var(--muted); text-decoration: line-through; }
+    li .remove {
+      opacity: 0; font: inherit; font-size: 18px; line-height: 1; color: var(--muted); background: none;
+      border: 0; cursor: pointer; padding: 2px 6px; border-radius: 6px; transition: opacity .15s, color .15s;
+    }
+    li:hover .remove, li .remove:focus-visible { opacity: 1; }
+    li .remove:hover { color: var(--danger); }
+    .empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+    footer { margin: 14px 4px 0; font-size: 13px; color: var(--muted); }
+    footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    [x-cloak] { display: none !important; }
+  </style>
+  <script defer src="/static/alpine.min.js"></script>
+</head>
+<body>
+  <main x-data="todos()" x-init="load()" x-cloak>
+    <h1>Todos <span x-text="left === 0 ? 'all done' : left + ' left'"></span></h1>
+
+    <div class="card">
+      <form @submit.prevent="add()">
+        <input type="text" x-model="title" placeholder="What needs doing?" autofocus autocomplete="off">
+        <button class="add" :disabled="!title.trim()">Add</button>
+      </form>
+      <div class="error" x-show="error" x-text="error"></div>
+
+      <ul>
+        <template x-for="todo in items" :key="todo.id">
+          <li :class="{ done: todo.done }">
+            <input type="checkbox" :checked="todo.done" :disabled="todo.done" @change="complete(todo)">
+            <span class="title" x-text="todo.title"></span>
+            <button class="remove" @click="remove(todo)" aria-label="Delete">&times;</button>
+          </li>
+        </template>
+      </ul>
+      <div class="empty" x-show="items.length === 0">Nothing here yet.</div>
+    </div>
+
+    <footer>Backed by <code>GET/POST /todos</code>, <code>POST /todos/:id/complete</code>, <code>DELETE /todos/:id</code>.</footer>
+  </main>
+
+  <script>
+    // One Alpine component over the JSON API; the server stays a plain
+    // REST backend and the page holds the list.
+    function todos() {
+      const json = (method, body) => ({
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body && JSON.stringify(body),
+      });
+      return {
+        items: [],
+        title: '',
+        error: '',
+        get left() { return this.items.filter(t => !t.done).length; },
+
+        async load() {
+          this.items = await (await fetch('/todos')).json();
+        },
+        async add() {
+          const res = await fetch('/todos', json('POST', { title: this.title }));
+          if (!res.ok) { this.error = (await res.json()).error; return; }
+          this.items.push(await res.json());
+          this.title = '';
+          this.error = '';
+        },
+        async complete(todo) {
+          const res = await fetch(`/todos/${todo.id}/complete`, json('POST'));
+          if (res.ok) Object.assign(todo, await res.json());
+        },
+        async remove(todo) {
+          const res = await fetch(`/todos/${todo.id}`, json('DELETE'));
+          if (res.ok || res.status === 404) this.items = this.items.filter(t => t.id !== todo.id);
+        },
+      };
+    }
+  </script>
+</body>
+</html>
