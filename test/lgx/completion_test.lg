@@ -8,7 +8,7 @@
             [clojure.test :refer [deftest is]]))
 
 (def ^:private builtins
-  ["build" "clean" "help" "install" "new" "nrepl" "repl" "run" "test"
+  ["build" "clean" "help" "info" "install" "new" "nrepl" "repl" "run" "test"
    "version"])
 
 ;; Tasks map as complete! builds it: task-name string → :args decls (or nil).

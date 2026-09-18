@@ -426,7 +426,7 @@ None of these invoke Go. Each scenario uses a fresh `mktemp -d` project and
 - Modify: `lgx.lg`, `lgx/completion.lg`
 - Test: `test/lgx/completion_test.lg`, `tests/e2e.sh`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   - `completion_test.lg`: the expected `builtin-commands` vector gains
     `"info"` (alphabetical, after `"help"`).
   - `tests/e2e.sh` scenario 126: project `{:paths ["."] :lg-version "1.12.2"}`
@@ -443,11 +443,11 @@ None of these invoke Go. Each scenario uses a fresh `mktemp -d` project and
     `unresolved` and `is a branch` (no Go call is made, so this passes on a
     host without Go).
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
   Run: `bin/lgx test test/lgx/completion_test.lg`
   Expected: FAIL on the command list.
 
-- [ ] **Step 3: Implement `cmd-info`**
+- [x] **Step 3: Implement `cmd-info`**
   In `lgx.lg`:
   - `cmd-info [verbose? with]`: `find-project!`, `load-config!`,
     `overlay-basis` with the `--with` names (no auto contexts, like
@@ -475,12 +475,15 @@ None of these invoke Go. Each scenario uses a fresh `mktemp -d` project and
   - Dispatch `"info"` and add the help row
     `  lgx info                     Show which lg runs this project and why (:lg-runtime, :lg-version, Go deps)`.
   - `completion.lg`: add `"info"` to `builtin-commands`.
+  > Deviation: `runner/lg-version` gained a `[bin]` arity so `info` can probe
+  > the cached runtime binary under `:built` (the no-arg form honors `LGX_LG`,
+  > which is exactly the wrong lg in that mode).
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
   Run: `make test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "feat: lgx info prints the runtime decision"`
 
 ### Task 6: Docs and the wails example

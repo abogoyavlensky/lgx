@@ -3212,5 +3212,56 @@ assert_contains "$out" "LGX_LG is set to" \
     "LGX_LG under built: install reports the same error"
 rm -rf "$proj_rt" "$home_rt"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 126: lgx info reports the runtime decision without building"
+proj_in="$(mktemp -d)"
+home_in="$(mktemp -d)"
+echo '{:paths ["."] :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
+set +e
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "info: expected exit 0, got $rc (output: $out)"
+pass "info: exits 0 under the default mode"
+assert_contains "$out" "lg-runtime    installed (default)" "info: default mode is labelled"
+assert_contains "$out" "lg-version    1.12.2" "info: pin is shown"
+lg_line="$(printf '%s\n' "$out" | grep '^lg  ')"
+assert_contains "$lg_line" "($LGX_LG)" "info: lg line names the LGX_LG binary"
+assert_contains "$out" "version  " "info: version line is present"
+assert_contains "$out" "go-deps       (none)" "info: no Go deps"
+assert_not_contains "$out" $'\e[' "info: output is plain (no color)"
+
+echo '{:paths ["."] :lg-runtime :installed :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"
+assert_contains "$out" "lg-runtime    installed" "info: explicit mode is shown"
+assert_not_contains "$out" "(default)" "info: explicit mode is not labelled default"
+
+echo '{:paths ["."] :lg-runtime :built :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
+set +e
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "info built: expected exit 0, got $rc (output: $out)"
+pass "info built: exits 0 with an unbuilt runtime"
+assert_contains "$out" "lg-runtime    built" "info built: mode is shown"
+lg_line="$(printf '%s\n' "$out" | grep '^lg  ')"
+assert_contains "$lg_line" "not built yet" "info built: runtime is reported unbuilt"
+assert_contains "$lg_line" "/runtimes/" "info built: cache path is shown"
+assert_contains "$out" "LGX_LG  " "info built: user LGX_LG is reported"
+assert_contains "$out" "conflicts with :lg-runtime :built" \
+    "info built: LGX_LG conflict is named"
+assert_not_contains "$out" "Building custom lg runtime" "info built: nothing is built"
+[[ ! -e "$home_in/runtimes" ]] || fail "info built: runtimes cache was created"
+pass "info built: no runtime cache was created"
+
+echo '{:paths ["."] :lg-runtime :built :lg-version "main"}' > "$proj_in/lgx.edn"
+set +e
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "info branch: expected exit 0, got $rc (output: $out)"
+pass "info branch: exits 0 without resolving the ref"
+lg_line="$(printf '%s\n' "$out" | grep '^lg  ')"
+assert_contains "$lg_line" "unresolved" "info branch: runtime path is unresolved"
+assert_contains "$lg_line" "is a branch" "info branch: the reason is named"
+rm -rf "$proj_in" "$home_in"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
