@@ -10,11 +10,15 @@ steps - see [`lgx-go-runtimes.md`](./lgx-go-runtimes.md).
 **Not a release, yet.** The `:go/*` stack needs `pkg/cli` and the boxing work
 ([#773], [#776], [#778]); the newest release, `v1.12.2` from July, predates all
 of it. Pin a commit instead - `:lg-version` is passed to `go get`, so a full
-sha or a branch name works exactly like a semver:
+sha or a branch name works exactly like a semver. Either needs
+`:lg-runtime :built`; the default `:installed` mode accepts only a
+released version:
 
 ```clojure
-{:lg-version "f26eb497299760e93ce430302f13ab3a954eab64"}   ; reproducible
-{:lg-version "main"}                                        ; tracks tip
+{:lg-runtime :built
+ :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"}   ; reproducible
+{:lg-runtime :built
+ :lg-version "main"}                                        ; tracks tip
 ```
 
 A sha is the better default: a mutable pin costs one network call per
@@ -37,7 +41,9 @@ one directory per package, each tagged independently. A consumer depends on one
 with `:deps/root`:
 
 ```clojure
-{:deps {abogoyavlensky/letgo-sqlite
+{:lg-runtime :built
+ :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"
+ :deps {abogoyavlensky/letgo-sqlite
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
          :git/sha "..."
          :deps/root "sqlite"}}}

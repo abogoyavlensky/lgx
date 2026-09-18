@@ -1,13 +1,16 @@
-# Custom `lg` runtimes for Go deps
+# Built `lg` runtimes (`:lg-runtime :built`)
 
-When a project declares `:go/*` coords, lgx cannot run it on the `lg`
-from `PATH`: the Go packages have to be linked into the binary. So lgx
-generates a small Go module, builds an `lg` from it, and caches the
-result. Cross-compilation rides the same machinery: a target-platform
-`lg` for `lgx build --target`/`--all` is the same generated module
-built with `GOOS`/`GOARCH` set, even when the coord set is empty. This
-note covers what goes in that cache, when it is rebuilt, and what
-breaks.
+When a project sets `:lg-runtime :built`, lgx does not run it on the
+`lg` from `PATH`: it generates a small Go module, builds an `lg` from
+it at the `:lg-version` pin, and caches the result. That is how `:go/*`
+coords get linked into the binary, and a project with Go deps has to be
+`:built` - under the default `:installed` mode any Go coord in the tree
+is an error naming the dep that introduced it. Cross-compilation rides
+the same machinery: a target-platform `lg` for `lgx build --target`/
+`--all` is the same generated module built with `GOOS`/`GOARCH` set,
+even when the coord set is empty. This note covers what goes in that
+cache, when it is rebuilt, and what breaks. `lgx info` prints the cache
+path and whether the runtime exists yet.
 
 ## Cache layout
 
@@ -65,12 +68,11 @@ would mean walking it on every command.
 - Any `:go/local` coord, or `LGX_LETGO_REPLACE` set: always re-run the
   build steps. `go build` is incremental, so a no-op rebuild is under a
   second. This is the price of not hashing working trees.
-- `LGX_LG` set by the user, on a native command with Go deps: no
-  runtime is built at all. lgx warns that the Go namespaces will not
-  resolve and gets out of the way. Cross-builds differ: with Go deps
-  the combination is rejected outright (the host runtime is required),
-  and without Go deps the target runtime is generated regardless -
-  `LGX_LG` overrides only the host `lg`, never the bundle base.
+- `LGX_LG` set by the user under `:built`: an error, for every command,
+  checked before anything is built. The built runtime is the only `lg`
+  that resolves the project's Go namespaces, so there is nothing for an
+  override to mean; `LGX_LETGO_REPLACE` is the lever for a let-go
+  checkout.
 
 ## The build steps
 
@@ -249,8 +251,11 @@ only works once a release carries them.
 
 | Symptom | Cause |
 |---|---|
-| `go` is not on PATH | Preflight; install Go. Cross-builds need it even with no Go deps |
-| `declares Go deps but no :lg-version` / `cross-compiling ... :lg-version` | The runtime links let-go itself; pin it. Required for any cross-build |
+| `needs an lg built with the Go toolchain, but :lg-runtime is :installed` | A Go coord in the tree (the message names the dep); add `:lg-runtime :built` |
+| `cross-compiling builds a target-platform lg ... :lg-runtime is :installed` | Cross-builds need `:built`, or your own `-bundle-base` |
+| `go` is not on PATH | Preflight; install Go. `:built` needs it even with no Go deps |
+| `:built needs :lg-version` (config error) | The runtime links let-go itself; pin it |
+| `LGX_LG is set to ... but lgx.edn sets :lg-runtime :built` | Unset it; use `LGX_LETGO_REPLACE` for a checkout |
 | `does not contain package .../pkg/cli` | The pinned let-go predates out-of-tree interop; use `LGX_LETGO_REPLACE` |
 | `the scanned package must be resolvable` | The placeholder's blank imports are missing or stale |
 | `no method X on record ...` | Built without `-opaque-structs` |
@@ -267,9 +272,9 @@ To force a cold rebuild, delete the leaf
 
 > **Verify against:** [`lgx/gobuild.lg`](../../lgx/gobuild.lg)
 > (cache key, ref resolution, rendering, build steps, targets,
-> `LGX_LG` ownership),
-> [`lgx/config.lg`](../../lgx/config.lg) (`:go/*` coord validation,
-> `:platforms`, `expand-out`),
+> mode error formatters, `LGX_LG` ownership),
+> [`lgx/config.lg`](../../lgx/config.lg) (`:lg-runtime` and its
+> cross-key rules, `:go/*` coord validation, `:platforms`, `expand-out`),
 > [`lgx/clean.lg`](../../lgx/clean.lg) (`lgx clean`),
 > [`lgx.lg`](../../lgx.lg) (`ensure-all!` partition, `apply-runtime!`,
 > `cmd-build`).

@@ -1,0 +1,75 @@
+(ns app.routes
+  (:require [app.db :as db]
+            [json :as json]
+            [ruuter.core :as r]
+            [string :as str]))
+
+;; The HTTP handler is a plain function built over a db connection. It is
+;; not an integrant component of its own: that would make a three-link
+;; chain (server -> handler -> db), which hangs `ig/init` under let-go
+;; today (docs/issues/destructure-rest-empty-seq.md). The server component
+;; builds it from the db it depends on instead, and tests build it over a
+;; throwaway database the same way.
+
+(defn- json-response [status data]
+  {:status status
+   :headers {"Content-Type" "application/json"}
+   :body (json/write-json data)})
+
+(defn- todo->json [row]
+  ;; sqlite stores booleans as 0/1; present them as booleans.
+  (update row :done pos?))
+
+(defn- parse-id [req]
+  (let [id (-> req :params :id)]
+    (when (re-find #"^[0-9]+$" (str id))
+      (Integer/parseInt id))))
+
+(defn- routes [conn]
+  [{:path "/todos"
+    :method :get
+    :response (fn [_]
+                (json-response 200 (mapv todo->json (db/list-todos conn))))}
+
+   {:path "/todos"
+    :method :post
+    :response (fn [req]
+                (let [title (:title (json/read-json (:body req)
+                                                    {:keywords? true}))]
+                  (if (str/blank? (str title))
+                    (json-response 400 {:error "title is required"})
+                    (json-response 201 (todo->json (db/add-todo! conn title))))))}
+
+   {:path "/todos/:id"
+    :method :get
+    :response (fn [req]
+                (if-let [row (some->> (parse-id req) (db/get-todo conn))]
+                  (json-response 200 (todo->json row))
+                  (json-response 404 {:error "not found"})))}
+
+   {:path "/todos/:id/complete"
+    :method :post
+    :response (fn [req]
+                (if-let [row (some->> (parse-id req) (db/complete-todo! conn))]
+                  (json-response 200 (todo->json row))
+                  (json-response 404 {:error "not found"})))}
+
+   {:path "/todos/:id"
+    :method :delete
+    :response (fn [req]
+                (if (some->> (parse-id req) (db/delete-todo! conn))
+                  ;; No :headers key: an empty headers map crashes the
+                  ;; server (docs/issues/http-empty-headers-panic.md).
+                  {:status 204
+                   :body ""}
+                  (json-response 404 {:error "not found"})))}
+
+   {:path :not-found
+    :response (fn [_] (json-response 404 {:error "not found"}))}])
+
+(defn handler
+  "A Ring-style handler over `conn`: request map in, response map out."
+  [conn]
+  (let [table (routes conn)]
+    (fn [req]
+      (r/route table req))))

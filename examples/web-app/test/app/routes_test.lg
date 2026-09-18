@@ -1,0 +1,47 @@
+(ns app.routes-test
+  (:require [app.db]
+            [app.routes :as routes]
+            [clojure.test :refer [deftest is]]
+            [integrant.core :as ig]
+            [json :as json]))
+
+;; The handler is exercised as a plain function over a throwaway sqlite
+;; file: integrant starts only the db component, no http server.
+
+(defn- with-handler [f]
+  (let [path (str "/tmp/lgx-web-app-test-" (rand-int 100000000) ".db")
+        system (ig/init {:app.db/conn {:path path}})]
+    (try
+      (f (routes/handler (:app.db/conn system)))
+      (finally
+        (ig/halt! system)
+        (os/sh "rm" "-f" path)))))
+
+(defn- call [handler method uri body]
+  (let [res (handler {:request-method method
+                      :uri uri
+                      :body body})]
+    (assoc res :json (when (seq (:body res))
+                       (json/read-json (:body res) {:keywords? true})))))
+
+(deftest todos-round-trip
+  (with-handler
+    (fn [handler]
+      (is (= [] (:json (call handler :get "/todos" nil))))
+      (let [created (call handler :post "/todos" "{\"title\":\"write docs\"}")]
+        (is (= 201 (:status created)))
+        (is (= {:id 1
+                :title "write docs"
+                :done false} (:json created))))
+      (is (= 1 (count (:json (call handler :get "/todos" nil)))))
+      (is (= true (:done (:json (call handler :post "/todos/1/complete" nil)))))
+      (is (= 204 (:status (call handler :delete "/todos/1" nil))))
+      (is (= 404 (:status (call handler :get "/todos/1" nil)))))))
+
+(deftest validation-and-not-found
+  (with-handler
+    (fn [handler]
+      (is (= 400 (:status (call handler :post "/todos" "{}"))))
+      (is (= 404 (:status (call handler :get "/todos/abc" nil))))
+      (is (= 404 (:status (call handler :delete "/todos/99" nil))))
+      (is (= 404 (:status (call handler :get "/nope" nil)))))))

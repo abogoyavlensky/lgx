@@ -308,13 +308,6 @@
         (sort-by (fn [[lib _]] (str lib))
                  (filter (fn [[_ c]] (some? (:go/version c))) go-pairs))))
 
-(defn semver-version?
-  "A bare semver pin like \"1.11.1\" — the form lgx.edn has always taken.
-   Public because callers that only work against a released version (the
-   editor-source fetch clones tag v<version>) use it to skip other ref forms."
-  [v]
-  (some? (re-find #"^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$" (str v))))
-
 (defn- commit-sha?
   [v]
   (some? (re-find #"^[0-9a-f]{40}$" (str v))))
@@ -324,7 +317,7 @@
    Go's module grammar requires; anything else — a branch, a sha, an
    already-resolved pseudo-version — passes through verbatim."
   [lg-version]
-  (if (semver-version? lg-version)
+  (if (config/semver-version? lg-version)
     (str "v" lg-version)
     (str lg-version)))
 
@@ -343,7 +336,7 @@
    the literal string would reuse the first build forever, and two machines
    could cache different commits under one hash."
   [lg-version]
-  (and (not (semver-version? lg-version))
+  (and (not (config/semver-version? lg-version))
        (not (commit-sha? lg-version))))
 
 ;; ---------------------------------------------------------------------------
@@ -367,33 +360,52 @@
         (path/normalize v)
         (path/normalize (path/join (os/cwd) v))))))
 
-(defn go-available?
-  "True when a `go` binary resolves on PATH. Passed as an argument, never
-   interpolated into the script (same shape as runner/lg-resolved-path)."
+(defn go-path
+  "The resolved path of the `go` binary on PATH, or nil when there is none.
+   Passed as an argument, never interpolated into the script (same shape as
+   runner/lg-resolved-path)."
   []
   (let [r (try (os/sh "sh" "-c" "command -v -- \"$1\"" "sh" "go")
                (catch e nil))]
-    (boolean (and r (zero? (:exit r)) (not (str/blank? (:out r)))))))
+    (when (and r (zero? (:exit r)) (not (str/blank? (:out r))))
+      (str/trim (:out r)))))
+
+(defn go-available?
+  "True when a `go` binary resolves on PATH."
+  []
+  (some? (go-path)))
+
+(defn go-version-token
+  "Pure. The toolchain token out of `go version` output
+   (`go version go1.26.7 linux/amd64` -> \"go1.26.7\"), or nil when the line
+   has another shape."
+  [out]
+  (let [toks (str/split (str/trim (str out)) #"\s+")]
+    (when (and (= (first toks) "go") (= (second toks) "version"))
+      (nth toks 2 nil))))
+
+(defn go-version
+  "The toolchain token from `go version` (e.g. \"go1.26.7\"), or nil when go
+   is absent or the output is unparseable."
+  []
+  (let [r (try (os/sh "go" "version") (catch e nil))]
+    (when (and r (zero? (:exit r)))
+      (go-version-token (:out r)))))
 
 (defn- die! [msg]
   (write! *err* (str "error: " msg "\n"))
   (os/exit 1))
 
 (defn preflight!
-  "Check what building a custom runtime needs before any work starts: the Go
-   toolchain, and a let-go to build against. Exits 1 with a message naming the
-   fix. A no-op when there are no go coords."
-  [go-pairs lg-version]
-  (when (seq go-pairs)
-    (when-not (go-available?)
-      (die! (str "lgx.edn declares Go deps, which need the Go toolchain, but "
-                 "`go` is not on PATH.\n"
-                 "  install it with `mise use -g go@latest`, "
-                 "or from https://go.dev/dl")))
-    (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
-      (die! (str "lgx.edn declares Go deps but no :lg-version.\n"
-                 "  the custom runtime links let-go itself, so the version has "
-                 "to be pinned: add :lg-version \"<version>\" to lgx.edn")))))
+  "Check what building a runtime needs before any work starts: the Go
+   toolchain. Exits 1 with a message naming the fix. (The let-go pin is
+   guaranteed by config load: :built without :lg-version never loads.)"
+  []
+  (when-not (go-available?)
+    (die! (str "lgx.edn sets :lg-runtime :built, which needs the Go "
+               "toolchain, but `go` is not on PATH.\n"
+               "  install it with `mise use -g go@latest`, "
+               "or from https://go.dev/dl"))))
 
 (defn target-env-args
   "Pure. The env(1) prefix a cross-build's `go build` runs under. GOOS/GOARCH
@@ -559,6 +571,33 @@
   (go! (target-env-args target) ["-C" dir "build" "-o" out "."]
        "go build" verbose?))
 
+(defn runtime-paths
+  "Where the runtime for this declaration lives in the cache, and whether it
+   is `live` (rebuilt on every invocation). Returns {:dir :src :out :live?
+   :lg-version}, where :lg-version is the ref as it enters the cache key.
+
+   A branch or tag resolves to its pseudo-version here, before anything else:
+   the hash, go get, and (later) the version the binary reports all see the
+   commit, not the name. This costs one `go list -m` per invocation for
+   mutable refs — the price of the cache key staying honest — so a caller
+   that must not touch the network (lgx info) checks mutable-letgo-ref? first
+   and skips this for such a pin. Under a replace the key is the checkout
+   path, so the pin is never resolved and this stays pure."
+  [go-pairs lg-version target verbose?]
+  (let [replace-path (letgo-replace-path)
+        lg-version (if (and (nil? replace-path)
+                            (mutable-letgo-ref? lg-version))
+                     (resolve-letgo-version! lg-version verbose?)
+                     lg-version)
+        ref (letgo-ref lg-version replace-path)
+        dir (path/join (runtimes-dir) (runtime-hash go-pairs ref target))]
+    {:dir dir
+     :src (path/join dir "src")
+     :out (path/join dir "lg")
+     :live? (boolean (or (some? replace-path)
+                         (seq (local-coords go-pairs))))
+     :lg-version lg-version}))
+
 (defn ensure-runtime!
   "Build (or reuse) the custom `lg` that links this project's Go deps, and
    return its absolute path.
@@ -576,20 +615,8 @@
    (ensure-runtime! go-pairs lg-version nil verbose?))
   ([go-pairs lg-version target verbose?]
    (let [replace-path (letgo-replace-path)
-         ;; A branch or tag resolves to its pseudo-version before anything
-         ;; else: the hash, go get, and (later) the version the binary reports
-         ;; all see the commit, not the name. This costs one `go list -m` per
-         ;; invocation for mutable refs — the price of the cache key staying
-         ;; honest.
-         lg-version (if (and (nil? replace-path)
-                             (mutable-letgo-ref? lg-version))
-                      (resolve-letgo-version! lg-version verbose?)
-                      lg-version)
-         ref (letgo-ref lg-version replace-path)
-         dir (path/join (runtimes-dir) (runtime-hash go-pairs ref target))
-         src (path/join dir "src")
-         out (path/join dir "lg")
-         live? (or (some? replace-path) (seq (local-coords go-pairs)))]
+         {:keys [src out live? lg-version]}
+         (runtime-paths go-pairs lg-version target verbose?)]
      (if (and (file-exists? out) (not live?))
        out
        (let [;; The pre-tidy main.go embeds the *requested* version; after
@@ -654,32 +681,49 @@
           rendered
           (recur (next ts) (conj seen rendered)))))))
 
-(defn cross-preflight!
-  "What any cross-build needs before work starts, Go deps or not: the Go
-   toolchain (the target-platform lg is generated even for a stock runtime)
-   and a let-go to build it from. Exits 1 with a message naming the fix."
-  [lg-version]
-  (when-not (go-available?)
-    (die! (str "cross-compiling builds a target-platform lg, which needs the "
-               "Go toolchain, but `go` is not on PATH.\n"
-               "  install it with `mise use -g go@latest`, "
-               "or from https://go.dev/dl")))
-  (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
-    (die! (str "cross-compiling builds a target-platform lg, so the let-go "
-               "version has to be pinned: add :lg-version \"<version>\" "
-               "to lgx.edn"))))
+(defn- mode-phrase
+  "How the :installed mode reads in an error: named as the default when
+   lgx.edn is silent, quoted back when the user wrote it."
+  [explicit?]
+  (if explicit?
+    "lgx.edn sets :lg-runtime :installed"
+    ":lg-runtime is :installed (the default)"))
 
-(defn runtime-action
-  "Pure. What to do with a freshly ensured runtime, given whether the user set
-   LGX_LG themselves. lgx normally points LGX_LG at the runtime so runner.lg
-   picks it up unchanged; an explicit LGX_LG is the user overriding on purpose,
-   so it wins and lgx only says why the custom runtime is not in play."
-  [user-lg-set? runtime-path]
-  (if user-lg-set?
-    {:warn (str "warning: lgx.edn declares Go deps, but LGX_LG is set - using "
-                "that lg instead of a custom runtime, so the Go namespaces "
-                "will not resolve\n")}
-    {:setenv runtime-path}))
+(def ^:private built-fix
+  "  add :lg-runtime :built to lgx.edn (needs `go` on PATH)")
+
+(defn installed-go-deps-error
+  "Pure. The error for a Go coord under :installed: every coord in the tree,
+   sorted by lib, each with the dep that introduced it (`go-origins` maps a
+   coord lib to its declaring dep lib, nil for the project's own), then the
+   one-line fix."
+  [go-pairs go-origins explicit?]
+  (let [labels (map (fn [[lib _]]
+                      (if-let [origin (get go-origins lib)]
+                        (str lib " (via " origin ")")
+                        (str lib)))
+                    (sort-by (fn [[lib _]] (str lib)) go-pairs))]
+    (str "error: this project needs an lg built with the Go toolchain, but "
+         (mode-phrase explicit?) "\n"
+         "  Go deps: " (str/join ", " labels) "\n"
+         built-fix ", or drop the dep.\n")))
+
+(defn installed-cross-error
+  "Pure. The error for a cross-build under :installed without a user
+   -bundle-base: the target-platform lg would have to be built."
+  [explicit?]
+  (str "error: cross-compiling builds a target-platform lg with the Go "
+       "toolchain, but " (mode-phrase explicit?) "\n"
+       built-fix ", or pass -bundle-base <lg> yourself.\n"))
+
+(defn built-lg-override-error
+  "Pure. The error for a user-set LGX_LG under :built, where the built
+   runtime is the only lg that resolves the project's namespaces."
+  [lg]
+  (str "error: LGX_LG is set to " lg ", but lgx.edn sets :lg-runtime :built "
+       "- the built runtime is the lg for this project.\n"
+       "  unset LGX_LG (use LGX_LETGO_REPLACE to build against a let-go "
+       "checkout).\n"))
 
 (defn inject-bundle-base
   "Pure. `lg -b` copies the running binary as the bundle base, which would

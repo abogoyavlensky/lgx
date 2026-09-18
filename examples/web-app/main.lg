@@ -1,0 +1,21 @@
+(ns main
+  (:require [app.system :as system]))
+
+;; A small JSON API over sqlite: HoneySQL builds the queries, integrant
+;; wires the db connection, the handler and the http server. Run with
+;; `lgx run` (PORT and DB_PATH override the defaults), then:
+;;
+;;   curl -d '{"title":"write docs"}' localhost:8080/todos
+;;   curl localhost:8080/todos
+;;   curl -X POST localhost:8080/todos/1/complete
+;;   curl localhost:8080/todos/1
+;;   curl -X DELETE localhost:8080/todos/1
+
+(defn -main []
+  (let [system (system/start!)]
+    ;; http/serve runs in a goroutine; block on it so the process stays up.
+    @(get-in system [:app.server/http :serving])))
+
+;; lg -b runs top-level forms at compile time, so without this guard
+;; `lgx build` would open the database and start listening while bundling.
+(when-not *compiling-aot* (-main))

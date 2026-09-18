@@ -3074,9 +3074,194 @@ out="$(cd "$proj_sf" && LGX_HOME="$home_sf" "$LGX" run main.lg 2>&1)"
 assert_contains "$out" ":liba" "soft failure: the project still runs"
 rm -rf "$proj_sf" "$home_sf"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 121: a Go coord introduced by a dep names that dep"
+home_go="$(mktemp -d)"
+fix_go="$home_go/_fixtures"
+mkdir -p "$fix_go"
+sha_go="$(make_declaring_repo "$fix_go/lib-a.git" liba \
+    'lgx.edn={:paths ["src"] :deps {modernc.org/sqlite {:go/version "v1.57.0"}}}')"
+proj_go="$(mktemp -d)"
+cat > "$proj_go/lgx.edn" <<EOF
+{:paths ["."]
+ :main "main.lg"
+ :lg-version "1.12.2"
+ :deps {test/lib-a {:git/url "file://$fix_go/lib-a.git"
+                    :git/sha "$sha_go"}}}
+EOF
+printf '(println :ran)\n' > "$proj_go/main.lg"
+set +e
+out="$(cd "$proj_go" && LGX_HOME="$home_go" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "dep go coord: expected non-zero exit (output: $out)"
+pass "dep go coord: run exits non-zero"
+assert_contains "$out" "modernc.org/sqlite (via test/lib-a)" \
+    "dep go coord: the error names the dep that introduced the coord"
+assert_not_contains "$out" ":ran" "dep go coord: the script did not run"
+rm -rf "$proj_go" "$home_go"
+
 else
     skip "transitive declared deps require lg with -source-paths support"
 fi
+
+# ---------------------------------------------------------------------------
+# :lg-runtime validation. None of these invoke Go: every check fires before
+# any toolchain call, so they pass on a host without it.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 120: a top-level Go coord under the default mode is an error"
+proj_rt="$(mktemp -d)"
+home_rt="$(mktemp -d)"
+cat > "$proj_rt/lgx.edn" <<'EOF'
+{:paths ["."] :main "main.lg" :lg-version "1.12.2"
+ :deps {modernc.org/sqlite {:go/version "v1.57.0"}}}
+EOF
+printf '(println :ran)\n' > "$proj_rt/main.lg"
+set +e
+out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "installed+go: expected non-zero exit (output: $out)"
+pass "installed+go: run exits non-zero"
+assert_contains "$out" \
+    "needs an lg built with the Go toolchain, but :lg-runtime is :installed (the default)" \
+    "installed+go: error names the default mode"
+assert_contains "$out" "Go deps: modernc.org/sqlite" \
+    "installed+go: error lists the coord"
+assert_not_contains "$out" "(via" \
+    "installed+go: a project-declared coord has no origin"
+assert_contains "$out" "add :lg-runtime :built to lgx.edn" \
+    "installed+go: error names the fix"
+assert_not_contains "$out" ":ran" "installed+go: the script did not run"
+set +e
+out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" install 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "installed+go: install expected non-zero exit (output: $out)"
+pass "installed+go: install exits non-zero"
+assert_contains "$out" \
+    "needs an lg built with the Go toolchain, but :lg-runtime is :installed (the default)" \
+    "installed+go: install reports the same error"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 122: :built without :lg-version is a config error"
+echo '{:lg-runtime :built}' > "$proj_rt/lgx.edn"
+set +e
+out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "built without pin: expected non-zero exit (output: $out)"
+pass "built without pin: run exits non-zero"
+assert_contains "$out" "invalid lgx.edn" "built without pin: config error"
+assert_contains "$out" ":built needs :lg-version" \
+    "built without pin: error names the missing pin"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 123: a sha pin under the default mode is a config error"
+echo '{:lg-version "f26eb497299760e93ce430302f13ab3a954eab64"}' > "$proj_rt/lgx.edn"
+set +e
+out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "sha under installed: expected non-zero exit (output: $out)"
+pass "sha under installed: run exits non-zero"
+assert_contains "$out" "is not a released version" \
+    "sha under installed: error explains the pin"
+assert_contains "$out" "set :lg-runtime :built" \
+    "sha under installed: error points at :built"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 124: a cross-build under :installed is an error"
+cat > "$proj_rt/lgx.edn" <<'EOF'
+{:paths ["."] :main "main.lg" :lg-version "1.12.2"
+ :targets {:bin {:out "bin/app"}}}
+EOF
+set +e
+out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" build --target linux/arm64 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "cross under installed: expected non-zero exit (output: $out)"
+pass "cross under installed: build exits non-zero"
+assert_contains "$out" "cross-compiling builds a target-platform lg" \
+    "cross under installed: error explains the need"
+assert_contains "$out" "add :lg-runtime :built" \
+    "cross under installed: error names the fix"
+[[ ! -e "$proj_rt/bin" ]] || fail "cross under installed: bin/ was created"
+pass "cross under installed: nothing was built"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 125: LGX_LG under :built is an error, before any build"
+# The harness exports LGX_LG, which is exactly the user-set override.
+cat > "$proj_rt/lgx.edn" <<'EOF'
+{:paths ["."] :main "main.lg" :lg-runtime :built :lg-version "1.12.2"}
+EOF
+set +e
+out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" run 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "LGX_LG under built: expected non-zero exit (output: $out)"
+pass "LGX_LG under built: run exits non-zero"
+assert_contains "$out" "LGX_LG is set to" "LGX_LG under built: error quotes the override"
+assert_contains "$out" "sets :lg-runtime :built" "LGX_LG under built: error names the mode"
+assert_not_contains "$out" "Building custom lg runtime" \
+    "LGX_LG under built: the check fires before any build"
+[[ ! -e "$home_rt/runtimes" ]] || fail "LGX_LG under built: runtimes cache was created"
+pass "LGX_LG under built: no runtime cache was created"
+# install on a deps-less project still reaches the runtime check.
+set +e
+out="$(cd "$proj_rt" && LGX_HOME="$home_rt" "$LGX" install 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "LGX_LG under built: install expected non-zero exit (output: $out)"
+pass "LGX_LG under built: install exits non-zero without deps"
+assert_contains "$out" "LGX_LG is set to" \
+    "LGX_LG under built: install reports the same error"
+rm -rf "$proj_rt" "$home_rt"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 126: lgx info reports the runtime decision without building"
+proj_in="$(mktemp -d)"
+home_in="$(mktemp -d)"
+echo '{:paths ["."] :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
+set +e
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "info: expected exit 0, got $rc (output: $out)"
+pass "info: exits 0 under the default mode"
+assert_contains "$out" "lg-runtime    installed (default)" "info: default mode is labelled"
+assert_contains "$out" "lg-version    1.12.2" "info: pin is shown"
+lg_line="$(printf '%s\n' "$out" | grep '^lg  ')"
+assert_contains "$lg_line" "($LGX_LG)" "info: lg line names the LGX_LG binary"
+assert_contains "$out" "version  " "info: version line is present"
+assert_contains "$out" "go-deps       (none)" "info: no Go deps"
+assert_not_contains "$out" $'\e[' "info: output is plain (no color)"
+
+echo '{:paths ["."] :lg-runtime :installed :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"
+assert_contains "$out" "lg-runtime    installed" "info: explicit mode is shown"
+assert_not_contains "$out" "(default)" "info: explicit mode is not labelled default"
+
+echo '{:paths ["."] :lg-runtime :built :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
+set +e
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "info built: expected exit 0, got $rc (output: $out)"
+pass "info built: exits 0 with an unbuilt runtime"
+assert_contains "$out" "lg-runtime    built" "info built: mode is shown"
+lg_line="$(printf '%s\n' "$out" | grep '^lg  ')"
+assert_contains "$lg_line" "not built yet" "info built: runtime is reported unbuilt"
+assert_contains "$lg_line" "/runtimes/" "info built: cache path is shown"
+assert_contains "$out" "LGX_LG  " "info built: user LGX_LG is reported"
+assert_contains "$out" "conflicts with :lg-runtime :built" \
+    "info built: LGX_LG conflict is named"
+assert_not_contains "$out" "Building custom lg runtime" "info built: nothing is built"
+[[ ! -e "$home_in/runtimes" ]] || fail "info built: runtimes cache was created"
+pass "info built: no runtime cache was created"
+
+echo '{:paths ["."] :lg-runtime :built :lg-version "main"}' > "$proj_in/lgx.edn"
+set +e
+out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "info branch: expected exit 0, got $rc (output: $out)"
+pass "info branch: exits 0 without resolving the ref"
+lg_line="$(printf '%s\n' "$out" | grep '^lg  ')"
+assert_contains "$lg_line" "unresolved" "info branch: runtime path is unresolved"
+assert_contains "$lg_line" "is a branch" "info branch: the reason is named"
+rm -rf "$proj_in" "$home_in"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

@@ -20,10 +20,11 @@ lgx <task>           # run a custom task from lgx.edn
 - [`lg`](https://github.com/nooga/let-go) >= `1.11.0` on `PATH` (or pointed to by
   `LGX_LG`). Install it with `brew install nooga/tap/let-go`.
 - `git` on `PATH`. (lgx uses it to clone, fetch, and check out deps)
-- The Go toolchain on `PATH`, **only if** your project declares Go deps
-  (`:go/*` coords - see [`:deps`](#deps)). Install it with
-  `mise use -g go@latest` or from <https://go.dev/dl>. Projects without Go
-  deps never invoke `go`.
+- The Go toolchain on `PATH`, **only if** `lgx.edn` sets
+  [`:lg-runtime :built`](#lg-runtime) (needed for Go deps and
+  cross-compilation). Install it with `mise use -g go@latest` or from
+  <https://go.dev/dl>. Projects in the default `:installed` mode never
+  invoke `go`.
 
 ## Installation
 
@@ -86,7 +87,8 @@ lgx run
 | Command | What it does |
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`, `lib`) or a git URL. |
-| `lgx install` | Fetch deps from `:deps` into the gitlibs cache. Idempotent. Useful for editor navigation. |
+| `lgx install` | Fetch deps from `:deps` into the gitlibs cache. Idempotent. Useful for editor navigation. Under `:lg-runtime :built`, also builds the runtime. |
+| `lgx info` | Show which `lg` the project runs and why: `:lg-runtime`, `:lg-version`, the resolved `lg`, the version check (or the Go toolchain), and every Go dep with the dep that introduced it. Fetches deps like `install`, never builds. |
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
@@ -213,18 +215,17 @@ still wins over the generated one, for a single target only.
 
 Rules that follow from the mechanics:
 
-- **Cross-builds need the Go toolchain and `:lg-version`** - the target
-  runtime is generated with Go even when the project has no Go deps. A
-  native build of a project without Go deps never invokes Go, and
-  neither does a cross-build where you supply `-bundle-base` yourself
-  (nothing is generated, so neither prerequisite applies).
+- **Cross-builds need `:lg-runtime :built`** - the target runtime is
+  generated with Go even when the project has no Go deps. Under
+  `:installed` a cross-build is an error, unless you supply `-bundle-base`
+  yourself (nothing is generated, so no Go is needed).
 - **Go deps must be pure Go.** Cross-builds run with `CGO_ENABLED=0`,
   because a cgo dependency cannot cross-compile without a target C
   toolchain. Pure-Go drivers (e.g. `modernc.org/sqlite`) work everywhere.
-- **A cross-build of a Go-deps project uses two runtimes**: a host one
-  that executes `lg -b` (bundling compiles the script, so the Go
-  namespaces must resolve on the host), and the target one shipped as
-  the binary's base. Setting `LGX_LG` contradicts this and fails.
+- **A cross-build under `:built` uses two runtimes**: a host one that
+  executes `lg -b` (bundling compiles the script, so the Go namespaces
+  must resolve on the host), and the target one shipped as the binary's
+  base. `LGX_LG` is rejected under `:built`.
 - `windows/*` targets fail until let-go itself builds for Windows (see
   `docs/issues/windows-build-unix-only-term.md`).
 
@@ -270,10 +271,16 @@ key's rules in detail.
  ; Default entrypoint: `lgx run` runs it, `lgx build` bundles it. Does not have to be in the `:paths`
  :main "main.lg"
 
- ; The let-go version this project targets. When set, run/build/test check it
- ; against the lg on PATH and warn. lgx does not install lg itself.
- ; If `LGX_FETCH_LET_GO_SOURCE=1` env var set, `lgx install` fetches 
- ; the matching let-go source for editor navigation.
+ ; Which lg runs this project. :installed (the default) is the lg on PATH;
+ ; :built is one lgx builds from :lg-version with the Go toolchain - needed
+ ; for Go deps and cross-compilation.
+ :lg-runtime :installed
+
+ ; The let-go version this project targets. Under :installed, run/build/test
+ ; check it against the lg on PATH (a released version only). Under :built it
+ ; is the ref let-go is built at: a version, a sha, or a branch. lgx does not
+ ; install lg itself. If `LGX_FETCH_LET_GO_SOURCE=1` env var set, `lgx install`
+ ; fetches the matching let-go source for editor navigation.
  :lg-version "1.11.0"
 
  ; Git or local deps. A dep's own :deps are resolved too (first-wins).
@@ -345,15 +352,41 @@ key's rules in detail.
   roots come only from your project, never from dependencies.
 - Missing `:paths`/`:resource-paths` entries print a warning.
 
+### `:lg-runtime`
+
+Which `lg` runs every command. Two modes, chosen in `lgx.edn`; lgx validates
+the choice against what the project needs and never switches on its own.
+
+| `:lg-runtime` | Go toolchain | `lg` that runs every command | `:lg-version` accepted |
+|---|---|---|---|
+| `:installed` (default when absent) | never invoked | `PATH` or `LGX_LG`, checked against `lg -v` | released version only, or absent |
+| `:built` | always | `$LGX_HOME/runtimes/<hash>/lg`, built from the pin; host and cross targets alike | required: version, full sha, or branch |
+
+Three checks follow. A Go dep anywhere in the tree under `:installed` is an
+error naming the dep that introduced it and the fix (`add :lg-runtime :built`).
+`:built` without `:lg-version` is a config error, as is a sha or branch pin
+under `:installed`, which no released `lg` can match. `LGX_LG` under `:built`
+is an error, because the built runtime is the only `lg` that resolves the
+project's Go namespaces. A cross-build with your own `-bundle-base` needs
+neither mode: nothing is generated. `lgx info` prints the resulting decision.
+
 ### `:lg-version`
 
-lgx never installs or manages `lg` (use mise/brew for that), but when
-`:lg-version` is set it checks the `lg` on `PATH`: a mismatch **warns** on
-`run`/`nrepl` and **fails** on `build`/`test`, where a wrong-runtime artifact or
-test verdict matters. A dev or unparseable installed version is skipped, and
-`LGX_SKIP_VERSION_CHECK` bypasses the check. With `LGX_FETCH_LET_GO_SOURCE` set,
-`lgx install` also fetches the matching let-go _source_ (not the binary) into
-`$LGX_HOME/let-go/source/<version>/` for editor navigation.
+lgx never installs or manages `lg` (use mise/brew for that). What the pin
+means depends on [`:lg-runtime`](#lg-runtime):
+
+- Under `:installed` it is an assertion about the `lg` on `PATH`, so only a
+  released version is accepted. A mismatch **warns** on `run`/`nrepl` and
+  **fails** on `build`/`test`, where a wrong-runtime artifact or test verdict
+  matters. A dev or unparseable installed version is skipped, and
+  `LGX_SKIP_VERSION_CHECK` bypasses the check.
+- Under `:built` it is the ref lgx builds let-go at: any ref Go accepts - a
+  version, a full sha, or a branch (a branch is resolved to its commit on
+  every command, so the cache stays honest).
+
+With `LGX_FETCH_LET_GO_SOURCE` set, `lgx install` also fetches the matching
+let-go _source_ (not the binary) into `$LGX_HOME/let-go/source/<version>/`
+for editor navigation (released versions only).
 
 ### `:deps`
 
@@ -368,13 +401,15 @@ package's `:deps` (Go deps included) reach the consumer.
 #### Go deps (`:go/*`)
 
 A `:go/*` coord names a Go package rather than a let-go source tree. The dep
-symbol **is** the Go package path. Declaring one makes lgx build a custom `lg`
-that links that package, cached under `$LGX_HOME/runtimes/`; `run`, `repl`,
+symbol **is** the Go package path. Go deps need `:lg-runtime :built`: lgx
+refuses to run otherwise and names the dep. Under `:built` the runtime links
+every declared package, cached under `$LGX_HOME/runtimes/`; `run`, `repl`,
 `test`, and `build` then use it with no further configuration, single-binary
 output included.
 
 ```clojure
-{:lg-version "1.11.1"
+{:lg-runtime :built
+ :lg-version "1.11.1"
  :deps {database/sql        {:go/interop "sql"}       ; stdlib, bindings only
         modernc.org/sqlite  {:go/version "v1.57.0"}   ; linked, no bindings
         github.com/you/shim {:go/local "shim"}}}      ; a module on disk
@@ -399,9 +434,9 @@ The rules:
 | `:go/version` | anything Go accepts - a tag, a sha, a branch |
 | `:go/local` | relative to the file that declares it; a `replace` directive, for development |
 
-`:lg-version` is required: it pins the let-go the custom runtime is built
-from. Version conflicts across the tree are left to Go's own MVS - lgx writes
-what it resolved and `go mod tidy` settles the rest.
+`:lg-version` pins the let-go the runtime is built from. Version conflicts
+across the tree are left to Go's own MVS - lgx writes what it resolved and
+`go mod tidy` settles the rest.
 
 A dep's own Go coords flow up to you invisibly, so depending on a wrapper
 library is a single line. The first build takes a minute; every build after
@@ -543,13 +578,13 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. Setting it in a project with Go deps overrides the custom runtime, and lgx warns that the Go namespaces will not resolve. |
+| `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. Rejected with an error when `:lg-runtime` is `:built`; use `LGX_LETGO_REPLACE` there. |
 | `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev (`lgx run`) vs. bundled-binary mode - e.g. to enable dev-only behavior. Not needed for argument parsing; read `*command-line-args*` for that (see [`lgx run` details](#lgx-run-details)). |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test-runner harness dir. |
 | `LGX_SKIP_VERSION_CHECK` | _(unset)_ | Set to any non-empty value to bypass the `:lg-version` compatibility check on `run`/`nrepl`/`build`/`test`. |
 | `LGX_FETCH_LET_GO_SOURCE` | _(unset)_ | Set to any non-empty value to make `lgx install` fetch the let-go source matching `:lg-version` into `$LGX_HOME/let-go/source/<version>/`. The source feeds editor diagnostics - an LSP server navigating into let-go's `core`/stdlib. Off by default, since most users don't run such tooling and wouldn't expect the extra clone. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |
-| `LGX_LETGO_REPLACE` | _(unset)_ | Path to a let-go checkout to build the custom runtime against, instead of the released `:lg-version`. For testing an unreleased let-go; the runtime is rebuilt on every command, since the checkout's contents are not part of the cache key. |
+| `LGX_LETGO_REPLACE` | _(unset)_ | Path to a let-go checkout to build the `:built` runtime against, instead of `:lg-version`. For testing an unreleased let-go; the runtime is rebuilt on every command, since the checkout's contents are not part of the cache key. |
 | `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo of the built-in `base` template. |
 | `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the revision of the built-in `base` template. |
 
@@ -578,6 +613,8 @@ clone.
 
 - [`examples/hello/`](./examples/hello) - no-deps script.
 - [`examples/server/`](./examples/server) - simple HTTP server with a ruuter lib.
+- [`examples/web-app/`](./examples/web-app) - JSON API over sqlite with
+  HoneySQL, integrant and ruuter, under `:lg-runtime :built`.
 - [`examples/local-dep/`](./examples/local-dep) - project plus sibling
   library using `:local/root`.
 - [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real

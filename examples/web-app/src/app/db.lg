@@ -1,0 +1,49 @@
+(ns app.db
+  (:require [honey.sql :as sql]
+            [integrant.core :as ig]
+            [sqlite.core :as sqlite]))
+
+;; The database component: a sqlite connection with the schema applied.
+;; Every query below is HoneySQL data formatted into the [sql & params]
+;; vector sqlite.core runs directly.
+
+(def ^:private todo-columns [:id :title :done])
+
+(defmethod ig/init-key ::conn [_ {:keys [path]}]
+  (let [conn (sqlite/open path)]
+    (sqlite/execute! conn ["create table if not exists todos (
+                              id    integer primary key,
+                              title text    not null,
+                              done  integer not null default 0)"])
+    conn))
+
+(defmethod ig/halt-key! ::conn [_ conn]
+  (sqlite/close! conn))
+
+(defn list-todos [conn]
+  (sqlite/query conn (sql/format {:select todo-columns
+                                  :from [:todos]
+                                  :order-by [:id]})))
+
+(defn get-todo [conn id]
+  (sqlite/execute-one! conn (sql/format {:select todo-columns
+                                         :from [:todos]
+                                         :where [:= :id id]})))
+
+(defn add-todo! [conn title]
+  ;; sqlite supports RETURNING, and sql.core notices the clause and reads
+  ;; the row back instead of an update count.
+  (sqlite/execute-one! conn (sql/format {:insert-into :todos
+                                         :values [{:title title}]
+                                         :returning todo-columns})))
+
+(defn complete-todo! [conn id]
+  (sqlite/execute-one! conn (sql/format {:update :todos
+                                         :set {:done 1}
+                                         :where [:= :id id]
+                                         :returning todo-columns})))
+
+(defn delete-todo! [conn id]
+  (let [r (sqlite/execute-one! conn (sql/format {:delete-from :todos
+                                                 :where [:= :id id]}))]
+    (pos? (:sql/update-count r))))

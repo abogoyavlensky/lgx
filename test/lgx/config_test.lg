@@ -103,6 +103,61 @@
   (is (= "1.10.0" (config/lg-version {:lg-version "1.10.0"})))
   (is (nil? (config/lg-version {}))))
 
+;; ---------------------------------------------------------------------------
+;; load-config: :lg-runtime and its cross-key rules with :lg-version
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-lg-runtime-installed
+  (is (= {:cfg {:lg-runtime :installed}} (load-cfg {:lg-runtime :installed}))))
+
+(deftest load-accepts-lg-runtime-built
+  (is (= {:cfg {:lg-runtime :built :lg-version "1.12.2"}}
+         (load-cfg {:lg-runtime :built :lg-version "1.12.2"}))))
+
+(deftest load-rejects-unknown-lg-runtime
+  (is (= {:errors [{:path [:lg-runtime]
+                    :msg "must be one of: :installed, :built, got :foo"}]}
+         (load-cfg {:lg-runtime :foo}))))
+
+(deftest load-rejects-built-without-lg-version
+  (is (= {:errors [{:path [:lg-runtime]
+                    :msg (str ":built needs :lg-version - the built lg links "
+                              "let-go itself, so the version has to be pinned")}]}
+         (load-cfg {:lg-runtime :built}))))
+
+(deftest load-rejects-non-semver-pin-when-installed
+  ;; The default mode checks the pin against `lg -v`, which a branch or sha
+  ;; can never satisfy - so the error names the mode that can build it.
+  (is (= {:errors [{:path [:lg-version]
+                    :msg (str "\"main\" is not a released version, and the "
+                              "installed lg is checked with `lg -v`; pin a "
+                              "semver, or set :lg-runtime :built to build "
+                              "let-go at this ref")}]}
+         (load-cfg {:lg-version "main"})))
+  (is (= {:errors [{:path [:lg-version]
+                    :msg (str "\"f26eb497299760e93ce430302f13ab3a954eab64\" "
+                              "is not a released version, and the installed "
+                              "lg is checked with `lg -v`; pin a semver, or "
+                              "set :lg-runtime :built to build let-go at "
+                              "this ref")}]}
+         (load-cfg {:lg-runtime :installed
+                    :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"}))))
+
+(deftest load-accepts-non-semver-pin-when-built
+  (is (= {:cfg {:lg-runtime :built :lg-version "main"}}
+         (load-cfg {:lg-runtime :built :lg-version "main"}))))
+
+(deftest lg-runtime-accessor
+  (is (= :installed (config/lg-runtime {})))
+  (is (= :built (config/lg-runtime {:lg-runtime :built}))))
+
+(deftest semver-version-recognizes-a-released-pin
+  (is (config/semver-version? "1.11.1"))
+  (is (config/semver-version? "1.11.1-rc1"))
+  (is (not (config/semver-version? "main")))
+  (is (not (config/semver-version?
+             "f26eb497299760e93ce430302f13ab3a954eab64"))))
+
 (deftest load-accepts-targets-bin
   (let [cfg {:targets {:bin {:out "bin/app"}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
@@ -118,7 +173,8 @@
 (deftest load-rejects-unknown-top-level-key
   (is (= {:errors [{:path []
                     :msg (str "unknown key :extra (allowed: :deps, :paths, "
-                              ":resource-paths, :main, :lg-version, :targets, "
+                              ":resource-paths, :main, :lg-version, :lg-runtime, "
+                              ":targets, "
                               ":contexts, :tasks)")}]}
          (load-cfg {:deps {} :extra 1}))))
 
@@ -517,7 +573,8 @@
   ;; Explicit spot-checks: "test" and "nrepl" must stay reserved so projects
   ;; can't shadow them (dispatch would always win, leaving the task unreachable).
   (is (contains? config/reserved-task-names "test"))
-  (is (contains? config/reserved-task-names "nrepl")))
+  (is (contains? config/reserved-task-names "nrepl"))
+  (is (contains? config/reserved-task-names "info")))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :do and step errors
