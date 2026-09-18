@@ -472,6 +472,52 @@
     (is (= [] (:go-pairs r)))))
 
 ;; ---------------------------------------------------------------------------
+;; Mode errors — what :installed and :built refuse, byte for byte
+;; ---------------------------------------------------------------------------
+
+(deftest installed-go-deps-error-names-origins
+  ;; Coords sort by lib; a coord the project declares itself has no origin.
+  (is (= (str "error: this project needs an lg built with the Go toolchain, "
+              "but :lg-runtime is :installed (the default)\n"
+              "  Go deps: database/sql (via abogoyavlensky/letgo-sql), "
+              "modernc.org/sqlite\n"
+              "  add :lg-runtime :built to lgx.edn (needs `go` on PATH), "
+              "or drop the dep.\n")
+         (gobuild/installed-go-deps-error
+           [['modernc.org/sqlite {:go/version "v1.57.0"}]
+            ['database/sql {:go/interop "sql"}]]
+           {'database/sql 'abogoyavlensky/letgo-sql
+            'modernc.org/sqlite nil}
+           false))))
+
+(deftest installed-go-deps-error-explicit-wording
+  (let [msg (gobuild/installed-go-deps-error
+              [['database/sql {:go/interop "sql"}]] {} true)]
+    (is (str/starts-with?
+          msg
+          (str "error: this project needs an lg built with the Go toolchain, "
+               "but lgx.edn sets :lg-runtime :installed\n")))))
+
+(deftest installed-cross-error-default-and-explicit
+  (is (= (str "error: cross-compiling builds a target-platform lg with the "
+              "Go toolchain, but :lg-runtime is :installed (the default)\n"
+              "  add :lg-runtime :built to lgx.edn (needs `go` on PATH), "
+              "or pass -bundle-base <lg> yourself.\n")
+         (gobuild/installed-cross-error false)))
+  (is (= (str "error: cross-compiling builds a target-platform lg with the "
+              "Go toolchain, but lgx.edn sets :lg-runtime :installed\n"
+              "  add :lg-runtime :built to lgx.edn (needs `go` on PATH), "
+              "or pass -bundle-base <lg> yourself.\n")
+         (gobuild/installed-cross-error true))))
+
+(deftest built-lg-override-error-quotes-the-path
+  (is (= (str "error: LGX_LG is set to /x/lg, but lgx.edn sets :lg-runtime "
+              ":built - the built runtime is the lg for this project.\n"
+              "  unset LGX_LG (use LGX_LETGO_REPLACE to build against a "
+              "let-go checkout).\n")
+         (gobuild/built-lg-override-error "/x/lg"))))
+
+;; ---------------------------------------------------------------------------
 ;; Wiring decisions
 ;; ---------------------------------------------------------------------------
 

@@ -207,7 +207,7 @@ suite with `make test`.
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `config_test.lg` add:
   - `load-accepts-lg-runtime-installed` and `load-accepts-lg-runtime-built`
     (the latter with `:lg-version "1.12.2"`): `load-cfg` round-trips the map.
@@ -227,11 +227,11 @@ suite with `make test`.
   - Update `load-rejects-unknown-top-level-key`: the allowed-keys list gains
     `:lg-runtime` after `:lg-version`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
   Run: `make build && bin/lgx test test/lgx/config_test.lg`
   Expected: FAIL on the new tests (unknown key `:lg-runtime`, missing `config/lg-runtime`).
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `config.lg`:
   - Move `semver-version?` from `gobuild.lg` verbatim (public, same
     docstring) next to the other pure helpers.
@@ -247,11 +247,11 @@ suite with `make test`.
   `config/semver-version?`. In `lgx.lg`, `install-letgo-source!` uses
   `config/semver-version?`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
   Run: `make build && bin/lgx test`
   Expected: PASS, including the untouched gobuild tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "feat(config): :lg-runtime key with cross-key validation"`
 
 ### Task 2: Error formatters and probes in gobuild
