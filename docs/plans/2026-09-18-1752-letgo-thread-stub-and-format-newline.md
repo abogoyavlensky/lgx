@@ -1,6 +1,13 @@
 # let-go PR: `Thread/currentThread` stub and `format` `%n`
 
-> **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Superseded, do not execute.** Implemented in a separate session as
+> `feat/thread-interrupt-and-format-newline` on `abogoyavlensky/let-go`
+> (pushed tip `82482bf`, based on upstream `3bbde90`) with a better design
+> than the one below: `Thread/currentThread` returns the calling *scope*
+> dressed as a thread, so `.isInterrupted` reads scope cancellation and
+> `.interrupt` cancels the scope, instead of a constant `false`. The
+> verification record at the end of this document is what this plan is now
+> for.
 
 **Goal:** A second small PR to `nooga/let-go` closing the two gaps `weavejester/ragtime`'s core module exposed: a `Thread/currentThread` static whose result answers `.isInterrupted` with `false`, and a `format` that understands Java's `%n`.
 
