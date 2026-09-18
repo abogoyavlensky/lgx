@@ -568,7 +568,7 @@
 (deftest load-rejects-reserved-task-names
   (doseq [n config/reserved-task-names]
     (is (= {:errors [{:path [:tasks (symbol n)]
-                      :msg (str "conflicts with built-in command \"" n "\"")}]}
+                      :msg (str "conflicts with built-in command \"" n "\"; rename the task")}]}
            (load-cfg {:tasks {(symbol n) {:do [{:sh "echo hi"}]}}}))))
   ;; Explicit spot-checks: "test" and "nrepl" must stay reserved so projects
   ;; can't shadow them (dispatch would always win, leaving the task unreachable).

@@ -477,10 +477,13 @@ stops the chain; output is buffered and replayed after each step. A single-step
 
 Run a task with `lgx <name>`; `lgx help` lists the project's tasks. Names are
 symbols (context names stay keywords) and can't shadow built-ins (`install`,
-`run`, `nrepl`, `build`, `test`, `new`, `help`, `version`, plus reserved `add`,
-`update`, `tasks`). A task accepts only `:doc`, `:args`, `:do`, `:with`,
-`:extra-paths`, `:extra-resource-paths`, and `:extra-deps`; any other key is
-rejected (so a typo like `:extra-dep` fails loudly).
+`run`, `repl`, `nrepl`, `build`, `test`, `clean`, `new`, `help`, `version`,
+`completion`, plus reserved `add`, `update`, `tasks`). Upgrading lgx can
+reserve a name a project already uses as a task (`clean` since 0.2.0); the
+config error names the task, and renaming it is the fix. A task accepts only
+`:doc`, `:args`, `:do`, `:with`, `:extra-paths`, `:extra-resource-paths`, and
+`:extra-deps`; any other key is rejected (so a typo like `:extra-dep` fails
+loudly).
 
 #### Positional args (`:args`)
 
