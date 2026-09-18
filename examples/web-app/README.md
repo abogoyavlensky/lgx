@@ -1,6 +1,7 @@
 # web-app example
 
-A small JSON API over sqlite: [HoneySQL](https://github.com/seancorfield/honeysql)
+A small todo app: a JSON API over sqlite with a one-page
+[Alpine.js](https://alpinejs.dev) UI on top. [HoneySQL](https://github.com/seancorfield/honeysql)
 builds the queries, [integrant](https://github.com/weavejester/integrant)
 wires the database connection and the http server, and
 [ruuter](https://git.nmm.ee/asko/ruuter) routes requests. The sqlite driver
@@ -15,6 +16,8 @@ lgx run                       # http://localhost:8080, todos.db in the cwd
 PORT=9000 DB_PATH=/tmp/t.db lgx run
 ```
 
+Open http://localhost:8080 for the UI, or drive the API directly:
+
 ```
 curl -d '{"title":"write docs"}' localhost:8080/todos
 curl localhost:8080/todos
@@ -25,14 +28,15 @@ curl -X DELETE localhost:8080/todos/1
 
 `lgx test` runs the handler against a throwaway database with no server.
 `lgx build` produces `bin/web-app`, a single binary with the driver
-linked in. `lgx info` shows the runtime decision and every Go dep the
+linked in and `resources/` embedded, so the UI ships inside it. `lgx info` shows the runtime decision and every Go dep the
 sqlite package pulls in.
 
 ## Layout
 
 ```
 src/app/db.lg       ::conn component (open + schema), HoneySQL queries
-src/app/routes.lg   the handler: a plain fn over a connection
+src/app/routes.lg   the handler: the JSON API plus / and /static/:file
+resources/public/   index.html (Alpine over the API) and alpine.min.js
 src/app/server.lg   ::http component: http/serve in a future
 src/app/system.lg   the integrant config, start!/stop!
 main.lg             starts the system and blocks on the server
@@ -53,3 +57,5 @@ Two things are shaped by let-go as it stands today, not by preference:
 
 `http/serve` has no shutdown API, so `halt-key!` for the server is a
 no-op; the process exit ends it.
+
+All above is resolved at [https://github.com/nooga/let-go/pull/898](https://github.com/nooga/let-go/pull/898)

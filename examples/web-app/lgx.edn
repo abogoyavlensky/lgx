@@ -1,4 +1,6 @@
 {:paths ["src"]
+ ;; resources/public holds the UI; lgx build embeds it into the binary.
+ :resource-paths ["resources"]
  :main "main.lg"
 
  ;; The sqlite driver is a Go package, so this project runs on an lg that
