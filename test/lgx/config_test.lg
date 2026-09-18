@@ -573,7 +573,8 @@
   ;; Explicit spot-checks: "test" and "nrepl" must stay reserved so projects
   ;; can't shadow them (dispatch would always win, leaving the task unreachable).
   (is (contains? config/reserved-task-names "test"))
-  (is (contains? config/reserved-task-names "nrepl")))
+  (is (contains? config/reserved-task-names "nrepl"))
+  (is (contains? config/reserved-task-names "info")))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :do and step errors
