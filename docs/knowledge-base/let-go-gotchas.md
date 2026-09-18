@@ -99,6 +99,20 @@ the definitions. The old idiom
 
 is exactly what the new command exists to replace — strip it.
 
+## `ns` loads `:as`-aliased requires before the rest
+
+The `ns` macro emits its `:require` entries in written order, but the
+compiler loads every `:as`-aliased namespace first (in written order),
+then the unaliased ones. `(ns m (:require [a.one] [a.two] [a.three :as t]))`
+loads `three, one, two`. Clojure loads them as written.
+
+It matters when one library's compile depends on a namespace another
+require provides - `examples/web-app/src/Thread.lg` exists so
+`ragtime.core`'s `Thread/currentThread` resolves, and it must load first.
+`require` the prerequisite explicitly after the `ns` form, then the
+dependent library; ordering inside `:require` is fragile here, and
+`cljfmt` (`:sort-ns-references?`) re-sorts it anyway.
+
 ---
 
 > **Verify against (in [nooga/let-go](https://github.com/nooga/let-go)):**
@@ -111,4 +125,4 @@ is exactly what the new command exists to replace — strip it.
 > [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/main/pkg/resolver/resolver.go)
 > (`Load` triggering self re-load),
 > [`pkg/rt/core/core.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/core.lg)
-> (`binding` macro).
+> (`binding` macro, `ns` macro's require expansion).

@@ -36,4 +36,12 @@
         ;; Routing.
         askonomm/ruuter
         {:git/url "https://git.nmm.ee/asko/ruuter"
-         :git/tag "v2.1.1"}}}
+         :git/tag "v2.1.1"}
+
+        ;; Migrations: ragtime's database-independent core only (protocols,
+        ;; strategies, migrate/rollback). The JDBC modules stay out; the
+        ;; DataStore is implemented over sqlite.core in app.migrations.
+        dev.weavejester/ragtime
+        {:git/url "https://github.com/weavejester/ragtime"
+         :git/tag "0.12.1"
+         :deps/root "core/src"}}}

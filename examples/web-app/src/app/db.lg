@@ -1,20 +1,18 @@
 (ns app.db
-  (:require [honey.sql :as sql]
+  (:require [app.migrations :as migrations]
+            [honey.sql :as sql]
             [integrant.core :as ig]
             [sqlite.core :as sqlite]))
 
-;; The database component: a sqlite connection with the schema applied.
-;; Every query below is HoneySQL data formatted into the [sql & params]
-;; vector sqlite.core runs directly.
+;; The database component: a sqlite connection with the schema migrated up
+;; to date (app.migrations, via ragtime). Every query below is HoneySQL data
+;; formatted into the [sql & params] vector sqlite.core runs directly.
 
 (def ^:private todo-columns [:id :title :done])
 
 (defmethod ig/init-key ::conn [_ {:keys [path]}]
   (let [conn (sqlite/open path)]
-    (sqlite/execute! conn ["create table if not exists todos (
-                              id    integer primary key,
-                              title text    not null,
-                              done  integer not null default 0)"])
+    (migrations/migrate! conn)
     conn))
 
 (defmethod ig/halt-key! ::conn [_ conn]
