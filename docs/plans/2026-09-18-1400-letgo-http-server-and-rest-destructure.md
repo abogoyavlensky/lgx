@@ -455,7 +455,7 @@ Use /writing-clearly.
 **Status: completed** (PR creation pending the user: see Task 5 deviation).
 
 Branch `fix/http-server-and-rest-destructure` on `abogoyavlensky/let-go`,
-six commits on upstream `main` `3bbde90`:
+seven commits on upstream `main` `3bbde90`:
 
 | Commit | Change |
 |---|---|
@@ -465,6 +465,7 @@ six commits on upstream `main` `3bbde90`:
 | `df202f3` | `feat(http)`: `lgServer`, `http/start`/`stop`/`wait`, `serve` = start + wait, `http/Server` record, scope cancellation; 8 Go tests + `test/http_server_test.lg` |
 | `24d846a` | `docs(guide)`: `docs/guide/http.md`, indexed in `docs/README.md` |
 | `e86d8c1` | `fix(http)`: `stop` waits for the Serve goroutine to exit (port release when stop lands before Serve runs); a failed Serve closes accepted connections (codex round 1); 2 tests |
+| `dfda850` | `chore`: refreshed `generated.manifest`/`generated.sums` - the generator input digest covers `pkg/rt/*.go`, so the `http.go` changes moved it and CI's `TestGeneratedArtifactsAreFresh` would have failed |
 
 Gates: `make generate`, `make check-generated`, `make test` (unit + e2e)
 green; `go test ./pkg/rt/ -race -count=3` green. End to end (Task 5): the
@@ -483,9 +484,11 @@ panics); two extra Go tests beyond the plan's list; the guide indexed in
 (regenerates the lowered tree) must run as background jobs because a tool
 call is capped at 10 min; PR opened via compare link, not `gh`.
 
-**What the plan could have specified better:** that `make generate` and
-`make check-generated` each take 10-15 minutes here and cannot share a
-tool call with anything else; that Go's `Shutdown` before `Serve` has run
+**What the plan could have specified better:** that the generated
+manifests hash `pkg/rt/*.go` as generator inputs, so *any* Go change under
+`pkg/rt` needs `make generate` before the branch is CI-clean, not only
+`.lg` edits; that `make generate` and `make check-generated` each take
+10-15 minutes here and cannot share a tool call with anything else; that Go's `Shutdown` before `Serve` has run
 leaves the listener bound until the Serve goroutine exits (the plan's
 `done` contract covered drain but not this); and that `gh` may lack PR
 rights on the upstream repo, so the fallback is a compare link.
