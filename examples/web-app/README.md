@@ -57,3 +57,5 @@ Two things are shaped by let-go as it stands today, not by preference:
 
 `http/serve` has no shutdown API, so `halt-key!` for the server is a
 no-op; the process exit ends it.
+
+All above is resolved at [https://github.com/nooga/let-go/pull/898](https://github.com/nooga/let-go/pull/898)
