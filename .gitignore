@@ -9,3 +9,4 @@ lgx-bundle
 .nrepl-port
 .clj-kondo/*
 !.clj-kondo/config.edn
+.vscode/
