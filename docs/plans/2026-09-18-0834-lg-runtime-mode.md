@@ -372,33 +372,38 @@ suite with `make test`.
 None of these invoke Go. Each scenario uses a fresh `mktemp -d` project and
 `LGX_HOME`, and `main.lg` is `(println :ran)` where a run is attempted.
 
-- [ ] **Step 1: Scenario 120, a top-level Go coord under the default mode**
+> Deviation: scenario 121 needs `make_declaring_repo`, which is defined inside
+> the `supports_source_paths` block, so it sits there right after 119; the
+> Go-free scenarios 120 and 122-125 follow the block's closing `fi` so they
+> run on every lg.
+
+- [x] **Step 1: Scenario 120, a top-level Go coord under the default mode**
   `lgx.edn`: `{:paths ["."] :main "main.lg" :lg-version "1.12.2" :deps {modernc.org/sqlite {:go/version "v1.57.0"}}}`.
   `lgx run` exits non-zero; output contains
   `needs an lg built with the Go toolchain, but :lg-runtime is :installed (the default)`,
   `Go deps: modernc.org/sqlite` with no `(via`, and `add :lg-runtime :built to lgx.edn`.
   `lgx install` exits non-zero with the same first line.
 
-- [ ] **Step 2: Scenario 121, a Go coord introduced by a dep**
+- [x] **Step 2: Scenario 121, a Go coord introduced by a dep**
   Seed a dep with `make_declaring_repo "$fix/lib-a.git" liba 'lgx.edn={:paths ["src"] :deps {modernc.org/sqlite {:go/version "v1.57.0"}}}'`.
   Project depends on it by sha, `:lg-version "1.12.2"`. `lgx run` exits
   non-zero; output contains `modernc.org/sqlite (via test/lib-a)`.
 
-- [ ] **Step 3: Scenario 122, `:built` without a pin is a config error**
+- [x] **Step 3: Scenario 122, `:built` without a pin is a config error**
   `lgx.edn`: `{:lg-runtime :built}`. `lgx run` exits non-zero; output contains
   `invalid lgx.edn` and `:built needs :lg-version`.
 
-- [ ] **Step 4: Scenario 123, a sha pin under the default mode is a config error**
+- [x] **Step 4: Scenario 123, a sha pin under the default mode is a config error**
   `lgx.edn`: `{:lg-version "f26eb497299760e93ce430302f13ab3a954eab64"}`.
   Output contains `is not a released version` and `set :lg-runtime :built`.
 
-- [ ] **Step 5: Scenario 124, cross-build under `:installed`**
+- [x] **Step 5: Scenario 124, cross-build under `:installed`**
   `lgx.edn`: `{:paths ["."] :main "main.lg" :lg-version "1.12.2" :targets {:bin {:out "bin/app"}}}`.
   `lgx build --target linux/arm64` exits non-zero; output contains
   `cross-compiling builds a target-platform lg` and `add :lg-runtime :built`.
   Assert `bin/` was not created.
 
-- [ ] **Step 6: Scenario 125, `LGX_LG` under `:built` is an error**
+- [x] **Step 6: Scenario 125, `LGX_LG` under `:built` is an error**
   `lgx.edn`: `{:paths ["."] :main "main.lg" :lg-runtime :built :lg-version "1.12.2"}`.
   The harness exports `LGX_LG`, so `lgx run` exits non-zero with
   `LGX_LG is set to` and `sets :lg-runtime :built`. Assert the output does
@@ -407,12 +412,12 @@ None of these invoke Go. Each scenario uses a fresh `mktemp -d` project and
   same project (it has no deps) exits non-zero with the same error: this
   proves `cmd-install` reaches `apply-runtime!` without any coords.
 
-- [ ] **Step 7: Run the e2e suite**
+- [x] **Step 7: Run the e2e suite**
   Run: `make test`
   Expected: all scenarios pass, the count printed at the end grows by the
   new assertions.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
   `git commit -am "test(e2e): :lg-runtime validation scenarios"`
 
 ### Task 5: `lgx info`
