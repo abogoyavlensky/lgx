@@ -375,34 +375,37 @@
   []
   (some? (go-path)))
 
+(defn go-version-token
+  "Pure. The toolchain token out of `go version` output
+   (`go version go1.26.7 linux/amd64` -> \"go1.26.7\"), or nil when the line
+   has another shape."
+  [out]
+  (let [toks (str/split (str/trim (str out)) #"\s+")]
+    (when (and (= (first toks) "go") (= (second toks) "version"))
+      (nth toks 2 nil))))
+
 (defn go-version
   "The toolchain token from `go version` (e.g. \"go1.26.7\"), or nil when go
    is absent or the output is unparseable."
   []
   (let [r (try (os/sh "go" "version") (catch e nil))]
     (when (and r (zero? (:exit r)))
-      (let [toks (str/split (str/trim (:out r)) #"\s+")]
-        (when (= (first toks) "go") (second toks))))))
+      (go-version-token (:out r)))))
 
 (defn- die! [msg]
   (write! *err* (str "error: " msg "\n"))
   (os/exit 1))
 
 (defn preflight!
-  "Check what building a custom runtime needs before any work starts: the Go
-   toolchain, and a let-go to build against. Exits 1 with a message naming the
-   fix. A no-op when there are no go coords."
-  [go-pairs lg-version]
-  (when (seq go-pairs)
-    (when-not (go-available?)
-      (die! (str "lgx.edn declares Go deps, which need the Go toolchain, but "
-                 "`go` is not on PATH.\n"
-                 "  install it with `mise use -g go@latest`, "
-                 "or from https://go.dev/dl")))
-    (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
-      (die! (str "lgx.edn declares Go deps but no :lg-version.\n"
-                 "  the custom runtime links let-go itself, so the version has "
-                 "to be pinned: add :lg-version \"<version>\" to lgx.edn")))))
+  "Check what building a runtime needs before any work starts: the Go
+   toolchain. Exits 1 with a message naming the fix. (The let-go pin is
+   guaranteed by config load: :built without :lg-version never loads.)"
+  []
+  (when-not (go-available?)
+    (die! (str "lgx.edn sets :lg-runtime :built, which needs the Go "
+               "toolchain, but `go` is not on PATH.\n"
+               "  install it with `mise use -g go@latest`, "
+               "or from https://go.dev/dl"))))
 
 (defn target-env-args
   "Pure. The env(1) prefix a cross-build's `go build` runs under. GOOS/GOARCH
@@ -678,21 +681,6 @@
           rendered
           (recur (next ts) (conj seen rendered)))))))
 
-(defn cross-preflight!
-  "What any cross-build needs before work starts, Go deps or not: the Go
-   toolchain (the target-platform lg is generated even for a stock runtime)
-   and a let-go to build it from. Exits 1 with a message naming the fix."
-  [lg-version]
-  (when-not (go-available?)
-    (die! (str "cross-compiling builds a target-platform lg, which needs the "
-               "Go toolchain, but `go` is not on PATH.\n"
-               "  install it with `mise use -g go@latest`, "
-               "or from https://go.dev/dl")))
-  (when (and (str/blank? (or lg-version "")) (nil? (letgo-replace-path)))
-    (die! (str "cross-compiling builds a target-platform lg, so the let-go "
-               "version has to be pinned: add :lg-version \"<version>\" "
-               "to lgx.edn"))))
-
 (defn- mode-phrase
   "How the :installed mode reads in an error: named as the default when
    lgx.edn is silent, quoted back when the user wrote it."
@@ -736,18 +724,6 @@
        "- the built runtime is the lg for this project.\n"
        "  unset LGX_LG (use LGX_LETGO_REPLACE to build against a let-go "
        "checkout).\n"))
-
-(defn runtime-action
-  "Pure. What to do with a freshly ensured runtime, given whether the user set
-   LGX_LG themselves. lgx normally points LGX_LG at the runtime so runner.lg
-   picks it up unchanged; an explicit LGX_LG is the user overriding on purpose,
-   so it wins and lgx only says why the custom runtime is not in play."
-  [user-lg-set? runtime-path]
-  (if user-lg-set?
-    {:warn (str "warning: lgx.edn declares Go deps, but LGX_LG is set - using "
-                "that lg instead of a custom runtime, so the Go namespaces "
-                "will not resolve\n")}
-    {:setenv runtime-path}))
 
 (defn inject-bundle-base
   "Pure. `lg -b` copies the running binary as the bundle base, which would

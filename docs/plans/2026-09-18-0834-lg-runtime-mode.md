@@ -260,7 +260,7 @@ suite with `make test`.
 - Modify: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   In `gobuild_test.lg` add a section "mode errors":
   - `installed-go-deps-error-names-origins`: two coords, one with origin
     `'abogoyavlensky/letgo-sql`, one project-declared (`nil`), `explicit?`
@@ -274,11 +274,11 @@ suite with `make test`.
   - Delete the tests for `runtime-action` if any exist (grep first; none are
     listed today).
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
   Run: `bin/lgx test test/lgx/gobuild_test.lg`
   Expected: FAIL, functions undefined.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `gobuild.lg`, in the "Wiring the runtime into the commands" section:
   - Add the three pure formatters with the signatures and strings from the
     Design section. Share one helper for the mode phrase
@@ -295,11 +295,11 @@ suite with `make test`.
     `ensure-runtime!` does today). `ensure-runtime!` calls it and keeps its
     behaviour and signature. `info` calls it and checks `(file-exists? out)`.
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
   Run: `make build && bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "feat(gobuild): mode error formatters, go probes, runtime-paths"`
 
 ### Task 3: Mode-driven `apply-runtime!` and `cmd-build`
@@ -307,7 +307,7 @@ suite with `make test`.
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Thread `:go-origins` through resolution**
+- [x] **Step 1: Thread `:go-origins` through resolution**
   In `ensure-all!`, add a `go-origins` loop binding, seeded with every
   top-level Go coord lib mapped to `nil`, and extended with
   `[coord-lib lib]` for each pair in a dep's `(:go-pairs split)`. Return it
@@ -318,7 +318,7 @@ suite with `make test`.
   reject `LGX_LG`. With no coords the basis is
   `{:go-coords [] :go-origins {}}`.
 
-- [ ] **Step 2: Rewrite `apply-runtime!`**
+- [x] **Step 2: Rewrite `apply-runtime!`**
   Keep the signature `[cfg basis severity verbose?]` and the docstring's
   role ("the single place the runtime enters a command"), rewritten for the
   two modes. Body per the Design section: `case` on `(config/lg-runtime cfg)`
@@ -333,7 +333,7 @@ suite with `make test`.
   with only the Go-on-PATH check and its existing message (the pin is
   guaranteed by config load).
 
-- [ ] **Step 3: Simplify `cmd-build`**
+- [x] **Step 3: Simplify `cmd-build`**
   Replace the `cross-preflight!` call with: when `cross?` and not
   `user-base?` and the mode is `:installed`, write
   `installed-cross-error` and exit 1. Delete the `cross? + go-pairs +
@@ -341,19 +341,26 @@ suite with `make test`.
   `LGX_LG` for every command). The per-target `base` cond is unchanged.
   Update the comments that mention "with Go deps" to say "under `:built`".
 
-- [ ] **Step 4: Smoke-test by hand**
+- [x] **Step 4: Smoke-test by hand**
   Run from the repo root: `make build && cd examples/hello && ../../bin/lgx run`
   Expected: unchanged behaviour, the hello output.
   Run: `cd examples/wails-desktop && ../../bin/lgx run 2>&1 | head -3`
   Expected: exit 1 and the `installed-go-deps-error` text naming
   `abogoyavlensky/letgo-wails` as the origin (the example has no
   `:lg-runtime` yet; Task 6 adds it).
+  > Deviation: the wails example pins a *sha*, so under the plan's own
+  > config-load rule 3 it now fails earlier with the `is not a released
+  > version` error, not the go-deps error. The go-deps error (with
+  > `(via abogoyavlensky/letgo-wails)`) was verified against a temp copy of
+  > the example pinned to `1.12.2` instead.
+  > Deviation: the two `runtime-action` tests the plan assumed absent
+  > existed in `gobuild_test.lg`; deleted here with the function.
 
-- [ ] **Step 5: Run the existing suite**
+- [x] **Step 5: Run the existing suite**
   Run: `make test`
   Expected: all unit and e2e tests pass (scenario 4b still uses a semver pin).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git commit -am "feat: :lg-runtime decides the lg; inference becomes validation"`
 
 ### Task 4: E2E scenarios for the validation paths

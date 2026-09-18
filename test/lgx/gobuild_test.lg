@@ -510,6 +510,11 @@
               "or pass -bundle-base <lg> yourself.\n")
          (gobuild/installed-cross-error true))))
 
+(deftest go-version-token-is-the-third-word
+  (is (= "go1.26.7" (gobuild/go-version-token "go version go1.26.7 linux/amd64\n")))
+  (is (nil? (gobuild/go-version-token "")))
+  (is (nil? (gobuild/go-version-token "bash: go: command not found"))))
+
 (deftest built-lg-override-error-quotes-the-path
   (is (= (str "error: LGX_LG is set to /x/lg, but lgx.edn sets :lg-runtime "
               ":built - the built runtime is the lg for this project.\n"
@@ -520,16 +525,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Wiring decisions
 ;; ---------------------------------------------------------------------------
-
-(deftest runtime-action-sets-lgx-lg-when-the-user-has-not
-  (is (= {:setenv "/rt/lg"} (gobuild/runtime-action false "/rt/lg"))))
-
-(deftest runtime-action-warns-when-the-user-set-lgx-lg
-  ;; Decided without a path, because the caller asks before building one.
-  (doseq [p [nil "/rt/lg"]]
-    (let [r (gobuild/runtime-action true p)]
-      (is (nil? (:setenv r)))
-      (is (str/includes? (:warn r) "LGX_LG")))))
 
 (deftest inject-bundle-base-appends-the-runtime
   (is (= ["-bundle-base" "/rt/lg"] (gobuild/inject-bundle-base [] "/rt/lg"))))
