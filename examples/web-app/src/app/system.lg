@@ -1,0 +1,22 @@
+(ns app.system
+  (:require [app.db]
+            [app.server]
+            [integrant.core :as ig]
+            [string :as str]))
+
+;; One config map describes the app; integrant starts the components in
+;; dependency order (the db, then the server that needs it) and halts them
+;; in reverse.
+
+(defn- env [name default]
+  (let [v (os/getenv name)]
+    (if (str/blank? v) default v)))
+
+(defn config []
+  {:app.db/conn {:path (env "DB_PATH" "todos.db")}
+   :app.server/http {:port (env "PORT" "8080")
+                     :db (ig/ref :app.db/conn)}})
+
+(defn start! [] (ig/init (config)))
+
+(defn stop! [system] (ig/halt! system))

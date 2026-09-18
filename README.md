@@ -613,6 +613,8 @@ clone.
 
 - [`examples/hello/`](./examples/hello) - no-deps script.
 - [`examples/server/`](./examples/server) - simple HTTP server with a ruuter lib.
+- [`examples/web-app/`](./examples/web-app) - JSON API over sqlite with
+  HoneySQL, integrant and ruuter, under `:lg-runtime :built`.
 - [`examples/local-dep/`](./examples/local-dep) - project plus sibling
   library using `:local/root`.
 - [`examples/clojure-libs/`](./examples/clojure-libs) - survey of real

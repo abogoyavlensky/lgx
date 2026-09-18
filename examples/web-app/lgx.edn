@@ -1,0 +1,39 @@
+{:paths ["src"]
+ :main "main.lg"
+
+ ;; The sqlite driver is a Go package, so this project runs on an lg that
+ ;; lgx builds from :lg-version with the Go toolchain (see `lgx info`).
+ ;; The :go/* stack needs let-go's merged interop work, which no release
+ ;; carries yet, so the pin is a sha on main.
+ :lg-runtime :built
+ :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"
+
+ :targets {:bin {:out "bin/web-app"}}
+
+ :deps {;; sqlite over Go's database/sql; brings the sql layer and the
+        ;; modernc.org/sqlite driver in transitively.
+        abogoyavlensky/letgo-sqlite
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/sha "690ecc28a56c612ede7355dab205ed934892c063"
+         :deps/root "sqlite"}
+
+        ;; SQL as data: (sql/format {...}) -> [sql & params], which is the
+        ;; statement shape sqlite.core takes.
+        com.github.seancorfield/honeysql
+        {:git/url "https://github.com/seancorfield/honeysql"
+         :git/tag "v2.7.1437"}
+
+        ;; integrant wires the db, the handler and the server together.
+        ;; It depends on weavejester/dependency; lgx does not read a plain
+        ;; Clojure lib's deps.edn transitively yet, so both are listed.
+        dev.weavejester/dependency
+        {:git/url "https://github.com/weavejester/dependency"
+         :git/tag "1.0.1"}
+        dev.weavejester/integrant
+        {:git/url "https://github.com/weavejester/integrant"
+         :git/tag "1.0.1"}
+
+        ;; Routing.
+        askonomm/ruuter
+        {:git/url "https://git.nmm.ee/asko/ruuter"
+         :git/tag "v2.1.1"}}}
