@@ -192,9 +192,10 @@
         report (get srcs report-file)]
     (is (str/includes? legacy "(ns lgx.test-harness.legacy"))
     (is (str/includes? legacy "*registered-tests*"))
-    (is (str/includes? legacy "(defn run!"))
+    (is (str/includes? legacy "(defn run-plan!"))
     (is (str/includes? report "(ns lgx.test-harness.report"))
-    (is (str/includes? report "(defn run!"))
+    (is (str/includes? report "(defn run-plan!"))
+    (is (str/includes? report "test/report"))
     (is (str/includes? (get srcs ui-file) "(ns lgx.test-harness.ui"))))
 
 (deftest harness-sources-entry-includes-each-ns

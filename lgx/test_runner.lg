@@ -150,7 +150,7 @@
 ;; let-go rejects any symbol the running version lacks, even one it would
 ;; never execute. So each variant is its own namespace, the entry picks one
 ;; with `resolve` and loads it with a run-time `require`, and only that one
-;; is ever compiled. Both expose (run! plan) -> {:test :pass :fail :error}.
+;; is ever compiled. Both expose (run-plan! plan) -> {:test :pass :fail :error}.
 ;; Delete legacy.lg and the dispatch once lgx's minimum lg carries #863.
 ;; ---------------------------------------------------------------------------
 
@@ -225,7 +225,7 @@
     "  (when (and (not (testing-line? line)) (not (pass-line? line)))\n"
     "    (ui/print-detail (color-fail-token line))))\n"
     "\n"
-    "(defn run!\n"
+    "(defn run-plan!\n"
     "  \"Run every entry of `plan` ([display-file ns-sym] pairs whose ns\n"
     "   loaded). Returns {:test :pass :fail :error}.\"\n"
     "  [plan]\n"
@@ -262,19 +262,100 @@
     "      (println)))\n"
     "  *report-counters*)\n"))
 
-;; The run loop over let-go's clojure.test port (#863). Filled in by the
-;; next change; until then the dispatch reaching it is a loud failure.
+;; The run loop over let-go's clojure.test port (#863). Everything it needs
+;; is the public clojure.test contract: `:test` metadata marks a test var,
+;; test/test-var runs one (catching any throw as an :error event), fixtures
+;; hang off the namespace metadata, and `report` is a dynamic multimethod
+;; that receives one map per assertion. Rebinding `report` to a collector
+;; sidesteps let-go's own printing *and* its counters (those live in the
+;; default methods), so the counts here come from the collected events.
 (def ^:private report-source
   (str
     "(ns lgx.test-harness.report\n"
-    "  (:require [lgx.test-harness.ui :as ui]))\n"
+    "  (:require [lgx.test-harness.ui :as ui]\n"
+    "            [string :as str]\n"
+    "            [test]))\n"
     "\n"
-    "(defn run!\n"
+    "(defn- test-vars-of\n"
+    "  \"The namespace's test vars in name order. Definition order is not\n"
+    "   recoverable here (vars carry no :line), and name order is stable.\"\n"
+    "  [ns-sym]\n"
+    "  (sort-by (comp str :name meta)\n"
+    "           (filter (comp :test meta) (vals (ns-interns ns-sym)))))\n"
+    "\n"
+    "(defn- fixtures-of [ns-sym]\n"
+    "  (let [m (meta (the-ns ns-sym))]\n"
+    "    {:once (test/join-fixtures (:test/once-fixtures m))\n"
+    "     :each (test/join-fixtures (:test/each-fixtures m))}))\n"
+    "\n"
+    "(defn- contexts-str []\n"
+    "  ;; Innermost first in *testing-contexts*; the legacy runner printed\n"
+    "  ;; `outer > inner`.\n"
+    "  (str/join \" > \" (reverse test/*testing-contexts*)))\n"
+    "\n"
+    "(defn- collector [events]\n"
+    "  (fn [m]\n"
+    "    (when (contains? #{:pass :fail :error} (:type m))\n"
+    "      (swap! events conj (assoc m :contexts (contexts-str))))))\n"
+    "\n"
+    "(defn- run-var!\n"
+    "  \"Run one test var under its :each fixture with stdout captured and the\n"
+    "   reporter collecting. Returns {:events [...] :out \\\"...\\\"}.\"\n"
+    "  [v each]\n"
+    "  (let [events (atom [])\n"
+    "        out (binding [test/report (collector events)\n"
+    "                      test/*report-counters*\n"
+    "                      (ref test/*initial-report-counters*)]\n"
+    "              (with-out-str (each (fn [] (test/test-var v)))))]\n"
+    "    {:events @events :out out}))\n"
+    "\n"
+    "(defn- fail-line [m]\n"
+    "  (str (ui/red \"FAIL\") \" \" (pr-str (:expected m))\n"
+    "       (when-let [msg (:message m)]\n"
+    "         (when (not= :error (:type m)) (str \" - \" msg)))))\n"
+    "\n"
+    "(defn- render! [v {:keys [events out]}]\n"
+    "  (let [failed? (some #(contains? #{:fail :error} (:type %)) events)]\n"
+    "    (ui/print-mark (boolean failed?) (ui/var-name v))\n"
+    "    (doseq [ctx (distinct (map :contexts events))]\n"
+    "      (when (seq ctx) (ui/print-context ctx)))\n"
+    "    (when failed?\n"
+    "      (doseq [m events]\n"
+    "        (case (:type m)\n"
+    "          :fail (do (ui/print-detail (fail-line m))\n"
+    "                    (ui/print-detail (str \"  actual: \" (pr-str (:actual m)))))\n"
+    "          :error (ui/print-detail (str \"ERROR: \" (:actual m)))\n"
+    "          nil))\n"
+    "      (doseq [line (ui/nonblank-lines out)]\n"
+    "        (ui/print-detail line)))\n"
+    "    (frequencies (map :type events))))\n"
+    "\n"
+    "(defn- run-ns! [file-name ns-sym]\n"
+    "  (let [{:keys [once each]} (fixtures-of ns-sym)\n"
+    "        vars (test-vars-of ns-sym)\n"
+    "        totals (atom {:test 0 :pass 0 :fail 0 :error 0})\n"
+    "        previous *ns*]\n"
+    "    (ui/print-file file-name)\n"
+    "    ;; Some forms resolve against the live *ns*; test/test-ns switches\n"
+    "    ;; too, so a test body sees its own namespace.\n"
+    "    (in-ns ns-sym)\n"
+    "    (try\n"
+    "      (once (fn []\n"
+    "              (doseq [v vars]\n"
+    "                (let [counts (render! v (run-var! v each))]\n"
+    "                  (swap! totals #(merge-with + % (assoc counts :test 1)))))))\n"
+    "      (finally (in-ns (ns-name previous))))\n"
+    "    (println)\n"
+    "    @totals))\n"
+    "\n"
+    "(defn run-plan!\n"
     "  \"Run every entry of `plan` ([display-file ns-sym] pairs whose ns\n"
     "   loaded). Returns {:test :pass :fail :error}.\"\n"
     "  [plan]\n"
-    "  (doseq [entry plan] (the-ns (second entry)))\n"
-    "  (throw (ex-info \"clojure.test path not implemented\" {})))\n"))
+    "  (reduce (fn [acc [file-name ns-sym]]\n"
+    "            (merge-with + acc (run-ns! file-name ns-sym)))\n"
+    "          {:test 0 :pass 0 :fail 0 :error 0}\n"
+    "          plan))\n"))
 
 (def ^:private entry-header
   (str "(ns lgx.test-harness\n"
@@ -342,8 +423,8 @@
     ;; Delete legacy + this dispatch once lgx's minimum lg carries #863.
     "(def run-var\n"
     "  (if (resolve 'test/test-ns)\n"
-    "    (do (require 'lgx.test-harness.report) 'lgx.test-harness.report/run!)\n"
-    "    (do (require 'lgx.test-harness.legacy) 'lgx.test-harness.legacy/run!)))\n"
+    "    (do (require 'lgx.test-harness.report) 'lgx.test-harness.report/run-plan!)\n"
+    "    (do (require 'lgx.test-harness.legacy) 'lgx.test-harness.legacy/run-plan!)))\n"
     "\n"
     "(def counters ((var-get (resolve run-var)) runnable-plan))\n"
     "\n"
