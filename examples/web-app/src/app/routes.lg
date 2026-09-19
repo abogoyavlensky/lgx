@@ -1,15 +1,13 @@
 (ns app.routes
   (:require [app.db :as db]
+            [integrant.core :as ig]
             [json :as json]
             [ruuter.core :as r]
             [string :as str]))
 
-;; The HTTP handler is a plain function built over a db connection. It is
-;; not an integrant component of its own: that would make a three-link
-;; chain (server -> handler -> db), which hangs `ig/init` under let-go
-;; today (docs/issues/destructure-rest-empty-seq.md). The server component
-;; builds it from the db it depends on instead, and tests build it over a
-;; throwaway database the same way.
+;; The HTTP handler: a Ring-style function over a db connection, and the
+;; integrant component between the db and the server. Tests call `handler`
+;; directly over a throwaway database, no server.
 
 (defn- json-response [status data]
   {:status status
@@ -87,10 +85,7 @@
     :method :delete
     :response (fn [req]
                 (if (some->> (parse-id req) (db/delete-todo! conn))
-                  ;; No :headers key: an empty headers map crashes the
-                  ;; server (docs/issues/http-empty-headers-panic.md).
-                  {:status 204
-                   :body ""}
+                  {:status 204 :headers {} :body ""}
                   (json-response 404 {:error "not found"})))}
 
    {:path :not-found
@@ -102,3 +97,6 @@
   (let [table (routes conn)]
     (fn [req]
       (r/route table req))))
+
+(defmethod ig/init-key ::handler [_ {:keys [db]}]
+  (handler db))

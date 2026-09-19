@@ -5,10 +5,11 @@
 
  ;; The sqlite driver is a Go package, so this project runs on an lg that
  ;; lgx builds from :lg-version with the Go toolchain (see `lgx info`).
- ;; The :go/* stack needs let-go's merged interop work, which no release
- ;; carries yet, so the pin is a sha on main.
+ ;; The pin is a sha on main: the :go/* interop and the stoppable http
+ ;; server (http/start, http/stop, http/wait; nooga/let-go#898) are not
+ ;; in a tagged release yet.
  :lg-runtime :built
- :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"
+ :lg-version "ebd758a6e2c5868fe40f753bc27ff43a4b7410a7"
 
  :targets {:bin {:out "bin/web-app"}}
 

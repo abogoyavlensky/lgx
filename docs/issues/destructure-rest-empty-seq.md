@@ -2,7 +2,7 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** draft
+**Status:** resolved upstream in [nooga/let-go#898](https://github.com/nooga/let-go/pull/898) (`ebd758a6`)
 
 ## Summary
 
