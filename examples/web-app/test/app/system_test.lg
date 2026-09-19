@@ -1,0 +1,40 @@
+(ns app.system-test
+  (:require [app.system :as system]
+            [clojure.test :refer [deftest is]]
+            [http :as http]
+            [json :as json]))
+
+;; The whole system, over a throwaway database and a free port: requests
+;; go through the real http server, and halting the system stops it.
+
+(defn- with-system [f]
+  (let [path (str "/tmp/lgx-web-app-system-" (rand-int 100000000) ".db")
+        system (system/start! (-> (system/config)
+                                  (assoc-in [:app.db/conn :path] path)
+                                  (assoc-in [:app.server/http :addr] "127.0.0.1:0")))]
+    (try
+      (f system (str "http://" (:addr (:app.server/http system))))
+      (finally
+        (system/stop! system)
+        (os/sh "rm" "-f" path)))))
+
+(defn- json-body [res]
+  (json/read-json (:body res) {:keywords? true}))
+
+(deftest round-trip-over-http
+  (with-system
+    (fn [_ base]
+      (let [created (http/post (str base "/todos") "{\"title\":\"ship it\"}"
+                               {:headers {"Content-Type" "application/json"}})]
+        (is (= 201 (:status created)))
+        (is (= {:id 1 :title "ship it" :done false} (json-body created))))
+      (is (= 1 (count (json-body (http/get (str base "/todos"))))))
+      (is (= 204 (:status (http/request {:method :delete
+                                         :url (str base "/todos/1")}))))
+      (is (= [] (json-body (http/get (str base "/todos"))))))))
+
+(deftest halt-releases-the-port
+  (let [base (with-system (fn [system base]
+                            (is (pos? (:port (:app.server/http system))))
+                            base))]
+    (is (thrown? Exception (http/get (str base "/todos"))))))

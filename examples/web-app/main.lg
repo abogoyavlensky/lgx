@@ -1,9 +1,11 @@
 (ns main
-  (:require [app.system :as system]))
+  (:require [app.system :as system]
+            [http :as http]))
 
-;; A small JSON API over sqlite: HoneySQL builds the queries, integrant
-;; wires the db connection, the handler and the http server. Run with
-;; `lgx run` (PORT and DB_PATH override the defaults), then:
+;; A small todo app: a JSON API over sqlite with an Alpine.js page on top.
+;; HoneySQL builds the queries, integrant wires the db connection, the
+;; handler and the http server. Run with `lgx run` (PORT and DB_PATH
+;; override the defaults), then open http://localhost:8080 or:
 ;;
 ;;   curl -d '{"title":"write docs"}' localhost:8080/todos
 ;;   curl localhost:8080/todos
@@ -13,8 +15,9 @@
 
 (defn -main []
   (let [system (system/start!)]
-    ;; http/serve runs in a goroutine; block on it so the process stays up.
-    @(get-in system [:app.server/http :serving])))
+    ;; http/start serves in the background; wait blocks until the server
+    ;; stops, which keeps the process up.
+    (http/wait (:app.server/http system))))
 
 ;; lg -b runs top-level forms at compile time, so without this guard
 ;; `lgx build` would open the database and start listening while bundling.
