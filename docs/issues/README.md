@@ -22,8 +22,8 @@ the ones that belong to lgx itself.
 | [aero-compat.md](./aero-compat.md) | Run juxt/aero under let-go — TaggedLiteral type + `edn/read` tag dispatch, static-field-in-call-position, syntax-quote qualification, namespaced `:keys`, seq metadata | prototyped (throwaway), not upstreamed |
 | [windows-build-unix-only-term.md](./windows-build-unix-only-term.md) | `pkg/rt/term.go` uses `x/sys/unix` unguarded, so `GOOS=windows` builds fail — blocks windows targets in lgx cross-compilation | draft |
 | [letgo-push-thread-bindings.md](./letgo-push-thread-bindings.md) | `push-thread-bindings`/`pop-thread-bindings` missing, so a library using the fast path instead of `binding` fails to compile — HoneySQL's `develop` does not load at all | draft |
-| [destructure-rest-empty-seq.md](./destructure-rest-empty-seq.md) | `[x & more]` destructuring binds `more` to `()` instead of `nil`, so `(if-let [[x & xs] s] ...)` loops never end - `weavejester/dependency`'s `reachable?` hangs `ig/init` on any three-component chain | draft |
-| [http-empty-headers-panic.md](./http-empty-headers-panic.md) | `http` server panics (nil deref) on a response with `:headers {}`; the client gets no reply | draft |
+| [destructure-rest-empty-seq.md](./destructure-rest-empty-seq.md) | `[x & more]` destructuring binds `more` to `()` instead of `nil`, so `(if-let [[x & xs] s] ...)` loops never end - `weavejester/dependency`'s `reachable?` hangs `ig/init` on any three-component chain | resolved (nooga/let-go#898) |
+| [http-empty-headers-panic.md](./http-empty-headers-panic.md) | `http` server panics (nil deref) on a response with `:headers {}`; the client gets no reply | resolved (nooga/let-go#898) |
 | [ragtime-letgo-compat.md](./ragtime-letgo-compat.md) | Run weavejester/ragtime core under let-go: `Thread/currentThread` static missing, `format` ignores `%n`; plus the `& rest` bug | draft |
 | [interop-map-boxing.md](./interop-map-boxing.md) | A let-go map does not cross the boundary as a Go map — the map-shaped sibling of `interop-slice-boxing`, and the naive hand-conversion silently yields pairs | implemented on `fix/vm-boxing-symmetry` |
 

@@ -1,15 +1,13 @@
 (ns app.routes
   (:require [app.db :as db]
+            [integrant.core :as ig]
             [json :as json]
             [ruuter.core :as r]
             [string :as str]))
 
-;; The HTTP handler is a plain function built over a db connection. It is
-;; not an integrant component of its own: that would make a three-link
-;; chain (server -> handler -> db), which hangs `ig/init` under let-go
-;; today (docs/issues/destructure-rest-empty-seq.md). The server component
-;; builds it from the db it depends on instead, and tests build it over a
-;; throwaway database the same way.
+;; The HTTP handler: a Ring-style function over a db connection, and the
+;; integrant component between the db and the server. Tests call `handler`
+;; directly over a throwaway database, no server.
 
 (defn- json-response [status data]
   {:status status
@@ -20,13 +18,42 @@
   ;; sqlite stores booleans as 0/1; present them as booleans.
   (update row :done pos?))
 
+(def ^:private content-types
+  {"html" "text/html; charset=utf-8"
+   "js"   "text/javascript; charset=utf-8"
+   "css"  "text/css; charset=utf-8"
+   "svg"  "image/svg+xml"})
+
+(defn- static-response
+  "Serve `name` from resources/public. Only the text types above are served:
+  io/slurp reads a string, so binaries would not survive. io/resource returns
+  nil for a missing name and for one that escapes the resource root, so
+  `..` cannot reach outside it."
+  [name]
+  (let [ct (content-types (last (str/split (str name) #"\.")))
+        res (when ct (io/resource (str "public/" name)))]
+    (if res
+      {:status 200
+       :headers {"Content-Type" ct}
+       :body (io/slurp res)}
+      (json-response 404 {:error "not found"}))))
+
 (defn- parse-id [req]
   (let [id (-> req :params :id)]
     (when (re-find #"^[0-9]+$" (str id))
       (Integer/parseInt id))))
 
 (defn- routes [conn]
-  [{:path "/todos"
+  [;; The UI: one page over the JSON API below, plus its script.
+   {:path "/"
+    :method :get
+    :response (fn [_] (static-response "index.html"))}
+
+   {:path "/static/:file"
+    :method :get
+    :response (fn [req] (static-response (-> req :params :file)))}
+
+   {:path "/todos"
     :method :get
     :response (fn [_]
                 (json-response 200 (mapv todo->json (db/list-todos conn))))}
@@ -58,10 +85,7 @@
     :method :delete
     :response (fn [req]
                 (if (some->> (parse-id req) (db/delete-todo! conn))
-                  ;; No :headers key: an empty headers map crashes the
-                  ;; server (docs/issues/http-empty-headers-panic.md).
-                  {:status 204
-                   :body ""}
+                  {:status 204 :headers {} :body ""}
                   (json-response 404 {:error "not found"})))}
 
    {:path :not-found
@@ -73,3 +97,6 @@
   (let [table (routes conn)]
     (fn [req]
       (r/route table req))))
+
+(defmethod ig/init-key ::handler [_ {:keys [db]}]
+  (handler db))

@@ -3,7 +3,8 @@
             [app.routes :as routes]
             [clojure.test :refer [deftest is]]
             [integrant.core :as ig]
-            [json :as json]))
+            [json :as json]
+            [string :as str]))
 
 ;; The handler is exercised as a plain function over a throwaway sqlite
 ;; file: integrant starts only the db component, no http server.
@@ -45,3 +46,17 @@
       (is (= 404 (:status (call handler :get "/todos/abc" nil))))
       (is (= 404 (:status (call handler :delete "/todos/99" nil))))
       (is (= 404 (:status (call handler :get "/nope" nil)))))))
+
+(deftest static-assets
+  (with-handler
+    (fn [handler]
+      (let [index (handler {:request-method :get :uri "/"})]
+        (is (= 200 (:status index)))
+        (is (= "text/html; charset=utf-8" (get-in index [:headers "Content-Type"])))
+        (is (str/includes? (:body index) "x-data")))
+      (let [js (handler {:request-method :get :uri "/static/alpine.min.js"})]
+        (is (= 200 (:status js)))
+        (is (= "text/javascript; charset=utf-8" (get-in js [:headers "Content-Type"]))))
+      (is (= 404 (:status (handler {:request-method :get :uri "/static/nope.js"}))))
+      ;; Only whitelisted text types are served, even if the file exists.
+      (is (= 404 (:status (handler {:request-method :get :uri "/static/main.lg"})))))))

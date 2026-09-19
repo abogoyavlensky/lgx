@@ -1,19 +1,18 @@
 (ns app.server
-  (:require [app.routes :as routes]
-            [http :as http]
+  (:require [http :as http]
             [integrant.core :as ig]))
 
-;; The server component: an http server over the handler built from the
-;; db it depends on. let-go's http/serve blocks, so it runs in a future (a
-;; goroutine) and the component holds that future; main derefs it to keep
-;; the process alive. There is no shutdown API in http/serve yet, so
-;; halt-key! has nothing to stop - the process exit ends it.
+;; The server component. http/start binds the address, serves in the
+;; background and returns a record with the resolved :addr and :port (so
+;; ":0" picks a free port) and the handle http/stop takes. A bind error
+;; throws here, so a taken port fails ig/init instead of a goroutine.
+;; halt-key! stops it gracefully: in-flight requests finish, then the
+;; port is released.
 
-(defmethod ig/init-key ::http [_ {:keys [port db]}]
-  (let [addr (str ":" port)]
-    (println (str "Listening on http://localhost" addr))
-    {:addr addr
-     :serving (future (http/serve (routes/handler db) addr))}))
+(defmethod ig/init-key ::http [_ {:keys [addr handler]}]
+  (let [srv (http/start handler addr)]
+    (println (str "Listening on http://localhost:" (:port srv)))
+    srv))
 
-(defmethod ig/halt-key! ::http [_ _]
-  nil)
+(defmethod ig/halt-key! ::http [_ srv]
+  (http/stop srv))
