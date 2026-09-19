@@ -45,7 +45,7 @@ with `:deps/root`:
  :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"
  :deps {abogoyavlensky/letgo-sqlite
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/sha "..."
+         :git/tag "sqlite-v0.1.0"
          :deps/root "sqlite"}}}
 ```
 
@@ -182,10 +182,13 @@ note these, none of which are obvious:
   [`../issues/lgx-mobile-targets-buildmode.md`](../issues/lgx-mobile-targets-buildmode.md).
 - **No `:go/build-tags`.** Use the `GOFLAGS` environment variable
   ([`../issues/lgx-no-go-build-tags.md`](../issues/lgx-no-go-build-tags.md)).
-- **Nothing in `letgo-packages` is tagged yet.** Both original blockers are
-  cleared - lgx reads a package's `lgx.edn` from `:deps/root`, and the boxing
-  fix is merged - so tagging waits only on a let-go release to pin
-  `shim/go.mod` against.
+- **Tags come in two kinds.** A package is tagged `<pkg>-vX.Y.Z` for
+  `:git/tag`. A package with a Go shim (`sql`, `wails`) additionally tags it
+  `<pkg>/shim/vX.Y.Z` as a nested Go module, which its `lgx.edn` pins with
+  `:go/version` - a `:go/local` coord would make lgx treat the runtime as
+  live and rebuild it on every command. The release order and the `v0.0.0`
+  let-go require in the shims' `go.mod` are documented in the letgo-packages
+  README under "Releasing".
 
 ---
 

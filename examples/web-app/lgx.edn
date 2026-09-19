@@ -14,7 +14,7 @@
         ;; modernc.org/sqlite driver in transitively.
         abogoyavlensky/letgo-sqlite
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/sha "690ecc28a56c612ede7355dab205ed934892c063"
+         :git/tag "sqlite-v0.1.0"
          :deps/root "sqlite"}
 
         ;; SQL as data: (sql/format {...}) -> [sql & params], which is the

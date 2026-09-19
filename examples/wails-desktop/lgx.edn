@@ -6,5 +6,5 @@
 
  :deps {abogoyavlensky/letgo-wails
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/sha "f4beb9b9d2bf77a3408a4261469bd48922f89f82"
+         :git/tag "wails-v0.1.0"
          :deps/root "wails"}}}
