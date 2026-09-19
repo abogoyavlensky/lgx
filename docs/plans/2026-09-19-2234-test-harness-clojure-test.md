@@ -1,5 +1,7 @@
 # Test Harness on let-go's clojure.test Port Implementation Plan
 
+**Status: completed 2026-09-20.**
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `lgx test` work on let-go at or after `cffc09e` (nooga/let-go#863, the clojure.test port) while it keeps working on the PATH `lg` 1.12.2, with the user-visible output unchanged.
@@ -226,9 +228,27 @@ Not honored, same as today: `test-ns-hook`. Not needed: `*test-out*` (nothing is
   Run: `cd ~/Projects/lgx && LGX_LG_NEW=~/Projects/let-go/bin/lg make test; echo "exit $?"` — Expected: exit 0.
   Run: `bin/lgx --verbose test 2>&1 | grep "test runner:"` — Expected: the entry path ends in `lgx-test-<version>/harness.lg`.
 
-- [ ] **Step 2: Merge into `web-app-ragtime` and verify there**
+- [x] **Step 2: Merge into `web-app-ragtime` and verify there**
   Run: `git checkout web-app-ragtime && git merge --no-edit test-harness-clojure-test && cd examples/web-app && ~/Projects/lgx/bin/lgx test > /tmp/wa-final.log 2>&1; echo "exit $?"; grep -v "^WARNING\|^reflection" /tmp/wa-final.log | tail -6`
   Expected: clean merge (the two branches touch disjoint files); exit 0; `OK`. Note: `bin/lgx` must be rebuilt from the merged tree first if `make test` did not just do it (`make build`).
 
-- [ ] **Step 3: Report**
+- [x] **Step 3: Report**
   Summarize: the harness layout, what changed for users (nothing on old lg; `actual:` lines and name-ordered tests on new lg), how to run the new-path e2e locally (`LGX_LG_NEW`), and the deletion trigger for `legacy.lg`. Leave the PR of `test-harness-clojure-test` to the user.
+
+---
+
+## Completion summary
+
+**Implemented** on `test-harness-clojure-test` (off `master`): the generated harness is now a directory `$LGX_HOME/test-runner/lgx-test-<version>/` — `harness.lg` (plan, load phase, ready marker, run-time dispatch, summary) plus `lgx/test_harness/{ui,legacy,report}.lg`. `legacy` is the old loop over `*registered-tests*`; `report` runs `:test` vars through `test/test-var` under a rebound `test/report`, with fixtures from namespace metadata, an ns-level collector for assertions outside any var, and `test-ns-hook` support. `cmd-test` puts the harness directory last on `-source-paths`. Commits: `606026c`, `17f0d4c`, `067a055`, `46958b9`, `042802e`, `caffa8f`, `ddf084e`, plus plan bookkeeping. Merged into `web-app-ragtime` as `b22fe1d`.
+
+**Results.** `make test` under lg 1.12.2: 380 e2e assertions, unchanged output. With `LGX_LG_NEW=<lg built from let-go 045d9fb>`: 419 (seven new scenarios, 127–133). `examples/web-app` on `web-app-ragtime`, pinned to `045d9fb`: `lgx test` → 7 tests, 36 assertions, 0 failures (it failed to compile the harness before); `lgx run` serves and migrates as before. Four Codex rounds across the tasks; every must-fix was folded in before the next task.
+
+**Deviations** (also inline under each task):
+- Task 1: the e2e verbose-path assertion updated to `lgx-test-<version>/harness.lg`; the test-file rewrite had dropped later sections — restored (`17f0d4c`).
+- Task 2: `run!` → `run-plan!` (a `defn run!` shadows `clojure.core/run!` and warns on the new lg). Post-review: assertions inside a `:once` fixture now count (`✗ fixtures` row); `test-ns-hook` is honored as one row — the plan had scoped it out; per-var counts accumulate in an atom because a `:once` fixture need not return `(f)`'s value.
+- Task 3: seven scenarios, not five; `lg -e` prints the form's value so detection reads the first line; let-go's `spit` has no `:append`; `grep -F` for ANSI-bearing needles.
+- Task 5: the merge into `web-app-ragtime` conflicted in `let-go-gotchas.md` (both branches appended an entry); kept both, reworded the ragtime entry's `Thread.lg` example, which that branch had since deleted.
+
+**Open.** `legacy.lg` and the dispatch are deleted once lgx's minimum `lg` carries #863. The `report` variant orders tests by name (no `:line` on vars — a let-go gap worth an issue if definition order matters). `LGX_LG_NEW` is a local-only knob until CI has a let-go with #863.
+
+**What the plan could have specified better:** it should have said what happens to counts and assertions *outside* a test var (`:once` fixtures, hooks) — both Codex P1s were there; and that `bin/lgx` is a bundle, so every verification needs a rebuild first (one step said so, the others did not).
