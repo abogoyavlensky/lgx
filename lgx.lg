@@ -855,8 +855,11 @@
           {:keys [results paths resource-paths]} basis
           _ (apply-runtime! cfg basis :fail verbose?)
           header (if single? (first (first entries)) "test/")
-          harness (test-runner/write-harness! entries version)
-          source-paths (vec (concat paths [test-dir]))]
+          {harness-dir :dir harness :entry}
+          (test-runner/write-harness! entries version)
+          ;; The harness directory goes last: its namespaces are the entry's
+          ;; own, and nothing in a project should shadow them.
+          source-paths (vec (concat paths [test-dir harness-dir]))]
       (when (and verbose? (seq exclude))
         (write! *err* (str "+ excluded: " (str/join ", " exclude) "\n")))
       (when verbose?
