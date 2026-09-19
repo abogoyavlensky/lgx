@@ -86,7 +86,9 @@ fires during the file's load — before later tests in the same file
 register and before `lgx test`'s harness gets to iterate
 `*registered-tests*` itself. The harness then sees a partial registry,
 re-runs whatever was registered before the top-level call, and skips
-the rest.
+the rest. On let-go's clojure.test port (#863) there is no registry, but
+a top-level `(run-tests)` still runs and prints every test during the
+load phase, ahead of the harness's own run, so the advice stands.
 
 For files run through `lgx test`, define only `deftest` (and
 fixtures). The harness owns the run and the exit code; the file owns
@@ -98,6 +100,36 @@ the definitions. The old idiom
 ```
 
 is exactly what the new command exists to replace — strip it.
+
+## A branch that is never taken still has to compile
+
+let-go compiles every top-level form before running it, and a symbol the
+running let-go does not know is a compile error wherever it sits — an `if`
+branch guarded by `(resolve 'the/marker)` included. So one file cannot
+carry code for two let-go versions:
+
+```clojure
+(if (resolve 'test/test-ns)
+  (ns-interns ns)        ; CompileError on lg 1.12.2: Can't resolve ns-interns
+  (old-way ns))
+```
+
+Put each version's code in its own namespace, pick one at run time, load
+it with `require` (a run-time call), and reach its functions through
+`resolve` too — naming `lgx.test-harness.report/run-plan!` as a symbol
+would resolve it at compile time, before the `require` ran:
+
+```clojure
+(def run-var
+  (if (resolve 'test/test-ns)
+    (do (require 'lgx.test-harness.report) 'lgx.test-harness.report/run-plan!)
+    (do (require 'lgx.test-harness.legacy) 'lgx.test-harness.legacy/run-plan!)))
+((var-get (resolve run-var)) plan)
+```
+
+Only the namespace that was required is ever compiled. This is how the
+`lgx test` harness serves both sides of let-go's clojure.test port
+(`lgx/test_runner.lg`, `harness-sources`).
 
 ---
 
@@ -111,4 +143,6 @@ is exactly what the new command exists to replace — strip it.
 > [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/main/pkg/resolver/resolver.go)
 > (`Load` triggering self re-load),
 > [`pkg/rt/core/core.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/core.lg)
-> (`binding` macro).
+> (`binding` macro),
+> [`pkg/rt/core/test.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/test.lg)
+> (`test-ns`, the clojure.test port the harness dispatch keys on).
