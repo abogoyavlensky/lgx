@@ -131,28 +131,26 @@
                     (path/join fixture-dir "no-such-subdir"))))))
 
 ;; ---------------------------------------------------------------------------
-;; harness-source
+;; harness-sources
 ;; ---------------------------------------------------------------------------
 
 (defn- parses? [s]
-  ;; Wrap in (do ...) so the reader consumes the whole harness as one
-  ;; form; otherwise read-string only returns the first top-level form.
+  ;; Wrap in (do ...) so the reader consumes the whole source as one form;
+  ;; otherwise read-string only returns the first top-level form.
   (try (edn/read-string (str "(do " s ")"))
        true
        (catch _ false)))
 
-(deftest harness-source-empty-ns-list-parses
-  (let [src (tr/harness-source [])]
-    (is (string? src))
-    (is (parses? src))
-    (is (str/includes? src "(ns lgx.test-harness"))
-    (is (str/includes? src "[test :refer"))
-    (is (str/includes? src "[os :as os]"))
-    (is (str/includes? src "(os/exit"))))
+(def entry-file "harness.lg")
+(def ui-file (path/join "lgx" "test_harness" "ui.lg"))
+(def legacy-file (path/join "lgx" "test_harness" "legacy.lg"))
+(def report-file (path/join "lgx" "test_harness" "report.lg"))
+
+(defn- entry-src [entries] (get (tr/harness-sources entries) entry-file))
 
 (defn- ns-form
-  "The generated harness's (ns ...) form: everything before the first
-   blank line, which is where the body starts."
+  "A generated file's (ns ...) form: everything before the first blank
+   line, which is where the body starts."
   [src]
   (first (str/split src "\n\n")))
 
@@ -163,12 +161,47 @@
         ib (str/index-of src b)]
     (and (some? ia) (some? ib) (< ia ib))))
 
-(deftest harness-source-includes-each-ns
-  (let [src (tr/harness-source [[(path/join "test" "lgx" "config_test.lg")
-                                 'lgx.config-test]
-                                [(path/join "test" "lgx" "path_test.lg")
-                                 'lgx.path-test]])]
-    (is (parses? src))
+(deftest harness-sources-has-exactly-the-four-files
+  (let [srcs (tr/harness-sources [])]
+    (is (= #{entry-file ui-file legacy-file report-file} (set (keys srcs))))
+    (doseq [[f src] srcs]
+      (is (string? src) f)
+      (is (parses? src) f))))
+
+(deftest harness-sources-entry-empty-ns-list-parses
+  (let [src (entry-src [])]
+    (is (str/includes? src "(ns lgx.test-harness"))
+    (is (str/includes? src "[os :as os]"))
+    (is (str/includes? src "(os/exit"))))
+
+(deftest harness-sources-entry-dispatches-at-run-time
+  ;; The two run-phase variants read different let-go test internals, and a
+  ;; dead branch still has to compile, so the entry must not name either
+  ;; variant's symbols: it picks one by resolve and loads it by require.
+  (let [src (entry-src [["test/foo_test.lg" 'foo-test]])]
+    (is (str/includes? src "(resolve 'test/test-ns)"))
+    (is (str/includes? src "(require 'lgx.test-harness.report)"))
+    (is (str/includes? src "(require 'lgx.test-harness.legacy)"))
+    (is (not (str/includes? src "*registered-tests*")))
+    (is (not (str/includes? src "[test :refer")))
+    (is (not (str/includes? src "(the-ns")))))
+
+(deftest harness-sources-variants-define-run
+  (let [srcs (tr/harness-sources [])
+        legacy (get srcs legacy-file)
+        report (get srcs report-file)]
+    (is (str/includes? legacy "(ns lgx.test-harness.legacy"))
+    (is (str/includes? legacy "*registered-tests*"))
+    (is (str/includes? legacy "(defn run!"))
+    (is (str/includes? report "(ns lgx.test-harness.report"))
+    (is (str/includes? report "(defn run!"))
+    (is (str/includes? (get srcs ui-file) "(ns lgx.test-harness.ui"))))
+
+(deftest harness-sources-entry-includes-each-ns
+  (let [src (entry-src [[(path/join "test" "lgx" "config_test.lg")
+                         'lgx.config-test]
+                        [(path/join "test" "lgx" "path_test.lg")
+                         'lgx.path-test]])]
     ;; Test namespaces reach the harness through the test plan, which the
     ;; load phase requires one at a time. They must NOT be in the ns form:
     ;; there, one file that fails to compile takes the whole harness down.
@@ -179,9 +212,8 @@
     (is (not (str/includes? (ns-form src) "lgx.config-test")))
     (is (not (str/includes? (ns-form src) "lgx.path-test")))))
 
-(deftest harness-source-load-phase-is-guarded-and-precedes-the-marker
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
-    (is (parses? src))
+(deftest harness-sources-load-phase-is-guarded-and-precedes-the-marker
+  (let [src (entry-src [["test/foo_test.lg" 'foo-test]])]
     (is (str/includes? src "(def load-failures"))
     (is (str/includes? src "(try (require"))
     (is (str/includes? src "(catch e"))
@@ -190,287 +222,30 @@
     (is (before? src "(def load-failures" tr/harness-ready-marker))
     (is (before? src "(try (require" tr/harness-ready-marker))))
 
-(deftest harness-source-reports-load-failures-after-the-marker
+(deftest harness-sources-reports-load-failures-after-the-marker
   ;; Collected before the marker (the load phase), reported after it — a
   ;; report emitted before the marker would look like a load diagnostic.
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])
+  (let [src (entry-src [["test/foo_test.lg" 'foo-test]])
         after-marker (second (str/split src tr/harness-ready-marker))]
-    (is (parses? src))
     (is (before? src "(def load-failures" tr/harness-ready-marker))
     (is (str/includes? after-marker "load-failures"))
     (is (str/includes? after-marker "failed to load"))))
 
-(deftest harness-source-run-phase-skips-namespaces-that-failed-to-load
-  ;; the-ns throws for a namespace that never loaded, so the run phase must
-  ;; reach it only for entries absent from the failure set.
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
-    (is (parses? src))
-    (is (str/includes? src "(def failed-namespaces"))
-    (is (str/includes? src "(contains? failed-namespaces"))
-    (is (before? src "(contains? failed-namespaces" "(the-ns ns-sym)"))))
+(deftest harness-sources-run-phase-skips-namespaces-that-failed-to-load
+  ;; the-ns throws for a namespace that never loaded, so the entry hands the
+  ;; variants only the entries absent from the failure set, and the
+  ;; variants are where the-ns is called.
+  (let [srcs (tr/harness-sources [["test/foo_test.lg" 'foo-test]])
+        entry (get srcs entry-file)]
+    (is (str/includes? entry "(def failed-namespaces"))
+    (is (str/includes? entry "(contains? failed-namespaces"))
+    (is (before? entry "(contains? failed-namespaces" "runnable-plan)"))
+    (is (str/includes? (get srcs legacy-file) "(the-ns"))
+    (is (str/includes? (get srcs report-file) "(the-ns"))))
 
-(deftest harness-source-emits-ready-marker
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
-    (is (parses? src))
+(deftest harness-sources-entry-emits-ready-marker
+  (let [src (entry-src [["test/foo_test.lg" 'foo-test]])]
     (is (str/includes? src (str "(write! *err* \"" tr/harness-ready-marker)))))
 
-(deftest harness-source-summary-and-exit
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
-    (is (str/includes? src "*registered-tests*"))
-    (is (str/includes? src "with-out-str"))
-    (is (str/includes? src "Testing: "))
-    (is (str/includes? src "PASS "))
-    (is (str/includes? src "color-fail-token"))
-    (is (str/includes? src "tests, "))
-    (is (str/includes? src "assertions, "))
-    (is (str/includes? src "failures"))
-    ;; Load failures are counted separately from assertions, and the summary
-    ;; colour, the OK/FAIL line and the exit code all read one condition, so
-    ;; they cannot disagree — a green OK alongside exit 1 would be a lie.
-    (is (str/includes? src "load failures"))
-    (is (str/includes? src
-                       "failed? (or (pos? failures) (seq load-failures))"))
-    (is (str/includes? src "(println ((if failed? red green) summary))"))
-    (is (str/includes? src "(println (if failed? \"FAIL\" \"OK\"))"))
-    (is (str/includes? src "(os/exit (if failed? 1 0))"))))
-
-(deftest harness-source-omits-running-tests-banner
-  ;; The "Running tests in ..." banner now comes from lgx (green, on stderr),
-  ;; not the harness — see lgx.style/header and cmd-test.
-  (let [src (tr/harness-source [["test/foo_test.lg" 'foo-test]])]
-    (is (parses? src))
-    (is (not (str/includes? src "Running tests in")))))
-
-;; ---------------------------------------------------------------------------
-;; validate-single-test-file!
-;; ---------------------------------------------------------------------------
-
-(defn- mktemp! [tag]
-  (let [d (str "/tmp/lgx-validate-" tag "-" (rand-int 100000000))]
-    (mkdir d)
-    d))
-
-(defn- caught-reason [f]
-  (try (f) nil
-       (catch e (:reason (ex-data e)))))
-
-(defn- caught-path [f]
-  (try (f) nil
-       (catch e (:path (ex-data e)))))
-
-(deftest validate-single-test-file-happy-lg
-  (let [scratch (mktemp! "happy-lg")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        file (path/join test-dir "foo_test.lg")
-        _ (spit file "(ns foo-test)")]
-    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
-    (delete-file file)))
-
-(deftest validate-single-test-file-happy-cljc
-  (let [scratch (mktemp! "happy-cljc")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        file (path/join test-dir "foo_test.cljc")
-        _ (spit file "(ns foo-test)")]
-    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
-    (delete-file file)))
-
-(deftest validate-single-test-file-happy-clj
-  (let [scratch (mktemp! "happy-clj")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        file (path/join test-dir "foo_test.clj")
-        _ (spit file "(ns foo-test)")]
-    (is (= file (tr/validate-single-test-file! test-dir file scratch)))
-    (delete-file file)))
-
-(deftest validate-single-test-file-relative-path-resolves-against-project-root
-  (let [scratch (mktemp! "relative")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        abs-file (path/join test-dir "foo_test.lg")
-        _ (spit abs-file "(ns foo-test)")
-        rel (path/join "test" "foo_test.lg")]
-    (is (= abs-file (tr/validate-single-test-file! test-dir rel scratch)))
-    (delete-file abs-file)))
-
-(deftest validate-single-test-file-not-found
-  (let [scratch (mktemp! "nf")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        user-path (path/join "test" "nope.lg")]
-    (is (= :not-found
-           (caught-reason #(tr/validate-single-test-file!
-                            test-dir user-path scratch))))
-    (is (= user-path
-           (caught-path #(tr/validate-single-test-file!
-                          test-dir user-path scratch))))))
-
-(deftest validate-single-test-file-bad-extension
-  (let [scratch (mktemp! "ext")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        file (path/join test-dir "foo.txt")
-        _ (spit file "")
-        user-path (path/join "test" "foo.txt")]
-    (is (= :bad-extension
-           (caught-reason #(tr/validate-single-test-file!
-                            test-dir user-path scratch))))
-    (is (= user-path
-           (caught-path #(tr/validate-single-test-file!
-                          test-dir user-path scratch))))
-    (delete-file file)))
-
-(deftest validate-single-test-file-accepts-dot-segment
-  (let [scratch (mktemp! "dot")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        abs-file (path/join test-dir "foo_test.lg")
-        _ (spit abs-file "(ns foo-test)")
-        rel (str "." sep "test" sep "foo_test.lg")]
-    (is (= abs-file
-           (tr/validate-single-test-file! test-dir rel scratch)))
-    (delete-file abs-file)))
-
-(deftest validate-single-test-file-rejects-double-dot-escape
-  ;; test/../src/foo.lg normalizes to src/foo.lg → outside test-dir
-  (let [scratch (mktemp! "esc")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        src-dir (path/join scratch "src")
-        _ (mkdir src-dir)
-        escape-file (path/join src-dir "foo.lg")
-        _ (spit escape-file "(ns foo)")
-        rel (path/join "test" ".." "src" "foo.lg")]
-    (is (= :outside-test-dir
-           (caught-reason #(tr/validate-single-test-file!
-                            test-dir rel scratch))))
-    (delete-file escape-file)))
-
-(deftest validate-single-test-file-outside-test-dir
-  (let [scratch (mktemp! "outside")
-        test-dir (path/join scratch "test")
-        _ (mkdir test-dir)
-        other-dir (path/join scratch "src")
-        _ (mkdir other-dir)
-        file (path/join other-dir "foo.lg")
-        _ (spit file "(ns foo)")
-        user-path (path/join "src" "foo.lg")]
-    (is (= :outside-test-dir
-           (caught-reason #(tr/validate-single-test-file!
-                            test-dir user-path scratch))))
-    (is (= user-path
-           (caught-path #(tr/validate-single-test-file!
-                          test-dir user-path scratch))))
-    (delete-file file)))
-
-;; ---------------------------------------------------------------------------
-;; Swallowed load-error detection
-;; ---------------------------------------------------------------------------
-
-(def marker tr/harness-ready-marker)
-
-(deftest strip-ready-marker-removes-the-marker-line
-  (is (= "before\nafter\n"
-         (tr/strip-ready-marker (str "before\n" marker "\n" "after\n")))))
-
-(deftest strip-ready-marker-nil-safe
-  (is (nil? (tr/strip-ready-marker nil))))
-
-(deftest load-error-before-harness-true-when-load-fails-pre-marker
-  (is (true?
-       (tr/load-error-before-harness?
-        (str "error: failed to load /p/foo_test.lg: CompileError: boom\n"
-             marker "\n"
-             "test output\n")))))
-
-(deftest load-error-before-harness-detects-non-compile-load-failure
-  ;; A top-level form that throws during load is an ExecutionError, not a
-  ;; CompileError — still a real swallowed load failure.
-  (is (true?
-       (tr/load-error-before-harness?
-        (str "error: failed to load /p/foo_test.lg: ExecutionError: boom\n"
-             marker "\n")))))
-
-(deftest load-error-before-harness-detects-syntax-error
-  ;; A reader/syntax error has neither CompileError nor ExecutionError in
-  ;; the line, but still names the source file — must count.
-  (is (true?
-       (tr/load-error-before-harness?
-        (str "error: failed to load /p/foo_test.lg: "
-             "Syntax error reading source at (/p/foo_test.lg:2:10).\n"
-             marker "\n")))))
-
-(deftest load-error-before-harness-detects-unwrapped-reader-error
-  ;; lg 1.12 swallows a reader failure but reports it without the
-  ;; "failed to load" wrapper — still a silent load failure.
-  (is (true?
-       (tr/load-error-before-harness?
-        (str "error: Syntax error reading source at (/p/foo_test.lg:4:10).\n"
-             marker "\n"))))
-  ;; ...and it still has to name a source file.
-  (is (false?
-       (tr/load-error-before-harness?
-        (str "error: Syntax error reading source at (repl:1:1).\n"
-             marker "\n")))))
-
-(deftest load-error-before-harness-false-when-marker-only-after
-  ;; Even a perfectly-shaped diagnostic emitted AFTER the marker (i.e. by a
-  ;; test during execution) must NOT count — the phase boundary excludes it.
-  (is (false?
-       (tr/load-error-before-harness?
-        (str marker "\n"
-             "error: failed to load /x/foo_test.lg: CompileError: boom\n")))))
-
-(deftest load-error-before-harness-ignores-lookalike-load-stderr
-  ;; A top-level form during load (before the marker) prints a phrase that
-  ;; starts like lg's diagnostic but names no source file. Not a real load
-  ;; failure -> must not count.
-  (is (false?
-       (tr/load-error-before-harness?
-        (str "error: failed to load my config, using defaults\n"
-             marker "\n"
-             "ok\n")))))
-
-(deftest load-error-before-harness-false-on-clean-stderr
-  (is (false? (tr/load-error-before-harness?
-               (str marker "\n" "all good\n")))))
-
-(deftest load-error-before-harness-nil-safe
-  (is (false? (tr/load-error-before-harness? nil)))
-  (is (false? (tr/load-error-before-harness? ""))))
-
-;; ---------------------------------------------------------------------------
-;; harness-ready? — the version-independent load-failure signal. From lg 1.12
-;; a test file's compile error throws instead of being swallowed, so the
-;; harness never reaches its first body form and never emits the marker.
-;; ---------------------------------------------------------------------------
-
-(deftest harness-ready-true-when-marker-present
-  (is (true? (tr/harness-ready? (str marker "\n"))))
-  (is (true? (tr/harness-ready? (str "some load noise\n" marker "\ntest stderr\n")))))
-
-(deftest harness-ready-false-when-marker-absent
-  ;; lg >= 1.12 throwing on a broken require: the harness body never ran.
-  (is (false? (tr/harness-ready?
-               (str "error: CompileError: Can't resolve nope in this context\n"
-                    "stack trace:\n  at require (harness.lg:1:1)\n")))))
-
-(deftest harness-ready-false-on-empty-or-nil
-  (is (false? (tr/harness-ready? nil)))
-  (is (false? (tr/harness-ready? ""))))
-
-(deftest write-harness-uses-versioned-stable-path
-  (let [home (str "/tmp/lgx-harness-test-" (rand-int 100000000))
-        version "0.1.0-test"
-        expected (path/join home "test-runner" (str "lgx-test-" version ".lg"))
-        _ (os/setenv "LGX_HOME" home)
-        p1 (tr/write-harness! [["test/foo_test.lg" 'foo-test]] version)
-        src1 (slurp p1)
-        p2 (tr/write-harness! [] version)
-        src2 (slurp p2)]
-    (is (= p1 p2))
-    (is (= expected p1))
-    (is (not (= src1 src2)))
-    (delete-file p2)))
+(deftest harness-dir-is-per-version
+  (is (str/ends-with? (tr/harness-dir "9.9.9") "lgx-test-9.9.9")))
