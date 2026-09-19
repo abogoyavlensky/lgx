@@ -46,16 +46,11 @@ component migrates on start, so `lgx run` prints `Applying ...` the first
 time and nothing after. `test/app/migrations_test.lg` walks the history up
 and down against a throwaway file.
 
-Two let-go accommodations, both temporary:
-
-- `src/Thread.lg` stands in for `java.lang.Thread/currentThread`, which
-  `ragtime.core/migrate-all` polls for interruption; let-go has no such
-  static yet ([docs/issues/ragtime-letgo-compat.md](../../docs/issues/ragtime-letgo-compat.md)).
-  It has to load before `ragtime.core`, hence the explicit `require`s
-  after the `ns` form in `app.migrations`.
-- The strategy is `apply-new` rather than ragtime's default `raise-error`,
-  whose conflict detection trips over the `[x & coll]` destructuring bug
-  the pinned let-go still has.
+ragtime's core runs unmodified: the `Thread/currentThread` poll in
+`migrate-all`, the `%n` in its reporter and the `[x & coll]` destructuring
+its conflict strategies rely on all work on the pinned let-go
+([docs/issues/ragtime-letgo-compat.md](../../docs/issues/ragtime-letgo-compat.md)),
+so the example uses ragtime's default `raise-error` strategy.
 
 ## Layout
 
@@ -85,5 +80,8 @@ The pin in `lgx.edn` is a sha on let-go `main` rather than a release:
 the stoppable server (`http/start`, `http/stop`, `http/wait`), the
 `:headers {}` fix and the `[x & more]` destructuring fix that lets
 integrant handle a three-component chain landed in
-[nooga/let-go#898](https://github.com/nooga/let-go/pull/898) and are not
-in a tagged release yet. Move the pin to a tag once one includes it.
+[nooga/let-go#898](https://github.com/nooga/let-go/pull/898), and
+`Thread/currentThread` plus `format`'s `%n` (what ragtime's core needs)
+in [nooga/let-go#901](https://github.com/nooga/let-go/pull/901). None of
+that is in a tagged release yet. Move the pin to a tag once one includes
+it.

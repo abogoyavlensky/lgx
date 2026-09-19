@@ -2,7 +2,7 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** draft (gaps found; the example carries a shim meanwhile)
+**Status:** resolved — G0 in [nooga/let-go#898](https://github.com/nooga/let-go/pull/898), G1 and G2 in [nooga/let-go#901](https://github.com/nooga/let-go/pull/901) (main at `045d9fb`); `examples/web-app` runs ragtime's core unmodified with the default `raise-error` strategy
 
 ## Summary
 
