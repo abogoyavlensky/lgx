@@ -103,14 +103,14 @@ Not honored, same as today: `test-ns-hook`. Not needed: `*test-out*` (nothing is
 - Modify: `lgx.lg`
 - Test: `test/lgx/test_runner_test.lg`
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
   `test/lgx/test_runner_test.lg` already has four `harness-source-*` tests (from line 134) that call `tr/harness-source` and inspect one string. Migrate them to `tr/harness-sources`: bind `src` to `(get (tr/harness-sources entries) "harness.lg")`; keep the parses?/ordering assertions; replace the `[test :refer` assertion (the entry no longer refers `test`) with `(resolve 'test/test-ns)`. Then add: the map has exactly the four keys `"harness.lg"`, `"lgx/test_harness/ui.lg"`, `"lgx/test_harness/legacy.lg"`, `"lgx/test_harness/report.lg"`; every source `parses?`; the entry does **not** contain `*registered-tests*`; the legacy source contains `*registered-tests*` and `(defn run!`; the report source contains `(defn run!` (the `test/report` assertion is added in Task 2, when the stub becomes real); `harness-dir` ends with `lgx-test-<version>`.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
   Run: `cd ~/Projects/lgx && make build >/dev/null && bin/lgx test test/lgx/test_runner_test.lg; echo "exit $?"`
   Expected: exit 1 — the new fns do not exist (a load failure or `Can't resolve harness-sources`).
 
-- [ ] **Step 3: Restructure `lgx/test_runner.lg`**
+- [x] **Step 3: Restructure `lgx/test_runner.lg`**
   Keep `harness-prefix`/`harness-suffix` semantics for the directory name (`lgx-test-<version>`, no `.lg`). Build four source strings:
   - `ui.lg`: ns `lgx.test-harness.ui` requiring `[string :as str]`; move `color`, `green`, `red`, `nonblank-lines`, `var-name` here, plus `print-file` (prints the display file), `print-mark` (`"  " mark " " name`), `print-context` (`"    " ctx`), `print-detail` (`"    " line`), all public.
   - `legacy.lg`: ns `lgx.test-harness.legacy` with `(:require [test :refer [*registered-tests* *report-counters* *each-fixtures*]] [lgx.test-harness.ui :as ui] [string :as str])`. Move the current per-entry loop into `(defn run! [plan] ...)` returning `*report-counters*` at the end (the `:test` counter is incremented here as today). Keep the `testing-line?`/`pass-line?`/`color-fail-token`/`print-testing-line`/`print-detail-line` helpers here — they parse the legacy output and belong to this variant. Drop the `set! *test-result*` (dead).
@@ -130,48 +130,54 @@ Not honored, same as today: `test-ns-hook`. Not needed: `*test-out*` (nothing is
     then the existing summary/exit block reading `counters` instead of `*report-counters*`.
   `harness-sources` returns `{"harness.lg" ... "lgx/test_harness/ui.lg" ... "lgx/test_harness/legacy.lg" ... "lgx/test_harness/report.lg" ...}`. `harness-dir [version]` = `(path/join (home/test-runner-dir) (str harness-prefix version))`. `write-harness! [entries version]` mkdirs `<dir>/lgx/test_harness`, spits each file, returns `{:dir dir :entry (path/join dir "harness.lg")}`. Update the docstrings that describe "a single .lg file".
 
-- [ ] **Step 4: Wire `cmd-test`**
+- [x] **Step 4: Wire `cmd-test`**
   In `lgx.lg` `cmd-test`: `{:keys [dir entry]} (test-runner/write-harness! entries version)`; `source-paths (vec (concat paths [test-dir dir]))`; run `[entry]`; the verbose line prints `entry`.
 
-- [ ] **Step 5: Unit tests pass; the old-shape suite is unchanged**
+- [x] **Step 5: Unit tests pass; the old-shape suite is unchanged**
   Run: `cd ~/Projects/lgx && make test; echo "exit $?"`
   Expected: exit 0; `All 380 e2e assertions passed.` (or more, never fewer) and `All tests passed.`. This exercises the legacy variant through every existing `lgx test` scenario under lg 1.12.2.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   `git add -A lgx lgx.lg test && git commit -m "test runner: split the harness into an entry and per-let-go variants"`
+
+> Deviation (Task 1): the e2e verbose-path assertion (`tests/e2e.sh:1016`) pinned the old single-file harness path; updated to `lgx-test-<version>/harness.lg`. Codex caught that the test-file rewrite had dropped every section after the harness tests (validate-single-test-file!, marker/load-error helpers, write-harness); restored in fixup `17f0d4c`, with `write-harness-uses-versioned-stable-path` migrated to the `{:dir :entry}` return.
 
 ### Task 2: The clojure.test path
 
 **Files:**
 - Modify: `lgx/test_runner.lg` (the `report.lg` source)
 
-- [ ] **Step 1: Build a new-shape lg for local runs**
+- [x] **Step 1: Build a new-shape lg for local runs**
   Run: `cd ~/Projects/let-go && git log --oneline -1 && go build -o bin/lg . && bin/lg -e "(println (some? (resolve 'test/test-ns)))"`
   Expected: HEAD is `045d9fb` (or newer on main); prints `true`.
 
-- [ ] **Step 2: Reproduce the failure on a scratch project**
+- [x] **Step 2: Reproduce the failure on a scratch project**
   Run `cd ~/Projects/lgx && make build >/dev/null` first — `bin/lgx` is a bundle and does not see source edits until rebuilt; repeat this before every `bin/lgx` run in this task. Create `/tmp/ct-proj` with `lgx.edn` `{}` and `test/foo_test.lg` containing: `pass-1` with a `testing "first assertion passes"` around `(is (= 1 1))`; `fail-1` with `testing "failing assertion is explained"` around `(is (= 1 2) "with msg")`; `boom` that throws `(ex-info "kaboom" {})`; and `(use-fixtures :each (fn [f] (println "each") (f)))`, `(use-fixtures :once (fn [f] (println "once") (f)))`.
   Run: `cd /tmp/ct-proj && LGX_HOME=$(mktemp -d) LGX_LG=~/Projects/let-go/bin/lg ~/Projects/lgx/bin/lgx test; echo "exit $?"`
   Expected: exit 1 with the stub's `clojure.test path not implemented` error (Task 1 dispatch chose `report`).
 
-- [ ] **Step 3: Implement `report.lg`**
+- [x] **Step 3: Implement `report.lg`**
   Per the Design section "The new path": ns `lgx.test-harness.report` requiring `[test] [lgx.test-harness.ui :as ui] [string :as str]`. Functions: `test-vars-of [ns-sym]` (sorted, `:test` meta only), `fixtures-of [ns-sym]` → `{:once f :each f}` via `test/join-fixtures` over `:test/once-fixtures` / `:test/each-fixtures` of the ns meta, `collect! [events m]` (records `:pass`/`:fail`/`:error` with `:contexts (test/testing-contexts-str)`), `run-var! [v]` → `{:events [...] :out "..."}` under `(binding [test/report ... test/*report-counters* (ref test/*initial-report-counters*)] (with-out-str (test/test-var v)))`, `render! [v {:keys [events out]}]` printing the mark, the distinct contexts, and — on failure — the `FAIL`/`ERROR` lines, `actual:`, and the captured stdout, then `run! [plan]` doing `in-ns`/restore per entry and summing counters. The `FAIL` token goes through `ui/red` exactly as legacy's `color-fail-token` does: `(str (ui/red "FAIL") " " (pr-str expected) (when message (str " - " message)))`.
 
-- [ ] **Step 4: Verify on the scratch project**
+- [x] **Step 4: Verify on the scratch project**
   Run: `cd ~/Projects/lgx && make build >/dev/null`, then the Step 2 `lgx test` command again. Add to the unit tests that the report source contains `test/report`, and confirm `bin/lgx test test/lgx/test_runner_test.lg` passes.
   Expected: exit 1; output shows `once` once (uncaptured, before the rows), `test/foo_test.lg`, `✓ pass-1` with `    first assertion passes` under it, `✗ fail-1` with `    failing assertion is explained`, a red `FAIL (= 1 2) - with msg` line and `      actual: (not (= 1 2))`, `✗ boom` with `    ERROR: ` naming `kaboom`; `each` appears exactly twice — once in each failing test's captured-stdout detail, never under `pass-1`; and the red summary `3 tests, 2 assertions, 2 failures` then `FAIL`.
   Then remove `boom` and `fail-1` and rerun: exit 0, green `1 tests, 1 assertions, 0 failures`, `OK`.
 
-- [ ] **Step 5: Verify the legacy path is untouched**
+- [x] **Step 5: Verify the legacy path is untouched**
   Run: `cd /tmp/ct-proj && LGX_HOME=$(mktemp -d) ~/Projects/lgx/bin/lgx test; echo "exit $?"` (PATH/mise lg 1.12.2)
   Expected: exit 0, same rows and summary as Step 4's second run (no `actual:` line — legacy has none).
 
-- [ ] **Step 6: Integration on web-app**
+- [x] **Step 6: Integration on web-app**
   Run: `cd ~/Projects/lgx && git stash list >/dev/null; git worktree add -f /tmp/wa-ragtime web-app-ragtime >/dev/null 2>&1 || true; cd /tmp/wa-ragtime/examples/web-app && ~/Projects/lgx/bin/lgx test > /tmp/wa-ct.log 2>&1; echo "exit $?"; grep -v "^WARNING\|^reflection" /tmp/wa-ct.log | tail -12`
   Expected: exit 0; three file headers (`test/app/migrations_test.lg`, `routes_test.lg`, `system_test.lg`), all ✓, a green summary with 0 failures, `OK`. (The worktree is read-only use; remove it after: `git -C ~/Projects/lgx worktree remove --force /tmp/wa-ragtime`.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git add -A lgx && git commit -m "test runner: run tests through let-go's clojure.test contract when present"`
+
+> Deviation (Task 2): the variants' entry point is `run-plan!`, not `run!` — on the new let-go a `defn run!` prints `WARNING: run! already refers to: #'clojure.core/run!` to the user's stderr on every `lgx test`. Contract otherwise as designed. Integration: web-app on `web-app-ragtime` → 7 tests, 36 assertions, 0 failures on `045d9fb`.
+
+> Deviation (Task 2, post-review): Codex found that an `is` inside a `:once` fixture ran outside any collector and never counted (P1), and asked for `test-ns-hook` (P2, which the plan had scoped out). Fixup `46958b9`: an ns-level collector spans the whole namespace run (per-var collectors shadow it); stray fail/error events print as a `✗ fixtures` row and count; a namespace with `test-ns-hook` runs the hook as one `test-ns-hook` row instead of the vars, matching `test/test-ns`. The design's "Not honored: test-ns-hook" no longer applies.
 
 ### Task 3: e2e coverage for the new path
 
@@ -179,10 +185,10 @@ Not honored, same as today: `test-ns-hook`. Not needed: `*test-out*` (nothing is
 - Modify: `tests/e2e.sh`
 - Modify: `tests/run.sh`
 
-- [ ] **Step 1: Helper and gate**
+- [x] **Step 1: Helper and gate**
   In `tests/e2e.sh` next to `supports_source_paths`, add `supports_clojure_test` that returns 0 when `LGX_LG_NEW` is set, executable, and `"$LGX_LG_NEW" -e "(println (some? (resolve 'test/test-ns)))"` prints `true`. In `tests/run.sh`, after the `LGX_LG` block: `export LGX_LG_NEW="${LGX_LG_NEW:-}"` and, when empty, `echo "note: LGX_LG_NEW unset - clojure.test-path scenarios will be skipped"`.
 
-- [ ] **Step 2: Scenarios**
+- [x] **Step 2: Scenarios**
   Append a section `# Scenarios 127-131: lgx test on let-go's clojure.test port (LGX_LG_NEW)` (126 is the current last), each guarded by `if supports_clojure_test; then ... else skip "..."; fi` and running lgx with `LGX_LG="$LGX_LG_NEW"`:
   - 127 happy path: the same project and assertions as scenario 39 (header, rows, context line, `PASS (= 1 1)` absent, green `2 tests, 2 assertions, 0 failures`, ≥2 ✓).
   - 128 failure path: as scenario 40 (exit 1, context line, red `FAIL (= 1 2)`, red `2 tests, 2 assertions, 1 failures`, a ✗) plus `assert_contains "$out" "actual: (not (= 1 2))"`.
@@ -190,12 +196,14 @@ Not honored, same as today: `test-ns-hook`. Not needed: `*test-out*` (nothing is
   - 130 fixtures and their order: `:once` and `:each` fixtures that append `once-before`/`each-before` … `each-after`/`once-after` lines to a file (`$proj/order.log`, path passed via an env var read with `os/getenv`), two passing deftests and one failing that prints nothing itself; exit 1; `once` appears once in the file, the file's line sequence is `once-before each-before each-after each-before each-after each-before each-after once-after` (compare with `paste -sd' '`), and the failing test's detail contains no `each` line (the fixture printed nothing to stdout).
   - 131 load failure: the scenario 68 project (an `ok_test.lg` and a `broken_test.lg` referencing `totally-undefined-symbol`), asserting exactly what 68 asserts — non-zero exit, `broken_test.lg` and `totally-undefined-symbol` in the output, `failed to load`, and `pass-1` still ran. (The `lgx: a test file failed to load` line is the pre-marker case only; from lg 1.12 the harness catches the throw itself.)
 
-- [ ] **Step 3: Run both shapes**
+- [x] **Step 3: Run both shapes**
   Run: `cd ~/Projects/lgx && LGX_LG_NEW=~/Projects/let-go/bin/lg make test; echo "exit $?"`
   Expected: exit 0; the e2e assertion count rose by the new scenarios' assertions; no `skip` for scenarios 127–131. Then `make test` without `LGX_LG_NEW`: exit 0 and five `skip` lines for 127–131.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git add tests && git commit -m "e2e: cover lgx test on let-go's clojure.test port under LGX_LG_NEW"`
+
+> Deviation (Task 3): seven scenarios (127–133) instead of five — the two post-review cases from Task 2 (a failing assertion inside a `:once` fixture; `test-ns-hook`) are pinned too. `supports_clojure_test` reads the first line of `lg -e` output (`-e` also prints the form's value). The order-log fixture accumulates in an atom and writes from the once-teardown: let-go's `spit` has no `:append`. Two ✗-row greps use `-F` because the ANSI `[0m` reads as a bracket expression. With `LGX_LG_NEW`: 419 e2e assertions; without: 380 and seven skips.
 
 ### Task 4: Docs
 
@@ -203,18 +211,18 @@ Not honored, same as today: `test-ns-hook`. Not needed: `*test-out*` (nothing is
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `docs/knowledge-base/let-go-gotchas.md`
 
-- [ ] **Step 1: ARCHITECTURE `lgx test` steps 7–8**
+- [x] **Step 1: ARCHITECTURE `lgx test` steps 7–8**
   Rewrite step 7: the harness is a directory `$LGX_HOME/test-runner/lgx-test-<version>/` with an entry script and `lgx/test_harness/{ui,legacy,report}.lg`; the entry loads the plan, writes the ready marker, then requires one variant at run time — `report` when `test/test-ns` resolves (let-go ≥ #863: `test/test-var` per var under `binding [test/report ...]`, fixtures from ns metadata, counts from events, vars in name order), else `legacy` (`*registered-tests*`, parsed `PASS`/`FAIL` lines) — and prints the summary from the `{:test :pass :fail :error}` map `run!` returns. Step 8: the harness directory is appended to `-source-paths` after `test/`. Keep the marker/load-failure text as is.
 
-- [ ] **Step 2: let-go gotcha**
+- [x] **Step 2: let-go gotcha**
   Add an entry: let-go compiles every top-level form, so a branch that is never taken still fails on a symbol the running let-go lacks (`ns-interns` on 1.12.2); version-dependent code goes in separate namespaces chosen with `(resolve 'the/marker)` and loaded by runtime `require`, called through `(var-get (resolve 'ns/fn))`. Point at `lgx/test_runner.lg`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git add docs && git commit -m "docs: describe the two-variant test harness and the dead-branch gotcha"`
 
 ### Task 5: Full verification and hand-back
 
-- [ ] **Step 1: Full suite, both shapes**
+- [x] **Step 1: Full suite, both shapes**
   Run: `cd ~/Projects/lgx && LGX_LG_NEW=~/Projects/let-go/bin/lg make test; echo "exit $?"` — Expected: exit 0.
   Run: `bin/lgx --verbose test 2>&1 | grep "test runner:"` — Expected: the entry path ends in `lgx-test-<version>/harness.lg`.
 
