@@ -21,9 +21,9 @@ await call("greet", "world");   // => "Hello, world!"
 
 ## Prerequisites
 
-Wails is a `:go/*` dep, so it needs a let-go carrying the merged interop work.
-The newest release predates it, so `lgx.edn` pins `:lg-version` to a commit on
-`main` - no let-go checkout required. See
+Wails is a `:go/*` dep, so it needs a let-go carrying the interop work:
+`lgx.edn` pins `:lg-version "1.13.0"`, the first release with it - no let-go
+checkout required. See
 [`docs/knowledge-base/lgx-go-wrappers.md`](../../docs/knowledge-base/lgx-go-wrappers.md).
 
 ## Running it

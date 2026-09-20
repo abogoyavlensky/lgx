@@ -3,8 +3,10 @@
 A small todo app: a JSON API over sqlite with a one-page
 [Alpine.js](https://alpinejs.dev) UI on top. [HoneySQL](https://github.com/seancorfield/honeysql)
 builds the queries, [integrant](https://github.com/weavejester/integrant)
-wires the database connection, the handler and the http server, and
-[ruuter](https://git.nmm.ee/asko/ruuter) routes requests. The sqlite driver
+wires the database connection, the handler and the http server,
+[ruuter](https://git.nmm.ee/asko/ruuter) routes requests, and
+[ragtime](https://github.com/weavejester/ragtime) runs the schema
+migrations. The sqlite driver
 is a Go package, so the project sets `:lg-runtime :built` and lgx builds
 the `lg` it runs on (needs the Go toolchain on `PATH`; the first run takes
 a minute, every run after that is a cache hit).
@@ -33,10 +35,28 @@ with the driver linked in and `resources/` embedded, so the UI ships
 inside it. `lgx info` shows the runtime decision and every Go dep the
 sqlite package pulls in.
 
+## Migrations
+
+`src/app/migrations.lg` holds the schema history as a vector of ragtime
+migrations whose up and down steps are HoneySQL DDL maps. Only ragtime's
+database-independent `core` module is used (`:deps/root "core/src"`); its
+`DataStore` protocol is implemented over `sqlite.core` in about ten lines,
+with a `ragtime_migrations` table for the applied ids. The `::conn`
+component migrates on start, so `lgx run` prints `Applying ...` the first
+time and nothing after. `test/app/migrations_test.lg` walks the history up
+and down against a throwaway file.
+
+ragtime's core runs unmodified: the `Thread/currentThread` poll in
+`migrate-all`, the `%n` in its reporter and the `[x & coll]` destructuring
+its conflict strategies rely on all work on the pinned let-go
+([docs/issues/ragtime-letgo-compat.md](../../docs/issues/ragtime-letgo-compat.md)),
+so the example uses ragtime's default `raise-error` strategy.
+
 ## Layout
 
 ```
-src/app/db.lg       ::conn component (open + schema), HoneySQL queries
+src/app/migrations.lg  ragtime DataStore over sqlite.core, the migration history
+src/app/db.lg       ::conn component (open + migrate), HoneySQL queries
 src/app/routes.lg   ::handler component: the JSON API plus / and /static/:file
 resources/public/   index.html (Alpine over the API) and alpine.min.js
 src/app/server.lg   ::http component: http/start on init, http/stop on halt
@@ -44,6 +64,7 @@ src/app/system.lg   the integrant config, start!/stop!
 main.lg             starts the system and http/wait-s on the server
 test/app/routes_test.lg   the handler over a temp db, no server
 test/app/system_test.lg   the full system on 127.0.0.1:0, over http
+test/app/migrations_test.lg   the history up and down over a temp db
 ```
 
 The three components form a chain (`server -> handler -> db`), so
@@ -55,9 +76,12 @@ landed.
 
 ## let-go version
 
-The pin in `lgx.edn` is a sha on let-go `main` rather than a release:
-the stoppable server (`http/start`, `http/stop`, `http/wait`), the
-`:headers {}` fix and the `[x & more]` destructuring fix that lets
-integrant handle a three-component chain landed in
-[nooga/let-go#898](https://github.com/nooga/let-go/pull/898) and are not
-in a tagged release yet. Move the pin to a tag once one includes it.
+`lgx.edn` pins let-go `1.13.0`, the first release with everything this
+example leans on: the stoppable server (`http/start`, `http/stop`,
+`http/wait`), the `:headers {}` fix and the `[x & more]` destructuring fix
+that lets integrant handle a three-component chain
+([nooga/let-go#898](https://github.com/nooga/let-go/pull/898)), and
+`Thread/currentThread` plus `format`'s `%n`, which ragtime's core needs
+([nooga/let-go#901](https://github.com/nooga/let-go/pull/901)). Under
+`:lg-runtime :built` the release is fetched through the Go module proxy, so
+no let-go checkout is involved.

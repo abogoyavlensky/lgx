@@ -5,11 +5,11 @@
 
  ;; The sqlite driver is a Go package, so this project runs on an lg that
  ;; lgx builds from :lg-version with the Go toolchain (see `lgx info`).
- ;; The pin is a sha on main: the :go/* interop and the stoppable http
- ;; server (http/start, http/stop, http/wait; nooga/let-go#898) are not
- ;; in a tagged release yet.
+ ;; let-go 1.13.0 is the first release with the :go/* interop, the
+ ;; stoppable http server (nooga/let-go#898) and the Thread/currentThread +
+ ;; format %n support ragtime needs (nooga/let-go#901).
  :lg-runtime :built
- :lg-version "ebd758a6e2c5868fe40f753bc27ff43a4b7410a7"
+ :lg-version "1.13.0"
 
  :targets {:bin {:out "bin/web-app"}}
 
@@ -17,7 +17,7 @@
         ;; modernc.org/sqlite driver in transitively.
         abogoyavlensky/letgo-sqlite
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/sha "690ecc28a56c612ede7355dab205ed934892c063"
+         :git/tag "sqlite-v0.1.0"
          :deps/root "sqlite"}
 
         ;; SQL as data: (sql/format {...}) -> [sql & params], which is the
@@ -39,4 +39,12 @@
         ;; Routing.
         askonomm/ruuter
         {:git/url "https://git.nmm.ee/asko/ruuter"
-         :git/tag "v2.1.1"}}}
+         :git/tag "v2.1.1"}
+
+        ;; Migrations: ragtime's database-independent core only (protocols,
+        ;; strategies, migrate/rollback). The JDBC modules stay out; the
+        ;; DataStore is implemented over sqlite.core in app.migrations.
+        dev.weavejester/ragtime
+        {:git/url "https://github.com/weavejester/ragtime"
+         :git/tag "0.12.1"
+         :deps/root "core/src"}}}

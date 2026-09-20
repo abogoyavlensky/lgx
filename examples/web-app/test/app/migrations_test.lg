@@ -1,0 +1,54 @@
+(ns app.migrations-test
+  (:require [app.migrations :as migrations]
+            [clojure.test :refer [deftest is]]
+            [ragtime.protocols :as p]
+            [sqlite.core :as sqlite]))
+
+;; The migration history against a throwaway sqlite file: up, up again (a
+;; no-op), then down step by step, checking what sqlite itself reports.
+
+(defn- with-conn [f]
+  (let [path (str "/tmp/lgx-web-app-migrations-" (rand-int 100000000) ".db")
+        conn (sqlite/open path)]
+    (try
+      (f conn)
+      (finally
+        (sqlite/close! conn)
+        (os/sh "rm" "-f" path)))))
+
+(defn- objects
+  "Names of the user-created objects of `type`; sqlite's own (the unique
+   index it keeps for ragtime_migrations.id) are left out."
+  [conn type]
+  (mapv :name (sqlite/query conn ["select name from sqlite_master
+                                   where type = ? and name not like 'sqlite_%'
+                                   order by name" type])))
+
+(defn- applied [conn]
+  (p/applied-migration-ids (migrations/store conn)))
+
+(deftest migrate-up-and-down
+  (with-conn
+    (fn [conn]
+      (is (= [] (applied conn)))
+      (migrations/migrate! conn)
+      (is (= ["001-create-todos" "002-index-todos-done"] (applied conn)))
+      (is (= ["ragtime_migrations" "todos"] (objects conn "table")))
+      (is (= ["todos_done_idx"] (objects conn "index")))
+      ;; A second run finds nothing new.
+      (migrations/migrate! conn)
+      (is (= ["001-create-todos" "002-index-todos-done"] (applied conn)))
+      (migrations/rollback! conn)
+      (is (= ["001-create-todos"] (applied conn)))
+      (is (= [] (objects conn "index")))
+      (migrations/rollback! conn)
+      (is (= [] (applied conn)))
+      (is (= ["ragtime_migrations"] (objects conn "table"))))))
+
+(deftest rollback-several
+  (with-conn
+    (fn [conn]
+      (migrations/migrate! conn)
+      (migrations/rollback! conn 2)
+      (is (= [] (applied conn)))
+      (is (= ["ragtime_migrations"] (objects conn "table"))))))

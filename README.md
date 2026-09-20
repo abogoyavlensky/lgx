@@ -281,7 +281,7 @@ key's rules in detail.
  ; is the ref let-go is built at: a version, a sha, or a branch. lgx does not
  ; install lg itself. If `LGX_FETCH_LET_GO_SOURCE=1` env var set, `lgx install`
  ; fetches the matching let-go source for editor navigation.
- :lg-version "1.11.0"
+ :lg-version "1.13.0"
 
  ; Git or local deps. A dep's own :deps are resolved too (first-wins).
  :deps
@@ -409,7 +409,7 @@ output included.
 
 ```clojure
 {:lg-runtime :built
- :lg-version "1.11.1"
+ :lg-version "1.13.0"
  :deps {database/sql        {:go/interop "sql"}       ; stdlib, bindings only
         modernc.org/sqlite  {:go/version "v1.57.0"}   ; linked, no bindings
         github.com/you/shim {:go/local "shim"}}}      ; a module on disk
