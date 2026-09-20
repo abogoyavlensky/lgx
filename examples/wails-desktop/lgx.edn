@@ -1,6 +1,6 @@
 {:paths []
  :main "main.lg"
- :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"
+ :lg-version "1.13.0"
  :lg-runtime :built
  :targets {:bin {:out "bin/app"}}
 

@@ -7,16 +7,17 @@ steps - see [`lgx-go-runtimes.md`](./lgx-go-runtimes.md).
 
 ## Which let-go you need
 
-**Not a release, yet.** The `:go/*` stack needs `pkg/cli` and the boxing work
-([#773], [#776], [#778]); the newest release, `v1.12.2` from July, predates all
-of it. Pin a commit instead - `:lg-version` is passed to `go get`, so a full
-sha or a branch name works exactly like a semver. Either needs
-`:lg-runtime :built`; the default `:installed` mode accepts only a
-released version:
+**let-go 1.13.0 or newer.** The `:go/*` stack needs `pkg/cli` and the boxing
+work ([#773], [#776], [#778]); `v1.13.0` is the first release carrying them.
+Any Go dep needs `:lg-runtime :built` (the default `:installed` mode never
+links Go code), and `:lg-version` is passed to `go get`, so a full sha or a
+branch name works exactly like a semver when you need something unreleased:
 
 ```clojure
 {:lg-runtime :built
- :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"}   ; reproducible
+ :lg-version "1.13.0"}                                      ; a release
+{:lg-runtime :built
+ :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"}   ; a commit
 {:lg-runtime :built
  :lg-version "main"}                                        ; tracks tip
 ```
@@ -42,7 +43,7 @@ with `:deps/root`:
 
 ```clojure
 {:lg-runtime :built
- :lg-version "f26eb497299760e93ce430302f13ab3a954eab64"
+ :lg-version "1.13.0"
  :deps {abogoyavlensky/letgo-sqlite
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
          :git/tag "sqlite-v0.1.0"

@@ -76,12 +76,12 @@ landed.
 
 ## let-go version
 
-The pin in `lgx.edn` is a sha on let-go `main` rather than a release:
-the stoppable server (`http/start`, `http/stop`, `http/wait`), the
-`:headers {}` fix and the `[x & more]` destructuring fix that lets
-integrant handle a three-component chain landed in
-[nooga/let-go#898](https://github.com/nooga/let-go/pull/898), and
-`Thread/currentThread` plus `format`'s `%n` (what ragtime's core needs)
-in [nooga/let-go#901](https://github.com/nooga/let-go/pull/901). None of
-that is in a tagged release yet. Move the pin to a tag once one includes
-it.
+`lgx.edn` pins let-go `1.13.0`, the first release with everything this
+example leans on: the stoppable server (`http/start`, `http/stop`,
+`http/wait`), the `:headers {}` fix and the `[x & more]` destructuring fix
+that lets integrant handle a three-component chain
+([nooga/let-go#898](https://github.com/nooga/let-go/pull/898)), and
+`Thread/currentThread` plus `format`'s `%n`, which ragtime's core needs
+([nooga/let-go#901](https://github.com/nooga/let-go/pull/901)). Under
+`:lg-runtime :built` the release is fetched through the Go module proxy, so
+no let-go checkout is involved.
