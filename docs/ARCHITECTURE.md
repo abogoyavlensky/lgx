@@ -380,31 +380,51 @@ Steps 1–2 (project root, config load) match `install`. Then:
    with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
    This is the reverse of let-go's resolver rule
    ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
-7. Generate a one-shot harness `.lg` source string that `:require`s
-   every discovered ns plus `test`/`string`/`os`, embeds the discovered
-   `[file ns]` test plan, and iterates each file's entries in
-   `*registered-tests*`. Each `deftest` runs under `with-out-str` so
-   passing `PASS <form>` assertion chatter is suppressed while counters
-   still update. The harness prints the test file, a `✓`/`✗` line per
-   `deftest`, any `testing` context strings, and failure/error details
-   only for failing tests. The opening `Running tests in <header>...`
+7. Generate the harness: a directory
+   `$LGX_HOME/test-runner/lgx-test-<version>/` (overwriting the previous
+   one for the same lgx version) holding an entry script `harness.lg` and
+   three namespaces under `lgx/test_harness/` — `ui` (printing helpers),
+   `legacy` and `report` (the two run-phase variants). The entry embeds the
+   discovered `[file ns]` test plan, `require`s each test ns one at a time
+   inside a `try` (a file that fails to load costs one reported failure,
+   not the run), writes a `harness-ready` marker to stderr once the load
+   phase is over (this splits lg's captured stderr into pre-harness load
+   diagnostics and test-emitted output — see step 10), then picks the run
+   variant **at run time**: `report` when `test/test-ns` resolves, i.e.
+   let-go carries the clojure.test port (nooga/let-go#863), else `legacy`.
+   Each variant is its own namespace loaded by `require` because let-go
+   compiles every top-level form and the old lg rejects symbols it lacks
+   even in a branch never taken
+   ([`knowledge-base/let-go-gotchas.md`](knowledge-base/let-go-gotchas.md)).
+   Both expose `(run-plan! plan)` → `{:test :pass :fail :error}`:
+   - `legacy` iterates `*registered-tests*` (definition order), runs each
+     `deftest` under `with-out-str` with `*each-fixtures*`, and reads the
+     printed `Testing: `/`PASS `/`FAIL ` lines back.
+   - `report` runs each `:test`-tagged var (name order — the port keeps no
+     definition order) through `test/test-var` under `binding [test/report
+     …]`, collecting `:pass`/`:fail`/`:error` events instead of parsing
+     output; `:once`/`:each` fixtures come from the namespace metadata,
+     `:each` inside the per-var capture, `:once` around the namespace; an
+     assertion outside any var (a `:once` fixture) is reported as a
+     `fixtures` row and counted; a namespace defining `test-ns-hook` runs
+     the hook as one row instead of its vars, as `test/test-ns` would.
+     Failure detail adds an `actual:` line the legacy `is` never had.
+   Both print the test file, a `✓`/`✗` line per `deftest`, any `testing`
+   context strings, and failure/error details only for failing tests; the
+   entry prints the `N tests, M assertions, K failures` summary and
+   `(os/exit (if failed? 1 0))`. The opening `Running tests in <header>...`
    banner is printed by lgx itself (green, on stderr — see
    [Output styling](#output-styling)), not the harness; walk-mode passes
    `test/`, single-file mode the entry's display path (e.g.
-   `test/foo_test.lg`). The harness ends with a `N tests, M assertions,
-   K failures` summary and
-   `(os/exit (if (zero? failures) 0 1))`. As its first body form (right
-   after the `:require` loads every test ns) it writes a `harness-ready`
-   marker to stderr; this splits lg's captured stderr into pre-harness
-   load diagnostics and test-emitted output (see step 10). Write it to
-   `$LGX_HOME/test-runner/lgx-test-<version>.lg`, overwriting the previous
-   harness for the same lgx version.
-8. Compute `-source-paths` as project paths + dep paths + the
-   absolute `test/` path (so test namespaces can `require` each other
-   and the harness can `require` them). Compute `-resource-paths` as the
-   project's resolved resource roots (project-only; the `test/` dir is *not*
-   added as a resource root).
-9. Run `lg -source-paths <X> -resource-paths <R> <harness-path>` and capture
+   `test/foo_test.lg`). Delete `legacy` and the dispatch once lgx's minimum
+   `lg` carries #863.
+8. Compute `-source-paths` as project paths + dep paths + the absolute
+   `test/` path (so test namespaces can `require` each other and the
+   harness can `require` them) + the harness directory, last (so nothing in
+   a project shadows the harness's own namespaces). Compute
+   `-resource-paths` as the project's resolved resource roots
+   (project-only; the `test/` dir is *not* added as a resource root).
+9. Run `lg -source-paths <X> -resource-paths <R> <harness-dir>/harness.lg` and capture
    its output.
    Normally the harness owns the `os/exit` and that exit code is passed
    through. But let-go's `require` swallows a test file's load failure —

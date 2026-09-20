@@ -38,6 +38,16 @@ supports_resource_paths() {
     "$lg_bin" -resource-paths "" -e '(println :ok)' >/dev/null 2>&1
 }
 
+# True when LGX_LG_NEW names an lg whose `test` namespace is the clojure.test
+# port (nooga/let-go#863) — the shape the harness's report variant runs on.
+# The PATH lg (1.12.2) predates it, so the scenarios that need it run under
+# LGX_LG_NEW and are skipped when the caller set none.
+supports_clojure_test() {
+    [[ -n "${LGX_LG_NEW:-}" && -x "${LGX_LG_NEW}" ]] || return 1
+    # -e prints the form's value after any output, so read the first line.
+    [[ "$("$LGX_LG_NEW" -e "(println (some? (resolve 'test/test-ns)))" 2>/dev/null | head -1)" == "true" ]]
+}
+
 assert_contains() {
     local haystack="$1"; local needle="$2"; local label="$3"
     if [[ "$haystack" != *"$needle"* ]]; then
@@ -1013,7 +1023,7 @@ EOF
     err="$(cd "$proj_t6" && LGX_HOME="$home_t6" "$LGX" --verbose test 2>&1 >/dev/null)"
     set -e
     version="$(awk -F '"' '/def[[:space:]]+version[[:space:]]+"/ { print $2; exit }' "$ROOT/lgx.lg")"
-    harness="$home_t6/test-runner/lgx-test-$version.lg"
+    harness="$home_t6/test-runner/lgx-test-$version/harness.lg"
     assert_contains "$err" "+ " "verbose test: trace line has + prefix"
     assert_contains "$err" "$harness" "verbose test: LGX_HOME harness path mentioned"
     assert_contains "$err" "-source-paths" "verbose test: trace includes -source-paths"
@@ -3262,6 +3272,269 @@ lg_line="$(printf '%s\n' "$out" | grep '^lg  ')"
 assert_contains "$lg_line" "unresolved" "info branch: runtime path is unresolved"
 assert_contains "$lg_line" "is a branch" "info branch: the reason is named"
 rm -rf "$proj_in" "$home_in"
+
+# ---------------------------------------------------------------------------
+# Scenarios 127-133: lgx test on let-go's clojure.test port (LGX_LG_NEW).
+# The harness picks its run-phase variant at run time; every scenario above
+# ran the legacy variant under lg 1.12.2. These rerun the pinned output
+# contract under an lg carrying nooga/let-go#863, where the report variant
+# runs, plus the cases only that variant has: fixtures from namespace
+# metadata, assertions outside a test var, and test-ns-hook.
+# ---------------------------------------------------------------------------
+echo "==> Scenario 127: clojure.test port: happy path"
+if supports_clojure_test; then
+    proj_ct1="$(mktemp -d)"
+    home_ct1="$(mktemp -d)"
+    echo '{}' > "$proj_ct1/lgx.edn"
+    mkdir -p "$proj_ct1/test"
+    cat > "$proj_ct1/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is testing]]))
+
+(deftest pass-1
+  (testing "first assertion passes"
+    (is (= 1 1))))
+
+(deftest pass-2
+  (is (= 2 2)))
+EOF
+    set +e
+    out="$(cd "$proj_ct1" && LGX_HOME="$home_ct1" LGX_LG="$LGX_LG_NEW" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "ct happy: expected exit 0, got $rc (output: $out)"
+    pass "ct happy: exits 0"
+    assert_contains "$out" "test/foo_test.lg" "ct happy: file header printed"
+    assert_contains "$out" "pass-1" "ct happy: pass-1 row printed"
+    assert_contains "$out" "pass-2" "ct happy: pass-2 row printed"
+    assert_contains "$out" "first assertion passes" "ct happy: testing context printed"
+    assert_not_contains "$out" "PASS (= 1 1)" "ct happy: passing assertion form suppressed"
+    assert_not_contains "$out" "WARNING" "ct happy: the harness itself emits no warnings"
+    assert_contains "$out" $'\e[38;5;35m2 tests, 2 assertions, 0 failures\e[0m' \
+        "ct happy: summary line printed in green"
+    pass_marks="$(printf '%s\n' "$out" | grep -c $'\xe2\x9c\x93' || true)"
+    [[ "$pass_marks" -ge 2 ]] \
+        || fail "ct happy: expected >=2 ✓ marks, got $pass_marks (output: $out)"
+    pass "ct happy: ✓ printed for each passing deftest"
+    rm -rf "$proj_ct1" "$home_ct1"
+else
+    skip "clojure.test port scenarios need LGX_LG_NEW (an lg with nooga/let-go#863)"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 128: clojure.test port: failure path"
+if supports_clojure_test; then
+    proj_ct2="$(mktemp -d)"
+    home_ct2="$(mktemp -d)"
+    echo '{}' > "$proj_ct2/lgx.edn"
+    mkdir -p "$proj_ct2/test"
+    cat > "$proj_ct2/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is testing]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+
+(deftest fail-1
+  (testing "failing assertion is explained"
+    (testing "nested"
+      (is (= 1 2) "with msg"))))
+EOF
+    set +e
+    out="$(cd "$proj_ct2" && LGX_HOME="$home_ct2" LGX_LG="$LGX_LG_NEW" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 1 ]] || fail "ct fail: expected exit 1, got $rc (output: $out)"
+    pass "ct fail: exits 1"
+    assert_contains "$out" "pass-1" "ct fail: pass-1 row printed"
+    assert_contains "$out" "fail-1" "ct fail: fail-1 row printed"
+    assert_contains "$out" "    failing assertion is explained > nested" \
+        "ct fail: nested testing context joined with >"
+    assert_contains "$out" $'\e[38;5;1mFAIL\e[0m (= 1 2) - with msg' \
+        "ct fail: failing assertion detail prints red FAIL, form and message"
+    assert_contains "$out" "actual: (not (= 1 2))" "ct fail: actual value printed"
+    assert_contains "$out" $'\e[38;5;1m2 tests, 2 assertions, 1 failures\e[0m' \
+        "ct fail: summary line printed in red"
+    printf '%s\n' "$out" | grep -q $'\xe2\x9c\x97' || fail "ct fail: expected ✗ (output: $out)"
+    pass "ct fail: ✗ printed for failing deftest"
+    rm -rf "$proj_ct2" "$home_ct2"
+else
+    skip "clojure.test port scenarios need LGX_LG_NEW"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 129: clojure.test port: an uncaught throw is an error"
+if supports_clojure_test; then
+    proj_ct3="$(mktemp -d)"
+    home_ct3="$(mktemp -d)"
+    echo '{}' > "$proj_ct3/lgx.edn"
+    mkdir -p "$proj_ct3/test"
+    cat > "$proj_ct3/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest boom
+  (throw (ex-info "kaboom" {})))
+EOF
+    set +e
+    out="$(cd "$proj_ct3" && LGX_HOME="$home_ct3" LGX_LG="$LGX_LG_NEW" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 1 ]] || fail "ct throw: expected exit 1, got $rc (output: $out)"
+    pass "ct throw: exits 1"
+    printf '%s\n' "$out" | grep -qF $'\xe2\x9c\x97\e[0m boom' || fail "ct throw: expected ✗ boom (output: $out)"
+    pass "ct throw: ✗ printed for the throwing deftest"
+    assert_contains "$out" "    ERROR: " "ct throw: ERROR line printed"
+    assert_contains "$out" "kaboom" "ct throw: the exception is shown"
+    assert_contains "$out" "1 tests, 0 assertions, 1 failures" "ct throw: counted as a failure"
+    rm -rf "$proj_ct3" "$home_ct3"
+else
+    skip "clojure.test port scenarios need LGX_LG_NEW"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 130: clojure.test port: fixtures run in order, each inside the capture"
+if supports_clojure_test; then
+    proj_ct4="$(mktemp -d)"
+    home_ct4="$(mktemp -d)"
+    echo '{}' > "$proj_ct4/lgx.edn"
+    mkdir -p "$proj_ct4/test"
+    # Side effects go to a file: stdout is captured per test, so output
+    # counts alone could not establish the order. The :once fixture does
+    # not return (f)'s value, which is the shape that once lost the counts.
+    cat > "$proj_ct4/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [string :as str]
+            [test :refer [deftest is use-fixtures]]))
+
+(def order (atom []))
+(defn- log! [s] (swap! order conj s))
+
+;; once-after is the last event, so the whole log is written there (let-go's
+;; spit has no :append).
+(use-fixtures :once (fn [f]
+                      (log! "once-before") (f) (log! "once-after")
+                      (spit (os/getenv "ORDER_LOG") (str (str/join "\n" @order) "\n"))))
+(use-fixtures :each (fn [f] (log! "each-before") (println "each") (f) (log! "each-after")))
+
+(deftest a-pass (is (= 1 1)))
+(deftest b-pass (is (= 2 2)))
+(deftest c-fail (is (= 1 2)))
+EOF
+    set +e
+    out="$(cd "$proj_ct4" && ORDER_LOG="$proj_ct4/order.log" LGX_HOME="$home_ct4" LGX_LG="$LGX_LG_NEW" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 1 ]] || fail "ct fixtures: expected exit 1, got $rc (output: $out)"
+    pass "ct fixtures: exits 1"
+    assert_contains "$out" "3 tests, 3 assertions, 1 failures" \
+        "ct fixtures: counts survive a once fixture that does not return (f)"
+    order="$(paste -sd' ' "$proj_ct4/order.log")"
+    [[ "$order" == "once-before each-before each-after each-before each-after each-before each-after once-after" ]] \
+        || fail "ct fixtures: wrong order: $order"
+    pass "ct fixtures: once wraps the namespace, each wraps every test"
+    # The each fixture printed "each" inside the capture: shown for the
+    # failing test's detail only, never under a passing row.
+    each_lines="$(printf '%s\n' "$out" | grep -c '^    each$' || true)"
+    [[ "$each_lines" -eq 1 ]] || fail "ct fixtures: expected 1 captured 'each' line, got $each_lines (output: $out)"
+    pass "ct fixtures: each-fixture output is captured with its test"
+    rm -rf "$proj_ct4" "$home_ct4"
+else
+    skip "clojure.test port scenarios need LGX_LG_NEW"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 131: clojure.test port: an assertion in a once fixture counts"
+if supports_clojure_test; then
+    proj_ct5="$(mktemp -d)"
+    home_ct5="$(mktemp -d)"
+    echo '{}' > "$proj_ct5/lgx.edn"
+    mkdir -p "$proj_ct5/test"
+    cat > "$proj_ct5/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is use-fixtures]]))
+
+(use-fixtures :once (fn [f] (is (= :setup :broken) "setup failed") (f)))
+
+(deftest pass-1 (is (= 1 1)))
+EOF
+    set +e
+    out="$(cd "$proj_ct5" && LGX_HOME="$home_ct5" LGX_LG="$LGX_LG_NEW" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 1 ]] || fail "ct once-assert: expected exit 1, got $rc (output: $out)"
+    pass "ct once-assert: a failing fixture assertion fails the run"
+    printf '%s\n' "$out" | grep -qF $'\xe2\x9c\x97\e[0m fixtures' || fail "ct once-assert: expected ✗ fixtures row (output: $out)"
+    pass "ct once-assert: reported under a fixtures row"
+    assert_contains "$out" $'\e[38;5;1mFAIL\e[0m (= :setup :broken) - setup failed' \
+        "ct once-assert: the fixture's assertion is shown"
+    assert_contains "$out" "1 tests, 2 assertions, 1 failures" "ct once-assert: counted"
+    rm -rf "$proj_ct5" "$home_ct5"
+else
+    skip "clojure.test port scenarios need LGX_LG_NEW"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 132: clojure.test port: test-ns-hook decides what runs"
+if supports_clojure_test; then
+    proj_ct6="$(mktemp -d)"
+    home_ct6="$(mktemp -d)"
+    echo '{}' > "$proj_ct6/lgx.edn"
+    mkdir -p "$proj_ct6/test"
+    cat > "$proj_ct6/test/hook_test.lg" <<'EOF'
+(ns hook-test
+  (:require [test :refer [deftest is]]))
+
+(deftest never-run (is false "the hook skips me"))
+(deftest chosen (is (= 2 2)))
+
+(defn test-ns-hook []
+  (is (= :setup :setup))
+  (test/test-vars [#'chosen]))
+EOF
+    set +e
+    out="$(cd "$proj_ct6" && LGX_HOME="$home_ct6" LGX_LG="$LGX_LG_NEW" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "ct hook: expected exit 0, got $rc (output: $out)"
+    pass "ct hook: exits 0 - the skipped failing test never ran"
+    assert_contains "$out" "test-ns-hook" "ct hook: the hook row is printed"
+    assert_not_contains "$out" "the hook skips me" "ct hook: never-run did not run"
+    assert_contains "$out" "1 tests, 2 assertions, 0 failures" \
+        "ct hook: the chosen test and the hook's own assertion are counted"
+    rm -rf "$proj_ct6" "$home_ct6"
+else
+    skip "clojure.test port scenarios need LGX_LG_NEW"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 133: clojure.test port: a test file that does not compile is reported"
+if supports_clojure_test; then
+    proj_ct7="$(mktemp -d)"
+    home_ct7="$(mktemp -d)"
+    echo '{}' > "$proj_ct7/lgx.edn"
+    mkdir -p "$proj_ct7/test"
+    cat > "$proj_ct7/test/ok_test.lg" <<'EOF'
+(ns ok-test
+  (:require [test :refer [deftest is]]))
+
+(deftest pass-1
+  (is (= 1 1)))
+EOF
+    cat > "$proj_ct7/test/broken_test.lg" <<'EOF'
+(ns broken-test
+  (:require [test :refer [deftest is]]))
+
+(deftest references-undefined
+  (is (= 1 (totally-undefined-symbol 1))))
+EOF
+    set +e
+    out="$(cd "$proj_ct7" && LGX_HOME="$home_ct7" LGX_LG="$LGX_LG_NEW" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -ne 0 ]] || fail "ct broken: expected non-zero exit, got $rc (output: $out)"
+    pass "ct broken: lgx test exits non-zero"
+    assert_contains "$out" "broken_test.lg" "ct broken: the offending file is named"
+    assert_contains "$out" "totally-undefined-symbol" "ct broken: lg's diagnostic is surfaced"
+    assert_contains "$out" "failed to load" "ct broken: the load failure is reported"
+    assert_contains "$out" "pass-1" "ct broken: the file that loads still runs"
+    rm -rf "$proj_ct7" "$home_ct7"
+else
+    skip "clojure.test port scenarios need LGX_LG_NEW"
+fi
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."
