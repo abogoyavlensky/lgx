@@ -57,6 +57,8 @@ Decisions:
   file.
 - **Always rebind.** No tty detection. Inheriting stdio is the documented
   contract of this function, and nothing in lgx captures `*out*` around it.
+  *Superseded during execution (see Task 2 deviation): rebind only the
+  streams that are currently a terminal (`term/tty?`).*
 - **Handles are not closed.** The function ends in `os/exit` with the child's
   exit code.
 - **Verification is manual with a pty.** The e2e suite has no pseudo-terminal
@@ -149,26 +151,38 @@ condition: drop the binding once lgx's minimum lg carries the fix.
 **Files:**
 - Modify: `lgx/runner.lg`
 
-- [ ] **Step 1: Change the call**
+- [x] **Step 1: Change the call**
   In `exec-lg-interactive!`, after computing `[bin args]`, call
   `(passthrough-handles "/dev/stdout" "/dev/stderr")`. If it returns a
   pair, run `(apply os/exec* bin args)` inside
   `(binding [*out* out *err* err] ...)`; otherwise call `os/exec*` directly.
   Keep `os/exit` on the result in both branches. Do not close the handles.
 
-- [ ] **Step 2: Fix the docstring**
+- [x] **Step 2: Fix the docstring**
   Replace the current "parent's stdin/stdout/stderr inherited (via os/exec*)"
   wording. State: stdin is inherited by `os/exec*`; stdout/stderr are
   inherited only because `*out*` / `*err*` are rebound to `/dev/stdout` and
   `/dev/stderr` file handles for the duration of the call, since let-go
   1.13.0's `os/exec*` pipes any non-file writer. Name the fallback.
 
-- [ ] **Step 3: Run the unit tests**
+- [x] **Step 3: Run the unit tests**
   Run: `lg lgx.lg test`
   Expected: `0 failures, 0 load failures`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "runner: keep the tty on stdout/stderr for interactive lg children"`
+
+> Deviation: codex review reproduced output corruption with the plan's
+> "always rebind" rule - on Linux, `open "/dev/stdout"` creates a *new open
+> file description*, so when stdout is a regular file the child's `O_APPEND`
+> writes do not advance the shell's offset and
+> `{ lgx run ...; echo after; } > out.txt` ends up with `after` overwriting
+> the child's output. Fix (fixup commit): `exec-lg-interactive!` rebinds
+> `*out*` / `*err*` only for the streams where `(term/tty? h)` is true
+> (`tty-handle?` helper, false on non-file-backed handles). Pipes and files
+> keep going through `os/exec*`'s own path, which writes on the inherited
+> descriptor. `term/tty?` verified on lg 1.12.2 and 1.13.0; `term` added to
+> the clj-kondo namespace exclude list.
 
 ### Task 3: Upstream issue note and index
 

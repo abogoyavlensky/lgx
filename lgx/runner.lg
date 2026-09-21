@@ -208,24 +208,41 @@
     [(open out-path :append) (open err-path :append)]
     (catch _ nil)))
 
+(defn tty-handle?
+  "True when handle h is a terminal. False for pipes, regular files, and
+   handles that are not file-backed (term/tty? throws on those)."
+  [h]
+  (try
+    (term/tty? h)
+    (catch _ false)))
+
 (defn exec-lg-interactive!
   "Run lg with the parent's stdin/stdout/stderr inherited, so output
    streams live and the child stays interactive (REPL, prompts). Exits
    with lg's exit code; never returns.
 
-   stdin is inherited by os/exec* itself. stdout/stderr are inherited only
-   because *out* / *err* are rebound to /dev/stdout and /dev/stderr file
-   handles (passthrough-handles) for the duration of the call: on let-go
-   >= 1.13.0 os/exec* wires the child to *out* / *err*, and the root
-   handles are not raw files, so without the rebinding the child gets a
-   pipe and loses the tty. If the handles cannot be opened, falls back to
-   a plain os/exec* (stdout/stderr piped through lgx, still functional).
-   The handles are never closed: the process exits right after."
+   stdin is inherited by os/exec* itself. stdout/stderr go through
+   *out* / *err*, and on let-go >= 1.13.0 the root handles are not raw
+   files, so os/exec* gives the child a pipe and a REPL child loses its
+   tty. So each of *out* / *err* that is currently a terminal is rebound
+   to a /dev/stdout or /dev/stderr file handle (passthrough-handles) for
+   the duration of the call. Streams that are a pipe or a regular file
+   are left alone on purpose: reopening /dev/stdout creates a new open
+   file description, so a child's writes would not advance the shell's
+   offset and `{ lgx run ...; echo done; } > out.txt` would overwrite
+   the child's output. Through the pipe the child's writes still land on
+   the inherited descriptor. If the handles cannot be opened, falls back
+   to a plain os/exec*. The handles are never closed: the process exits
+   right after."
   [lib-paths resource-paths forward-args verbose?]
   (let [[bin args] (lg-invocation! lib-paths resource-paths forward-args
                                    verbose?)
-        [out err] (passthrough-handles "/dev/stdout" "/dev/stderr")]
+        tty-out? (tty-handle? *out*)
+        tty-err? (tty-handle? *err*)
+        [out err] (when (or tty-out? tty-err?)
+                    (passthrough-handles "/dev/stdout" "/dev/stderr"))]
     (os/exit (if (and out err)
-               (binding [*out* out *err* err]
+               (binding [*out* (if tty-out? out *out*)
+                         *err* (if tty-err? err *err*)]
                  (apply os/exec* bin args))
                (apply os/exec* bin args)))))

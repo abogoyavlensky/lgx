@@ -189,3 +189,13 @@
 
 (deftest passthrough-handles-nil-when-err-path-missing
   (is (nil? (runner/passthrough-handles "/dev/stdout" "/nonexistent/dir/err"))))
+
+(deftest tty-handle-false-on-non-file-handle
+  ;; *out* inside with-out-str is a buffer, not file-backed; term/tty? throws
+  ;; on it and the helper must report false instead of propagating.
+  (let [r (atom nil)]
+    (with-out-str (reset! r (runner/tty-handle? *out*)))
+    (is (false? @r))))
+
+(deftest tty-handle-false-on-non-terminal-file
+  (is (false? (runner/tty-handle? (open "/dev/null" :append)))))

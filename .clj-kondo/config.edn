@@ -17,7 +17,7 @@
              ;; let-go builtins
              mkdir delete-file file-exists? write! open *compiling-aot*]}
   ;; let-go builtin namespace, available without require
-  :unresolved-namespace {:exclude [os]}
+  :unresolved-namespace {:exclude [os term]}
   ;; Vars referenced only inside catch bodies, which kondo skips.
   :unused-private-var
   {:exclude [lgx.main/validate-error-line
