@@ -14,7 +14,7 @@ hiccup, medley, tools.cli, bond and dependency.
 
 ## Where we are
 
-`letgo-packages` ships `sql`, `sqlite` and `postgres`. The sql layer is
+`letgo-packages` ships `sql`, `sqlite`, `postgres` and `ragtime`. The sql layer is
 driver-agnostic, and postgres proves it: one added coord
 (`jackc/pgx/v5/stdlib`) and no Go code. That is our strongest artifact
 and it appears nowhere outside a README.
