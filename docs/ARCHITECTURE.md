@@ -216,7 +216,15 @@ exec.
 The exec call uses `runner/exec-lg-interactive!`, built on let-go's
 `os/exec*` (lg >= 1.10.0): the child inherits lgx's stdin/stdout/stderr,
 so output streams live and interactive children work — `lgx repl` lands in
-`lg`'s REPL, and `lgx run -r <script>` can drive it. (Bare `lgx run` without
+`lg`'s REPL, and `lgx run -r <script>` can drive it. On let-go >= 1.13.0
+`os/exec*` by itself only inherits stdin; stdout/stderr follow `*out*` /
+`*err*`, whose root handles are no longer raw files, so the child would get
+a pipe and lose the tty. The runner therefore rebinds each of `*out*` /
+`*err*` that is currently a terminal to a `/dev/stdout` / `/dev/stderr`
+file handle around the call (pipes and files are left alone so shell
+redirections keep a shared offset); see
+[`issues/exec-star-std-stream-pipes.md`](issues/exec-star-std-stream-pipes.md).
+(Bare `lgx run` without
 `:main` now errors and points at `lgx repl`, rather than opening a REPL
 itself.) `lgx test`, `lgx build`, and task `:run` steps still use the
 captured `os/sh` path (`runner/run-lg!`/`invoke-lg!`): `test` must

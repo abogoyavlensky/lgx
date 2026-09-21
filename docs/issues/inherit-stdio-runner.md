@@ -5,7 +5,9 @@
 **Status:** resolved — let-go 1.10.0 ships `os/exec*` (inherited
 stdin/stdout/stderr, exit code as Int), exactly the proposed shape under
 a different name. lgx uses it via `runner/exec-lg-interactive!` for
-`lgx run`.
+`lgx run`. Regressed for stdout/stderr in 1.13.0 (the child gets a pipe
+instead of the descriptor), see
+[`exec-star-std-stream-pipes.md`](./exec-star-std-stream-pipes.md).
 
 ## Summary
 

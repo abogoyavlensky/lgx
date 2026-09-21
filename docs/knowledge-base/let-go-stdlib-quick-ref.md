@@ -113,8 +113,9 @@ Motivated by metosin/malli; general and available to any library.
 ## `os`
 
 - Process: `os/sh` (buffered — see gotchas), `os/exec*` (child inherits
-  the parent's stdin/stdout/stderr, returns exit code — use for streaming
-  or interactive children; lg >= 1.10.0), `os/exec` (returns `*exec.Cmd`;
+  stdin; stdout/stderr follow `*out*` / `*err*`, which pipe unless rebound
+  to a file handle on lg >= 1.13.0 - see gotchas; returns exit code — use
+  for streaming or interactive children; lg >= 1.10.0), `os/exec` (returns `*exec.Cmd`;
   `Run`/`Wait` are not exposed), `os/exit`, `os/args` (value, not fn).
 - Filesystem: `os/cwd`, `os/ls`, `os/stat`, `os/temp-dir`.
 - Env: `os/getenv`, `os/setenv`.

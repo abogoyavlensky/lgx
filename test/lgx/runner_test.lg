@@ -171,3 +171,31 @@
 
 (deftest drop-arg-separator-empty
   (is (= [] (runner/drop-arg-separator []))))
+
+;; ---------------------------------------------------------------------------
+;; passthrough-handles
+;; ---------------------------------------------------------------------------
+
+(deftest passthrough-handles-opens-both-devices
+  ;; /dev/stdout opens fine even when stdout is a pipe (as under lgx test).
+  (let [pair (runner/passthrough-handles "/dev/stdout" "/dev/stderr")]
+    (is (vector? pair))
+    (is (= 2 (count pair)))
+    (is (some? (first pair)))
+    (is (some? (second pair)))))
+
+(deftest passthrough-handles-nil-when-out-path-missing
+  (is (nil? (runner/passthrough-handles "/nonexistent/dir/out" "/dev/stderr"))))
+
+(deftest passthrough-handles-nil-when-err-path-missing
+  (is (nil? (runner/passthrough-handles "/dev/stdout" "/nonexistent/dir/err"))))
+
+(deftest tty-handle-false-on-non-file-handle
+  ;; *out* inside with-out-str is a buffer, not file-backed; term/tty? throws
+  ;; on it and the helper must report false instead of propagating.
+  (let [r (atom nil)]
+    (with-out-str (reset! r (runner/tty-handle? *out*)))
+    (is (false? @r))))
+
+(deftest tty-handle-false-on-non-terminal-file
+  (is (false? (runner/tty-handle? (open "/dev/null" :append)))))
