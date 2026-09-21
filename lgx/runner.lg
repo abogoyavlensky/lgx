@@ -187,6 +187,27 @@
     (replay-output! r)
     (:exit r)))
 
+(defn passthrough-handles
+  "Open out-path and err-path (normally /dev/stdout and /dev/stderr) and
+   return [out err] handles, or nil if either open throws.
+
+   Why: on let-go >= 1.13.0 the root *out* / *err* handles wrap the
+   process streams in a stdStreamWriter, which is not an *os.File, so
+   os/exec* gives the child a pipe for stdout/stderr instead of the
+   parent's descriptor - and a REPL child loses its tty. A handle from
+   `open` is backed by the raw *os.File, so binding *out* / *err* to
+   these restores descriptor inheritance. See
+   docs/issues/exec-star-std-stream-pipes.md.
+
+   :append rather than :write because :write carries O_TRUNC, which
+   would truncate a regular file when stdout is redirected; :append is
+   safe for a tty, a pipe, and a file alike. The caller falls back to a
+   plain os/exec* on nil."
+  [out-path err-path]
+  (try
+    [(open out-path :append) (open err-path :append)]
+    (catch _ nil)))
+
 (defn exec-lg-interactive!
   "Run lg with the parent's stdin/stdout/stderr inherited (via os/exec*),
    so output streams live and the child stays interactive (REPL, prompts).

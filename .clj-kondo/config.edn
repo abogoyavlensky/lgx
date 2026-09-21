@@ -15,7 +15,7 @@
   {:exclude [;; catch binding symbols, parsed as class names
              e _
              ;; let-go builtins
-             mkdir delete-file file-exists? write! *compiling-aot*]}
+             mkdir delete-file file-exists? write! open *compiling-aot*]}
   ;; let-go builtin namespace, available without require
   :unresolved-namespace {:exclude [os]}
   ;; Vars referenced only inside catch bodies, which kondo skips.

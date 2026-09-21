@@ -171,3 +171,21 @@
 
 (deftest drop-arg-separator-empty
   (is (= [] (runner/drop-arg-separator []))))
+
+;; ---------------------------------------------------------------------------
+;; passthrough-handles
+;; ---------------------------------------------------------------------------
+
+(deftest passthrough-handles-opens-both-devices
+  ;; /dev/stdout opens fine even when stdout is a pipe (as under lgx test).
+  (let [pair (runner/passthrough-handles "/dev/stdout" "/dev/stderr")]
+    (is (vector? pair))
+    (is (= 2 (count pair)))
+    (is (some? (first pair)))
+    (is (some? (second pair)))))
+
+(deftest passthrough-handles-nil-when-out-path-missing
+  (is (nil? (runner/passthrough-handles "/nonexistent/dir/out" "/dev/stderr"))))
+
+(deftest passthrough-handles-nil-when-err-path-missing
+  (is (nil? (runner/passthrough-handles "/dev/stdout" "/nonexistent/dir/err"))))
