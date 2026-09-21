@@ -142,7 +142,7 @@ construction above it.
 Then confirm you have not regressed the consumers:
 
 ```bash
-cd letgo-packages/sqlite/example && lgx run    # and sql: lgx test
+cd letgo-packages/sqlite/example && lgx run    # and sql, ragtime: lgx test
 cd lgx && bash tests/run.sh                    # 314 e2e assertions
 ```
 

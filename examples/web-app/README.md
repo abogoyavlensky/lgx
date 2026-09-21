@@ -38,10 +38,12 @@ sqlite package pulls in.
 ## Migrations
 
 `src/app/migrations.lg` holds the schema history as a vector of ragtime
-migrations whose up and down steps are HoneySQL DDL maps. Only ragtime's
-database-independent `core` module is used (`:deps/root "core/src"`); its
-`DataStore` protocol is implemented over `sqlite.core` in about ten lines,
-with a `ragtime_migrations` table for the applied ids. The `::conn`
+migrations whose up and down steps are HoneySQL DDL maps. The migration
+machinery comes from the letgo-packages
+[`ragtime`](https://github.com/abogoyavlensky/letgo-packages/tree/master/ragtime)
+package: a `DataStore` over the sql layer (a `ragtime_migrations` table
+for the applied ids) and a `Migration` that runs statements in a
+transaction, with ragtime's core arriving transitively. The `::conn`
 component migrates on start, so `lgx run` prints `Applying ...` the first
 time and nothing after. `test/app/migrations_test.lg` walks the history up
 and down against a throwaway file.
@@ -55,7 +57,7 @@ so the example uses ragtime's default `raise-error` strategy.
 ## Layout
 
 ```
-src/app/migrations.lg  ragtime DataStore over sqlite.core, the migration history
+src/app/migrations.lg  the migration history, over the letgo-packages ragtime package
 src/app/db.lg       ::conn component (open + migrate), HoneySQL queries
 src/app/routes.lg   ::handler component: the JSON API plus / and /static/:file
 resources/public/   index.html (Alpine over the API) and alpine.min.js
