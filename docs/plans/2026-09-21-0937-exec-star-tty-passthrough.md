@@ -1,5 +1,7 @@
 # Keep the terminal for `lgx repl` / `nrepl` / `run` on let-go 1.13.0
 
+**Status:** completed (2026-09-21, branch `exec-star-tty-passthrough`)
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the child `lg` spawned by `runner/exec-lg-interactive!` inherit lgx's real stdout/stderr again when lgx runs on let-go 1.13.0, and file the upstream issue that makes the workaround removable.
@@ -239,14 +241,14 @@ manual step for the maintainer; when filed, add the issue URL to the note's
 - Modify: `docs/knowledge-base/let-go-gotchas.md`
 - Modify: `docs/knowledge-base/let-go-stdlib-quick-ref.md`
 
-- [ ] **Step 1: ARCHITECTURE.md**
+- [x] **Step 1: ARCHITECTURE.md**
   In the paragraph starting "The exec call uses `runner/exec-lg-interactive!`"
   (around line 216), add one or two sentences: on let-go >= 1.13.0 `os/exec*`
   only inherits stdin; the runner rebinds `*out*` / `*err*` to `/dev/stdout`
   / `/dev/stderr` handles so the child keeps the tty, with a link to the new
   issue note.
 
-- [ ] **Step 2: let-go-gotchas.md**
+- [x] **Step 2: let-go-gotchas.md**
   - In the `os/sh` section, qualify the "inherits the parent's
     stdin/stdout/stderr" claim the same way and link the issue note.
   - Rewrite the "`binding` only works on dynamic Vars" section: `*out*` /
@@ -257,12 +259,12 @@ manual step for the maintainer; when filed, add the issue URL to the note's
   - Add `pkg/rt/os.go` (`exec*`) to the `Verify against:` footer if it is
     not already listed.
 
-- [ ] **Step 3: let-go-stdlib-quick-ref.md**
+- [x] **Step 3: let-go-stdlib-quick-ref.md**
   In the `os` bullet, change the `os/exec*` description to "child inherits
   stdin; stdout/stderr follow `*out*` / `*err*`, which pipe unless rebound to
   a file handle on lg >= 1.13.0 - see gotchas".
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "docs: exec* stdout/stderr inheritance on let-go 1.13.0"`
 
 ### Task 5: Pseudo-terminal verification (manual, Linux)
@@ -272,7 +274,7 @@ manual step for the maintainer; when filed, add the issue URL to the note's
 Set `LG113` to the lg 1.13.0 binary (`mise which lg` in the repo root) and
 run from the repo root. Each command feeds a form after a pause and then EOF.
 
-- [ ] **Step 1: Child descriptors through dev-mode lgx**
+- [x] **Step 1: Child descriptors through dev-mode lgx**
   `lgx run` always spawns `$LGX_LG`, so point it at a probe script:
   ```
   cat > /tmp/lgprobe <<'EOF'
@@ -285,7 +287,7 @@ run from the repo root. Each command feeds a form after a pause and then EOF.
   Expected: fd 1 and fd 2 point at `/dev/pts/N`, output contains `tty1`.
   (lgx's version probe of the fake binary yields nil and is skipped.)
 
-- [ ] **Step 2: REPL prompt through dev-mode lgx**
+- [x] **Step 2: REPL prompt through dev-mode lgx**
   Run:
   ```
   LGX_LG=$LG113 script -qfec "$LG113 lgx.lg repl" /dev/null < <(sleep 3; printf '(+ 1 2)\n'; sleep 1; printf '\x04') | cat -A | head
@@ -294,17 +296,17 @@ run from the repo root. Each command feeds a form after a pause and then EOF.
   sequences (`^[[J`) present. Before this change the same command prints
   only the banner and `3`.
 
-- [ ] **Step 3: nREPL variant**
+- [x] **Step 3: nREPL variant**
   Same as Step 2 with `nrepl` instead of `repl`.
   Expected: `nREPL server running at tcp://127.0.0.1:<port>` followed by a
   `user=>` prompt. Delete the `.nrepl-port` file it leaves behind.
 
-- [ ] **Step 4: Bundled binary**
+- [x] **Step 4: Bundled binary**
   Run `make build`, then repeat Step 2 with `bin/lgx repl` in place of
   `$LG113 lgx.lg repl`.
   Expected: same prompt.
 
-- [ ] **Step 5: Redirected output still lands in the right place**
+- [x] **Step 5: Redirected output still lands in the right place**
   The rebinding applies to every invocation, so check the non-tty cases:
   ```
   printf '(println :out) (write! *err* "err\\n")\n' | LGX_LG=$LG113 $LG113 lgx.lg repl > /tmp/o.txt 2> /tmp/e.txt
@@ -317,9 +319,51 @@ run from the repo root. Each command feeds a form after a pause and then EOF.
   appends nothing unexpected from the first (the shell truncates, lgx opens
   the same file with `O_APPEND`).
 
-- [ ] **Step 6: Full test suite**
+- [x] **Step 6: Full test suite**
   Run: `make test`
   Expected: `All tests passed.`
 
-- [ ] **Step 7: Commit anything left (should be nothing)**
+- [x] **Step 7: Commit anything left (should be nothing)**
   `git status` should be clean apart from `bin/lgx` if it is untracked.
+
+## Completion summary
+
+**Implemented.** `runner/passthrough-handles` opens `/dev/stdout` /
+`/dev/stderr` in `:append` mode; `runner/exec-lg-interactive!` rebinds
+`*out*` / `*err*` to those handles around `os/exec*` for each stream that
+is currently a terminal (`runner/tty-handle?`, a throw-safe `term/tty?`).
+Upstream issue note `docs/issues/exec-star-std-stream-pipes.md` (with a
+concrete `execStar` patch proposal), index and `inherit-stdio-runner.md`
+updated; ARCHITECTURE.md, gotchas, and the stdlib quick-ref corrected.
+Five new unit tests. Every task got a codex review; one must-fix finding
+(below) was fixed in a fixup commit and re-reviewed clean.
+
+**Verified.** `lg lgx.lg test` on lg 1.12.2 and 1.13.0; `make test`
+(unit + 380 e2e assertions) on lg 1.13.0; `make lint`, `make fmt-check`.
+Under a pty (Linux `script -qfec`): probe child sees `/dev/pts/N` on fd
+1/2 and `tty1` through `lgx repl`; `lgx repl`, `lgx nrepl`, and the
+bundled `bin/lgx repl` show the `user=>` prompt with readline redraws and
+evaluate `(+ 1 2)` to `3`; with stdout redirected to a file and stderr on
+the pty, only stderr is passed through. Redirection cases from Task 5
+Step 5 land in the right files, twice in a row, and the codex
+reproduction `{ lgx run ...; echo after; } > out.txt` keeps both lines.
+
+**Deviations (all recorded under their tasks):**
+- Task 1: `(catch _ nil)` instead of `(catch Exception _ nil)` (let-go
+  catch shape); `open` and `term` added to `.clj-kondo/config.edn`.
+- Task 2 (design change, please confirm): the plan's "always rebind, no
+  tty detection" decision was dropped. Codex reproduced that reopening
+  `/dev/stdout` creates a new open file description, so with stdout
+  redirected to a regular file a later command in the same redirection
+  overwrote the child's output. Rebinding is now gated per stream on
+  `term/tty?`. The Design "Decisions" bullet carries a superseded note.
+
+**Not done / manual:** the upstream issue is a local draft, not filed on
+GitHub (as the plan scoped). macOS still untested.
+
+**What the plan could have specified better:** the "always rebind"
+decision reasoned about truncation (`O_TRUNC`) but not about file
+offsets - reopening a device path never shares the open file description
+with the inherited fd, so a redirected regular file needs the original
+descriptor. A one-line check of `{ cmd; echo x; } > f` in Task 5 would
+have caught it without codex.
