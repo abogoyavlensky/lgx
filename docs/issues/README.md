@@ -9,7 +9,7 @@ the ones that belong to lgx itself.
 | File | Subject | Status |
 |---|---|---|
 | [source-paths-flag.md](./source-paths-flag.md) | `-source-paths` flag and `LG_SOURCE_PATHS` env var | done |
-| [inherit-stdio-runner.md](./inherit-stdio-runner.md) | `os/run` so `lgx run -r` REPL can work | resolved (`os/exec*` in 1.10.0) |
+| [inherit-stdio-runner.md](./inherit-stdio-runner.md) | `os/run` so `lgx run -r` REPL can work | resolved (`os/exec*` in 1.10.0); regressed for stdout/stderr in 1.13.0, see exec-star-std-stream-pipes.md |
 | [letgo-clj-support.md](./letgo-clj-support.md) | Native `.clj` library support — three small diffs | draft |
 | [clojure-lib-compat.md](./clojure-lib-compat.md) | Reader/compiler/resolver gaps blocking real Clojure libs | draft |
 | [integrant-dependency-compat.md](./integrant-dependency-compat.md) | Run weavejester/dependency + integrant under let-go (defrecord field scope, real PersistentQueue, find-var/get-method, empty catch body) | implemented on `integrant-compat` |
@@ -26,6 +26,7 @@ the ones that belong to lgx itself.
 | [http-empty-headers-panic.md](./http-empty-headers-panic.md) | `http` server panics (nil deref) on a response with `:headers {}`; the client gets no reply | resolved (nooga/let-go#898) |
 | [ragtime-letgo-compat.md](./ragtime-letgo-compat.md) | Run weavejester/ragtime core under let-go: `Thread/currentThread` static missing, `format` ignores `%n`; plus the `& rest` bug | resolved (nooga/let-go#898, #901) |
 | [interop-map-boxing.md](./interop-map-boxing.md) | A let-go map does not cross the boundary as a Go map — the map-shaped sibling of `interop-slice-boxing`, and the naive hand-conversion silently yields pairs | implemented on `fix/vm-boxing-symmetry` |
+| [exec-star-std-stream-pipes.md](./exec-star-std-stream-pipes.md) | `os/exec*` pipes the child's stdout/stderr since #611 (`stdStreamWriter` is not an `*os.File`), so REPL children lose the tty | draft, worked around in lgx |
 
 ## lgx's own
 
