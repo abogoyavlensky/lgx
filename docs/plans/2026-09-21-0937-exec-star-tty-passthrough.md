@@ -108,7 +108,7 @@ condition: drop the binding once lgx's minimum lg carries the fix.
 - Modify: `lgx/runner.lg`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Add a `passthrough-handles` section to `test/lgx/runner_test.lg`:
   - `(runner/passthrough-handles "/dev/stdout" "/dev/stderr")` returns a
     two-element vector whose elements are both non-nil.
@@ -119,12 +119,12 @@ condition: drop the binding once lgx's minimum lg carries the fix.
   `open` on `/dev/stdout` succeeds under `lgx test` even though stdout is a
   pipe there, so the positive case is stable in CI.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run from the repo root: `lg lgx.lg test`
   Expected: the three new tests fail to load or error with
   `Can't resolve passthrough-handles` (message wording may differ).
 
-- [ ] **Step 3: Implement `passthrough-handles`**
+- [x] **Step 3: Implement `passthrough-handles`**
   In `lgx/runner.lg`, just above `exec-lg-interactive!`, add a public fn
   with the signature `(passthrough-handles out-path err-path)`. Wrap the two
   `(open path :append)` calls in a single `try`; return `[out err]` on
@@ -133,12 +133,16 @@ condition: drop the binding once lgx's minimum lg carries the fix.
   `:append` (no `O_TRUNC`), and that the caller falls back to plain `exec*`
   on `nil`. Reference `docs/issues/exec-star-std-stream-pipes.md`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `lg lgx.lg test`
   Expected: all runner tests pass, `0 failures, 0 load failures`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "runner: add passthrough-handles for exec* stdio inheritance"`
+
+> Deviation: let-go's `catch` takes no exception class, so the helper uses
+> `(catch _ nil)`; `open` was added to `.clj-kondo/config.edn`'s builtin
+> exclude list so `make lint` stays clean.
 
 ### Task 2: Bind `*out*` / `*err*` in `exec-lg-interactive!`
 
