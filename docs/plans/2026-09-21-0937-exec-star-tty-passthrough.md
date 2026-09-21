@@ -191,7 +191,7 @@ condition: drop the binding once lgx's minimum lg carries the fix.
 - Modify: `docs/issues/README.md`
 - Modify: `docs/issues/inherit-stdio-runner.md`
 
-- [ ] **Step 1: Write the issue note**
+- [x] **Step 1: Write the issue note**
   Follow the shape of `docs/issues/nrepl-port-zero.md`: title, `**Repo:**`,
   `**Status:** draft`, `## Summary`, `## Concrete impact`, `## Proposal`.
   Content, with `file:line` links into nooga/let-go at `v1.13.0`:
@@ -214,7 +214,7 @@ condition: drop the binding once lgx's minimum lg carries the fix.
     `/dev/stderr` handles in `runner/exec-lg-interactive!`; remove once
     lgx's minimum lg contains the fix.
 
-- [ ] **Step 2: Update the index and the old note**
+- [x] **Step 2: Update the index and the old note**
   Add a row to the upstream table in `docs/issues/README.md`:
   file, subject "`os/exec*` pipes the child's stdout/stderr since #611
   (`stdStreamWriter` is not an `*os.File`), so REPL children lose the tty",
@@ -222,7 +222,7 @@ condition: drop the binding once lgx's minimum lg carries the fix.
   `inherit-stdio-runner.md` row and that file's `**Status:**` line to add
   "regressed for stdout/stderr in 1.13.0, see exec-star-std-stream-pipes.md".
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   Stage the new file explicitly, then commit:
   `git add docs/issues/exec-star-std-stream-pipes.md docs/issues/README.md docs/issues/inherit-stdio-runner.md`
   `git commit -m "docs(issues): os/exec* pipes stdout/stderr on let-go 1.13.0"`

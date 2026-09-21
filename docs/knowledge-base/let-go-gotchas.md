@@ -57,17 +57,27 @@ returns `""` when `X` is unset, not `"default"`. Check explicitly:
 as strings. Long-running scripts can't stream output; interactive
 subprocesses (REPL, `read-line`, password prompts) can't read input. When
 the child should drive the terminal, use `os/exec*` instead (lg >=
-1.10.0): it inherits the parent's stdin/stdout/stderr and returns the
-exit code — lgx uses it for `lgx run` / `lgx nrepl` via
-`runner/exec-lg-interactive!`. `os/exec` returns a `*exec.Cmd` but
-exposes only `with-stdin` — no `Run`/`Wait`/`Stdout` field access.
+1.10.0): it inherits the parent's stdin and returns the exit code, and
+wires the child's stdout/stderr to the current `*out*` / `*err*`. On lg
+>= 1.13.0 the root `*out*` / `*err*` handles are not raw files, so the
+child gets a *pipe* on those two streams and a REPL or TUI child no
+longer sees a terminal; to hand the tty through, rebind the var to a
+handle from `(open "/dev/stdout" :append)` around the call, but only when
+the stream is a terminal (`term/tty?`) - reopening `/dev/stdout` for a
+regular file breaks the shell's shared offset. lgx does exactly this in
+`runner/exec-lg-interactive!` for `lgx run` / `lgx repl` / `lgx nrepl`
+([`docs/issues/exec-star-std-stream-pipes.md`](../issues/exec-star-std-stream-pipes.md)).
+`os/exec` returns a `*exec.Cmd` but exposes only `with-stdin` — no
+`Run`/`Wait`/`Stdout` field access.
 (History: [`docs/issues/inherit-stdio-runner.md`](../issues/inherit-stdio-runner.md).)
 
-## `binding` only works on dynamic Vars
+## `*out*` / `*err*` can be rebound with `binding`
 
-Per-thread rebinding works for things defined as `(def ^:dynamic *x* …)`.
-The IOHandle values `*in*` / `*out*` / `*err*` are not Vars — you can't
-rebind them with `binding`. Write to the handle directly instead:
+`binding` works on `(def ^:dynamic *x* …)` Vars and also on the IOHandle
+values `*in*` / `*out*` / `*err*` (verified on lg 1.12.2 and 1.13.0):
+`println`, `write!`, and `os/exec*` all follow the binding, which is
+what `with-out-str` relies on. To write to stderr without rebinding
+anything, write to the handle directly:
 
 ```clojure
 (write! *err* "message")
@@ -151,7 +161,7 @@ Only the namespace that was required is ever compiled. This is how the
 > [`lg.go`](https://github.com/nooga/let-go/blob/main/lg.go) (`bundleBinary`,
 > `*compiling-aot*` flip),
 > [`pkg/rt/os.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/os.go)
-> (`os/sh`, `os/exec`, `os/args`, `os/getenv`),
+> (`os/sh`, `os/exec`, `os/exec*`, `os/args`, `os/getenv`),
 > [`pkg/rt/iort.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/iort.go)
 > (IOHandle, `*in*`/`*out*`/`*err*`),
 > [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/main/pkg/resolver/resolver.go)
