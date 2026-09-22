@@ -17,7 +17,7 @@ lgx <task>           # run a custom task from lgx.edn
 
 ## Requirements
 
-- [`lg`](https://github.com/nooga/let-go) >= `1.11.0` on `PATH` (or pointed to by
+- [`lg`](https://github.com/nooga/let-go) >= `1.13.0` on `PATH` (or pointed to by
   `LGX_LG`). Install it with `brew install nooga/tap/let-go`.
 - `git` on `PATH`. (lgx uses it to clone, fetch, and check out deps)
 - The Go toolchain on `PATH`, **only if** `lgx.edn` sets
@@ -147,7 +147,7 @@ hyphenated name (`my-app`) in contents.
 
 `lgx run` runs `:main`. Put a script or `lg` flags before `--` and you drive
 `lg` yourself (`:main` isn't added); your program's args go after `--` and
-arrive in `*command-line-args*` (requires `lg` >= 1.11.0). With no `:main` and
+arrive in `*command-line-args*`. With no `:main` and
 no script it errors: set `:main`, name a script, or start
 [`lgx repl`](#lgx-repl-details).
 
