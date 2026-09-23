@@ -418,16 +418,16 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 - Modify: `lgx/runner.lg`
 - Test: `test/lgx/runner_test.lg`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   Find the existing `env-trace-line` tests in `runner_test.lg` and add
   `env-trace-includes-task-stack` (a lookup map with `LGX_TASK_STACK`
   `"ci,test"` renders `LGX_TASK_STACK=ci,test` in the line, after `LGX_RUN`).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `lg lgx.lg test test/lgx/runner_test.lg`
   Expected: FAIL, the var is not in the trace.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Add `"LGX_TASK_STACK"` to `lgx-set-env-names`. Extract
   `exec-interactive! [bin args]` from `exec-lg-interactive!`: it performs the
   tty check, `passthrough-handles`, the `binding`, and `(apply os/exec* bin args)`,
@@ -435,13 +435,13 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `lg-invocation!` followed by `(os/exit (exec-interactive! bin args))`.
   Move the passthrough rationale from the old docstring onto the new fn.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
   Run: `lg lgx.lg test test/lgx/runner_test.lg`
   Expected: `0 failures`.
   Run: `lg lgx.lg run examples/hello/main.lg`
   Expected: the example's output, exit 0 (the interactive path still works).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "runner: extract exec-interactive!, trace LGX_TASK_STACK"`
 
 ### Task 6: `:task` step execution
