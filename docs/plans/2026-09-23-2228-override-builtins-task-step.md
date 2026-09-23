@@ -586,13 +586,13 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Flip Scenario 19**
+- [x] **Step 1: Flip Scenario 19**
   Rename to `task named like a built-in overrides it`: a `run` task with
   `{:sh "echo task-run"}`; `lgx run` prints `task-run` and exits 0;
   `lgx lgx:run` in the same project (no `:main`) fails with the existing
   `nothing to run` error, proving the prefix bypasses the task.
 
-- [ ] **Step 2: Append new scenarios after Scenario 133**
+- [x] **Step 2: Append new scenarios after Scenario 133**
   Number them from 134 and gate the ones that run `lg` on
   `supports_source_paths` like the other test-command scenarios:
   1. **Override `test` with passthrough**: project with `test/foo_test.lg`
@@ -641,12 +641,17 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
      containing both dirs with `one` before `two` (task `:with` precedes the
      forwarded CLI `--with`, matching the documented layering).
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
   Run: `make test`
   Expected: `All tests passed.` and the final `All <N> e2e assertions passed.`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git commit -am "e2e: override built-ins, :task steps, :args/rest, cycle guard"`
+
+> Deviation (Step 2): the new scenarios are numbered 135-146, not 134-146 —
+> Scenario 134 was taken by the bash-completion regression test that landed
+> with Task 8's fixup. Two stale expectations elsewhere in the file also
+> needed updating for the new `(allowed: :sh, :run, :task)` wording.
 
 ### Task 10: Documentation
 

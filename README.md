@@ -95,7 +95,8 @@ lgx run
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). |
 | `lgx test [file] [--exclude <ns,...>]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. `--exclude` skips the named test namespaces (repeatable, comma-separated). |
 | `lgx clean <--cache...>` | Remove caches under `$LGX_HOME`: `--runtimes`, `--gitlibs`, `--templates`, or `--all`; `--dry-run` only reports. Prints bytes reclaimed. Never automatic. |
-| `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. |
+| `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. A task may carry a built-in's name, in which case it runs instead of that built-in. |
+| `lgx lgx:<command>` | Run a built-in command directly, past any project task of that name (`lgx:build`, `lgx:clean`, `lgx:info`, `lgx:install`, `lgx:nrepl`, `lgx:repl`, `lgx:run`, `lgx:test`). |
 | `lgx` or `lgx help` | Show usage, including project tasks if an `lgx.edn` is found. |
 | `lgx version` | Print version. |
 
@@ -308,15 +309,20 @@ key's rules in detail.
                                        :git/tag "v1"}}} ; same grammar as :deps
   :test {:extra-paths ["test-support"]}}
 
- ; Custom commands: `lgx <task> [args...]`. A step is {:sh ...} (shell)
- ; or {:run ...} (like `lgx run ...`); a string value splits on whitespace.
+ ; Custom commands: `lgx <task> [args...]`. A step is {:sh ...} (shell),
+ ; {:run ...} (like `lgx run ...`), or {:task ...} (another task or a
+ ; built-in); a string value splits on whitespace.
  :tasks
  {fmt   {:doc "Lint the project"                   ; :doc shows up in `lgx help`
          :do  {:sh "cljfmt fix"}}                  ; single step: bare map
 
   ci     {:doc "Lint, then test"                   ; multi-step: vector,
-          :do  [{:sh  "cljfmt check"}              ; stops at first failure
-                {:run "scripts/check.lg"}]}
+          :do  [{:task fmt}                        ; stops at first failure
+                {:task lgx:test}]}                 ; lgx:<name> = the built-in
+
+  test   {:doc "Bring up the db, then run the tests" ; a task may override a
+          :do  [{:sh   "docker compose up -d"}       ; built-in; :args/rest
+                {:task [lgx:test :args/rest]}]}      ; keeps its CLI args
 
   greet  {:doc "Run main with a fixed arg"
           :do  [{:run ["main.lg" "--" "world"]}]}  ; vector form: explicit argv
@@ -469,21 +475,80 @@ so coords are git or local. Writing one tells you what to use instead.
 ### `:tasks`
 
 Tasks replace ad-hoc Makefile/Taskfile recipes. A task is a step or a vector of
-steps; each step is `:sh` (shell) or `:run` (an explicit argv to `lg` with the
-project basis). A `:run` step names its own script - it never substitutes
-`:main` - but, like `lgx run`, drops the first `--`. The first non-zero exit
-stops the chain; output is buffered and replayed after each step. A single-step
-`:do` may be a step map instead of a vector.
+steps; each step is `:sh` (shell), `:run` (an explicit argv to `lg` with the
+project basis), or `:task` (another task, or a built-in). A `:run` step names
+its own script - it never substitutes `:main` - but, like `lgx run`, drops the
+first `--`. The first non-zero exit stops the chain; output is buffered and
+replayed after each step. A single-step `:do` may be a step map instead of a
+vector.
 
 Run a task with `lgx <name>`; `lgx help` lists the project's tasks. Names are
-symbols (context names stay keywords) and can't shadow built-ins (`install`,
-`run`, `repl`, `nrepl`, `build`, `test`, `clean`, `new`, `help`, `version`,
-`completion`, `info`, plus reserved `add`, `update`, `tasks`). Upgrading lgx can
-reserve a name a project already uses as a task (`clean` since 0.2.0); the
-config error names the task, and renaming it is the fix. A task accepts only
-`:doc`, `:args`, `:do`, `:with`, `:extra-paths`, `:extra-resource-paths`, and
-`:extra-deps`; any other key is rejected (so a typo like `:extra-dep` fails
-loudly).
+symbols (context names stay keywords).
+
+#### Overriding a built-in
+
+A task may carry a built-in's name - `test`, `build`, `run`, `repl`, `nrepl`,
+`install`, `info`, `clean` - and then runs in place of it. `test` and `build`
+are the most common task names there are, so lgx lets a project have them
+instead of reserving them.
+
+`lgx:<name>` always addresses the built-in, past any task of that name. That is
+how a wrapper calls the command it wraps:
+
+```clojure
+{:tasks
+ {test {:doc "Bring up the test database, then run the tests"
+        :do [{:sh "docker compose up -d"}
+             {:task [lgx:test :args/rest]}]}}}
+```
+
+`lgx test test/foo_test.lg` now brings the database up and forwards the file to
+the built-in; `lgx lgx:test` skips the wrapper entirely. `lgx help` marks an
+overriding task so the shadowing is visible.
+
+Five names cannot be overridden, because they run without a project and a
+project could never sit in front of them: `new`, `help`, `version`,
+`completion`, and the internal `__complete`. A task name starting with `lgx:`
+or `-` is rejected too. A task accepts only `:doc`, `:args`, `:do`, `:with`,
+`:extra-paths`, `:extra-resource-paths`, and `:extra-deps`; any other key is
+rejected (so a typo like `:extra-dep` fails loudly).
+
+#### `:task` steps
+
+A `:task` step invokes another task or a built-in. Its value is the callee
+symbol, or a vector of the callee followed by its arguments:
+
+```clojure
+{:task fmt}                        ; another task, no args
+{:task [fmt "check"]}              ; with arguments
+{:task lgx:test}                   ; the built-in, past a task of that name
+{:task [lgx:test "--exclude" "a.b-test"]}
+```
+
+The step re-invokes lgx itself as a child process - the same binary the parent
+is running, never a `PATH` lookup of whatever `lgx` happens to be. That is what
+lets a wrapped `lgx:nrepl` own the terminal like a direct call would, and what
+makes the callee's own arity checks, basis layering and headers apply
+unchanged. The child inherits stdio, so its output streams live rather than
+arriving in one buffered lump after it exits.
+
+Validation runs at config load: a callee must name a defined task or an
+overridable built-in, and a task may not call itself (use `lgx:<name>` for
+that).
+
+**Cycles.** lgx tracks the chain of running tasks in `LGX_TASK_STACK`, which
+children inherit, so re-entering a task that is already running fails fast:
+
+```
+lgx: task 'test' is already running (ci > test); to call the built-in from a task, use lgx:test
+```
+
+One mechanism covers direct `:task` recursion, an indirect cycle, and the
+`{:sh "lgx test"}` mistake inside an override of `test` - every hop is a child
+process. An entry is a (task, project root) pair, so a monorepo root task that
+shells into a child project with a same-named task is not mistaken for
+recursion, while a chain that leaves a project and re-enters the same task
+still is.
 
 #### Positional args (`:args`)
 
@@ -502,6 +567,33 @@ items** in vector-form steps (single-quoted in `:sh` so shell-safe, verbatim in
 `:run`), or as **`{{name}}` templates** in any step string (spliced raw - quote
 it yourself when it may contain spaces). Unknown tokens are left untouched, and a
 bound value is never re-expanded.
+
+#### Forwarding the rest (`:args/rest`)
+
+`:args/rest` stands for the CLI args left over after the declared positionals
+bind - all of them when a task declares no `:args`. It is what lets a wrapper
+keep the command's own arguments:
+
+```clojure
+{:tasks
+ {test {:do [{:sh "docker compose up -d"}
+             {:task [lgx:test :args/rest]}]}}}
+```
+
+Using it anywhere in a task's steps relaxes that task's arity check, and its
+signature in `lgx help` and the usage line gain `[args...]`. It expands to as
+many items as there are leftover args (zero is fine), each shell-quoted in
+`:sh` and verbatim in `:run` and `:task`.
+
+It is allowed only in **vector-form** step values; there is no `{{rest}}`
+string form, because a joined splice would lose quoting. Its namespace differs
+from `:arg/` on purpose, so it can never collide with an arg declared as
+`rest`. A task that does not use it keeps strict arity, and its surplus-args
+error points here:
+
+```
+lgx: test: task takes no arguments (got 1) (to forward extra args to a step, add :args/rest to it)
+```
 
 #### Per-task `:extra-paths`, `:extra-resource-paths`, `:extra-deps`
 
@@ -522,6 +614,10 @@ contexts applied by the `console` task's `:with` above). Apply two ways:
 - **`lgx --with dev,test <command>`** - a global flag applied to `run`, `build`,
   `test`, `install`, or a task (`install` pre-fetches the contexts' deps).
 - **`:with [:dev]`** on a task - always applied; a global `--with` unions on top.
+
+A `:task` step passes the caller's effective contexts (its `:with` plus any CLI
+`--with`) to the child as `--with`, so the callee runs with the contexts its
+caller had, layered after the callee's own.
 
 **Default contexts.** By convention `:dev` auto-applies to `lgx run`, `:test` to
 `lgx test`, and `lgx nrepl` applies **both** - no `--with` needed. `build` and
@@ -583,6 +679,7 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 | --- | --- | --- |
 | `LGX_LG` | `lg` on `PATH` | Path to the `lg` binary lgx invokes. Useful when testing an unreleased build. Rejected with an error when `:lg-runtime` is `:built`; use `LGX_LETGO_REPLACE` there. |
 | `LGX_RUN` | _(set by lgx)_ | Set to `1` in the process spawned by `lgx run`. Read it to detect dev (`lgx run`) vs. bundled-binary mode - e.g. to enable dev-only behavior. Not needed for argument parsing; read `*command-line-args*` for that (see [`lgx run` details](#lgx-run-details)). |
+| `LGX_TASK_STACK` | _(set by lgx)_ | The comma-separated chain of tasks currently running, innermost last. Set before a task's steps run and inherited by the child processes they spawn, so re-entering a running task fails instead of looping. `LGX_TASK_ROOTS` carries the matching project roots. Read-only in practice; setting it by hand only suppresses or fakes the cycle guard. |
 | `LGX_HOME` | `~/.lgx` | State root for the gitlibs cache, the let-go source cache, the template cache, and the test-runner harness dir. |
 | `LGX_SKIP_VERSION_CHECK` | _(unset)_ | Set to any non-empty value to bypass the `:lg-version` compatibility check on `run`/`nrepl`/`build`/`test`. |
 | `LGX_FETCH_LET_GO_SOURCE` | _(unset)_ | Set to any non-empty value to make `lgx install` fetch the let-go source matching `:lg-version` into `$LGX_HOME/let-go/source/<version>/`. The source feeds editor diagnostics - an LSP server navigating into let-go's `core`/stdlib. Off by default, since most users don't run such tooling and wouldn't expect the extra clone. |

@@ -31,15 +31,15 @@ embedded git library ended up shelling out for edge cases anyway.
 
 ```
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring, apply-runtime! (the :lg-runtime decision), cmd-info
-lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port, build --target/--all
+lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port, build --target/--all; self-invocation + child argv for :task steps
 lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
 lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/gobuild.lg      everything :go/* — partitioning go coords out of resolution, the runtime cache key, rendering the generated Go module, and driving go get / go mod tidy / lginterop / go build
 lgx/path.lg         portable filesystem path helpers (join, parent)
-lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths
-lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks
+lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths; exec a child with inherited stdio
+lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks; the cycle guard's stack encoding
 lgx/new.lg          scaffold a new project from a built-in or URL template
 lgx/clean.lg        explicit cache cleanup: flag parsing, sizing via du, guarded removal under $LGX_HOME
 lgx/home.lg         $LGX_HOME root and the cache-root accessors every cache-owning module shares
@@ -244,8 +244,9 @@ It takes no args of its own — a positional exits 1 with
 `lgx run`'s job. Then it execs `lg <paths>` via `runner/exec-lg-interactive!`
 with an **empty** forward-arg list: with no script, no `-e`, and no `-n`, lg
 drops into its terminal REPL. No port and no `.nrepl-port` are involved, and —
-like `cmd-nrepl` — no `LGX_RUN` is set. `repl` is a reserved task name
-(`config/reserved-task-names`), so a project task can't shadow it.
+like `cmd-nrepl` — no `LGX_RUN` is set. `repl` is an overridable
+command (`config/overridable-commands`): a project task named `repl` runs
+instead, and `lgx lgx:repl` reaches this one.
 
 ### `lgx nrepl [--port N]`
 
@@ -272,8 +273,9 @@ server on port N` and still opens the terminal REPL; rerunning picks a
 fresh free port.
 Unlike `cmd-run`, `cmd-nrepl` does not set `LGX_RUN` — that var
 advertises script-arg handling to a spawned program, which doesn't
-apply to a REPL session. `nrepl` is a reserved task name
-(`config/reserved-task-names`), so a project task can't shadow it.
+apply to a REPL session. `nrepl` is an overridable
+command (`config/overridable-commands`): a project task named `nrepl` runs
+instead, and `lgx lgx:nrepl` reaches this one.
 
 ### `lgx build [args...]`
 
@@ -472,14 +474,39 @@ line beside it.
 
 ### `lgx <task>`
 
-After built-in dispatch, lgx looks up `<task>` (as a symbol) in the
-project's `:tasks` map. If present, lgx first binds the remaining CLI
+#### Dispatch order
+
+`dispatch` in `lgx.lg` resolves a command word in this order; first match wins.
+
+1. No command → usage, exit 1.
+2. **Fixed commands**: `help`/`-h`/`--help`, `version`/`-v`/`--version`, `new`,
+   `completion`, `__complete` (`config/fixed-commands`). They run without a
+   project, so a project can never sit in front of them.
+3. **`lgx:<name>`** (`cli/strip-lgx-prefix`) → the built-in behind the prefix,
+   or `lgx: 'lgx:<x>' is not a built-in command (built-ins: …)` and exit 1.
+4. **A project task** of that name, when a project is found and its `lgx.edn`
+   loads cleanly. An invalid config is skipped silently here: the built-ins
+   that need it keep reporting the errors themselves.
+5. **An overridable built-in**: `run repl nrepl build test install info clean`
+   (`config/overridable-commands`).
+6. Unknown → with a project, the validation report (an invalid `lgx.edn` might
+   have defined the task); otherwise `'<cmd>' is not a lgx command`.
+
+So a project task shadows a built-in of the same name, and `lgx:<name>` is the
+escape that always reaches the original — the form a wrapper uses to call the
+command it wraps. `lgx help` marks an overriding task in its row.
+
+#### Binding and execution
+
+Having found the task, lgx first binds the remaining CLI
 args against the task's `:args` declarations (`args/bind-args`) —
 before the basis is built, so a bad invocation never fetches deps.
-Arity is strict: missing/surplus args or a value failing its `:type`
+Arity is strict unless a step forwards `:args/rest`: missing/surplus args or a
+value failing its `:type`
 print each error plus a usage line derived from the declarations
 (`usage: lgx deploy <env> [version]`) and exit 1; a task without
-`:args` rejects any CLI args the same way. Then lgx resolves the
+`:args` rejects any CLI args the same way, with a hint naming
+`:args/rest`. Then lgx resolves the
 project basis the same way `lgx run` does (steps 1–4 above) and walks
 the task's `:do` vector. Config validation accepts `:do` as either a
 single step map or a vector of steps, then normalizes the single-map
@@ -496,6 +523,24 @@ of:
   apply `runner/drop-arg-separator` so the first `--` — the app-level
   separator — is stripped before `lg` sees it, matching `lgx run`. A
   second `--` survives as a literal arg.
+- `{:task <symbol-or-vector>}` — invokes another task, or a built-in when the
+  callee is `lgx:<name>`. The step **re-invokes lgx itself as a child
+  process**: every built-in either exits on its own paths or hands the process
+  to `lg`, and `repl`/`nrepl` are interactive, so an in-process call could
+  never return to continue the chain. Spawning lgx reuses dispatch, arity
+  checks, basis layering and headers unchanged, and a wrapped `lgx:nrepl` owns
+  the terminal like a direct call would.
+
+  The child is the same binary the parent runs, never a `PATH` lookup of
+  whatever `lgx` happens to be: `cli/self-invocation` splits `os/args` into the
+  program and (in dev) the `lgx.lg` script prefix, and `cli/resolve-self-bin`
+  turns a bare argv[0] into a real path — through `command -v`, because
+  `os/stat` reports no mode bits and the shell skips a non-executable file that
+  a stat-based PATH walk would pick. `cli/child-args` then renders the child's
+  argv: `--verbose` when the parent is verbose, `--with` carrying the parent's
+  *effective* contexts (task `:with` ++ CLI `--with`) so the child's own
+  layering unions them, then the callee and its args. Stdio is inherited via
+  `runner/exec-interactive!`, so output streams live.
 
 Step values may reference the bound args two ways, applied just before
 the step runs. Vector-form values may carry `:arg/<name>` placeholder
@@ -526,10 +571,58 @@ Steps run sequentially. The first non-zero exit code stops the chain
 and becomes the task's exit code; lgx exits 0 only when every step
 returns 0.
 
-Task names that collide with built-in commands
-(`run`, `install`, `new`, `build`, `test`, `add`, `update`, `tasks`,
-`help`, `version`) are rejected at validation time — overriding
-built-ins is reserved for later via an `:lgx/<name>` form.
+#### `:args/rest`
+
+`:args/rest` is a placeholder for the CLI args left over after the declared
+positionals bind (all of them when a task declares no `:args`). Allowed in
+vector-form values only — there is no `{{rest}}` string form, since a joined
+splice would lose quoting. Its presence anywhere in a task's steps
+(`args/uses-rest?`) is what relaxes that task's arity check; it binds in the
+same map as the `:arg/` entries, under `:args/rest` but as a *vector* of
+strings, and `args/substitute` splices it into that many items (shell-quoted
+per item for `:sh`, verbatim for `:run` and `:task`). `args/signature` and
+`args/usage-line` append `[args...]` for a task that uses it. The namespace
+differs from `:arg/` so it can never collide with an arg declared as `rest`;
+an unknown `:arg/rest` placeholder gets a hint pointing here.
+
+#### Cycle guard
+
+Because every hop between tasks is a child process, the chain of running tasks
+travels in the environment rather than on a call stack — which is what lets one
+mechanism cover direct `:task` recursion, an indirect cycle, and the
+`{:sh "lgx test"}` mistake inside an override of `test`. `cmd-task` reads the
+chain, refuses to run a task already on it, and otherwise pushes itself before
+running steps:
+
+```
+lgx: task 'test' is already running (ci > test); to call the built-in from a task, use lgx:test
+```
+
+An entry is a **(task name, project root) pair**, so a monorepo root task that
+shells into a child project with a same-named task is not mistaken for
+recursion, while a chain that leaves a project and re-enters the same task
+still is. The pair travels as two parallel vars: `LGX_TASK_STACK` is the
+documented, readable `a,b` name chain (and the one `runner/lgx-set-env-names`
+shows in the `--verbose` `+ env` trace), `LGX_TASK_ROOTS` its newline-joined
+roots — newlines because a directory name may legitimately contain a comma. The
+parsing, comparison and rendering are pure fns in `lgx/tasks.lg`
+(`stack-entries`, `stack-cycle?`, `stack-chain`, `stack-values`), unit-tested
+in `test/lgx/tasks_test.lg`; a length mismatch between the two vars reads as an
+empty chain, so a hand-set value fails open rather than blocking a legitimate
+task.
+
+#### Task-name rules
+
+A task name is a symbol. Names matching a **fixed** command are rejected at
+validation time (`conflicts with built-in command "new", which cannot be
+overridden`), as are names starting with `lgx:` (reserved for addressing
+built-ins) or `-`. Every overridable built-in's name is accepted. Only a bare
+name can shadow a built-in — a namespaced `foo/run` dispatches as `foo/run`.
+
+`:task` callees are cross-checked at load time too (`task-targets-errors`, a
+root-level rule beside `with-refs-errors`): an `lgx:<x>` callee must name an
+overridable built-in, any other callee must be a defined task, and a task may
+not call itself (`calls itself; use lgx:<name> to call the built-in`).
 
 ### Contexts
 
@@ -542,6 +635,10 @@ when defined, auto-applies to `run`, `:test` to `test`, and `repl`/`nrepl` to
 `lgx.lg` takes an ordered name list — `[:dev]` for `run`, `[:test]` for `test`,
 `[:dev :test]` for `repl` and `nrepl` — prepends the defined ones to the CLI
 `--with` list, and prints `+ auto context <name>` per name under `--verbose`).
+A `:task` step forwards the caller's *effective* contexts (its `:with` plus the
+CLI `--with`) to the child as `--with`, so the callee layers them after its own
+`:with` — the child's existing layering does the union, with no new precedence
+rule.
 Auto-contexts touch only those four built-in commands — never `build`/`install`,
 never a task's `:run` steps — so dev/test deps cannot leak into artifacts. `config/context-overlay` resolves an ordered name
 list to a single `{:deps-pairs :paths :resource-paths}` overlay, folding
@@ -633,9 +730,16 @@ choice of VCS.
 ### `lgx completion <shell>` and `lgx __complete` (hidden)
 
 Shell TAB completion lives in `lgx/completion.lg`. Both commands are
-dispatch branches in `lgx.lg`, both are absent from `lgx help`, and
-both are reserved task names so a project task can't shadow them.
+dispatch branches in `lgx.lg`, both are absent from `lgx help`, and both are
+fixed commands (`config/fixed-commands`) — they run without a project, so a
+project task can never shadow them.
 `completion` is documented in the README's install instructions only.
+
+At the command position a bare TAB offers the built-ins, the project's tasks,
+and an `lgx:<name>` form only for the built-ins the project actually overrides
+— the escape is surfaced exactly where it is needed, and a bare prompt does not
+gain eight entries nobody asked for. Once the typed word starts with `lgx:`,
+every overridable built-in is offered.
 
 `lgx completion <shell>` prints the bash, zsh, or fish completion
 script to stdout. The scripts are string constants, not resources:
@@ -644,6 +748,17 @@ so neither mode has a resource root. Each script invokes the binary by
 the name it was called as and asks `lgx __complete <words…> <cur>` for
 candidates on TAB. An unknown or missing shell argument errors to
 stderr and exits 1.
+
+The bash script does one extra thing: bash treats `:` as a word-break character
+by default, so `lgx lgx:te<TAB>` arrives as the three words `lgx` `:` `te`. The
+adapter rejoins exactly that shape — a literal `lgx` followed by a `:` token —
+and trims the prefix bash will not replace from each candidate. Words after the
+command pass through untouched, because once bash has split them it can no
+longer tell `foo:bar` from `foo: bar`. A consequence lgx does not currently fix
+(and did not before either): an *argument* containing `:` or `=` is split into
+several words, which inflates the argument count and can silence enum
+completion for later positions. e2e Scenario 134 covers the rejoin against the
+real script.
 
 `lgx __complete` prints one candidate per line: the built-in command
 names (a def in `lgx/completion.lg`, kept in sync with `dispatch` by
