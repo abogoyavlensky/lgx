@@ -199,6 +199,8 @@ Modify:
 - `lgx/completion.lg` — `lgx:` candidates.
 - `tests/e2e.sh` — Scenario 19 flipped; new scenarios appended after the last
   numbered one.
+- `lgx/tasks.lg` — also the pure cycle-guard helpers (added during Task 7).
+- `test/lgx/tasks_test.lg` — new; unit tests for those helpers.
 - `test/lgx/config_test.lg`, `test/lgx/args_test.lg`, `test/lgx/cli_test.lg`,
   `test/lgx/completion_test.lg`, `test/lgx/runner_test.lg` — unit tests.
 - `README.md`, `docs/ARCHITECTURE.md` — docs in the same change.
@@ -530,12 +532,14 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 > Callers gate on `config/overridable-command?` first, because several
 > built-ins return normally (they do not all exit), so a nil return would be
 > indistinguishable from "not a built-in" and would re-dispatch the command.
-> Deviation (Step 2, after codex review): the cycle guard is scoped to the
-> project root, not global. The plan's name-only stack made a monorepo root
-> task that shells into a child project with a same-named task read as
-> recursion. `LGX_TASK_ROOT` now travels with `LGX_TASK_STACK`, and a differing
-> root starts that project's chain fresh. Residual limitation, deliberately not
-> chased: a chain that ping-pongs between two projects is not detected.
+> Deviation (Step 2, after codex review): a cycle is a repeated (task name,
+> project root) *pair*, not a repeated name. The plan's name-only stack made a
+> monorepo root task that shells into a child project with a same-named task
+> read as recursion. `LGX_TASK_ROOTS` now travels alongside the documented
+> `LGX_TASK_STACK` name chain (newline-joined, since a directory name may
+> contain a comma), so independent same-named tasks run while A -> B -> A is
+> still caught. The guard's pure parts moved to `lgx/tasks.lg` with a new
+> `test/lgx/tasks_test.lg` — two defects in a row there earned it unit tests.
 > Deviation (Step 2): the surplus-args hint uses the parenthesized form the
 > implementation step specifies — `... (to forward extra args to a step, add
 > :args/rest to it)` — rather than the `; ...` form in the design section.

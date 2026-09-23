@@ -8,6 +8,12 @@
 ;; Pure candidate logic for the hidden `lgx __complete` endpoint. Candidates
 ;; are offered at the command position, and at task arg positions whose decl
 ;; :type is [:enum ...] — no flag completion, no other argument completion.
+;;
+;; At the command position a bare TAB offers the built-ins, the project's
+;; tasks, and an `lgx:<name>` form only for the built-ins the project actually
+;; overrides — the escape is worth surfacing exactly where it is needed, and a
+;; bare prompt does not gain eight entries nobody asked for. Once the typed
+;; word starts with `lgx:`, every overridable built-in is offered.
 ;; Isolated from lgx.main so it can be unit-tested (lgx.main's load runs
 ;; (main)).
 ;; --------------------------------------------------------------------------
@@ -87,7 +93,12 @@
       (str/starts-with? cur "-") []
 
       (= :command-position state)
-      (matches (concat builtin-commands (keys tasks)) cur)
+      (let [overridden (filter config/overridable-command? (keys tasks))
+            lgx-forms (if (str/starts-with? cur "lgx:")
+                        (map #(str "lgx:" %) config/overridable-commands)
+                        (map #(str "lgx:" %) overridden))]
+        (matches (distinct (concat builtin-commands (keys tasks) lgx-forms))
+                 cur))
 
       (and (= :command-typed state) (contains? tasks command))
       (matches (or (enum-values (get tasks command) args-typed) []) cur)

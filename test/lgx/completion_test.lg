@@ -150,6 +150,32 @@
   (is (nil? (completion/completion-script "nope"))))
 
 ;; ---------------------------------------------------------------------------
+;; candidates — lgx: forms for overridden built-ins
+;; ---------------------------------------------------------------------------
+
+(def ^:private all-lgx-forms
+  ["lgx:build" "lgx:clean" "lgx:info" "lgx:install" "lgx:nrepl" "lgx:repl"
+   "lgx:run" "lgx:test"])
+
+(deftest overridden-builtin-offers-lgx-form
+  (let [cs (completion/candidates [] "" {"test" nil})]
+    (is (some #(= "lgx:test" %) cs))
+    (is (not (some #(= "lgx:run" %) cs)))))
+
+(deftest bare-prompt-has-no-lgx-forms-without-overrides
+  (is (not (some #(str/starts-with? % "lgx:")
+                 (completion/candidates [] "" {"fmt" nil})))))
+
+(deftest lgx-prefix-offers-all-builtins
+  (is (= all-lgx-forms (completion/candidates [] "lgx:" {}))))
+
+(deftest lgx-prefix-filters
+  (is (= ["lgx:test"] (completion/candidates [] "lgx:t" {}))))
+
+(deftest lgx-prefix-does-not-duplicate-an-override
+  (is (= all-lgx-forms (completion/candidates [] "lgx:" {"test" nil}))))
+
+;; ---------------------------------------------------------------------------
 ;; fixed commands — tasks may not shadow the completion commands
 ;; ---------------------------------------------------------------------------
 
