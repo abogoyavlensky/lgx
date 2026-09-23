@@ -27,6 +27,12 @@
          (runner/env-trace-line {"LG_READ_CLJ" "1"
                                  "LGX_RUN" ""}))))
 
+(deftest env-trace-includes-task-stack
+  (is (= "+ env LG_READ_CLJ=1 LGX_RUN=1 LGX_TASK_STACK=ci,test\n"
+         (runner/env-trace-line {"LG_READ_CLJ" "1"
+                                 "LGX_RUN" "1"
+                                 "LGX_TASK_STACK" "ci,test"}))))
+
 (deftest env-trace-line-nil-when-none-set
   (is (nil? (runner/env-trace-line {"LG_READ_CLJ" ""
                                     "LGX_RUN" ""}))))

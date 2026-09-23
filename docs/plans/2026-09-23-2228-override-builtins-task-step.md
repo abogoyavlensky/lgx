@@ -405,9 +405,12 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 > Deviation (Step 3): `self-invocation` stays pure (an argv split only), as its
 > planned unit tests require — the filesystem resolution lives in
 > `resolve-self-bin` (pure, injected `exists?`) plus a thin
-> `resolve-self-bin!` wrapper that feeds it `os/cwd` / `$PATH` /
-> `os/path-separator`. Callers compose the two. Also: `os/stat` returns nil for
-> a missing path and spells the directory flag `:dir?`, not `:dir`.
+> `resolve-self-bin!` wrapper. Callers compose the two. The planned PATH walk
+> (`os/stat` per candidate dir) was replaced after codex review: `os/stat`
+> reports no mode bits, so the walk could pick a non-executable file the shell
+> would skip. `resolve-self-bin` now takes `[argv0 cwd lookup]` and
+> `cli/path-lookup` delegates the bare-name case to `command -v`, the same way
+> `runner/lg-resolved-path` already does.
 
 ### Task 5: Runner: `exec-interactive!` and the stack env name
 
