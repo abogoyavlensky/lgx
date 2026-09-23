@@ -283,21 +283,39 @@
 
 (deftest resolve-self-bin-absolute
   (is (= "/x/bin/lgx"
-         (cli/resolve-self-bin "/x/bin/lgx" "/w" "/a:/b" ":"
-                               (fn [_] false)))))
+         (cli/resolve-self-bin "/x/bin/lgx" "/w" (fn [_] "/other/lgx")))))
 
 (deftest resolve-self-bin-relative-absolutizes
   (is (= "/w/bin/lgx"
-         (cli/resolve-self-bin "./bin/lgx" "/w" "/a:/b" ":"
-                               (fn [_] false)))))
+         (cli/resolve-self-bin "./bin/lgx" "/w" (fn [_] nil)))))
 
-(deftest resolve-self-bin-bare-searches-path
+(deftest resolve-self-bin-bare-uses-lookup
   (is (= "/b/lgx"
-         (cli/resolve-self-bin "lgx" "/w" "/a:/b" ":"
-                               (fn [p] (= p "/b/lgx"))))))
+         (cli/resolve-self-bin "lgx" "/w" (fn [n] (when (= n "lgx") "/b/lgx"))))))
 
 (deftest resolve-self-bin-bare-unresolved-unchanged
-  (is (= "lgx"
-         (cli/resolve-self-bin "lgx" "/w" "/a:/b" ":" (fn [_] false))))
-  (is (= "lgx"
-         (cli/resolve-self-bin "lgx" "/w" "" ":" (fn [_] true)))))
+  (is (= "lgx" (cli/resolve-self-bin "lgx" "/w" (fn [_] nil)))))
+
+;; Regression: the shell skips a non-executable file early on PATH, and
+;; os/stat cannot see the mode bits, so the lookup goes through `command -v`.
+(deftest path-lookup-skips-non-executable
+  (let [dir (str "/tmp/lgx-path-lookup-test-" (rand-int 100000000))
+        early (str dir "/early")
+        late (str dir "/late")]
+    (mkdir dir)
+    (mkdir early)
+    (mkdir late)
+    (spit (str early "/lgx-probe") "#!/bin/sh\n")
+    (spit (str late "/lgx-probe") "#!/bin/sh\n")
+    (os/sh "chmod" "-x" (str early "/lgx-probe"))
+    (os/sh "chmod" "+x" (str late "/lgx-probe"))
+    (let [prev (os/getenv "PATH")]
+      ;; Prepend rather than replace: os/sh resolves `sh` through PATH too.
+      (os/setenv "PATH" (str early ":" late ":" prev))
+      (let [found (cli/path-lookup "lgx-probe")]
+        (os/setenv "PATH" prev)
+        (os/sh "rm" "-rf" dir)
+        (is (= (str late "/lgx-probe") found))))))
+
+(deftest path-lookup-nil-for-unknown-name
+  (is (nil? (cli/path-lookup "lgx-definitely-not-a-real-program-xyz"))))

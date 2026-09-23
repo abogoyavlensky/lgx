@@ -43,38 +43,38 @@
   "Resolve argv[0] to a path a child process can exec. let-go has no
    executable-path builtin, and argv[0] is a bare name when the user invoked
    lgx through PATH, so: a value containing a separator is absolutized
-   against `cwd`; a bare name takes the first directory in `path-env` (split
-   on `sep`) where `<dir>/<name>` exists; an unresolvable name is returned
-   unchanged, leaving the child to a plain PATH lookup. `exists?` takes a
-   path and returns true for an existing file, so tests can inject it.
+   against `cwd`; a bare name goes to `lookup`, which returns its resolved
+   path or nil. An unresolvable name is returned unchanged, leaving the child
+   to a plain PATH lookup.
 
    Resolving rather than re-running `lgx` off PATH is what makes the child
    the same binary as the parent, even under a version-manager shim: the
    shim's own path is what resolves, and the child inherits the cwd the shim
    keys on."
-  [argv0 cwd path-env sep exists?]
+  [argv0 cwd lookup]
   (if (str/includes? argv0 os/file-separator)
     (if (path/absolute? argv0)
       argv0
       (path/normalize (path/join cwd argv0)))
-    (let [dirs (filter #(not (str/blank? %)) (str/split path-env sep))
-          hit (first (filter #(exists? (path/join % argv0)) dirs))]
-      (if hit (path/join hit argv0) argv0))))
+    (or (lookup argv0) argv0)))
 
-(defn- regular-file?
-  "True when `p` names an existing non-directory. os/stat returns nil for a
-   missing path; the try guards the shapes that make it throw."
-  [p]
-  (try
-    (let [st (os/stat p)]
-      (and (some? st) (not (:dir? st))))
-    (catch _ false)))
+(defn path-lookup
+  "Resolve a bare program name through PATH the way the shell does, via
+   `command -v`. Returns the resolved path, or nil when the name does not
+   resolve. Delegated to the shell rather than walking PATH with os/stat
+   because stat reports no mode bits: a non-executable file named `lgx`
+   early on PATH is one the shell skips and stat would not. The name is
+   passed as an argument, never interpolated into the script."
+  [name]
+  (let [r (try (os/sh "sh" "-c" "command -v -- \"$1\"" "sh" name)
+               (catch _ nil))]
+    (when (and r (zero? (:exit r)) (not (str/blank? (:out r))))
+      (str/trim (:out r)))))
 
 (defn resolve-self-bin!
   "resolve-self-bin wired to the real environment."
   [argv0]
-  (resolve-self-bin argv0 (os/cwd) (os/getenv "PATH") os/path-separator
-                    regular-file?))
+  (resolve-self-bin argv0 (os/cwd) path-lookup))
 
 (def ^:private lgx-prefix "lgx:")
 

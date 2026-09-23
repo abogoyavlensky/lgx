@@ -364,7 +364,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 - Modify: `lgx/cli.lg`
 - Test: `test/lgx/cli_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   `self-invocation-dev-prefix` (`["lg" "lgx.lg" "run"]` →
   `{:bin "lg" :prefix ["lgx.lg"]}`); `self-invocation-bundle`
   (`["/x/bin/lgx" "run"]` → `{:bin "/x/bin/lgx" :prefix []}`);
@@ -380,11 +380,11 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `/a:/b`, an injected `exists?` true only for `/b/lgx` → `/b/lgx`);
   `resolve-self-bin-bare-unresolved-unchanged` (no hit → `"lgx"`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lg lgx.lg test test/lgx/cli_test.lg`
   Expected: FAIL, unresolved fns.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   Add the pure fns to `cli.lg` next to `user-args`, sharing its
   "argv[1] ends with `.lg`" rule. `child-args` renders each context keyword
   as `(subs (str k) 1)` so a namespaced `:app/dev` survives the round trip
@@ -395,12 +395,19 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `os/path-separator`, and an `os/stat`-based `exists?` that rejects
   directories. Use `path/absolute?` and `path/join` from `lgx/path.lg`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/cli_test.lg`
   Expected: `0 failures`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "cli: self-invocation, lgx: prefix, and child argv helpers"`
+
+> Deviation (Step 3): `self-invocation` stays pure (an argv split only), as its
+> planned unit tests require — the filesystem resolution lives in
+> `resolve-self-bin` (pure, injected `exists?`) plus a thin
+> `resolve-self-bin!` wrapper that feeds it `os/cwd` / `$PATH` /
+> `os/path-separator`. Callers compose the two. Also: `os/stat` returns nil for
+> a missing path and spells the directory flag `:dir?`, not `:dir`.
 
 ### Task 5: Runner: `exec-interactive!` and the stack env name
 
