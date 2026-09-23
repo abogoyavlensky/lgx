@@ -550,29 +550,29 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 - Modify: `lgx/completion.lg`
 - Test: `test/lgx/completion_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   `overridden-builtin-offers-lgx-form` (tasks `{"test" nil}` at the command
   position → candidates include `lgx:test`, and do not include `lgx:run`);
   `bare-prompt-has-no-lgx-forms-without-overrides` (no tasks → no `lgx:`
   candidates); `lgx-prefix-offers-all-builtins` (cur `"lgx:"` → all eight
   `lgx:` names, sorted); `lgx-prefix-filters` (cur `"lgx:t"` → `["lgx:test"]`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lg lgx.lg test test/lgx/completion_test.lg`
   Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `candidates`, at the command position build the value list as
   `builtin-commands` ++ task names ++ `lgx:<name>` for each task name in
   `config/overridable-commands` ++ (when `cur` starts with `lgx:`) every
   `lgx:<overridable>`; dedupe before `matches`. Update the header comment
   about which names are offered when.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/completion_test.lg`
   Expected: `0 failures`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "completion: offer lgx:<name> for overridden built-ins"`
 
 ### Task 9: E2E scenarios

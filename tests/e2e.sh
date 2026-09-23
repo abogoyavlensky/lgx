@@ -3536,5 +3536,46 @@ else
     skip "clojure.test port scenarios need LGX_LG_NEW"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 134: bash completion survives ':' being a word-break char"
+# Bash splits `lgx:te` into three words by default (COMP_WORDBREAKS), so the
+# adapter re-splits COMP_LINE itself. Exercised through the real script rather
+# than the pure candidate fns, which never see that tokenization.
+proj_bc="$(mktemp -d)"
+home_bc="$(mktemp -d)"
+cat > "$proj_bc/lgx.edn" <<'EOF'
+{:tasks
+ {test {:doc "Wrapped" :do [{:sh "echo wrapper"}]}}}
+EOF
+cat > "$proj_bc/drive.bash" <<'EOF'
+set -eu
+lgx_bin="$1"
+source <("$lgx_bin" completion bash)
+complete_line() {
+    COMP_LINE="$1"
+    COMP_POINT=${#COMP_LINE}
+    # Tokenize the way bash does with ':' in COMP_WORDBREAKS.
+    local split
+    split="${COMP_LINE// /$'\n'}"
+    split="${split//:/$'\n':$'\n'}"
+    mapfile -t COMP_WORDS <<< "$split"
+    COMP_WORDS[0]="$lgx_bin"
+    COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))
+    COMPREPLY=()
+    _lgx_complete
+    echo "${COMPREPLY[*]-}"
+}
+echo "t:$(complete_line 'lgx lgx:t')"
+echo "all:$(complete_line 'lgx lgx:')"
+echo "plain:$(complete_line 'lgx te')"
+EOF
+out="$(cd "$proj_bc" && LGX_HOME="$home_bc" bash "$proj_bc/drive.bash" "$LGX" 2>&1)"
+# Bash replaces only the text after the last ':', so the candidate arrives trimmed.
+assert_contains "$out" "t:test" "bash completion: lgx:t completes to test"
+assert_contains "$out" "all:build clean info install nrepl repl run test" \
+    "bash completion: lgx: offers every overridable built-in"
+assert_contains "$out" "plain:test" "bash completion: a colon-free word still works"
+rm -rf "$proj_bc" "$home_bc"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
