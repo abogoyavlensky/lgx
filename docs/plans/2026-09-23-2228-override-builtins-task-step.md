@@ -449,7 +449,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 **Files:**
 - Modify: `lgx/tasks.lg`
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
   Require `lgx.cli`. Add `run-task-step! [value bindings child-with verbose?]`:
   substitute the value (vector form: `args/substitute` verbatim; symbol form:
   one-item vector), take the callee as `(str (first v))` and the args as the
@@ -462,12 +462,12 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   to `run-step!`. Update the ns header comment to list the third step type
   and the rest placeholder.
 
-- [ ] **Step 2: Verify it loads**
+- [x] **Step 2: Verify it loads**
   Run: `lg lgx.lg help`
   Expected: usage prints, no load error (a signature mismatch surfaces
   only at call time, so Task 7's e2e is the real check).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "tasks: :task step re-invokes lgx for a task or built-in"`
 
 ### Task 7: Dispatch, stack guard, and help marks

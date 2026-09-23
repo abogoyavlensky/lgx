@@ -41,6 +41,7 @@
        "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli`, `lib` or git URL)\n"
        "  lgx clean <--cache...>       Remove caches under ~/.lgx: --runtimes, --gitlibs, --templates, or --all\n"
        "                               (--dry-run only reports; reports bytes reclaimed)\n"
+       "  lgx lgx:<command>            Run a built-in command directly, even when a project task overrides it\n"
        "  lgx version                  Print version\n"
        "  lgx help                     Show this help\n"))
 
@@ -889,6 +890,24 @@
 
 ;; `project` and `cfg` arrive preloaded from dispatch, which had to read the
 ;; config to know the command names a task at all.
+(def ^:private task-stack-var "LGX_TASK_STACK")
+
+(defn- task-stack
+  "The chain of task names already running, innermost last. Inherited through
+   the environment, so it spans the child processes a `:sh` or `:task` step
+   spawns — which is what lets one guard cover direct recursion, an indirect
+   cycle, and a `{:sh \"lgx test\"}` inside an override of `test`."
+  []
+  (vec (filter #(not (str/blank? %))
+               (str/split (or (os/getenv task-stack-var) "") ","))))
+
+(defn- surplus-args-error?
+  "True for the two bind-args messages that mean \"more CLI args than this
+   task declares\" — the ones :args/rest would have absorbed."
+  [msg]
+  (or (str/starts-with? msg "task takes no arguments")
+      (str/starts-with? msg "too many arguments")))
+
 (defn- cmd-task [task-name task rest-args project cfg verbose? with]
   ;; A task's basis layers, low->high precedence: project deps/paths <
   ;; the task's :with contexts < the CLI --with contexts < the task's
@@ -898,21 +917,38 @@
   ;; :sh steps ignore the basis.
   ;;
   ;; CLI args bind against the task's :args first — cheap validation before
-  ;; the basis is built, so a bad invocation never fetches deps. Strict
-  ;; arity: a task without :args rejects any args.
-  (let [decls (vec (or (:args task) []))
-        bound (args/bind-args decls rest-args)]
-    (when (:errors bound)
-      (doseq [msg (:errors bound)]
-        (write! *err* (str "lgx: " task-name ": " msg "\n")))
-      (write! *err* (str (args/usage-line task-name decls) "\n"))
+  ;; the basis is built, so a bad invocation never fetches deps. Arity is
+  ;; strict unless a step forwards :args/rest.
+  (let [stack (task-stack)]
+    (when (some #(= % task-name) stack)
+      (write! *err* (str "lgx: task '" task-name "' is already running ("
+                         (str/join " > " (conj stack task-name))
+                         "); to call the built-in from a task, use lgx:"
+                         task-name "\n"))
       (os/exit 1))
-    (let [basis (overlay-basis project cfg with task)
-          {:keys [results paths resource-paths]} basis]
-      (apply-runtime! cfg basis :warn verbose?)
-      (print-installs! results)
-      (tasks/run-task! task-name task paths resource-paths verbose?
-                       (:bindings bound)))))
+    (let [decls (vec (or (:args task) []))
+          rest? (args/uses-rest? (:do task))
+          bound (args/bind-args decls rest-args rest?)]
+      (when (:errors bound)
+        (doseq [msg (:errors bound)]
+          (write! *err* (str "lgx: " task-name ": " msg
+                             (if (and (not rest?) (surplus-args-error? msg))
+                               " (to forward extra args to a step, add :args/rest to it)"
+                               "")
+                             "\n")))
+        (write! *err* (str (args/usage-line task-name decls rest?) "\n"))
+        (os/exit 1))
+      (let [basis (overlay-basis project cfg with task)
+            {:keys [results paths resource-paths]} basis]
+        (apply-runtime! cfg basis :warn verbose?)
+        (print-installs! results)
+        (os/setenv task-stack-var (str/join "," (conj stack task-name)))
+        (tasks/run-task! task-name task paths resource-paths verbose?
+                         (:bindings bound)
+                         ;; The caller's effective contexts, forwarded to a
+                         ;; :task step's child as --with so the child's own
+                         ;; layering unions them with the callee's :with.
+                         (vec (concat (:with task) with)))))))
 
 (defn- pad-right [s n]
   (let [c (count s)]
@@ -1060,10 +1096,20 @@
 ;; Tasks render as `lgx <name> <arg> [arg]` aligned to the same description
 ;; column as the built-in command rows, so they read as first-class commands.
 (defn- task-line [task-name task]
-  (let [sig (args/signature (or (:args task) []))
+  (let [sig (args/signature (or (:args task) []) (args/uses-rest? (:do task)))
         left (str "  lgx " task-name
                   (if (str/blank? sig) "" (str " " sig)))
-        doc (:doc task)]
+        ;; A task carrying a built-in's name shadows it, so the row says so
+        ;; and names the escape. No stderr notice when such a task runs — the
+        ;; user wrote it; help is where the surprise is worth spelling out.
+        override (when (config/overridable-command? (str task-name))
+                   (str "(overrides built-in; run lgx:" task-name
+                        " for the original)"))
+        own-doc (:doc task)
+        doc (cond
+              (str/blank? own-doc) override
+              (nil? override) own-doc
+              :else (str own-doc " " override))]
     (cond
       (str/blank? doc) left
       (>= (count left) doc-col) (str left "  " doc)
@@ -1118,11 +1164,13 @@
           (str "lgx: '" cmd "' is not a lgx command. See 'lgx --help'.\n"))
   (os/exit 1))
 
-;; `with` is the CLI --with context-name list (empty when the flag is absent).
-;; It is threaded to every command, but only the basis commands
-;; (run/build/test/install/tasks) act on it; new/version/help ignore it.
-(defn- dispatch [cmd rest-args verbose? with]
-  (case cmd
+(defn- run-builtin!
+  "Run the overridable built-in named `name`. Callers check
+   config/overridable-command? first, so there is no fall-through case: these
+   commands mostly exit on their own, and a nil return would be
+   indistinguishable from \"not a built-in\"."
+  [name rest-args verbose? with]
+  (case name
     "install" (cmd-install with)
     "info" (cmd-info verbose? with)
     "run" (cmd-run (vec rest-args) verbose? with)
@@ -1130,32 +1178,67 @@
     "nrepl" (cmd-nrepl (vec rest-args) verbose? with)
     "build" (cmd-build (vec rest-args) verbose? with)
     "test" (cmd-test (vec rest-args) verbose? with)
-    "new" (new/cmd-new! (vec rest-args) verbose?)
-    "clean" (clean/cmd-clean! (vec rest-args))
-    "version" (cmd-version)
-    "-v" (cmd-version)
-    "--version" (cmd-version)
-    "help" (print-usage!)
-    "-h" (print-usage!)
-    "--help" (print-usage!)
+    "clean" (clean/cmd-clean! (vec rest-args))))
+
+(defn- project-task
+  "The project task named `cmd`, with the project and config it came from, or
+   nil when there is none. A project whose lgx.edn does not load is treated as
+   having no tasks: the built-ins that need the config keep reporting the
+   errors themselves, and an unknown command still falls through to the
+   validation report below."
+  [cmd]
+  (when-let [project (config/find-project)]
+    (let [cfg (:cfg (config/load-config project))
+          k (symbol cmd)]
+      (when (and cfg (contains? (config/tasks cfg) k))
+        {:project project
+         :cfg cfg
+         :task (get (config/tasks cfg) k)}))))
+
+;; `with` is the CLI --with context-name list (empty when the flag is absent).
+;; It is threaded to every command, but only the basis commands
+;; (run/build/test/install/tasks) act on it; new/version/help ignore it.
+;;
+;; Resolution order, first match wins: the fixed commands, which run without a
+;; project and so can never be shadowed by one; `lgx:<name>`, which always
+;; reaches the built-in; a project task; the overridable built-ins; unknown.
+(defn- dispatch [cmd rest-args verbose? with]
+  (cond
+    (nil? cmd) (do (print-usage!) (os/exit 1))
+
+    (contains? #{"help" "-h" "--help"} cmd) (print-usage!)
+    (contains? #{"version" "-v" "--version"} cmd) (cmd-version)
+    (= "new" cmd) (new/cmd-new! (vec rest-args) verbose?)
     ;; Hidden: no help row for either. `completion` prints a shell script for
     ;; the README setup snippets; `__complete` is the dynamic endpoint those
     ;; scripts call on TAB.
-    "completion" (completion/cmd-completion! (vec rest-args))
-    "__complete" (do (completion/complete! (vec rest-args))
-                     (os/exit 0))
-    nil (do (print-usage!) (os/exit 1))
-    ;; The command may name a project task, which takes reading the config to
-    ;; know — so with a project present, an invalid lgx.edn reports its
-    ;; validation errors here rather than a misleading "not a lgx command".
-    (if-let [project (config/find-project)]
-      (let [cfg (config/load-config! project)
-            t (config/tasks cfg)
-            k (symbol cmd)]
-        (if (contains? t k)
-          (cmd-task cmd (get t k) (vec rest-args) project cfg verbose? with)
-          (unknown-command! cmd)))
-      (unknown-command! cmd))))
+    (= "completion" cmd) (completion/cmd-completion! (vec rest-args))
+    (= "__complete" cmd) (do (completion/complete! (vec rest-args))
+                             (os/exit 0))
+
+    ;; lgx:<name> addresses the built-in past any task of that name — the
+    ;; escape an overriding task uses to call the command it wraps.
+    (some? (cli/strip-lgx-prefix cmd))
+    (let [name (cli/strip-lgx-prefix cmd)]
+      (if (config/overridable-command? name)
+        (run-builtin! name rest-args verbose? with)
+        (do (write! *err* (str "lgx: '" cmd "' is not a built-in command "
+                               config/builtins-label "\n"))
+            (os/exit 1))))
+
+    :else
+    (if-let [found (project-task cmd)]
+      (cmd-task cmd (:task found) (vec rest-args) (:project found) (:cfg found)
+                verbose? with)
+      (if (config/overridable-command? cmd)
+        (run-builtin! cmd rest-args verbose? with)
+        ;; Not a task and not a built-in. With a project present, an invalid
+        ;; lgx.edn reports its validation errors here rather than a misleading
+        ;; "not a lgx command" — the command might have named a task in it.
+        (if-let [project (config/find-project)]
+          (do (config/load-config! project)
+              (unknown-command! cmd))
+          (unknown-command! cmd))))))
 
 (defn- main []
   (let [{:keys [verbose? with args]}

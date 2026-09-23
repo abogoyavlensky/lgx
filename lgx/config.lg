@@ -744,7 +744,9 @@
   [v]
   (if (vector? v) (first v) v))
 
-(def ^:private lgx-builtins-label
+(def builtins-label
+  "The `(built-ins: lgx:build, ...)` tail shared by every message that has to
+   list what an lgx:<name> word may name."
   (str "(built-ins: "
        (str/join ", " (map #(str "lgx:" %) (sort overridable-commands)))
        ")"))
@@ -758,7 +760,7 @@
     (cond
       (str/starts-with? s "lgx:")
       (when-not (overridable-command? (subs s 4))
-        (str "references unknown built-in " s " " lgx-builtins-label))
+        (str "references unknown built-in " s " " builtins-label))
 
       (= callee caller)
       (str "calls itself; use lgx:" s " to call the built-in")
