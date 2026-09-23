@@ -1,5 +1,8 @@
 # Override Built-in Commands, `:task` Steps, and `:args/rest` Implementation Plan
 
+**Status: completed** (branch `override-builtins-task-step`, 17 commits,
+`f591697`..`aa4deb8`).
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a project task in `lgx.edn` override a built-in command (with `lgx:<name>` always reaching the original), add a `:task` step that invokes another task or built-in, and add an explicit `:args/rest` placeholder so an override keeps the built-in's CLI args.
@@ -701,3 +704,65 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   visible default config) builds on `:task` and is a separate slice.
 - Bump the version and mention the dropped `add`/`update`/`tasks`
   reservations in the release notes.
+
+---
+
+## Completion summary
+
+All ten tasks shipped. `make test` ends green: **783 unit tests / 1240
+assertions** and **425 e2e assertions**, with `make lint` at the same two
+pre-existing warnings as master.
+
+**What was implemented**
+
+- A project task may carry an overridable built-in's name (`run`, `repl`,
+  `nrepl`, `build`, `test`, `install`, `info`, `clean`) and runs instead of it;
+  `lgx:<name>` always reaches the original. Five fixed commands (`new`, `help`,
+  `version`, `completion`, `__complete`) stay unshadowable, and the speculative
+  `add`/`update`/`tasks` reservations are gone.
+- A third step type, `{:task ...}`, invoking another task or a built-in by
+  re-invoking lgx as a child process — the same binary the parent runs,
+  resolved through `command -v` when argv[0] is bare, with inherited stdio so
+  an interactive callee owns the terminal.
+- `:args/rest`, an explicit placeholder for the leftover CLI args, which
+  relaxes a task's arity check and splices into `:sh` (quoted per item),
+  `:run` and `:task` (verbatim).
+- A cycle guard over (task name, project root) pairs, covering direct `:task`
+  recursion, indirect cycles and the `{:sh "lgx test"}` mistake.
+- Load-time validation for all of it, help marks, and `lgx:` completion
+  candidates.
+
+**Issues encountered**
+
+- **let-go swallows an unbalanced form.** A missing paren while reshaping
+  `bind-args` nested the rest of `args.lg` inside it; every var after that
+  point silently vanished, with no reader error and an exit code of 0. Worth
+  a paren-balance check after any large structural edit to a `.lg` file.
+- **The cycle guard took three rounds to get right.** A name-only stack
+  false-positives across projects; scoping the whole stack to one project
+  loses A -> B -> A. Only per-entry (name, root) pairs satisfy both. Its pure
+  parts now live in `lgx/tasks.lg` with `test/lgx/tasks_test.lg` behind them.
+- **`lgx:` completion needed a shell-level fix the unit tests could not see.**
+  Bash breaks words on `:`, so the new branch was unreachable from a real
+  prompt until the bundled adapter learned to rejoin that one shape.
+- `make fmt-check` fails on `lgx.lg` on this branch — the same pre-existing
+  failure master has, in `cmd-test`, untouched here. Left alone to keep the
+  diff scoped.
+
+**Deviations** are noted inline under their tasks: the `run-builtin!`
+membership gate (Task 7), `resolve-self-bin`'s signature and `command -v`
+lookup (Task 4), the (name, root) cycle guard (Task 7), the bash adapter
+(Task 8), scenario renumbering (Task 9), and the corrected `ci` example
+(Task 10).
+
+**What the plan could have specified better**
+
+The cycle guard was specified as a chain of *task names*, which reads as
+obviously sufficient and is not: it silently breaks monorepo orchestration,
+where a root task shelling into a child project with a same-named task is
+routine. Naming the identity a task is keyed by — and asking "what does this
+key collide with?" — would have caught it at design time instead of over three
+review rounds. The same question applied to `resolve-self-bin`'s PATH walk
+("what does the shell do that `os/stat` cannot see?") would have caught the
+executable-bit gap. For plans whose core is a guard or a lookup, pinning the
+key and the comparison is worth more than pinning the function signature.
