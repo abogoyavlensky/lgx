@@ -565,16 +565,39 @@
          (load-cfg {:tasks {'dev {:extra-dep {}
                                   :do [{:sh "echo hi"}]}}}))))
 
-(deftest load-rejects-reserved-task-names
-  (doseq [n config/reserved-task-names]
+(deftest load-accepts-overridable-task-names
+  ;; A task may carry a built-in's name — dispatch prefers the task, and
+  ;; lgx:<name> still reaches the built-in.
+  (doseq [n config/overridable-commands]
+    (is (nil? (:errors (load-cfg {:tasks {(symbol n) {:do [{:sh "echo hi"}]}}})))))
+  ;; The 0.2.0-era speculative reservations are gone.
+  (is (nil? (:errors (load-cfg {:tasks {'add {:do [{:sh "echo hi"}]}
+                                        'update {:do [{:sh "echo hi"}]}
+                                        'tasks {:do [{:sh "echo hi"}]}}}))))
+  (is (contains? config/overridable-commands "test"))
+  (is (contains? config/overridable-commands "nrepl"))
+  (is (contains? config/overridable-commands "clean")))
+
+(deftest load-rejects-fixed-task-names
+  (doseq [n config/fixed-commands]
     (is (= {:errors [{:path [:tasks (symbol n)]
-                      :msg (str "conflicts with built-in command \"" n "\"; rename the task")}]}
+                      :msg (str "conflicts with built-in command \"" n
+                                "\", which cannot be overridden; rename the task")}]}
            (load-cfg {:tasks {(symbol n) {:do [{:sh "echo hi"}]}}}))))
-  ;; Explicit spot-checks: "test" and "nrepl" must stay reserved so projects
-  ;; can't shadow them (dispatch would always win, leaving the task unreachable).
-  (is (contains? config/reserved-task-names "test"))
-  (is (contains? config/reserved-task-names "nrepl"))
-  (is (contains? config/reserved-task-names "info")))
+  (is (contains? config/fixed-commands "new"))
+  (is (contains? config/fixed-commands "help"))
+  (is (contains? config/fixed-commands "version")))
+
+(deftest load-rejects-lgx-prefixed-task-name
+  (is (= {:errors [{:path [:tasks 'lgx:test]
+                    :msg (str "the lgx: prefix is reserved for built-in "
+                              "commands; rename the task")}]}
+         (load-cfg {:tasks {'lgx:test {:do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-dash-prefixed-task-name
+  (is (= {:errors [{:path [:tasks '-v]
+                    :msg "task names cannot start with \"-\""}]}
+         (load-cfg {:tasks {'-v {:do [{:sh "echo hi"}]}}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :do and step errors

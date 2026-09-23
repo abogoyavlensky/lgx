@@ -40,12 +40,24 @@
 (defn- go-key? [c]
   (boolean (some go-ns-key? (keys c))))
 
-;; Built-in CLI commands that may not be shadowed by a project task. Includes
-;; subcommands that don't exist yet (add, update, tasks) but that are reserved
-;; so the namespace is available for future use.
-(def reserved-task-names
-  #{"run" "repl" "nrepl" "install" "info" "new" "add" "update" "tasks" "help"
-    "version" "build" "test" "clean" "completion" "__complete"})
+;; Built-in CLI commands, split by whether a project task may carry the name.
+;;
+;; The overridable ones all operate on a project, so dispatch can prefer a
+;; task of the same name and still reach the original through lgx:<name>
+;; (test, build, run and clean are the most common task names there are, so
+;; reserving them made collisions structural). The fixed ones run without a
+;; project — a project can never sit in front of them, so a task named after
+;; one would simply be unreachable, and lgx:help is not a thing.
+(def overridable-commands
+  #{"run" "repl" "nrepl" "build" "test" "install" "info" "clean"})
+
+(def fixed-commands
+  #{"new" "help" "version" "completion" "__complete"})
+
+(defn overridable-command?
+  "True when `s` names a built-in a project task may override."
+  [s]
+  (contains? overridable-commands s))
 
 ;; ---------------------------------------------------------------------------
 ;; lgx.edn format as one schema value (see lgx.spec for the schema language)
@@ -504,8 +516,15 @@
 
     ;; (str k) rather than (name k): only a bare name can shadow a built-in —
     ;; a namespaced foo/run dispatches as "foo/run", never as "run".
-    (contains? reserved-task-names (str k))
-    (str "conflicts with built-in command \"" k "\"; rename the task")))
+    (contains? fixed-commands (str k))
+    (str "conflicts with built-in command \"" k "\", which cannot be "
+         "overridden; rename the task")
+
+    (str/starts-with? (str k) "lgx:")
+    "the lgx: prefix is reserved for built-in commands; rename the task"
+
+    (str/starts-with? (str k) "-")
+    "task names cannot start with \"-\""))
 
 (def ^:private task-schema
   [:and

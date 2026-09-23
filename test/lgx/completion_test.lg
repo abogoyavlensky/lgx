@@ -150,9 +150,9 @@
   (is (nil? (completion/completion-script "nope"))))
 
 ;; ---------------------------------------------------------------------------
-;; reserved task names — tasks may not shadow the completion commands
+;; fixed commands — tasks may not shadow the completion commands
 ;; ---------------------------------------------------------------------------
 
 (deftest completion-commands-reserved
-  (is (contains? config/reserved-task-names "completion"))
-  (is (contains? config/reserved-task-names "__complete")))
+  (is (contains? config/fixed-commands "completion"))
+  (is (contains? config/fixed-commands "__complete")))
