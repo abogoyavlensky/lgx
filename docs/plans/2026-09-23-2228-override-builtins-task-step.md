@@ -475,7 +475,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Implement dispatch**
+- [x] **Step 1: Implement dispatch**
   Extract the eight overridable branches of the `case` in `dispatch` into
   `run-builtin [name rest-args verbose? with]` (returns nil for an unknown
   name). Rewrite `dispatch` in the order from the design: fixed names and
@@ -486,7 +486,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   then `run-builtin`; then the existing unknown-command branch, which keeps
   using `load-config!` so an invalid config still prints its report.
 
-- [ ] **Step 2: Implement the stack guard and rest binding in `cmd-task`**
+- [x] **Step 2: Implement the stack guard and rest binding in `cmd-task`**
   Before binding args: read `LGX_TASK_STACK`, split on `,` dropping blanks;
   if it contains `task-name`, print the "already running" line from the
   design and exit 1. Bind with
@@ -498,7 +498,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `run-task!`, `os/setenv "LGX_TASK_STACK"` to the extended stack. Pass
   `(vec (concat (:with task) with))` as `child-with`.
 
-- [ ] **Step 3: Help**
+- [x] **Step 3: Help**
   `task-line`: when `(config/overridable-command? (str task-name))`, append
   ` (overrides built-in; run lgx:<name> for the original)` to the doc, or use
   that text alone when `:doc` is blank; the signature should include
@@ -506,7 +506,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `lgx lgx:<command>` row to `command-rows` after the `lgx clean` rows,
   keeping the hand-aligned description column (`doc-col`).
 
-- [ ] **Step 4: Smoke test in dev mode**
+- [x] **Step 4: Smoke test in dev mode**
   Create a throwaway project under `/tmp` with a `test/` dir holding one
   passing `*_test.lg` and this `lgx.edn`:
   ```edn
@@ -523,8 +523,16 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `{:sh "/home/agent/Projects/lgx/bin/lgx test"}` and confirm the
   "already running" error with exit 1.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "dispatch: project tasks override built-ins; lgx:<name> reaches the original"`
+
+> Deviation (Step 1): `run-builtin!` takes no "unknown name" fall-through.
+> Callers gate on `config/overridable-command?` first, because several
+> built-ins return normally (they do not all exit), so a nil return would be
+> indistinguishable from "not a built-in" and would re-dispatch the command.
+> Deviation (Step 2): the surplus-args hint uses the parenthesized form the
+> implementation step specifies — `... (to forward extra args to a step, add
+> :args/rest to it)` — rather than the `; ...` form in the design section.
 
 ### Task 8: Completion candidates
 

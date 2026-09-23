@@ -891,15 +891,24 @@
 ;; `project` and `cfg` arrive preloaded from dispatch, which had to read the
 ;; config to know the command names a task at all.
 (def ^:private task-stack-var "LGX_TASK_STACK")
+(def ^:private task-root-var "LGX_TASK_ROOT")
 
 (defn- task-stack
-  "The chain of task names already running, innermost last. Inherited through
-   the environment, so it spans the child processes a `:sh` or `:task` step
-   spawns — which is what lets one guard cover direct recursion, an indirect
-   cycle, and a `{:sh \"lgx test\"}` inside an override of `test`."
-  []
-  (vec (filter #(not (str/blank? %))
-               (str/split (or (os/getenv task-stack-var) "") ","))))
+  "The chain of task names already running in `project`, innermost last.
+   Inherited through the environment, so it spans the child processes a `:sh`
+   or `:task` step spawns — which is what lets one guard cover direct
+   recursion, an indirect cycle, and a `{:sh \"lgx test\"}` inside an override
+   of `test`.
+
+   Scoped to the project root recorded alongside it: a task that shells into
+   another project starts that project's chain fresh, so a monorepo root and
+   its child may each define `check` without the inner one reading as
+   recursion."
+  [project]
+  (if (= project (os/getenv task-root-var))
+    (vec (filter #(not (str/blank? %))
+                 (str/split (or (os/getenv task-stack-var) "") ",")))
+    []))
 
 (defn- surplus-args-error?
   "True for the two bind-args messages that mean \"more CLI args than this
@@ -919,7 +928,7 @@
   ;; CLI args bind against the task's :args first — cheap validation before
   ;; the basis is built, so a bad invocation never fetches deps. Arity is
   ;; strict unless a step forwards :args/rest.
-  (let [stack (task-stack)]
+  (let [stack (task-stack project)]
     (when (some #(= % task-name) stack)
       (write! *err* (str "lgx: task '" task-name "' is already running ("
                          (str/join " > " (conj stack task-name))
@@ -942,6 +951,7 @@
             {:keys [results paths resource-paths]} basis]
         (apply-runtime! cfg basis :warn verbose?)
         (print-installs! results)
+        (os/setenv task-root-var project)
         (os/setenv task-stack-var (str/join "," (conj stack task-name)))
         (tasks/run-task! task-name task paths resource-paths verbose?
                          (:bindings bound)
