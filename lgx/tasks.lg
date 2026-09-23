@@ -43,6 +43,60 @@
 ;; the exception — it inherits the parent's stdio, so its output streams live.
 ;; --------------------------------------------------------------------------
 
+;; --------------------------------------------------------------------------
+;; Cycle guard
+;;
+;; Every hop between tasks is a child process — a `:task` step spawns lgx, and
+;; a `:sh` step may too — so the chain of tasks already running travels in the
+;; environment rather than on a call stack. One mechanism therefore covers
+;; direct `:task` recursion, an indirect cycle, and the `{:sh "lgx test"}`
+;; mistake inside an override of `test`.
+;;
+;; An entry is a (task name, project root) pair: two projects may each define
+;; `check` without the inner one reading as recursion, while a chain that
+;; leaves a project and re-enters the same task is still caught. The pair
+;; travels as two parallel vars so the documented LGX_TASK_STACK stays the
+;; readable `a,b` name chain (it is what the --verbose env trace shows);
+;; LGX_TASK_ROOTS is its implementation detail. Roots are newline-joined
+;; because a directory name may legitimately contain a comma.
+;; --------------------------------------------------------------------------
+
+(def stack-var "LGX_TASK_STACK")
+(def roots-var "LGX_TASK_ROOTS")
+
+(defn- split-drop-blanks [s sep]
+  (vec (filter #(not (str/blank? %)) (str/split (or s "") sep))))
+
+(defn stack-entries
+  "Parse the inherited chain into [{:name <str> :root <str>} ...], innermost
+   last. A length mismatch between the two values means something outside lgx
+   set them, so the chain reads as empty — failing open beats refusing to run
+   a legitimate task."
+  [names-value roots-value]
+  (let [names (split-drop-blanks names-value ",")
+        roots (split-drop-blanks roots-value "\n")]
+    (if (= (count names) (count roots))
+      (mapv (fn [i] {:name (nth names i)
+                     :root (nth roots i)})
+            (range (count names)))
+      [])))
+
+(defn stack-cycle?
+  "True when `name` is already running in `root`."
+  [entries name root]
+  (boolean (some #(and (= name (:name %)) (= root (:root %))) entries)))
+
+(defn stack-chain
+  "The ` > `-joined name chain to print, with the re-entered name appended."
+  [entries name]
+  (str/join " > " (conj (mapv :name entries) name)))
+
+(defn stack-values
+  "The [names-value roots-value] pair to export after pushing (name, root)."
+  [entries name root]
+  [(str/join "," (conj (mapv :name entries) name))
+   (str/join "\n" (conj (mapv :root entries) root))])
+
 (defn- as-string [value]
   (if (vector? value) (str/join " " value) value))
 

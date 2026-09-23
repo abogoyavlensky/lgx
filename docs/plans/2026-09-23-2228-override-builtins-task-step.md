@@ -530,6 +530,12 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 > Callers gate on `config/overridable-command?` first, because several
 > built-ins return normally (they do not all exit), so a nil return would be
 > indistinguishable from "not a built-in" and would re-dispatch the command.
+> Deviation (Step 2, after codex review): the cycle guard is scoped to the
+> project root, not global. The plan's name-only stack made a monorepo root
+> task that shells into a child project with a same-named task read as
+> recursion. `LGX_TASK_ROOT` now travels with `LGX_TASK_STACK`, and a differing
+> root starts that project's chain fresh. Residual limitation, deliberately not
+> chased: a chain that ping-pongs between two projects is not detected.
 > Deviation (Step 2): the surplus-args hint uses the parenthesized form the
 > implementation step specifies — `... (to forward extra args to a step, add
 > :args/rest to it)` — rather than the `; ...` form in the design section.

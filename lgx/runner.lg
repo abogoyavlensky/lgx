@@ -111,10 +111,11 @@
 ;; LG_READ_CLJ for the lg child (see run-lg!), LGX_RUN is lgx's own
 ;; run-marker (set by cmd-run / :run task steps before invoke-lg!), and
 ;; LGX_TASK_STACK is the chain of running task names (set by cmd-task) that
-;; the cycle guard reads back out of a child process, scoped to the project
-;; root in LGX_TASK_ROOT.
+;; the cycle guard reads back out of a child process. Its sibling
+;; LGX_TASK_ROOTS carries the matching project roots and is deliberately not
+;; traced — it is an encoding detail, not something a user sets or reads.
 (def ^:private lgx-set-env-names
-  ["LG_READ_CLJ" "LGX_RUN" "LGX_TASK_ROOT" "LGX_TASK_STACK"])
+  ["LG_READ_CLJ" "LGX_RUN" "LGX_TASK_STACK"])
 
 (defn env-trace-line
   "Build the `+ env NAME=VALUE ...` trace line for the env vars lgx sets.
