@@ -116,23 +116,36 @@
   "# bash completion for lgx.
 # Load with: source <(lgx completion bash)
 _lgx_complete() {
-    local line cur head i w last
+    local line cur head i w
     local -a words
     COMPREPLY=()
     # Bash breaks words on ':' by default (COMP_WORDBREAKS), so `lgx lgx:te`
     # reaches us as the three words `lgx` `:` `te` and lgx would read `lgx` as
-    # a finished command. Rejoin them. Working from COMP_WORDS rather than
-    # re-splitting COMP_LINE keeps the command boundary bash already found,
-    # so `true && lgx te` still completes against `lgx`.
+    # a finished command. Rejoin exactly that shape — a literal `lgx`
+    # immediately followed by a `:` token — and pass everything else through
+    # untouched: `lgx:` is the only colon lgx's own grammar has, and once bash
+    # has split a word it can no longer tell `foo:bar` from `foo: bar`.
+    # Working from COMP_WORDS rather than re-splitting COMP_LINE keeps the
+    # command boundary bash already found, so `true && lgx te` still
+    # completes against `lgx`.
     words=()
-    for ((i = 0; i <= COMP_CWORD; i++)); do
+    i=0
+    while [ $i -le $COMP_CWORD ]; do
         w=\"${COMP_WORDS[i]}\"
-        if [ $i -gt 0 ] && { [ \"$w\" = \":\" ] || [ \"${COMP_WORDS[i-1]}\" = \":\" ]; }; then
-            last=$(( ${#words[@]} - 1 ))
-            words[$last]=\"${words[$last]}$w\"
-        else
+        if [ $i -gt 0 ] && [ \"$w\" = \"lgx\" ] \\
+           && [ $((i + 1)) -le $COMP_CWORD ] \\
+           && [ \"${COMP_WORDS[i+1]}\" = \":\" ]; then
+            w=\"lgx:\"
+            i=$(( i + 2 ))
+            if [ $i -le $COMP_CWORD ]; then
+                w=\"$w${COMP_WORDS[i]}\"
+                i=$(( i + 1 ))
+            fi
             words+=(\"$w\")
+            continue
         fi
+        words+=(\"$w\")
+        i=$(( i + 1 ))
     done
     # __complete already prefix-filters, so candidates go straight into
     # COMPREPLY. No compgen -W: it shell-expands the wordlist, which would

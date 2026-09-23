@@ -3545,7 +3545,9 @@ proj_bc="$(mktemp -d)"
 home_bc="$(mktemp -d)"
 cat > "$proj_bc/lgx.edn" <<'EOF'
 {:tasks
- {test {:doc "Wrapped" :do [{:sh "echo wrapper"}]}}}
+ {test {:doc "Wrapped" :do [{:sh "echo wrapper"}]}
+  deploy {:args [{:name :env} {:name :mode :type [:enum "fast" "full"]}]
+          :do [{:sh "echo deploy"}]}}}
 EOF
 cat > "$proj_bc/drive.bash" <<'EOF'
 set -eu
@@ -3578,6 +3580,9 @@ echo "t:$(complete_line 'lgx lgx:t')"
 echo "all:$(complete_line 'lgx lgx:')"
 echo "plain:$(complete_line 'lgx te')"
 echo "compound:$(complete_words 'true && lgx te' 'lgx te')"
+# Only the `lgx:` shape is rejoined, so ordinary argument completion is
+# untouched: an enum value still completes at its own position.
+echo "enum:$(complete_words 'lgx deploy prod fa' 'lgx deploy prod fa')"
 EOF
 out="$(cd "$proj_bc" && LGX_HOME="$home_bc" bash "$proj_bc/drive.bash" "$LGX" 2>&1)"
 # Bash replaces only the text after the last ':', so the candidate arrives trimmed.
@@ -3587,6 +3592,8 @@ assert_contains "$out" "all:build clean info install nrepl repl run test" \
 assert_contains "$out" "plain:test" "bash completion: a colon-free word still works"
 assert_contains "$out" "compound:test" \
     "bash completion: a command after && still completes"
+assert_contains "$out" "enum:fast" \
+    "bash completion: argument completion is untouched by the rejoin"
 rm -rf "$proj_bc" "$home_bc"
 
 echo
