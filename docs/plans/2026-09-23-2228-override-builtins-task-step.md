@@ -260,7 +260,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Add to `config_test.lg`: `load-accepts-task-step-symbol`
   (`{:task fmt}` with `fmt` defined); `load-accepts-task-step-vector`
   (`{:task [fmt "check"]}`); `load-accepts-task-step-builtin`
@@ -275,11 +275,11 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `load-rejects-step-with-task-and-sh` (exactly-one-action message now names
   `:sh, :run, :task`); `load-normalizes-single-task-step-map`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lg lgx.lg test test/lgx/config_test.lg`
   Expected: FAIL, `:task` is an unknown step key.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   In `config.lg`: add `task-value-errors` (symbol, or non-empty vector whose
   first item is a symbol and whose remaining items pass the same rule as
   `action-value-errors` items); add `[:task {:optional true} [:fn task-value-errors]]`
@@ -293,11 +293,11 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   symbol from either value form; `normalize-config` needs no change beyond
   the single-map wrapping it already does.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/config_test.lg`
   Expected: `0 failures`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "config: validate :task steps and their targets"`
 
 ### Task 3: `:args/rest` binding and substitution

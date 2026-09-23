@@ -865,6 +865,25 @@
          (load-cfg {:tasks {'d {:args [{:name :env}]
                                 :do [{:run ["t.lg" :arg/typo]}]}}}))))
 
+(deftest load-accepts-args-rest-in-step-vector
+  (let [cfg {:tasks {'fmt {:do [{:sh "echo fmt"}]}
+                     'ci {:do [{:sh ["echo" :args/rest]}
+                               {:run ["t.lg" :args/rest]}
+                               {:task ['fmt :args/rest]}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-arg-rest-with-hint
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg (str "placeholder :arg/rest used but no :args "
+                              "declared; for the leftover CLI args use "
+                              ":args/rest")}]}
+         (load-cfg {:tasks {'d {:do [{:sh ["echo" :arg/rest]}]}}})))
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg (str "unknown placeholder :arg/rest (declared: :env)"
+                              "; for the leftover CLI args use :args/rest")}]}
+         (load-cfg {:tasks {'d {:args [{:name :env}]
+                                :do [{:sh ["echo" :arg/rest]}]}}}))))
+
 (deftest load-rejects-non-arg-keyword-in-step-vector
   (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
                     :msg "must be a string or :arg/<name> placeholder, got :env"}]}

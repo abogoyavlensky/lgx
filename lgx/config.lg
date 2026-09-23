@@ -321,6 +321,16 @@
   [x]
   (and (keyword? x) (= "arg" (namespace x))))
 
+;; The leftover-CLI-args placeholder. Its own namespace (:args/ rather than
+;; :arg/) keeps it from ever colliding with a declared arg named `rest`.
+(def ^:private rest-kw :args/rest)
+
+(defn- step-item-ok?
+  "True for a step vector item that needs no further checking: a literal
+   string, an :arg/<name> placeholder, or :args/rest."
+  [x]
+  (or (string? x) (placeholder-kw? x) (= rest-kw x)))
+
 (defn- action-value-errors
   "A step's :sh/:run value: a non-blank string or a non-empty vector whose
    items are strings or :arg/<name> placeholder keywords. Whether a
@@ -337,7 +347,7 @@
         (if (>= i (count v))
           acc
           (recur (inc i)
-                 (if (or (string? (nth v i)) (placeholder-kw? (nth v i)))
+                 (if (step-item-ok? (nth v i))
                    acc
                    (conj acc {:path [i]
                               :msg (str "must be a string or :arg/<name> "
@@ -367,7 +377,7 @@
         (if (>= i (count v))
           acc
           (recur (inc i)
-                 (if (or (string? (nth v i)) (placeholder-kw? (nth v i)))
+                 (if (step-item-ok? (nth v i))
                    acc
                    (conj acc {:path [i]
                               :msg (str "must be a string or :arg/<name> "
@@ -497,9 +507,23 @@
 (def ^:private args-schema
   [:and [:vector {:min 1} arg-schema] [:fn args-vector-errors]])
 
+(defn- unknown-placeholder-msg
+  "The message for an :arg/<name> placeholder that names no declared arg.
+   `:arg/rest` gets a pointer to :args/rest — the near-miss is common enough
+   that the bare \"unknown placeholder\" line reads like a typo report."
+  [item label]
+  (str (if (nil? label)
+         (str "placeholder " item " used but no :args declared")
+         (str "unknown placeholder " item " (declared: " label ")"))
+       (if (= item :arg/rest)
+         "; for the leftover CLI args use :args/rest"
+         "")))
+
 (defn- step-placeholder-errors
   "Unknown-:arg/* errors for one valid step, paths relative to the step.
-   `label` renders the declared names, or nil when the task has no :args."
+   `label` renders the declared names, or nil when the task has no :args.
+   :args/rest is not an :arg/ placeholder and needs no declaration, so it is
+   skipped."
   [declared label step]
   (let [k (first (filter #(contains? step %) action-keys))
         v (get step k)]
@@ -515,11 +539,7 @@
                    (if (and (placeholder-kw? item)
                             (not (contains? declared item)))
                      (conj acc {:path [k j]
-                                :msg (if (nil? label)
-                                       (str "placeholder " item
-                                            " used but no :args declared")
-                                       (str "unknown placeholder " item
-                                            " (declared: " label ")"))})
+                                :msg (unknown-placeholder-msg item label)})
                      acc))))))))
 
 (defn- task-placeholder-errors
