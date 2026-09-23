@@ -658,7 +658,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 **Files:**
 - Modify: `README.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README**
+- [x] **Step 1: README**
   Commands table: extend the `lgx <task>` row (a task may override a built-in)
   and add a `lgx lgx:<command>` row. `:tasks` section: replace the "can't
   shadow built-ins ... `clean` since 0.2.0" paragraph with the override rule,
@@ -672,7 +672,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   switch the `ci` example's shell recursion to `{:task fmt}` style steps.
   Use /writing-clearly.
 
-- [ ] **Step 2: ARCHITECTURE**
+- [x] **Step 2: ARCHITECTURE**
   Components table: update the `lgx/cli.lg`, `lgx/runner.lg`, `lgx/tasks.lg`
   lines. `lgx <task>` section: the new dispatch order, `lgx:` addressing,
   the `:task` step (child-process model and why), `LGX_TASK_STACK`,
@@ -681,8 +681,17 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   names" with the fixed-commands wording and describe the `lgx:` candidates.
   Contexts section: the `:task` inheritance sentence.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "docs: overriding built-ins, :task steps, :args/rest"`
+
+> Deviation (Step 1): the annotated `lgx.edn` example's `ci` task uses
+> `{:task fmt}`, not `{:task [fmt "check"]}` — `fmt` declares no `:args`, so the
+> argument form would fail strict arity. Caught by running the documented
+> example.
+> Deviation (Step 2): also recorded the pre-existing bash completion limitation
+> (an *argument* containing `:` or `=` is split by COMP_WORDBREAKS, inflating
+> the argument count) in the Completion section, rather than bootstrapping a
+> `docs/backlog/` convention this repo does not have.
 
 ## Follow-ups (not in this plan)
 

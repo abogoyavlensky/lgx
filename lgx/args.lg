@@ -139,11 +139,11 @@
    {{rest}} template form, because a joined splice would lose quoting."
   [steps]
   (boolean
-   (some (fn [step]
-           (some (fn [[_ v]]
-                   (and (vector? v) (some rest-placeholder? v)))
-                 step))
-         steps)))
+    (some (fn [step]
+            (some (fn [[_ v]]
+                    (and (vector? v) (some rest-placeholder? v)))
+                  step))
+          steps)))
 
 (defn expand
   "Replace each {{<name>}} token in `s` whose name matches a bound arg with

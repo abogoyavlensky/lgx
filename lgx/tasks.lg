@@ -155,7 +155,7 @@
                                           callee-args)))]
     (write! *err* (str "\n"
                        (style/step-line
-                        (str/join " " (concat ["lgx" callee] callee-args)))
+                         (str/join " " (concat ["lgx" callee] callee-args)))
                        "\n"))
     (when verbose?
       (write! *err* (str "+ " bin " " (str/join " " argv) "\n")))
