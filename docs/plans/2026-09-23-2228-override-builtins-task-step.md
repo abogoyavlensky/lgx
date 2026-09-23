@@ -575,6 +575,12 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 - [x] **Step 5: Commit**
   `git commit -am "completion: offer lgx:<name> for overridden built-ins"`
 
+> Deviation (Step 3, after codex review): the bundled bash completion adapter
+> had to change too. Bash breaks words on `:` by default, so `lgx lgx:t<TAB>`
+> arrived as three words and the new branch was unreachable from a real shell.
+> The adapter now re-splits `COMP_LINE` and trims the prefix bash will not
+> replace, covered by e2e Scenario 134 (so Task 9's new scenarios start at 135).
+
 ### Task 9: E2E scenarios
 
 **Files:**

@@ -116,18 +116,24 @@
   "# bash completion for lgx.
 # Load with: source <(lgx completion bash)
 _lgx_complete() {
-    local line cur head
+    local line cur head i w last
     local -a words
     COMPREPLY=()
     # Bash breaks words on ':' by default (COMP_WORDBREAKS), so `lgx lgx:te`
-    # reaches us as the three words `lgx` `:` `te` and lgx would read `lgx`
-    # as a finished command. Re-split the typed line on whitespace instead,
-    # which is the grammar lgx actually speaks.
-    read -r -a words <<< \"${COMP_LINE:0:COMP_POINT}\"
-    # A trailing space means the word under the cursor is a new, empty one.
-    if [ \"${COMP_LINE:COMP_POINT-1:1}\" = \" \" ]; then
-        words+=(\"\")
-    fi
+    # reaches us as the three words `lgx` `:` `te` and lgx would read `lgx` as
+    # a finished command. Rejoin them. Working from COMP_WORDS rather than
+    # re-splitting COMP_LINE keeps the command boundary bash already found,
+    # so `true && lgx te` still completes against `lgx`.
+    words=()
+    for ((i = 0; i <= COMP_CWORD; i++)); do
+        w=\"${COMP_WORDS[i]}\"
+        if [ $i -gt 0 ] && { [ \"$w\" = \":\" ] || [ \"${COMP_WORDS[i-1]}\" = \":\" ]; }; then
+            last=$(( ${#words[@]} - 1 ))
+            words[$last]=\"${words[$last]}$w\"
+        else
+            words+=(\"$w\")
+        fi
+    done
     # __complete already prefix-filters, so candidates go straight into
     # COMPREPLY. No compgen -W: it shell-expands the wordlist, which would
     # execute project-controlled text (e.g. an enum value \"$(cmd)\").
@@ -137,12 +143,14 @@ _lgx_complete() {
     # Bash replaces only the text after the last word-break, so a candidate
     # `lgx:test` completed from `lgx:t` must arrive as `test`.
     cur=\"${words[${#words[@]}-1]}\"
-    case \"$cur\" in
-        *:*)
-            head=\"${cur%\"${cur##*:}\"}\"
-            COMPREPLY=(\"${COMPREPLY[@]#\"$head\"}\")
-            ;;
-    esac
+    if [ ${#COMPREPLY[@]} -gt 0 ]; then
+        case \"$cur\" in
+            *:*)
+                head=\"${cur%\"${cur##*:}\"}\"
+                COMPREPLY=(\"${COMPREPLY[@]#\"$head\"}\")
+                ;;
+        esac
+    fi
 }
 
 # -o default: fall back to filename completion when lgx offers nothing

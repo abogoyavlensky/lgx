@@ -3551,23 +3551,33 @@ cat > "$proj_bc/drive.bash" <<'EOF'
 set -eu
 lgx_bin="$1"
 source <("$lgx_bin" completion bash)
-complete_line() {
+# Drive the adapter the way bash does: COMP_LINE is everything typed, while
+# COMP_WORDS holds only the command being completed (bash finds that boundary
+# itself). Passing them separately is what makes the `true && lgx te` case
+# meaningful — an adapter that re-split COMP_LINE would see `&& lgx te`.
+# COMP_WORDS is built with a read loop, not mapfile: macOS ships bash 3.2.
+complete_words() {
     COMP_LINE="$1"
     COMP_POINT=${#COMP_LINE}
-    # Tokenize the way bash does with ':' in COMP_WORDBREAKS.
-    local split
-    split="${COMP_LINE// /$'\n'}"
+    # Tokenize $2 the way bash does with ':' in COMP_WORDBREAKS.
+    local split word
+    split="${2// /$'\n'}"
     split="${split//:/$'\n':$'\n'}"
-    mapfile -t COMP_WORDS <<< "$split"
+    COMP_WORDS=()
+    while IFS= read -r word; do
+        COMP_WORDS+=("$word")
+    done <<< "$split"
     COMP_WORDS[0]="$lgx_bin"
     COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))
     COMPREPLY=()
     _lgx_complete
     echo "${COMPREPLY[*]-}"
 }
+complete_line() { complete_words "$1" "$1"; }
 echo "t:$(complete_line 'lgx lgx:t')"
 echo "all:$(complete_line 'lgx lgx:')"
 echo "plain:$(complete_line 'lgx te')"
+echo "compound:$(complete_words 'true && lgx te' 'lgx te')"
 EOF
 out="$(cd "$proj_bc" && LGX_HOME="$home_bc" bash "$proj_bc/drive.bash" "$LGX" 2>&1)"
 # Bash replaces only the text after the last ':', so the candidate arrives trimmed.
@@ -3575,6 +3585,8 @@ assert_contains "$out" "t:test" "bash completion: lgx:t completes to test"
 assert_contains "$out" "all:build clean info install nrepl repl run test" \
     "bash completion: lgx: offers every overridable built-in"
 assert_contains "$out" "plain:test" "bash completion: a colon-free word still works"
+assert_contains "$out" "compound:test" \
+    "bash completion: a command after && still completes"
 rm -rf "$proj_bc" "$home_bc"
 
 echo
