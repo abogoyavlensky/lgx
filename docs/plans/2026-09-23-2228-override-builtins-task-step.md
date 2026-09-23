@@ -306,7 +306,7 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
 - Modify: `lgx/args.lg`, `lgx/config.lg`
 - Test: `test/lgx/args_test.lg`, `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   `args_test.lg`: `bind-rest-collects-surplus` (`(args/bind-args [] ["a" "b"] true)`
   → `{:bindings {:args/rest ["a" "b"]}}`); `bind-rest-after-declared`
   (decls `[{:name :env}]`, args `["prod" "x" "--flag"]`, rest? true →
@@ -324,11 +324,11 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `load-rejects-arg-rest-with-hint` (`{:sh [:arg/rest]}` → message ends
   with `for the leftover CLI args use :args/rest`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lg lgx.lg test test/lgx/args_test.lg`
   Expected: FAIL, arity and unresolved `uses-rest?`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
   `args.lg`: `bind-args` gets a 3-arity `[decls cli-args rest?]`; the
   2-arity delegates with `false` and keeps its exact return shape. With
   `rest?` true, surplus args (those past the declared positionals) bind under
@@ -344,12 +344,19 @@ assertion. Run the whole suite with `make test` (bundles, unit, e2e).
   `:args/rest` items; `step-placeholder-errors` ignores `:args/rest` and
   appends the hint when the unknown placeholder is exactly `:arg/rest`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/args_test.lg && lg lgx.lg test test/lgx/config_test.lg`
   Expected: `0 failures` for both.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "args: :args/rest forwards the leftover CLI args into a step"`
+
+> Deviation (Step 3): while rewriting `bind-args` into a 2/3-arity form a
+> closing paren went missing, which let-go swallowed silently — the whole tail
+> of `args.lg` ended up nested inside `bind-args` and every var after
+> `rest-key` became unresolvable, with no reader error. Fixed by balancing the
+> form; noting it because "silent truncation after an unbalanced form" is a
+> let-go gotcha worth remembering.
 
 ### Task 4: CLI helpers for self-invocation and `lgx:` names
 

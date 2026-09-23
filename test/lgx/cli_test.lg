@@ -246,3 +246,58 @@
                  (catch e (ex-message e)))]
     (is (= "lgx: --exclude requires a comma-separated list of test namespaces"
            msg))))
+
+;; ---------------------------------------------------------------------------
+;; self-invocation / resolve-self-bin / strip-lgx-prefix / child-args
+;; ---------------------------------------------------------------------------
+
+(deftest self-invocation-dev-prefix
+  (is (= {:bin "lg" :prefix ["lgx.lg"]}
+         (cli/self-invocation ["lg" "lgx.lg" "run"]))))
+
+(deftest self-invocation-bundle
+  (is (= {:bin "/x/bin/lgx" :prefix []}
+         (cli/self-invocation ["/x/bin/lgx" "run"]))))
+
+(deftest self-invocation-bare-program-only
+  (is (= {:bin "lgx" :prefix []}
+         (cli/self-invocation ["lgx"]))))
+
+(deftest strip-lgx-prefix
+  (is (= "test" (cli/strip-lgx-prefix "lgx:test")))
+  (is (nil? (cli/strip-lgx-prefix "test")))
+  (is (= "" (cli/strip-lgx-prefix "lgx:"))))
+
+(deftest child-args-plain
+  (is (= ["fmt" "check"] (cli/child-args [] false "fmt" ["check"]))))
+
+(deftest child-args-with-and-verbose
+  (is (= ["--verbose" "--with" "dev,test" "fmt" "check"]
+         (cli/child-args [:dev :test] true "fmt" ["check"]))))
+
+(deftest child-args-keeps-context-namespace
+  ;; (subs (str k) 1), never (name k), so :app/dev survives the round trip
+  ;; through the child's own --with parsing.
+  (is (= ["--with" "app/dev" "fmt"]
+         (cli/child-args [:app/dev] false "fmt" []))))
+
+(deftest resolve-self-bin-absolute
+  (is (= "/x/bin/lgx"
+         (cli/resolve-self-bin "/x/bin/lgx" "/w" "/a:/b" ":"
+                               (fn [_] false)))))
+
+(deftest resolve-self-bin-relative-absolutizes
+  (is (= "/w/bin/lgx"
+         (cli/resolve-self-bin "./bin/lgx" "/w" "/a:/b" ":"
+                               (fn [_] false)))))
+
+(deftest resolve-self-bin-bare-searches-path
+  (is (= "/b/lgx"
+         (cli/resolve-self-bin "lgx" "/w" "/a:/b" ":"
+                               (fn [p] (= p "/b/lgx"))))))
+
+(deftest resolve-self-bin-bare-unresolved-unchanged
+  (is (= "lgx"
+         (cli/resolve-self-bin "lgx" "/w" "/a:/b" ":" (fn [_] false))))
+  (is (= "lgx"
+         (cli/resolve-self-bin "lgx" "/w" "" ":" (fn [_] true)))))
