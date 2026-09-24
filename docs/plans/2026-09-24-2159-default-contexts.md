@@ -316,7 +316,7 @@ between.
 - Modify: `lgx/test_runner.lg`, `lgx.lg`
 - Test: `test/lgx/test_runner_test.lg`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
   Update `test-entry-includes-display-file-and-ns` (line ~50) to the new
   arity `(tr/test-entry root test-dir abs)` and add
   `test-entry-display-is-project-relative-for-custom-dir` (root `/p`, dir
@@ -327,12 +327,12 @@ between.
   the second) and `validate-single-test-file-outside-all-dirs-throws`
   (reason `:outside-test-dir`).
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
   Run: `lg lgx.lg test test/lgx/test_runner_test.lg`
   Expected: FAIL inside the updated deftests (wrong arity / wrong return
   shape); the run itself still starts because `cmd-test` is unchanged so far.
 
-- [ ] **Step 3: Implement the runner side**
+- [x] **Step 3: Implement the runner side**
   `test-entry` takes `project-root` first and builds the display with
   `relative-test-path project-root abs-path` (the existing helper already
   strips a `<dir>/` prefix). `validate-single-test-file!` takes `test-dirs`
@@ -340,7 +340,7 @@ between.
   `test file must be under a test path: <path>`. Update both docstrings and
   the ns header comment.
 
-- [ ] **Step 4: Implement the `cmd-test` side**
+- [x] **Step 4: Implement the `cmd-test` side**
   In `cmd-test`, replace the `test-dir`/`stat` bindings with: `declared`
   (the effective `:test` context's `:extra-paths`), the "no :extra-paths"
   exit, `test-dirs` (declared entries resolved with `path/join` +
@@ -354,12 +354,17 @@ between.
   `(vec (concat paths [harness-dir]))`. Update the comments that mention
   `test/`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+  > Deviation: walk mode drops a second entry with the same display path, so
+  > a declared dir nested in another (`["test" "test/it"]`) doesn't run its
+  > files twice under two namespaces; the outer dir's entry wins, matching
+  > single-file mode's first-containing-dir rule.
+
+- [x] **Step 5: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/test_runner_test.lg && lg lgx.lg test`
   Expected: `0 failures` for the file, and the whole suite still runs
   through the reworked `cmd-test` with `Running tests in test/...`.
 
-- [ ] **Step 6: Smoke test**
+- [x] **Step 6: Smoke test**
   Run `make build` first (the bundle from Task 2 predates these changes).
   With the bundle, in a throwaway project holding `tests/foo_test.lg` (one
   passing `deftest`) and `{:contexts {:test {:extra-paths ["tests"]}}}`:
@@ -371,7 +376,10 @@ between.
   Run `bin/lgx test` in the lgx repo itself → unchanged output shape,
   `Running tests in test/...`.
 
-- [ ] **Step 7: Commit**
+  > Note: `lg` here is a mise shim pinned by the repo's config, so running from
+  > `/tmp` needed `LGX_LG=$(mise which lg)`.
+
+- [x] **Step 7: Commit**
   `git commit -am "lgx test: discover tests through the :test context's paths"`
 
 ### Task 4: `lgx info` version, contexts, and applies

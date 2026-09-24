@@ -632,7 +632,7 @@
         ;; *command-line-args* (let-go >= 1.11.0), identical in dev and a bundled
         ;; binary, so lgx emits no `--` marker. Decide it before building the
         ;; basis so a no-target error never fetches deps for a run that cannot
-        ;; happen (mirrors cmd-test's test-dir check).
+        ;; happen (mirrors cmd-test's test directory check).
         plan (runner/plan-run-args forward-args main-script)
         _ (when-let [reason (:error plan)]
             (run-target-error! reason))
@@ -726,7 +726,7 @@
         user-base? (boolean (some #(= "-bundle-base" %) forward))]
     ;; Cheap validation first, before deps resolve or any runtime builds — a
     ;; bad invocation must never spend minutes building things it will not
-    ;; use (mirrors cmd-test's test-dir check).
+    ;; use (mirrors cmd-test's test directory check).
     (when (nil? main-script)
       (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
       (os/exit 1))
@@ -802,25 +802,32 @@
           (println (str "built " (count target-list) " targets")))
         (os/exit 0)))))
 
-(defn- validate-error-line [reason user-path]
+(defn- render-test-dirs
+  "Project-relative test dirs as the user reads them: `test/, integration/`."
+  [rel-dirs]
+  (str/join ", " (map #(str % "/") rel-dirs)))
+
+(defn- validate-error-line [reason user-path dirs-label]
   (case reason
     :not-found (str "lgx: test file not found: " user-path "\n")
     :bad-extension (str "lgx: not a test file (expected .lg, .cljc, or .clj): "
                         user-path "\n")
-    :outside-test-dir (str "lgx: test file must be under test/: "
-                           user-path "\n")
+    :outside-test-dir (str "lgx: test file must be under a test path ("
+                           dirs-label "): " user-path "\n")
     (str "lgx: invalid test file: " user-path "\n")))
 
-(defn- single-file-entries! [test-dir user-path project]
-  (let [abs (try
-              (test-runner/validate-single-test-file!
-                test-dir user-path project)
-              (catch e
-                     (let [data (ex-data e)]
-                       (write! *err* (validate-error-line (:reason data)
-                                                          (:path data)))
-                       (os/exit 1))))]
-    [(test-runner/test-entry test-dir abs)]))
+(defn- single-file-entries! [test-dirs dirs-label user-path project]
+  (let [{:keys [abs test-dir]}
+        (try
+          (test-runner/validate-single-test-file!
+            test-dirs user-path project)
+          (catch e
+                 (let [data (ex-data e)]
+                   (write! *err* (validate-error-line (:reason data)
+                                                      (:path data)
+                                                      dirs-label))
+                   (os/exit 1))))]
+    [(test-runner/test-entry project test-dir abs)]))
 
 (defn- cmd-test [forward-args verbose? with]
   (let [{:keys [exclude positionals]}
@@ -840,19 +847,47 @@
             (os/exit 1))
         project (config/find-project!)
         cfg (config/load-config! project)
-        test-dir (path/join project "test")
-        stat (os/stat test-dir)]
+        ;; Tests live under the effective :test context's :extra-paths (the
+        ;; shipped default is ["test"]), in declared order. Missing ones are
+        ;; skipped here; the basis still warns about a missing path the
+        ;; project declared itself.
+        declared (:extra-paths (get (config/contexts cfg) :test))
+        _ (when (empty? declared)
+            (write! *err* (str "lgx: the :test context defines no :extra-paths, "
+                               "so lgx test has nowhere to look\n"))
+            (os/exit 1))
+        present (filterv #(let [st (os/stat (path/normalize
+                                              (path/join project %)))]
+                            (and st (:dir? st)))
+                         declared)
+        test-dirs (mapv #(path/normalize (path/join project %)) present)
+        dirs-label (render-test-dirs present)]
     ;; Cheap validation first: flags, the single file, discovery and the
     ;; --exclude filter all run before the basis is built, so a bad
     ;; invocation (or an empty plan) never fetches deps for a run that cannot
-    ;; happen. Discovery needs test/ to exist, so that check leads.
-    (when (or (nil? stat) (not (:dir? stat)))
-      (write! *err* "lgx: no test/ directory in project\n")
+    ;; happen. Discovery needs a test dir to exist, so that check leads.
+    (when (empty? test-dirs)
+      (write! *err* (str "lgx: no test directory in project (looked for: "
+                         (render-test-dirs declared) ")\n"))
       (os/exit 1))
     (let [entries (if single?
-                    (single-file-entries! test-dir (first positionals) project)
-                    (let [files (test-runner/discover-test-files test-dir)
-                          all (mapv #(test-runner/test-entry test-dir %) files)
+                    (single-file-entries! test-dirs dirs-label
+                                          (first positionals) project)
+                    (let [all (->> test-dirs
+                                   (mapcat (fn [dir]
+                                             (map #(test-runner/test-entry
+                                                     project dir %)
+                                                  (test-runner/discover-test-files
+                                                    dir))))
+                                   ;; A dir nested in another declared one
+                                   ;; would list its files twice; the first
+                                   ;; (outer) dir's entry wins.
+                                   (reduce (fn [[seen acc] [display :as e]]
+                                             (if (contains? seen display)
+                                               [seen acc]
+                                               [(conj seen display) (conj acc e)]))
+                                           [#{} []])
+                                   second)
                           {:keys [entries unmatched]}
                           (test-runner/exclude-entries all exclude)]
                       ;; A typo must fail loud, before either empty-plan exit:
@@ -864,7 +899,7 @@
                                              "namespace: " ns-sym "\n")))
                         (os/exit 1))
                       (when (empty? all)
-                        (println "No tests found in test/")
+                        (println (str "No tests found in " dirs-label))
                         (os/exit 0))
                       (when (empty? entries)
                         (println "All test files excluded")
@@ -874,12 +909,14 @@
           basis (overlay-basis project cfg with nil)
           {:keys [results paths resource-paths]} basis
           _ (apply-runtime! cfg basis :fail verbose?)
-          header (if single? (first (first entries)) "test/")
+          header (if single? (first (first entries)) dirs-label)
           {harness-dir :dir harness :entry}
           (test-runner/write-harness! entries version)
-          ;; The harness directory goes last: its namespaces are the entry's
-          ;; own, and nothing in a project should shadow them.
-          source-paths (vec (concat paths [test-dir harness-dir]))]
+          ;; The test dirs arrive through the :test overlay, with the
+          ;; project's own paths. The harness directory goes last: its
+          ;; namespaces are the entry's own, and nothing in a project should
+          ;; shadow them.
+          source-paths (vec (concat paths [harness-dir]))]
       (when (and verbose? (seq exclude))
         (write! *err* (str "+ excluded: " (str/join ", " exclude) "\n")))
       (when verbose?

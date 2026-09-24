@@ -75,9 +75,11 @@
     (symbol (str/join "." hyphenated))))
 
 (defn test-entry
-  "Return the harness entry for abs-path: [display-file ns-symbol]."
-  [test-dir abs-path]
-  [(path/join "test" (relative-test-path test-dir abs-path))
+  "Return the harness entry for abs-path: [display-file ns-symbol]. The display
+   file is relative to project-root (test/foo_test.lg, tests/foo_test.lg); the
+   namespace maps from test-dir, the directory the file was discovered under."
+  [project-root test-dir abs-path]
+  [(relative-test-path project-root abs-path)
    (path->ns test-dir abs-path)])
 
 (defn exclude-entries
@@ -102,11 +104,12 @@
 
 (defn validate-single-test-file!
   "Resolve user-path against project-root, stat the file, check its
-   extension and containment under test-dir. Returns the absolute path
-   on success; otherwise throws ex-info whose data has a :reason key
-   in #{:not-found :bad-extension :outside-test-dir} and :path holding
-   the original user-path."
-  [test-dir user-path project-root]
+   extension and containment under one of test-dirs (the first containing
+   dir wins). Returns {:abs <absolute path> :test-dir <that dir>} on
+   success; otherwise throws ex-info whose data has a :reason key in
+   #{:not-found :bad-extension :outside-test-dir} and :path holding the
+   original user-path."
+  [test-dirs user-path project-root]
   (let [joined (if (path/absolute? user-path)
                  user-path
                  (path/join project-root user-path))
@@ -120,12 +123,15 @@
       (throw (ex-info (str "not a test file: " user-path)
                       {:reason :bad-extension
                        :path user-path})))
-    (let [test-prefix (str (path/normalize test-dir) os/file-separator)]
-      (when-not (str/starts-with? abs test-prefix)
-        (throw (ex-info (str "test file must be under test/: " user-path)
+    (let [test-dir (first (filter #(str/starts-with?
+                                     abs (str (path/normalize %)
+                                              os/file-separator))
+                                   test-dirs))]
+      (when-not test-dir
+        (throw (ex-info (str "test file must be under a test path: " user-path)
                         {:reason :outside-test-dir
-                         :path user-path}))))
-    abs))
+                         :path user-path})))
+      {:abs abs :test-dir test-dir})))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness generation
