@@ -557,14 +557,23 @@
    project's loaded config map (load-config!). The :extra-paths of an applied
    shipped default (config/default-context?) are optional: a project without
    test/ gets no warning when repl applies :test, while a path the project
-   declared itself still warns when missing."
+   declared itself (in :paths, its own contexts, or the task) still warns when
+   missing."
   [project cfg cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
         overlay (with->overlay! cfg names)
         contexts (config/contexts cfg)
-        optional (set (mapcat #(when (config/default-context? cfg %)
-                                 (:extra-paths (get contexts %)))
-                              names))
+        extra-paths-of (fn [pred]
+                         (mapcat #(when (pred %) (:extra-paths (get contexts %)))
+                                 names))
+        default? #(config/default-context? cfg %)
+        ;; A path counts as declared when the project wrote it anywhere
+        ;; (:paths, one of its own contexts, the task), even if a shipped
+        ;; default also contributes it.
+        declared (set (concat (config/paths cfg)
+                              (extra-paths-of (complement default?))
+                              (or (:extra-paths task) [])))
+        optional (set (remove declared (extra-paths-of default?)))
         inline-deps (config/dep-pairs (or (:extra-deps task) {}))
         coords (reduce config/merge-coords
                        (config/coords cfg)
