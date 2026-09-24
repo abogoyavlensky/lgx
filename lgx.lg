@@ -1074,7 +1074,9 @@
    runtime), :runtime-out and :runtime-built? (:built only; :runtime-out nil
    when the pin is a branch that only a build can resolve), :go-version,
    :go-path, :replace-path, :user-lg (LGX_LG when the user set it) and
-   :skip-check?."
+   :skip-check?. Ends with the effective contexts (shipped defaults marked)
+   and the contexts each built-in applies, both read from lgx.config so the
+   report cannot drift from what the commands do."
   [cfg basis env]
   (let [mode (config/lg-runtime cfg)
         explicit? (contains? cfg :lg-runtime)
@@ -1082,6 +1084,7 @@
         go-pairs (sort-by (fn [[lib _]] (str lib)) (:go-coords basis))
         go-origins (:go-origins basis)
         head [(info-line "project" (:project basis))
+              (info-line "lgx" version)
               (info-line "lg-runtime" (str (name mode)
                                            (if explicit? "" " (default)")))
               (info-line "lg-version" (or pin "(none)"))]
@@ -1123,8 +1126,28 @@
                [(info-line "go-deps" "(none)")]
                (cons (info-line "go-deps" (go-dep-label (first go-pairs) go-origins))
                      (map #(info-continuation (go-dep-label % go-origins))
-                          (rest go-pairs))))]
-    (vec (concat head body deps))))
+                          (rest go-pairs))))
+        contexts (config/contexts cfg)
+        context-names (concat [:dev :test]
+                              (sort-by str (remove #{:dev :test}
+                                                   (keys contexts))))
+        context-rows (map (fn [nm]
+                            (str nm " " (pr-str (get contexts nm))
+                                 (if (config/default-context? cfg nm)
+                                   " (default)"
+                                   "")))
+                          context-names)
+        applies-rows (map (fn [command]
+                            (str command " "
+                                 (str/join " " (config/auto-context-names
+                                                 command))))
+                          ["run" "repl" "nrepl" "test"])
+        block (fn [label rows]
+                (cons (info-line label (first rows))
+                      (map info-continuation (rest rows))))]
+    (vec (concat head body deps
+                 (block "contexts" context-rows)
+                 (block "applies" applies-rows)))))
 
 (defn- cmd-info
   "Read-only: resolve the basis like install (a cold cache fetches deps and

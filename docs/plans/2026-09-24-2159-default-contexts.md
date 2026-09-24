@@ -392,7 +392,7 @@ between.
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
   In `info-lines`, insert `(info-line "lgx" version)` after the `project`
   line. Append a `contexts` block: names in the order `[:dev :test]` then
   the project's other names sorted by `str`, each rendered as
@@ -401,7 +401,7 @@ between.
   Append an `applies` block over `["run" "repl" "nrepl" "test"]` rendering
   `<command> <names joined by space>`. Update the docstring.
 
-- [ ] **Step 2: Smoke test**
+- [x] **Step 2: Smoke test**
   Run `make build` first. With the bundle, in a throwaway project with
   `{:contexts {:integration {:extra-paths ["it"]}}}`:
   `bin/lgx info`
@@ -410,7 +410,7 @@ between.
   then `applies` with four rows. With `{:contexts {:test {:extra-paths ["tests"]}}}`
   the `:test` line has no `(default)` marker.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
   `git commit -am "info: print the lgx version, effective contexts, and what each command applies"`
 
 ### Task 5: Help row and e2e
