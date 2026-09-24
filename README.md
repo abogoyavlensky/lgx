@@ -88,12 +88,12 @@ lgx run
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`, `lib`) or a git URL. |
 | `lgx install` | Fetch deps from `:deps` into the gitlibs cache. Idempotent. Useful for editor navigation. Under `:lg-runtime :built`, also builds the runtime. |
-| `lgx info` | Show which `lg` the project runs and why: `:lg-runtime`, `:lg-version`, the resolved `lg`, the version check (or the Go toolchain), and every Go dep with the dep that introduced it. Fetches deps like `install`, never builds. |
+| `lgx info` | Show the lgx version, which `lg` the project runs and why: `:lg-runtime`, `:lg-version`, the resolved `lg`, the version check (or the Go toolchain), every Go dep with the dep that introduced it, the effective contexts, and which contexts each command applies. Fetches deps like `install`, never builds. |
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
-| `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts when defined. |
-| `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts when defined. |
+| `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts. |
+| `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts. |
 | `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). |
-| `lgx test [file] [--exclude <ns,...>]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under `test/`. With `<file>`, run just that file. `--exclude` skips the named test namespaces (repeatable, comma-separated). |
+| `lgx test [file] [--exclude <ns,...>]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under the `:test` context's paths (`test/` by default). With `<file>`, run just that file. `--exclude` skips the named test namespaces (repeatable, comma-separated). |
 | `lgx clean <--cache...>` | Remove caches under `$LGX_HOME`: `--runtimes`, `--gitlibs`, `--templates`, or `--all`; `--dry-run` only reports. Prints bytes reclaimed. Never automatic. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. A task may carry a built-in's name, in which case it runs instead of that built-in. |
 | `lgx lgx:<command>` | Run a built-in command directly, past any project task of that name (`lgx:build`, `lgx:clean`, `lgx:info`, `lgx:install`, `lgx:nrepl`, `lgx:repl`, `lgx:run`, `lgx:test`). |
@@ -232,10 +232,28 @@ Rules that follow from the mechanics:
 
 ### `lgx test` details
 
-`lgx test` walks `test/` for `*_test.lg` / `*_test.cljc` / `*_test.clj` files, generates
-a one-shot harness under `$LGX_HOME/test-runner/`, and runs every `deftest` in
-the selected files against the project's resolved `-source-paths`. Prints
-summary results.
+`lgx test` walks the `:test` context's `:extra-paths` for `*_test.lg` /
+`*_test.cljc` / `*_test.clj` files, generates a one-shot harness under
+`$LGX_HOME/test-runner/`, and runs every `deftest` in the selected files against
+the project's resolved `-source-paths`. Prints summary results.
+
+The shipped `:test` context is `{:extra-paths ["test"]}`, so a bare project
+tests `test/`. A project that defines its own `:test` replaces that default and
+lists its own test dirs, for example `{:extra-paths ["test" "integration"]}`.
+lgx walks every listed dir that exists, in order, and prints files relative to
+the project root (`integration/db_test.lg`). A `<file>` argument must sit under
+one of those dirs.
+
+lgx stops before fetching any deps when it has nowhere to look:
+
+- The project's `:test` lists deps or resource paths but no test dirs:
+  `lgx: the :test context defines no :extra-paths, so lgx test has nowhere to look`.
+- None of the listed dirs exists:
+  `lgx: no test directory in project (looked for: test/)`.
+
+It also refuses a plan where two files define the same namespace
+(`unit/foo_test.lg` and `integration/foo_test.lg`): only one of them could load,
+so the other's tests would silently not run.
 
 To skip namespaces, pass `--exclude` with a comma-separated list (the flag is
 repeatable and accumulates):
@@ -300,14 +318,16 @@ key's rules in detail.
  :targets {:bin {:out "bin/myapp"}}
 
  ; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
- ; or a task's :with; :dev auto-applies to run/nrepl, :test to nrepl and
- ; `lgx test`.
+ ; or a task's :with; :dev auto-applies to run/repl/nrepl, :test to
+ ; repl/nrepl and `lgx test`. lgx ships :dev {} and :test {:extra-paths
+ ; ["test"]}; an entry here replaces the shipped one of the same name, so
+ ; :test lists "test" itself.
  :contexts
  {:dev  {:extra-paths          ["dev"]            ; appended after :paths
          :extra-resource-paths ["dev-resources"]  ; appended after :resource-paths
          :extra-deps           {nrepl {:git/url "https://github.com/x/nrepl"
                                        :git/tag "v1"}}} ; same grammar as :deps
-  :test {:extra-paths ["test-support"]}}
+  :test {:extra-paths ["test" "test-support"]}}
 
  ; Custom commands: `lgx <task> [args...]`. A step is {:sh ...} (shell),
  ; {:run ...} (like `lgx run ...`), or {:task ...} (another task or a
@@ -619,19 +639,38 @@ A `:task` step passes the caller's effective contexts (its `:with` plus any CLI
 `--with`) to the child as `--with`, so the callee runs with the contexts its
 caller had, layered after the callee's own.
 
-**Default contexts.** By convention `:dev` auto-applies to `lgx run`, `:test` to
-`lgx test`, and `lgx nrepl` applies **both** - no `--with` needed. `build` and
-`install` never auto-apply, so dev/test deps stay out of binaries; task `:run`
-steps don't inherit them either (use the task's `:with`). On a lib-name
-collision the more specific layer wins. Referencing an undefined context fails
-loudly (a `:with` at load time, an unknown `--with` at runtime).
+**Shipped defaults.** lgx carries two contexts of its own, the way the Clojure
+CLI's root `deps.edn` ships a `:test` alias:
+
+```clojure
+{:dev  {}
+ :test {:extra-paths ["test"]}}
+```
+
+A project context with the same name replaces the shipped one wholesale; lgx
+does not merge the two. Write `:test {:extra-paths ["test" "test-support"]}`,
+not just `["test-support"]`, to keep `test/`. Because both names always exist,
+`--with dev`, `--with test`, and `:with [:dev]` work in a project that defines
+no contexts. A missing `test/` from the shipped `:test` never warns; a path the
+project declares itself warns when missing, as any `:paths` entry does.
+`lgx info` prints the effective contexts, with `(default)` on the shipped ones.
+
+**Auto contexts.** `lgx run` applies `:dev`, `lgx test` applies `:test`, and
+`lgx repl` and `lgx nrepl` apply **both** - no `--with` needed. `build` and
+`install` apply none, so dev/test deps stay out of binaries; task `:run` steps
+don't inherit them either (use the task's `:with`). These rules are fixed and
+`lgx info` lists them under `applies`; to change what a command gets, change
+what the context contains, or override the command with a task that adds its
+own `:with`. On a lib-name collision the more specific layer wins. Referencing
+an unknown context fails loudly (a `:with` at load time, an unknown `--with` at
+runtime).
 
 **Layering.** When a lib name appears in more than one layer, the most specific
 wins (lowest to highest):
 
 ```
 project :deps / :paths / :resource-paths
-  → auto context (:dev for run, :test for test, both for nrepl)
+  → auto contexts (:dev for run, :test for test, both for repl/nrepl)
   → task :with contexts (in order)
   → CLI --with contexts (in order)
   → task inline :extra-deps / :extra-paths / :extra-resource-paths  (highest)

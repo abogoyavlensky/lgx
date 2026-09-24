@@ -27,7 +27,7 @@
 ;; honored at runtime rather than baked into the bundle during `lg -b`.
 (def ^:private command-rows
   (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
-       "  lgx info                     Show which lg runs this project and why (:lg-runtime, :lg-version, Go deps)\n"
+       "  lgx info                     Show which lg runs this project and why (:lg-runtime, :lg-version, Go deps) and its contexts\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context)\n"
        "  lgx repl                     Start lg's built-in REPL with project deps on the source path\n"
@@ -36,8 +36,8 @@
        "                               (free port unless --port given; auto-applies :dev and :test contexts)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (--target <os>/<arch>[,...] or --all cross-compile; other args forwarded to `lg`)\n"
-       "  lgx test [file] [--exclude <ns,...>]  Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
-       "                               (one file if given, else walk test/ skipping --exclude namespaces; auto-applies :test context)\n"
+       "  lgx test [file] [--exclude <ns,...>]  Run *_test.lg / *_test.cljc / *_test.clj files under the :test context's paths (test/ by default)\n"
+       "                               (one file if given, else walk them skipping --exclude namespaces; auto-applies :test context)\n"
        "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli`, `lib` or git URL)\n"
        "  lgx clean <--cache...>       Remove caches under ~/.lgx: --runtimes, --gitlibs, --templates, or --all\n"
        "                               (--dry-run only reports; reports bytes reclaimed)\n"
@@ -375,14 +375,9 @@
              (if nm
                (do
                  (write! *err*
-                         (str "lgx: unknown context " nm " "
-                              (let [defined (:defined data)]
-                                (if (seq defined)
-                                  (str "(defined: "
-                                       (str/join ", " (sort (map str defined)))
-                                       ")")
-                                  "(no contexts defined in lgx.edn)"))
-                              "\n"))
+                         (str "lgx: unknown context " nm " (defined: "
+                              (str/join ", " (sort (map str (:defined data))))
+                              ")\n"))
                  (os/exit 1))
                (throw e))))))
 
@@ -498,13 +493,19 @@
 (defn- cmd-version []
   (println (str "lgx " version)))
 
-(defn- resolve-project-paths [label project paths]
-  (mapv (fn [p]
-          (let [abs (path/join project p)]
-            (when-not (file-exists? abs)
-              (write! *err* (str "warning: " label " entry not found: " p "\n")))
-            abs))
-        paths))
+(defn- resolve-project-paths
+  "Join each project-relative path onto `project`, warning on stderr for a
+   missing one unless it is in `optional` (a shipped default's path, which a
+   project need not have)."
+  ([label project paths]
+   (resolve-project-paths label project paths #{}))
+  ([label project paths optional]
+   (mapv (fn [p]
+           (let [abs (path/join project p)]
+             (when-not (or (file-exists? abs) (contains? optional p))
+               (write! *err* (str "warning: " label " entry not found: " p "\n")))
+             abs))
+         paths)))
 
 (defn- basis
   "Resolve `coords`, `raw-paths`, and `raw-resource-paths` into a basis for the
@@ -515,11 +516,13 @@
    project-relative source path list (project :paths, or project :paths ++ a
    task's :extra-paths); `raw-resource-paths` is the project-relative resource
    root list. Source paths include resolved dep dirs; resource paths are
-   project-only (deps never contribute resource roots)."
-  [project coords raw-paths raw-resource-paths]
+   project-only (deps never contribute resource roots). `optional-paths` is the
+   set of raw paths that resolve without a missing-entry warning."
+  [project coords raw-paths raw-resource-paths optional-paths]
   (let [{:keys [installs go-coords go-origins]}
         (ensure-all! project coords false)
-        own-paths (resolve-project-paths ":paths" project raw-paths)
+        own-paths (resolve-project-paths ":paths" project raw-paths
+                                         optional-paths)
         paths (vec (concat own-paths (mapcat :paths installs)))
         resource-paths (resolve-project-paths ":resource-paths" project
                                               raw-resource-paths)]
@@ -551,10 +554,26 @@
    inline :extra-* (highest). Resource paths layer the same way but, unlike
    source paths, never pick up dep dirs. With no contexts and no task this
    reduces to the project's own deps/paths/resource-paths. `cfg` is the
-   project's loaded config map (load-config!)."
+   project's loaded config map (load-config!). The :extra-paths of an applied
+   shipped default (config/default-context?) are optional: a project without
+   test/ gets no warning when repl applies :test, while a path the project
+   declared itself (in :paths, its own contexts, or the task) still warns when
+   missing."
   [project cfg cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
         overlay (with->overlay! cfg names)
+        contexts (config/contexts cfg)
+        extra-paths-of (fn [pred]
+                         (mapcat #(when (pred %) (:extra-paths (get contexts %)))
+                                 names))
+        default? #(config/default-context? cfg %)
+        ;; A path counts as declared when the project wrote it anywhere
+        ;; (:paths, one of its own contexts, the task), even if a shipped
+        ;; default also contributes it.
+        declared (set (concat (config/paths cfg)
+                              (extra-paths-of (complement default?))
+                              (or (:extra-paths task) [])))
+        optional (set (remove declared (extra-paths-of default?)))
         inline-deps (config/dep-pairs (or (:extra-deps task) {}))
         coords (reduce config/merge-coords
                        (config/coords cfg)
@@ -567,7 +586,7 @@
                              (concat (config/resource-paths cfg)
                                      (:resource-paths overlay)
                                      (or (:extra-resource-paths task) [])))]
-    (basis project coords raw-paths raw-resource-paths)))
+    (basis project coords raw-paths raw-resource-paths optional)))
 
 (defn- resolve-main-script! [project main-script]
   (let [abs (path/join project main-script)]
@@ -591,13 +610,13 @@
   (os/exit 1))
 
 (defn- auto-with!
-  "Prepend the convention contexts `names` (those defined in cfg's :contexts) to
-   the CLI --with list `with`: run auto-applies :dev, nrepl :dev and :test, test
-   :test. Names prepend left-to-right, so a later auto name wins over an earlier
-   one on a lib-name collision and an explicit --with context wins over all
+  "Prepend the contexts `command` applies (config/auto-contexts: run :dev, repl
+   and nrepl :dev and :test, test :test) to the CLI --with list `with`. Names
+   prepend left-to-right, so a later auto name wins over an earlier one on a
+   lib-name collision and an explicit --with context wins over all
    (last-wins). Silent by default; --verbose prints each auto-applied name."
-  [cfg names with verbose?]
-  (let [auto (vec (mapcat #(config/auto-context cfg %) names))]
+  [command with verbose?]
+  (let [auto (config/auto-context-names command)]
     (when verbose?
       (doseq [nm auto]
         (write! *err* (str "+ auto context " nm "\n"))))
@@ -613,11 +632,11 @@
         ;; *command-line-args* (let-go >= 1.11.0), identical in dev and a bundled
         ;; binary, so lgx emits no `--` marker. Decide it before building the
         ;; basis so a no-target error never fetches deps for a run that cannot
-        ;; happen (mirrors cmd-test's test-dir check).
+        ;; happen (mirrors cmd-test's test directory check).
         plan (runner/plan-run-args forward-args main-script)
         _ (when-let [reason (:error plan)]
             (run-target-error! reason))
-        with (auto-with! cfg [:dev] with verbose?)
+        with (auto-with! "run" with verbose?)
         basis (overlay-basis project cfg with nil)
         {:keys [results paths resource-paths]} basis
         _ (apply-runtime! cfg basis :warn verbose?)]
@@ -643,7 +662,7 @@
             (os/exit 1)))
         project (config/find-project!)
         cfg (config/load-config! project)
-        with (auto-with! cfg [:dev :test] with verbose?)
+        with (auto-with! "nrepl" with verbose?)
         basis (overlay-basis project cfg with nil)
         {:keys [results paths resource-paths]} basis
         _ (apply-runtime! cfg basis :warn verbose?)
@@ -671,7 +690,7 @@
     (os/exit 1))
   (let [project (config/find-project!)
         cfg (config/load-config! project)
-        with (auto-with! cfg [:dev :test] with verbose?)
+        with (auto-with! "repl" with verbose?)
         basis (overlay-basis project cfg with nil)
         {:keys [results paths resource-paths]} basis
         _ (apply-runtime! cfg basis :warn verbose?)]
@@ -707,7 +726,7 @@
         user-base? (boolean (some #(= "-bundle-base" %) forward))]
     ;; Cheap validation first, before deps resolve or any runtime builds — a
     ;; bad invocation must never spend minutes building things it will not
-    ;; use (mirrors cmd-test's test-dir check).
+    ;; use (mirrors cmd-test's test directory check).
     (when (nil? main-script)
       (write! *err* "lgx: :main is required for build (set :main in lgx.edn)\n")
       (os/exit 1))
@@ -783,25 +802,62 @@
           (println (str "built " (count target-list) " targets")))
         (os/exit 0)))))
 
-(defn- validate-error-line [reason user-path]
+(defn- render-test-dirs
+  "Project-relative test dirs as the user reads them: `test/, integration/`."
+  [rel-dirs]
+  (str/join ", " (map #(str % "/") rel-dirs)))
+
+(defn- validate-error-line [reason user-path dirs-label]
   (case reason
     :not-found (str "lgx: test file not found: " user-path "\n")
     :bad-extension (str "lgx: not a test file (expected .lg, .cljc, or .clj): "
                         user-path "\n")
-    :outside-test-dir (str "lgx: test file must be under test/: "
-                           user-path "\n")
+    :outside-test-dir (str "lgx: test file must be under a test path ("
+                           dirs-label "): " user-path "\n")
     (str "lgx: invalid test file: " user-path "\n")))
 
-(defn- single-file-entries! [test-dir user-path project]
-  (let [abs (try
-              (test-runner/validate-single-test-file!
-                test-dir user-path project)
-              (catch e
-                     (let [data (ex-data e)]
-                       (write! *err* (validate-error-line (:reason data)
-                                                          (:path data)))
-                       (os/exit 1))))]
-    [(test-runner/test-entry test-dir abs)]))
+(defn- single-file-entries! [test-dirs dirs-label user-path project]
+  (let [{:keys [abs test-dir]}
+        (try
+          (test-runner/validate-single-test-file!
+            test-dirs user-path project)
+          (catch e
+                 (let [data (ex-data e)]
+                   (write! *err* (validate-error-line (:reason data)
+                                                      (:path data)
+                                                      dirs-label))
+                   (os/exit 1))))]
+    [(test-runner/test-entry project test-dir abs)]))
+
+(defn- discover-test-entries
+  "Every test file under test-dirs as harness entries, dir by dir in order. A
+   dir nested in another declared one would list its files twice; the first
+   (outer) dir's entry wins."
+  [project test-dirs]
+  (->> test-dirs
+       (mapcat (fn [dir]
+                 (map #(test-runner/test-entry project dir %)
+                      (test-runner/discover-test-files dir))))
+       (reduce (fn [[seen acc] [display :as e]]
+                 (if (contains? seen display)
+                   [seen acc]
+                   [(conj seen display) (conj acc e)]))
+               [#{} []])
+       second))
+
+(defn- fail-on-ns-collisions!
+  "Exit 1 when a namespace in `ns-syms` is defined by more than one discovered
+   file: only the first on the source path would load, so the others' tests
+   would never run while the plan reported them."
+  [discovered ns-syms]
+  (let [wanted (set ns-syms)
+        hits (filter #(contains? wanted (first %))
+                     (test-runner/ns-collisions discovered))]
+    (when (seq hits)
+      (doseq [[ns-sym files] hits]
+        (write! *err* (str "lgx: test namespace " ns-sym " is defined by more "
+                           "than one file (" (str/join ", " files) ")\n")))
+      (os/exit 1))))
 
 (defn- cmd-test [forward-args verbose? with]
   (let [{:keys [exclude positionals]}
@@ -821,20 +877,34 @@
             (os/exit 1))
         project (config/find-project!)
         cfg (config/load-config! project)
-        test-dir (path/join project "test")
-        stat (os/stat test-dir)]
+        ;; Tests live under the effective :test context's :extra-paths (the
+        ;; shipped default is ["test"]), in declared order. Missing ones are
+        ;; skipped here; the basis still warns about a missing path the
+        ;; project declared itself.
+        declared (:extra-paths (get (config/contexts cfg) :test))
+        _ (when (empty? declared)
+            (write! *err* (str "lgx: the :test context defines no :extra-paths, "
+                               "so lgx test has nowhere to look\n"))
+            (os/exit 1))
+        present (filterv #(let [st (os/stat (path/normalize
+                                              (path/join project %)))]
+                            (and st (:dir? st)))
+                         declared)
+        test-dirs (mapv #(path/normalize (path/join project %)) present)
+        dirs-label (render-test-dirs present)]
     ;; Cheap validation first: flags, the single file, discovery and the
     ;; --exclude filter all run before the basis is built, so a bad
     ;; invocation (or an empty plan) never fetches deps for a run that cannot
-    ;; happen. Discovery needs test/ to exist, so that check leads.
-    (when (or (nil? stat) (not (:dir? stat)))
-      (write! *err* "lgx: no test/ directory in project\n")
+    ;; happen. Discovery needs a test dir to exist, so that check leads.
+    (when (empty? test-dirs)
+      (write! *err* (str "lgx: no test directory in project (looked for: "
+                         (render-test-dirs declared) ")\n"))
       (os/exit 1))
-    (let [entries (if single?
-                    (single-file-entries! test-dir (first positionals) project)
-                    (let [files (test-runner/discover-test-files test-dir)
-                          all (mapv #(test-runner/test-entry test-dir %) files)
-                          {:keys [entries unmatched]}
+    (let [all (discover-test-entries project test-dirs)
+          entries (if single?
+                    (single-file-entries! test-dirs dirs-label
+                                          (first positionals) project)
+                    (let [{:keys [entries unmatched]}
                           (test-runner/exclude-entries all exclude)]
                       ;; A typo must fail loud, before either empty-plan exit:
                       ;; silently running the test the user meant to skip is
@@ -845,22 +915,31 @@
                                              "namespace: " ns-sym "\n")))
                         (os/exit 1))
                       (when (empty? all)
-                        (println "No tests found in test/")
+                        (println (str "No tests found in " dirs-label))
                         (os/exit 0))
                       (when (empty? entries)
                         (println "All test files excluded")
                         (os/exit 0))
                       entries))
-          with (auto-with! cfg [:test] with verbose?)
+          ;; A plan namespace that another file also defines would load only
+          ;; one of the two. A single file joins the discovered set, since it
+          ;; need not match *_test.
+          _ (let [known (set (map first all))]
+              (fail-on-ns-collisions!
+                (concat all (remove #(contains? known (first %)) entries))
+                (map second entries)))
+          with (auto-with! "test" with verbose?)
           basis (overlay-basis project cfg with nil)
           {:keys [results paths resource-paths]} basis
           _ (apply-runtime! cfg basis :fail verbose?)
-          header (if single? (first (first entries)) "test/")
+          header (if single? (first (first entries)) dirs-label)
           {harness-dir :dir harness :entry}
           (test-runner/write-harness! entries version)
-          ;; The harness directory goes last: its namespaces are the entry's
-          ;; own, and nothing in a project should shadow them.
-          source-paths (vec (concat paths [test-dir harness-dir]))]
+          ;; The test dirs arrive through the :test overlay, with the
+          ;; project's own paths. The harness directory goes last: its
+          ;; namespaces are the entry's own, and nothing in a project should
+          ;; shadow them.
+          source-paths (vec (concat paths [harness-dir]))]
       (when (and verbose? (seq exclude))
         (write! *err* (str "+ excluded: " (str/join ", " exclude) "\n")))
       (when verbose?
@@ -995,7 +1074,9 @@
    runtime), :runtime-out and :runtime-built? (:built only; :runtime-out nil
    when the pin is a branch that only a build can resolve), :go-version,
    :go-path, :replace-path, :user-lg (LGX_LG when the user set it) and
-   :skip-check?."
+   :skip-check?. Ends with the effective contexts (shipped defaults marked)
+   and the contexts each built-in applies, both read from lgx.config so the
+   report cannot drift from what the commands do."
   [cfg basis env]
   (let [mode (config/lg-runtime cfg)
         explicit? (contains? cfg :lg-runtime)
@@ -1003,6 +1084,7 @@
         go-pairs (sort-by (fn [[lib _]] (str lib)) (:go-coords basis))
         go-origins (:go-origins basis)
         head [(info-line "project" (:project basis))
+              (info-line "lgx" version)
               (info-line "lg-runtime" (str (name mode)
                                            (if explicit? "" " (default)")))
               (info-line "lg-version" (or pin "(none)"))]
@@ -1044,8 +1126,28 @@
                [(info-line "go-deps" "(none)")]
                (cons (info-line "go-deps" (go-dep-label (first go-pairs) go-origins))
                      (map #(info-continuation (go-dep-label % go-origins))
-                          (rest go-pairs))))]
-    (vec (concat head body deps))))
+                          (rest go-pairs))))
+        contexts (config/contexts cfg)
+        context-names (concat [:dev :test]
+                              (sort-by str (remove #{:dev :test}
+                                                   (keys contexts))))
+        context-rows (map (fn [nm]
+                            (str nm " " (pr-str (get contexts nm))
+                                 (if (config/default-context? cfg nm)
+                                   " (default)"
+                                   "")))
+                          context-names)
+        applies-rows (map (fn [command]
+                            (str command " "
+                                 (str/join " " (config/auto-context-names
+                                                 command))))
+                          ["run" "repl" "nrepl" "test"])
+        block (fn [label rows]
+                (cons (info-line label (first rows))
+                      (map info-continuation (rest rows))))]
+    (vec (concat head body deps
+                 (block "contexts" context-rows)
+                 (block "applies" applies-rows)))))
 
 (defn- cmd-info
   "Read-only: resolve the basis like install (a cold cache fetches deps and

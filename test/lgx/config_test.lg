@@ -979,15 +979,21 @@
 
 (deftest load-rejects-task-with-unknown-context
   (is (= {:errors [{:path [:tasks 'deploy :with]
-                    :msg "references unknown context :typo (defined: :dev)"}]}
-         (load-cfg {:contexts {:dev {:extra-paths ["dev"]}}
+                    :msg "references unknown context :typo (defined: :dev, :integration, :test)"}]}
+         (load-cfg {:contexts {:dev {:extra-paths ["dev"]}
+                               :integration {:extra-paths ["it"]}}
                     :tasks {'deploy {:with [:typo]
                                    :do [{:sh "echo hi"}]}}}))))
 
+(deftest load-accepts-task-with-default-context-when-none-defined
+  (let [cfg {:tasks {'deploy {:with [:dev :test]
+                              :do [{:sh "echo hi"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
 (deftest load-rejects-task-with-when-no-contexts-defined
   (is (= {:errors [{:path [:tasks 'deploy :with]
-                    :msg "references unknown context :dev (no contexts defined)"}]}
-         (load-cfg {:tasks {'deploy {:with [:dev]
+                    :msg "references unknown context :integration (defined: :dev, :test)"}]}
+         (load-cfg {:tasks {'deploy {:with [:integration]
                                    :do [{:sh "echo hi"}]}}}))))
 
 (deftest load-rejects-with-not-a-vector
@@ -1071,7 +1077,7 @@
     (is (= ["resources"] (config/resource-paths cfg)))
     (is (= "main.lg" (config/main cfg)))
     (is (= {:bin {:out "bin/app"}} (config/targets cfg)))
-    (is (= {:dev {}} (config/contexts cfg)))
+    (is (= {:dev {} :test {:extra-paths ["test"]}} (config/contexts cfg)))
     (is (= {'fmt {:do [{:sh "echo hi"}]}} (config/tasks cfg)))))
 
 (deftest accessors-default-on-empty-cfg
@@ -1080,7 +1086,7 @@
   (is (= [] (config/resource-paths {})))
   (is (nil? (config/main {})))
   (is (= {} (config/targets {})))
-  (is (= {} (config/contexts {})))
+  (is (= config/default-contexts (config/contexts {})))
   (is (= {} (config/tasks {}))))
 
 (deftest accessors-read-loaded-fixture
@@ -1177,19 +1183,33 @@
     (is (= ["assets" "fixtures"] (:resource-paths overlay)))))
 
 ;; ---------------------------------------------------------------------------
-;; auto-context (convention contexts auto-applied by run/nrepl/test)
+;; default contexts and the per-command auto contexts
 ;; ---------------------------------------------------------------------------
 
-(deftest auto-context-returns-name-when-defined
-  (is (= [:dev] (config/auto-context {:contexts {:dev {:extra-paths ["dev"]}}}
-                                     :dev))))
+(deftest contexts-user-entry-replaces-default
+  (let [cs (config/contexts {:contexts {:test {:extra-deps {'foo/a {:local/root "a"}}}}})]
+    (is (= {:extra-deps {'foo/a {:local/root "a"}}} (:test cs)))
+    (is (nil? (:extra-paths (:test cs))))
+    (is (= {} (:dev cs)))))
 
-(deftest auto-context-returns-empty-when-name-absent
-  (is (= [] (config/auto-context {:contexts {:dev {:extra-paths ["dev"]}}}
-                                 :test))))
+(deftest default-context?-true-when-not-defined
+  (is (true? (config/default-context? {} :test)))
+  (is (true? (config/default-context? {:contexts {:dev {}}} :test))))
 
-(deftest auto-context-returns-empty-without-contexts
-  (is (= [] (config/auto-context {} :dev))))
+(deftest default-context?-false-when-defined
+  (is (false? (config/default-context? {:contexts {:test {:extra-paths ["test"]}}}
+                                       :test))))
+
+(deftest default-context?-false-for-user-name
+  (is (false? (config/default-context? {:contexts {:integration {}}}
+                                       :integration))))
+
+(deftest auto-context-names-per-command
+  (is (= [:dev] (config/auto-context-names "run")))
+  (is (= [:dev :test] (config/auto-context-names "repl")))
+  (is (= [:dev :test] (config/auto-context-names "nrepl")))
+  (is (= [:test] (config/auto-context-names "test")))
+  (is (= [] (config/auto-context-names "build"))))
 
 ;; ---------------------------------------------------------------------------
 ;; coords-at (transitive: a fetched dep's own deps)
