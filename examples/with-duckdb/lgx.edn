@@ -1,0 +1,18 @@
+{:paths []
+ :main "main.lg"
+
+ ;; The duckdb driver is a Go package, and a cgo one: lgx builds the lg this
+ ;; project runs on from :lg-version with the Go toolchain, and that build
+ ;; needs a C compiler too (gcc/clang, or the Xcode CLT on macOS). It also
+ ;; means native builds only - `lgx build --target` cannot cross-compile it.
+ :lg-runtime :built
+ :lg-version "1.13.0"
+
+ :targets {:bin {:out "bin/with-duckdb"}}
+
+ :deps {;; DuckDB over Go's database/sql; brings the sql layer, the driver
+        ;; and the shim that turns DuckDB values into plain let-go values.
+        abogoyavlensky/letgo-duckdb
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/tag "duckdb-v0.1.0"
+         :deps/root "duckdb"}}}

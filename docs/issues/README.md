@@ -27,6 +27,7 @@ the ones that belong to lgx itself.
 | [ragtime-letgo-compat.md](./ragtime-letgo-compat.md) | Run weavejester/ragtime core under let-go: `Thread/currentThread` static missing, `format` ignores `%n`; plus the `& rest` bug | resolved (nooga/let-go#898, #901) |
 | [interop-map-boxing.md](./interop-map-boxing.md) | A let-go map does not cross the boundary as a Go map — the map-shaped sibling of `interop-slice-boxing`, and the naive hand-conversion silently yields pairs | implemented on `fix/vm-boxing-symmetry` |
 | [exec-star-std-stream-pipes.md](./exec-star-std-stream-pipes.md) | `os/exec*` pipes the child's stdout/stderr since #611 (`stdStreamWriter` is not an `*os.File`), so REPL children lose the tty | draft, worked around in lgx |
+| [boxvalue-uint64-wrap.md](./boxvalue-uint64-wrap.md) | `BoxValue` converts unsigned ints with `Int(v.Uint())`, so a `uint64` above `MaxInt64` silently wraps negative (DuckDB `UBIGINT` max arrives as `-1`) | draft, worked around in letgo-packages `duckdb/shim` |
 
 ## lgx's own
 

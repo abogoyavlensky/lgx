@@ -143,7 +143,6 @@
 
 (def entry-file "harness.lg")
 (def ui-file (path/join "lgx" "test_harness" "ui.lg"))
-(def legacy-file (path/join "lgx" "test_harness" "legacy.lg"))
 (def report-file (path/join "lgx" "test_harness" "report.lg"))
 
 (defn- entry-src [entries] (get (tr/harness-sources entries) entry-file))
@@ -161,9 +160,9 @@
         ib (str/index-of src b)]
     (and (some? ia) (some? ib) (< ia ib))))
 
-(deftest harness-sources-has-exactly-the-four-files
+(deftest harness-sources-has-exactly-the-three-files
   (let [srcs (tr/harness-sources [])]
-    (is (= #{entry-file ui-file legacy-file report-file} (set (keys srcs))))
+    (is (= #{entry-file ui-file report-file} (set (keys srcs))))
     (doseq [[f src] srcs]
       (is (string? src) f)
       (is (parses? src) f))))
@@ -174,25 +173,18 @@
     (is (str/includes? src "[os :as os]"))
     (is (str/includes? src "(os/exit"))))
 
-(deftest harness-sources-entry-dispatches-at-run-time
-  ;; The two run-phase variants read different let-go test internals, and a
-  ;; dead branch still has to compile, so the entry must not name either
-  ;; variant's symbols: it picks one by resolve and loads it by require.
+(deftest harness-sources-entry-requires-the-run-phase
+  ;; The entry requires the run phase in its ns form and calls it directly;
+  ;; the test internals themselves stay inside the report namespace.
   (let [src (entry-src [["test/foo_test.lg" 'foo-test]])]
-    (is (str/includes? src "(resolve 'test/test-ns)"))
-    (is (str/includes? src "(require 'lgx.test-harness.report)"))
-    (is (str/includes? src "(require 'lgx.test-harness.legacy)"))
-    (is (not (str/includes? src "*registered-tests*")))
+    (is (str/includes? (ns-form src) "[lgx.test-harness.report :as report]"))
+    (is (str/includes? src "(report/run-plan! runnable-plan)"))
     (is (not (str/includes? src "[test :refer")))
     (is (not (str/includes? src "(the-ns")))))
 
-(deftest harness-sources-variants-define-run
+(deftest harness-sources-report-defines-run
   (let [srcs (tr/harness-sources [])
-        legacy (get srcs legacy-file)
         report (get srcs report-file)]
-    (is (str/includes? legacy "(ns lgx.test-harness.legacy"))
-    (is (str/includes? legacy "*registered-tests*"))
-    (is (str/includes? legacy "(defn run-plan!"))
     (is (str/includes? report "(ns lgx.test-harness.report"))
     (is (str/includes? report "(defn run-plan!"))
     (is (str/includes? report "test/report"))
@@ -234,14 +226,13 @@
 
 (deftest harness-sources-run-phase-skips-namespaces-that-failed-to-load
   ;; the-ns throws for a namespace that never loaded, so the entry hands the
-  ;; variants only the entries absent from the failure set, and the
-  ;; variants are where the-ns is called.
+  ;; run phase only the entries absent from the failure set, and the run
+  ;; phase is where the-ns is called.
   (let [srcs (tr/harness-sources [["test/foo_test.lg" 'foo-test]])
         entry (get srcs entry-file)]
     (is (str/includes? entry "(def failed-namespaces"))
     (is (str/includes? entry "(contains? failed-namespaces"))
     (is (before? entry "(contains? failed-namespaces" "runnable-plan)"))
-    (is (str/includes? (get srcs legacy-file) "(the-ns"))
     (is (str/includes? (get srcs report-file) "(the-ns"))))
 
 (deftest harness-sources-entry-emits-ready-marker
@@ -250,12 +241,7 @@
 
 (deftest harness-sources-summary-and-exit
   (let [srcs (tr/harness-sources [["test/foo_test.lg" 'foo-test]])
-        entry (get srcs tr/entry-file)
-        legacy (get srcs tr/legacy-file)]
-    (is (str/includes? legacy "with-out-str"))
-    (is (str/includes? legacy "Testing: "))
-    (is (str/includes? legacy "PASS "))
-    (is (str/includes? legacy "color-fail-token"))
+        entry (get srcs tr/entry-file)]
     (is (str/includes? entry "tests, "))
     (is (str/includes? entry "assertions, "))
     (is (str/includes? entry "failures"))
@@ -509,9 +495,9 @@
     (is (= r1 r2))
     (is (= dir (:dir r1)))
     (is (= (path/join dir "harness.lg") (:entry r1)))
-    ;; The variants land where the entry's requires expect them.
-    (doseq [f [tr/ui-file tr/legacy-file tr/report-file]]
+    ;; The namespaces land where the entry's requires expect them.
+    (doseq [f [tr/ui-file tr/report-file]]
       (is (file-exists? (path/join dir f)) f))
     (is (not (= src1 src2)))
-    (doseq [f [tr/entry-file tr/ui-file tr/legacy-file tr/report-file]]
+    (doseq [f [tr/entry-file tr/ui-file tr/report-file]]
       (delete-file (path/join dir f)))))

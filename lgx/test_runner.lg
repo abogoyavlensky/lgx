@@ -136,22 +136,16 @@
 ;; its entry script to `lg` like any other script, with the directory on the
 ;; source path so the entry can `require` the rest.
 ;;
-;; The directory holds one entry script plus three namespaces:
+;; The directory holds one entry script plus two namespaces:
 ;;
 ;;   harness.lg                  lgx.test-harness: the plan, the load phase,
-;;                               the ready marker, the dispatch, the summary
+;;                               the ready marker, the run, the summary
 ;;   lgx/test_harness/ui.lg      shared printing helpers
-;;   lgx/test_harness/legacy.lg  run phase over the pre-#863 test internals
 ;;   lgx/test_harness/report.lg  run phase over the clojure.test port
 ;;
-;; Two run-phase variants exist because let-go #863 replaced the `test`
-;; internals the original loop read (*registered-tests*, printed PASS/FAIL
-;; lines) with a clojure.test port, and a dead branch still has to compile:
-;; let-go rejects any symbol the running version lacks, even one it would
-;; never execute. So each variant is its own namespace, the entry picks one
-;; with `resolve` and loads it with a run-time `require`, and only that one
-;; is ever compiled. Both expose (run-plan! plan) -> {:test :pass :fail :error}.
-;; Delete legacy.lg and the dispatch once lgx's minimum lg carries #863.
+;; The run phase reads let-go's clojure.test port (#863, first shipped in
+;; 1.13.0, lgx's minimum lg); it exposes (run-plan! plan) ->
+;; {:test :pass :fail :error}.
 ;; ---------------------------------------------------------------------------
 
 (defn- entry-line [entry]
@@ -188,80 +182,6 @@
     "(defn print-context [ctx] (println (str \"    \" ctx)))\n"
     "(defn print-detail [line] (println (str \"    \" line)))\n"))
 
-;; The run loop as it was before the split, over the pre-#863 internals:
-;; *registered-tests* lists each namespace's deftest vars, `is` prints
-;; `PASS <form>` / `FAIL <form> - <msg>` and `testing` prints `Testing: a > b`,
-;; so the loop captures stdout per var and reads those lines back.
-(def ^:private legacy-source
-  (str
-    "(ns lgx.test-harness.legacy\n"
-    "  (:require [test :refer [*registered-tests* *report-counters*\n"
-    "                          *each-fixtures*]]\n"
-    "            [lgx.test-harness.ui :as ui]\n"
-    "            [string :as str]))\n"
-    "\n"
-    "(defn- compose-fixtures [f g] (fn [t] (f (fn [] (g t)))))\n"
-    "(defn- default-fixture [t] (t))\n"
-    "(defn- join-fixtures [fs]\n"
-    "  (reduce compose-fixtures default-fixture fs))\n"
-    "\n"
-    "(defn- testing-line? [line]\n"
-    "  (str/starts-with? line \"Testing: \"))\n"
-    "\n"
-    "(defn- pass-line? [line]\n"
-    "  (str/starts-with? line \"PASS \"))\n"
-    "\n"
-    "(defn- print-testing-line [line]\n"
-    "  (ui/print-context (subs line (count \"Testing: \"))))\n"
-    "\n"
-    "(defn- color-fail-token [line]\n"
-    "  (cond\n"
-    "    (= line \"FAIL\") (ui/red \"FAIL\")\n"
-    "    (str/starts-with? line \"FAIL \") (str (ui/red \"FAIL\")\n"
-    "                                       (subs line (count \"FAIL\")))\n"
-    "    :else line))\n"
-    "\n"
-    "(defn- print-detail-line [line]\n"
-    "  (when (and (not (testing-line? line)) (not (pass-line? line)))\n"
-    "    (ui/print-detail (color-fail-token line))))\n"
-    "\n"
-    "(defn run-plan!\n"
-    "  \"Run every entry of `plan` ([display-file ns-sym] pairs whose ns\n"
-    "   loaded). Returns {:test :pass :fail :error}.\"\n"
-    "  [plan]\n"
-    "  (doseq [entry plan]\n"
-    "    (let [file-name (first entry)\n"
-    "          ns-sym (second entry)\n"
-    "          test-vars (get *registered-tests* (the-ns ns-sym) [])]\n"
-    "      (ui/print-file file-name)\n"
-    "      (doseq [tv test-vars]\n"
-    "        (set! *report-counters* (update *report-counters* :test inc))\n"
-    "        (let [before *report-counters*]\n"
-    "          (let [result (try\n"
-    "                         {:out (with-out-str\n"
-    "                                 ((join-fixtures *each-fixtures*)\n"
-    "                                  (fn [] ((deref tv)))))\n"
-    "                          :error nil}\n"
-    "                         (catch e\n"
-    "                           (set! *report-counters*\n"
-    "                                 (update *report-counters* :error inc))\n"
-    "                           {:out \"\" :error e}))\n"
-    "                after *report-counters*\n"
-    "                lines (ui/nonblank-lines (:out result))\n"
-    "                failed? (or (> (:fail  after) (:fail  before))\n"
-    "                            (> (:error after) (:error before)))]\n"
-    "            (ui/print-mark failed? (ui/var-name tv))\n"
-    "            (doseq [line lines]\n"
-    "              (when (testing-line? line)\n"
-    "                (print-testing-line line)))\n"
-    "            (when failed?\n"
-    "              (doseq [line lines]\n"
-    "                (print-detail-line line))\n"
-    "              (when (:error result)\n"
-    "                (ui/print-detail (str \"ERROR: \" (:error result))))))))\n"
-    "      (println)))\n"
-    "  *report-counters*)\n"))
-
 ;; The run loop over let-go's clojure.test port (#863). Everything it needs
 ;; is the public clojure.test contract: `:test` metadata marks a test var,
 ;; test/test-var runs one (catching any throw as an :error event), fixtures
@@ -289,8 +209,7 @@
     "     :each (test/join-fixtures (:test/each-fixtures m))}))\n"
     "\n"
     "(defn- contexts-str []\n"
-    "  ;; Innermost first in *testing-contexts*; the legacy runner printed\n"
-    "  ;; `outer > inner`.\n"
+    "  ;; Innermost first in *testing-contexts*; print `outer > inner`.\n"
     "  (str/join \" > \" (reverse test/*testing-contexts*)))\n"
     "\n"
     "(defn- collector [events]\n"
@@ -394,7 +313,8 @@
 
 (def ^:private entry-header
   (str "(ns lgx.test-harness\n"
-       "  (:require [string :as str]\n"
+       "  (:require [lgx.test-harness.report :as report]\n"
+       "            [string :as str]\n"
        "            [os :as os]))"))
 
 (def ^:private entry-body
@@ -449,19 +369,7 @@
     "    (println (str \"    \" (str/trim line))))\n"
     "  (println))\n"
     "\n"
-    ;; Two run-phase variants, chosen at run time: let-go #863 replaced the
-    ;; test internals the legacy loop reads, and a dead branch still has to
-    ;; compile, so each variant is its own namespace and only one is loaded.
-    ;; test-ns is the clojure.test port's runner entry point and did not
-    ;; exist before it. The var is looked up by resolve for the same reason:
-    ;; naming it as a symbol would try to resolve it at compile time.
-    ;; Delete legacy + this dispatch once lgx's minimum lg carries #863.
-    "(def run-var\n"
-    "  (if (resolve 'test/test-ns)\n"
-    "    (do (require 'lgx.test-harness.report) 'lgx.test-harness.report/run-plan!)\n"
-    "    (do (require 'lgx.test-harness.legacy) 'lgx.test-harness.legacy/run-plan!)))\n"
-    "\n"
-    "(def counters ((var-get (resolve run-var)) runnable-plan))\n"
+    "(def counters (report/run-plan! runnable-plan))\n"
     "\n"
     ;; A load failure is not a failed assertion, so it is counted on its
     ;; own rather than folded into the assertion totals. The summary colour,
@@ -483,22 +391,19 @@
 
 (def entry-file "harness.lg")
 (def ui-file (path/join "lgx" "test_harness" "ui.lg"))
-(def legacy-file (path/join "lgx" "test_harness" "legacy.lg"))
 (def report-file (path/join "lgx" "test_harness" "report.lg"))
 
 (defn harness-sources
   "Return {relative-path source} for the harness directory: the entry
    script, which loads each test entry in turn, reports the ones that fail
-   to load, hands the rest to the run-phase variant the running lg
-   supports, and prints the summary; and the three namespaces the entry
-   requires (see the section comment above). The `Running tests in ...`
+   to load, hands the rest to the run phase, and prints the summary; and
+   the two namespaces the entry requires (see the section comment above). The `Running tests in ...`
    banner is printed by lgx (green, on stderr), not the harness."
   [entries]
   (let [entry-src (str/join "\n" (map entry-line entries))
         body (str/replace entry-body "__TEST_ENTRIES__" entry-src)]
     {entry-file (str entry-header body)
      ui-file ui-source
-     legacy-file legacy-source
      report-file report-source}))
 
 (defn harness-dir

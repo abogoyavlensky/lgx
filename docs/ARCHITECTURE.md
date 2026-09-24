@@ -393,41 +393,31 @@ Steps 1–2 (project root, config load) match `install`. Then:
 7. Generate the harness: a directory
    `$LGX_HOME/test-runner/lgx-test-<version>/` (overwriting the previous
    one for the same lgx version) holding an entry script `harness.lg` and
-   three namespaces under `lgx/test_harness/` — `ui` (printing helpers),
-   `legacy` and `report` (the two run-phase variants). The entry embeds the
-   discovered `[file ns]` test plan, `require`s each test ns one at a time
-   inside a `try` (a file that fails to load costs one reported failure,
-   not the run), writes a `harness-ready` marker to stderr once the load
-   phase is over (this splits lg's captured stderr into pre-harness load
-   diagnostics and test-emitted output — see step 10), then picks the run
-   variant **at run time**: `report` when `test/test-ns` resolves, i.e.
-   let-go carries the clojure.test port (nooga/let-go#863), else `legacy`.
-   Each variant is its own namespace loaded by `require` because let-go
-   compiles every top-level form and the old lg rejects symbols it lacks
-   even in a branch never taken
-   ([`knowledge-base/let-go-gotchas.md`](knowledge-base/let-go-gotchas.md)).
-   Both expose `(run-plan! plan)` → `{:test :pass :fail :error}`:
-   - `legacy` iterates `*registered-tests*` (definition order), runs each
-     `deftest` under `with-out-str` with `*each-fixtures*`, and reads the
-     printed `Testing: `/`PASS `/`FAIL ` lines back.
-   - `report` runs each `:test`-tagged var (name order — the port keeps no
-     definition order) through `test/test-var` under `binding [test/report
-     …]`, collecting `:pass`/`:fail`/`:error` events instead of parsing
-     output; `:once`/`:each` fixtures come from the namespace metadata,
-     `:each` inside the per-var capture, `:once` around the namespace; an
-     assertion outside any var (a `:once` fixture) is reported as a
-     `fixtures` row and counted; a namespace defining `test-ns-hook` runs
-     the hook as one row instead of its vars, as `test/test-ns` would.
-     Failure detail adds an `actual:` line the legacy `is` never had.
-   Both print the test file, a `✓`/`✗` line per `deftest`, any `testing`
-   context strings, and failure/error details only for failing tests; the
-   entry prints the `N tests, M assertions, K failures` summary and
-   `(os/exit (if failed? 1 0))`. The opening `Running tests in <header>...`
-   banner is printed by lgx itself (green, on stderr — see
-   [Output styling](#output-styling)), not the harness; walk-mode passes
-   `test/`, single-file mode the entry's display path (e.g.
-   `test/foo_test.lg`). Delete `legacy` and the dispatch once lgx's minimum
-   `lg` carries #863.
+   two namespaces under `lgx/test_harness/` — `ui` (printing helpers) and
+   `report` (the run phase). The entry embeds the discovered `[file ns]`
+   test plan, `require`s each test ns one at a time inside a `try` (a file
+   that fails to load costs one reported failure, not the run), writes a
+   `harness-ready` marker to stderr once the load phase is over (this
+   splits lg's captured stderr into pre-harness load diagnostics and
+   test-emitted output — see step 10), then calls
+   `(report/run-plan! plan)` → `{:test :pass :fail :error}`. `report`
+   runs over let-go's clojure.test port (nooga/let-go#863, in lg >= 1.13.0,
+   lgx's minimum): each `:test`-tagged var (name order — the port keeps no
+   definition order) goes through `test/test-var` under `binding
+   [test/report …]`, collecting `:pass`/`:fail`/`:error` events instead of
+   parsing output; `:once`/`:each` fixtures come from the namespace
+   metadata, `:each` inside the per-var capture, `:once` around the
+   namespace; an assertion outside any var (a `:once` fixture) is reported
+   as a `fixtures` row and counted; a namespace defining `test-ns-hook`
+   runs the hook as one row instead of its vars, as `test/test-ns` would.
+   It prints the test file, a `✓`/`✗` line per `deftest`, any `testing`
+   context strings, and failure/error details (with an `actual:` line)
+   only for failing tests; the entry prints the `N tests, M assertions, K
+   failures` summary and `(os/exit (if failed? 1 0))`. The opening
+   `Running tests in <header>...` banner is printed by lgx itself (green,
+   on stderr — see [Output styling](#output-styling)), not the harness;
+   walk-mode passes `test/`, single-file mode the entry's display path
+   (e.g. `test/foo_test.lg`).
 8. Compute `-source-paths` as project paths + dep paths + the absolute
    `test/` path (so test namespaces can `require` each other and the
    harness can `require` them) + the harness directory, last (so nothing in

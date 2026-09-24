@@ -151,9 +151,10 @@ would resolve it at compile time, before the `require` ran:
 ((var-get (resolve run-var)) plan)
 ```
 
-Only the namespace that was required is ever compiled. This is how the
-`lgx test` harness serves both sides of let-go's clojure.test port
-(`lgx/test_runner.lg`, `harness-sources`).
+Only the namespace that was required is ever compiled. The `lgx test`
+harness used this to serve both sides of let-go's clojure.test port until
+lgx's minimum lg (1.13.0) carried the port and the pre-port branch was
+dropped.
 
 ---
 
