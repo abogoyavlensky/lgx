@@ -33,6 +33,8 @@ read them only when relevant. Do not preload.
   [`docs/knowledge-base/lgx-go-wrappers.md`](docs/knowledge-base/lgx-go-wrappers.md).
 - Filing or referencing upstream let-go work →
   [`docs/issues/`](docs/issues/).
+- Known lgx issues and ideas deliberately not being worked on yet →
+  [`docs/backlog/`](docs/backlog/) (see "Backlog" below).
 
 ## Keeping these in sync
 
@@ -44,3 +46,16 @@ Notes drift. Two rules:
    to describe - use it to spot-check.
 2. **Drift > silence.** If you spot a stale claim, fix or delete it
    rather than leave it. A missing note is better than a wrong one.
+
+## Backlog
+
+`docs/backlog/` holds known issues and ideas that are not being worked on yet.
+
+- One file per issue, named after it (`built-runtime-not-stripped.md`).
+- Each file starts with `**Status: open**`. When a plan is written for it,
+  change the status to `**Status: planned**` with a `Plan: docs/plans/...`
+  line under it; when the work ships, change it to `**Status: done**` with a
+  line saying where it landed. Never delete an entry.
+- "What's in the backlog?" means the open files — list every file whose status
+  is not done, with its title.
+- Adding an entry is its own commit (`Backlog: <what>`), never mixed with code.
