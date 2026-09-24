@@ -27,7 +27,7 @@
 ;; honored at runtime rather than baked into the bundle during `lg -b`.
 (def ^:private command-rows
   (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
-       "  lgx info                     Show which lg runs this project and why (:lg-runtime, :lg-version, Go deps)\n"
+       "  lgx info                     Show which lg runs this project and why (:lg-runtime, :lg-version, Go deps) and its contexts\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context)\n"
        "  lgx repl                     Start lg's built-in REPL with project deps on the source path\n"
@@ -36,8 +36,8 @@
        "                               (free port unless --port given; auto-applies :dev and :test contexts)\n"
        "  lgx build [args...]          Bundle :main into :targets/:bin/:out via `lg -b`\n"
        "                               (--target <os>/<arch>[,...] or --all cross-compile; other args forwarded to `lg`)\n"
-       "  lgx test [file] [--exclude <ns,...>]  Run *_test.lg / *_test.cljc / *_test.clj files under test/\n"
-       "                               (one file if given, else walk test/ skipping --exclude namespaces; auto-applies :test context)\n"
+       "  lgx test [file] [--exclude <ns,...>]  Run *_test.lg / *_test.cljc / *_test.clj files under the :test context's paths (test/ by default)\n"
+       "                               (one file if given, else walk them skipping --exclude namespaces; auto-applies :test context)\n"
        "  lgx new <name> [-t <tpl>]    Scaffold a let-go app (template: built-in names `base`, `cli`, `lib` or git URL)\n"
        "  lgx clean <--cache...>       Remove caches under ~/.lgx: --runtimes, --gitlibs, --templates, or --all\n"
        "                               (--dry-run only reports; reports bytes reclaimed)\n"

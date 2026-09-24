@@ -967,7 +967,7 @@ out="$(cd "$proj_t4" && LGX_HOME="$home_t4" "$LGX" test 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "test missing: expected exit 1, got $rc (output: $out)"
 pass "test missing: exits 1"
-assert_contains "$out" "lgx: no test/ directory in project" \
+assert_contains "$out" "lgx: no test directory in project (looked for: test/)" \
     "test missing: friendly error"
 rm -rf "$proj_t4" "$home_t4"
 
@@ -1114,7 +1114,7 @@ set +e
 out="$(cd "$proj_s4" && LGX_HOME="$home_s4" "$LGX" test src/foo.lg 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "test outside: expected exit 1, got $rc"
-assert_contains "$out" "lgx: test file must be under test/: src/foo.lg" \
+assert_contains "$out" "lgx: test file must be under a test path (test/): src/foo.lg" \
     "test outside: clear error"
 rm -rf "$proj_s4" "$home_s4"
 
@@ -2562,7 +2562,7 @@ if supports_source_paths; then
     proj_ac2="$(mktemp -d)"; home_ac2="$(mktemp -d)"
     mkdir -p "$proj_ac2/test" "$proj_ac2/test-support"
     cat > "$proj_ac2/lgx.edn" <<'EOF'
-{:contexts {:test {:extra-paths ["test-support"]}}}
+{:contexts {:test {:extra-paths ["test" "test-support"]}}}
 EOF
     cat > "$proj_ac2/test-support/helper.lg" <<'EOF'
 (ns helper)
@@ -2658,7 +2658,8 @@ mkdir -p "$(dirname "$bare_ac5")"
 sha_ac5="$(make_bare_repo "$bare_ac5")"
 proj_ac5="$(mktemp -d)"
 cat > "$proj_ac5/lgx.edn" <<EOF
-{:contexts {:test {:extra-deps {test/lib {:git/url "file://$bare_ac5"
+{:contexts {:test {:extra-paths ["test"]
+                   :extra-deps {test/lib {:git/url "file://$bare_ac5"
                                           :git/sha "$sha_ac5"}}}}}
 EOF
 set +e
@@ -2666,7 +2667,7 @@ out="$(cd "$proj_ac5" && LGX_HOME="$home_ac5" "$LGX" test 2>&1)"; rc=$?
 set -e
 [[ $rc -ne 0 ]] || fail "no test/ with :test context: expected non-zero exit"
 pass "no test/ with :test context: exits non-zero"
-assert_contains "$out" "lgx: no test/ directory in project" \
+assert_contains "$out" "lgx: no test directory in project (looked for: test/)" \
     "no test/ with :test context: deterministic error"
 # The old flow fetched the dep but exited before print-installs!, so output
 # alone can't prove the fix — assert the cache side effect is absent. A fetch
@@ -2890,11 +2891,11 @@ rm -rf "$proj_nrc" "$home_nrc"
 
 echo "==> Scenario 114: lgx repl opens the plain built-in REPL (no nREPL, no .nrepl-port)"
 # repl mirrors nrepl minus the socket: it opens lg's terminal REPL with the
-# project's deps on the path and auto-applies :dev + :test. Empty contexts add
-# no deps/paths, so no -source-paths support is needed.
+# project's deps on the path and auto-applies :dev + :test. A bare project gets
+# the shipped defaults; their test/ path is missing here and must stay silent.
 proj_rp="$(mktemp -d)"; home_rp="$(mktemp -d)"
 cat > "$proj_rp/lgx.edn" <<'EOF'
-{:contexts {:dev {} :test {}}}
+{}
 EOF
 set +e
 out="$(cd "$proj_rp" && echo '' \
@@ -2906,6 +2907,8 @@ assert_contains "$out" "Ctrl-C to quit" \
     "repl: lg's built-in REPL banner is shown"
 assert_not_contains "$out" "nREPL server started" \
     "repl: no nREPL server (plain REPL, unlike nrepl)"
+assert_not_contains "$out" "entry not found" \
+    "repl: a missing default test/ does not warn"
 [[ ! -e "$proj_rp/.nrepl-port" ]] \
     || fail "repl: wrote .nrepl-port (should not — that's nrepl's job)"
 pass "repl: does not write .nrepl-port"
@@ -3237,11 +3240,18 @@ assert_contains "$lg_line" "($LGX_LG)" "info: lg line names the LGX_LG binary"
 assert_contains "$out" "version  " "info: version line is present"
 assert_contains "$out" "go-deps       (none)" "info: no Go deps"
 assert_not_contains "$out" $'\e[' "info: output is plain (no color)"
+lgx_line="$(printf '%s\n' "$out" | grep '^lgx  ' || true)"
+assert_contains "$lgx_line" "$("$LGX" version | awk '{print $2}')" "info: lgx line names the lgx version"
+assert_contains "$out" "contexts      :dev {} (default)" "info: :dev is a shipped default"
+assert_contains "$out" ':test {:extra-paths ["test"]} (default)' "info: :test is a shipped default"
+assert_contains "$out" "applies       run :dev" "info: run applies :dev"
+assert_contains "$out" "nrepl :dev :test" "info: nrepl applies :dev and :test"
 
 echo '{:paths ["."] :lg-runtime :installed :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
 out="$(cd "$proj_in" && LGX_HOME="$home_in" "$LGX" info 2>&1)"
 assert_contains "$out" "lg-runtime    installed" "info: explicit mode is shown"
-assert_not_contains "$out" "(default)" "info: explicit mode is not labelled default"
+runtime_line="$(printf '%s\n' "$out" | grep '^lg-runtime  ')"
+assert_not_contains "$runtime_line" "(default)" "info: explicit mode is not labelled default"
 
 echo '{:paths ["."] :lg-runtime :built :lg-version "1.12.2"}' > "$proj_in/lgx.edn"
 set +e
@@ -3822,6 +3832,205 @@ out="$(cd "$proj_pp" && LGX_HOME="$home_pp" PATH="$(dirname "$LGX"):$PATH" \
 [[ $rc -eq 0 ]] || fail "path-invoke: expected exit 0, got $rc (output: $out)"
 assert_contains "$out" "inner-ran" "path-invoke: the child resolves to the same binary"
 rm -rf "$proj_pp" "$home_pp"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 147: lgx test walks a custom :test path"
+if supports_source_paths; then
+    proj_dc1="$(mktemp -d)"
+    home_dc1="$(mktemp -d)"
+    echo '{:contexts {:test {:extra-paths ["tests"]}}}' > "$proj_dc1/lgx.edn"
+    mkdir -p "$proj_dc1/tests"
+    cat > "$proj_dc1/tests/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [test :refer [deftest is]]))
+
+(deftest custom-dir-pass
+  (is (= :ok :ok)))
+EOF
+    set +e
+    out="$(cd "$proj_dc1" && LGX_HOME="$home_dc1" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "custom test dir: expected exit 0, got $rc (output: $out)"
+    assert_contains "$out" "Running tests in tests/..." "custom test dir: header names tests/"
+    assert_contains "$out" "tests/foo_test.lg" "custom test dir: project-relative file header"
+    assert_contains "$out" "custom-dir-pass" "custom test dir: deftest ran"
+    rm -rf "$proj_dc1" "$home_dc1"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 148: lgx test walks every :test path, and one file under the second"
+if supports_source_paths; then
+    proj_dc2="$(mktemp -d)"
+    home_dc2="$(mktemp -d)"
+    echo '{:contexts {:test {:extra-paths ["test" "integration"]}}}' > "$proj_dc2/lgx.edn"
+    mkdir -p "$proj_dc2/test" "$proj_dc2/integration" "$proj_dc2/src"
+    cat > "$proj_dc2/test/unit_test.lg" <<'EOF'
+(ns unit-test
+  (:require [test :refer [deftest is]]))
+
+(deftest unit-pass
+  (is (= :ok :ok)))
+EOF
+    cat > "$proj_dc2/integration/it_test.lg" <<'EOF'
+(ns it-test
+  (:require [test :refer [deftest is]]))
+
+(deftest it-pass
+  (is (= :ok :ok)))
+EOF
+    touch "$proj_dc2/src/x.lg"
+    set +e
+    out="$(cd "$proj_dc2" && LGX_HOME="$home_dc2" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "two test dirs: expected exit 0, got $rc (output: $out)"
+    assert_contains "$out" "Running tests in test/, integration/..." "two test dirs: header lists both"
+    assert_contains "$out" "unit-pass" "two test dirs: test/ ran"
+    assert_contains "$out" "it-pass" "two test dirs: integration/ ran"
+    set +e
+    out="$(cd "$proj_dc2" && LGX_HOME="$home_dc2" "$LGX" test integration/it_test.lg 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "second dir single file: expected exit 0, got $rc (output: $out)"
+    assert_contains "$out" "it-pass" "second dir single file: it ran"
+    assert_not_contains "$out" "unit-pass" "second dir single file: nothing else ran"
+    set +e
+    out="$(cd "$proj_dc2" && LGX_HOME="$home_dc2" "$LGX" test src/x.lg 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 1 ]] || fail "outside both dirs: expected exit 1, got $rc"
+    assert_contains "$out" "lgx: test file must be under a test path (test/, integration/): src/x.lg" \
+        "outside both dirs: error lists every test path"
+    rm -rf "$proj_dc2" "$home_dc2"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 149: a :test context without :extra-paths leaves lgx test nowhere to look"
+proj_dc3="$(mktemp -d)"
+home_dc3="$(mktemp -d)"
+echo '{:contexts {:test {:extra-deps {}}}}' > "$proj_dc3/lgx.edn"
+mkdir -p "$proj_dc3/test"
+set +e
+out="$(cd "$proj_dc3" && LGX_HOME="$home_dc3" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "test no extra-paths: expected exit 1, got $rc (output: $out)"
+assert_contains "$out" "the :test context defines no :extra-paths" \
+    "test no extra-paths: the replaced default is named"
+rm -rf "$proj_dc3" "$home_dc3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 150: a task may apply :dev with no contexts defined"
+proj_dc4="$(mktemp -d)"
+home_dc4="$(mktemp -d)"
+cat > "$proj_dc4/lgx.edn" <<'EOF'
+{:tasks {hi {:with [:dev] :do [{:sh "echo dev-task-ran"}]}}}
+EOF
+set +e
+out="$(cd "$proj_dc4" && LGX_HOME="$home_dc4" "$LGX" hi 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "task :with [:dev]: expected exit 0, got $rc (output: $out)"
+assert_contains "$out" "dev-task-ran" "task :with [:dev]: the default context is valid"
+rm -rf "$proj_dc4" "$home_dc4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 151: --with test is valid and silent on a bare project"
+proj_dc5="$(mktemp -d)"
+home_dc5="$(mktemp -d)"
+echo '{}' > "$proj_dc5/lgx.edn"
+set +e
+out="$(cd "$proj_dc5" && LGX_HOME="$home_dc5" "$LGX" --with test install 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "--with test install: expected exit 0, got $rc (output: $out)"
+assert_not_contains "$out" "unknown context" "--with test install: test always exists"
+# install never resolves :paths; info does, through the same overlay as repl.
+out="$(cd "$proj_dc5" && LGX_HOME="$home_dc5" "$LGX" --with test info 2>&1)"
+assert_not_contains "$out" "entry not found" "--with test info: a missing default test/ is silent"
+rm -rf "$proj_dc5" "$home_dc5"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 152: a missing :test path the project declared still warns"
+proj_dc6="$(mktemp -d)"
+home_dc6="$(mktemp -d)"
+echo '{:contexts {:test {:extra-paths ["test"]}}}' > "$proj_dc6/lgx.edn"
+out="$(cd "$proj_dc6" && LGX_HOME="$home_dc6" "$LGX" --with test info 2>&1)"
+assert_contains "$out" "warning: :paths entry not found: test" \
+    "declared :test path: missing dir warns"
+echo '{:paths ["test"]}' > "$proj_dc6/lgx.edn"
+out="$(cd "$proj_dc6" && LGX_HOME="$home_dc6" "$LGX" --with test info 2>&1)"
+assert_contains "$out" "warning: :paths entry not found: test" \
+    "test in :paths: the default context does not hide the warning"
+rm -rf "$proj_dc6" "$home_dc6"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 153: info marks a replaced :test as not the default"
+proj_dc7="$(mktemp -d)"
+home_dc7="$(mktemp -d)"
+echo '{:contexts {:test {:extra-paths ["tests"]} :integration {:extra-paths ["it"]}}}' \
+    > "$proj_dc7/lgx.edn"
+out="$(cd "$proj_dc7" && LGX_HOME="$home_dc7" "$LGX" info 2>&1)"
+assert_contains "$out" "contexts      :dev {} (default)" "info replaced: :dev is still the default"
+test_line="$(printf '%s\n' "$out" | grep ':test {')"
+assert_contains "$test_line" '{:extra-paths ["tests"]}' "info replaced: :test shows the project value"
+assert_not_contains "$test_line" "(default)" "info replaced: :test is not marked default"
+assert_contains "$out" ':integration {:extra-paths ["it"]}' "info replaced: project contexts follow"
+rm -rf "$proj_dc7" "$home_dc7"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 154: test dirs precede dep dirs on the source path"
+if supports_source_paths; then
+    home_dc8="$(mktemp -d)"
+    bare_dc8="$home_dc8/_fixtures/test-repo.git"
+    mkdir -p "$(dirname "$bare_dc8")"
+    sha_dc8="$(make_bare_repo "$bare_dc8")"
+    proj_dc8="$(mktemp -d)"
+    cat > "$proj_dc8/lgx.edn" <<EOF
+{:deps {test/lib {:git/url "file://$bare_dc8" :git/sha "$sha_dc8"}}}
+EOF
+    mkdir -p "$proj_dc8/test/test"
+    # The dep ships test.fib too; the project's copy must win.
+    cat > "$proj_dc8/test/test/fib.lg" <<'EOF'
+(ns test.fib)
+(defn fib [_] :project-copy)
+EOF
+    cat > "$proj_dc8/test/shadow_test.lg" <<'EOF'
+(ns shadow-test
+  (:require [test :refer [deftest is]]
+            [test.fib :as fib]))
+
+(deftest project-copy-wins
+  (is (= :project-copy (fib/fib 10))))
+EOF
+    set +e
+    out="$(cd "$proj_dc8" && LGX_HOME="$home_dc8" "$LGX" test 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "test dir precedence: expected exit 0, got $rc (output: $out)"
+    assert_contains "$out" "project-copy-wins" "test dir precedence: the project's ns shadows the dep's"
+    rm -rf "$proj_dc8" "$home_dc8"
+else
+    skip "lgx test requires lg with -source-paths support"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 155: two test files defining one namespace fail loudly"
+proj_dc9="$(mktemp -d)"
+home_dc9="$(mktemp -d)"
+echo '{:contexts {:test {:extra-paths ["unit" "integration"]}}}' > "$proj_dc9/lgx.edn"
+mkdir -p "$proj_dc9/unit" "$proj_dc9/integration"
+echo '(ns foo-test)' > "$proj_dc9/unit/foo_test.lg"
+echo '(ns foo-test)' > "$proj_dc9/integration/foo_test.lg"
+set +e
+out="$(cd "$proj_dc9" && LGX_HOME="$home_dc9" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "ns collision: expected exit 1, got $rc (output: $out)"
+assert_contains "$out" "lgx: test namespace foo-test is defined by more than one file (unit/foo_test.lg, integration/foo_test.lg)" \
+    "ns collision: both files named"
+set +e
+out="$(cd "$proj_dc9" && LGX_HOME="$home_dc9" "$LGX" test integration/foo_test.lg 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "ns collision single: expected exit 1, got $rc (output: $out)"
+assert_contains "$out" "is defined by more than one file" "ns collision single: the shadowed file is refused"
+rm -rf "$proj_dc9" "$home_dc9"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

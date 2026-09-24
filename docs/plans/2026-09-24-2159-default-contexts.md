@@ -418,12 +418,12 @@ between.
 **Files:**
 - Modify: `lgx.lg`, `tests/e2e.sh`
 
-- [ ] **Step 1: Help row**
+- [x] **Step 1: Help row**
   Change the `lgx test` description in `command-rows` to
   `Run *_test.lg / *_test.cljc / *_test.clj files under the :test context's paths (test/ by default)`
   and the continuation line's `walk test/` to `walk them`. Keep alignment.
 
-- [ ] **Step 2: Update existing scenarios**
+- [x] **Step 2: Update existing scenarios**
   Scenario 42 (line ~959) and Scenario 102 (line ~2654): expect
   `lgx: no test directory in project (looked for: test/)`. Scenario 49's
   under-test check (line ~1117): expect
@@ -436,7 +436,7 @@ between.
   Scenario 77 (line ~2146) keeps `:typo`/`:nope`; only its `(defined: ...)`
   expectations gain `:dev, :test` if they assert the label.
 
-- [ ] **Step 3: Append new scenarios**
+- [x] **Step 3: Append new scenarios**
   Continue the numbering after the last scenario in the file. Gate the ones
   that run `lg` on `supports_source_paths` like the other test scenarios.
   1. **Custom test dir**: `{:contexts {:test {:extra-paths ["tests"]}}}` with
@@ -461,11 +461,22 @@ between.
      project's copy (`--verbose` shows the test dir before the gitlibs path in
      `-source-paths`).
 
-- [ ] **Step 4: Run the full suite**
+  > Deviation: Scenario 102's fixture gains `:extra-paths ["test"]` (its
+  > deps-only `:test` now replaces the default and would hit "defines no
+  > :extra-paths" instead of the missing-dir path it guards). Scenario 99's
+  > `["test-support"]` became `["test" "test-support"]`, the release-note
+  > breaking change. Scenario 114 now uses a bare `{}` and asserts the REPL
+  > does not warn about the missing default `test/`. New scenarios are
+  > 147-155: 147-148 cover items 1-3; item 9 asserts the project's `test.fib`
+  > wins over the dep's rather than reading `--verbose` path order; 155 is the
+  > namespace-collision case from Task 3's review. The `lgx info` help row
+  > also mentions contexts.
+
+- [x] **Step 4: Run the full suite**
   Run: `make test`
   Expected: `All tests passed.`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git commit -am "e2e: default contexts, :test paths, info blocks"`
 
 ### Task 6: Documentation
