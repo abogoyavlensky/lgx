@@ -152,25 +152,27 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
 - Create: `duckdb/lgx.edn`, `duckdb/shim/go.mod`, `duckdb/shim/shim.go` (minimal version)
 - Create (temporary, not committed): `duckdb/example/main.lg` with a smoke check
 
-- [ ] **Step 1: Branch**
+- [x] **Step 1: Branch**
   Run: `cd ~/Projects/letgo-packages && git checkout master && git pull && git checkout -b duckdb`
 
-- [ ] **Step 2: Write `duckdb/lgx.edn`**
+- [x] **Step 2: Write `duckdb/lgx.edn`**
   `:paths ["src"]`, `:lg-runtime :built`, `:lg-version "1.13.0"` (for the package's own `lgx test`, matching `sql/lgx.edn`), and three `:deps`:
   `abogoyavlensky/letgo-sql {:local/root "../sql"}`, `github.com/duckdb/duckdb-go/v2 {:go/version "v2.10505.0"}`, and `github.com/abogoyavlensky/letgo-packages/duckdb/shim {:go/local "shim"}`. Comment each one in the style of `postgres/lgx.edn`. The driver comment must say it is cgo, not pure Go.
 
-- [ ] **Step 3: Write `duckdb/shim/go.mod`**
+- [x] **Step 3: Write `duckdb/shim/go.mod`**
   Model it on `sql/shim/go.mod`: the module path above, `go 1.26`, `require github.com/nooga/let-go v0.0.0` (the deliberate placeholder) and `require github.com/duckdb/duckdb-go/v2 v2.10505.0`.
 
-- [ ] **Step 4: Write a minimal `duckdb/shim/shim.go`**
+- [x] **Step 4: Write a minimal `duckdb/shim/shim.go`**
   Package `shim`, with `ScanRow(rows *sql.Rows) (vm.Value, error)`. It scans into `[]any` like `sql/shim/shim.go` and returns a vector built with `vm.NewArrayVector` (`let-go/pkg/vm/vector.go:353`). For now, convert only `map[string]any` into a map with keyword keys, and fall back to `vm.BoxValue(reflect.ValueOf(v))` for everything else. Register `duckdb.shim` in `init` exactly as `sql/shim/shim.go` does. Look up the right keyword and map constructors in `let-go/pkg/vm/keyword.go` and `persistent_map.go` / `map.go`, and use whatever let-go's own code uses to build a keyword-keyed map.
 
-- [ ] **Step 5: Smoke check**
+- [x] **Step 5: Smoke check**
   Create a temporary `duckdb/example/lgx.edn` (`:paths []`, `:main "main.lg"`, `:lg-runtime :built`, `:lg-version "1.13.0"`, `:deps {abogoyavlensky/letgo-duckdb {:local/root ".."}}`). Create a `main.lg` that opens `(sql/Open "duckdb" "")` directly, runs `select {'a': 1, 'b': 'x'} as s, 42 as n`, calls `(duckdb.shim/ScanRow rows)` after `(.Next rows)`, and prints `(pr-str row)` and `(vector? row)`.
   Run: `cd duckdb/example && lgx run`
   Expected: `[{:a 1, :b "x"} 42]` and `true`. If the vector or the keywords do not survive, stop and rethink decision 3 before building on it.
 
-- [ ] **Step 6: No commit yet.** The smoke files are replaced in Task 5.
+- [x] **Step 6: No commit yet.** The smoke files are replaced in Task 5.
+
+> Deviation: The driver returns STRUCT as an unordered Go `map[string]any`, so the shim sorts its keys before building the keyword map (deterministic output); maps are built with `vm.NewArrayMap`.
 
 ### Task 2: The `:sql/scan-row` hook in `sql.core`
 
@@ -178,23 +180,25 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
 - Modify: `sql/src/sql/core.lg`
 - Modify: `sql/README.md`
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
   - `read-rows!` and `read-one-row!` take a third argument, `scan`, and call `(scan rows)` where they call `(shim/ScanRow rows)` today.
   - `execute*` passes `(or (:sql/scan-row conn) shim/ScanRow)` into the reader.
   - `begin-tx` adds `:sql/scan-row (:sql/scan-row conn)` to the tx map. nil falls back to the default.
   - Update the namespace header comment that describes the connectable shape (`core.lg:19-20`) to mention the optional key.
 
-- [ ] **Step 2: Document**
+- [x] **Step 2: Document**
   In `sql/README.md`, add a short "Driver hook: `:sql/scan-row`" subsection under "The API". Cover the contract from decision 2 (input `*sql.Rows` positioned on a row; output values in column order), the default, tx propagation, and that duckdb is the user.
 
-- [ ] **Step 3: Regression-check the existing consumers**
+- [x] **Step 3: Regression-check the existing consumers**
   Run: `cd sql && lgx test`. Expected: all `returns-rows?` tests pass.
   Run: `cd sqlite/example && lgx run`. Expected: `all checks passed`.
   Run: `cd ragtime && lgx test`. Expected: pass.
   (`postgres/example` needs a live database. Run it only if `$DATABASE_URL` or a local postgres is available; otherwise note it as skipped.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git add sql && git commit -m "sql: let a driver supply its row scanner via :sql/scan-row"`
+
+> Deviation: postgres/example skipped: no database available locally.
 
 ### Task 3: Conversion tests (failing)
 
@@ -202,10 +206,10 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
 - Create: `duckdb/src/duckdb/core.lg` (the veneer; needed so tests can open a connection)
 - Create: `duckdb/test/duckdb/core_test.lg`
 
-- [ ] **Step 1: Write `duckdb/src/duckdb/core.lg`**
+- [x] **Step 1: Write `duckdb/src/duckdb/core.lg`**
   Mirror `postgres/src/postgres/core.lg`: header comment, `(def ^:private driver "duckdb")`, `open [path]` / `[path opts]` (docstring: `""` or `":memory:"` for in-memory, otherwise a file path; one process holds the file lock), `close!`, and the re-exports of `execute!`, `execute-one!`, `query` and `with-transaction`. `open` returns the map from the Design "Components" section, with `:sql/scan-row` set to `duckdb.shim/ScanRow` (require `[duckdb.shim :as shim]`).
 
-- [ ] **Step 2: Write the tests**
+- [x] **Step 2: Write the tests**
   Follow `sql/test/sql/core_test.lg` for ns and require style. Use one shared in-memory connection and a helper `(v expr)` that runs `(str "select " expr " as v")` through `execute-one!` and returns `:v`. For expressions with their own `FROM`, write the alias in the expression and call `execute-one!` directly. One `deftest` per row:
 
   | Expression | Expected |
@@ -240,16 +244,18 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
   - `with-transaction` over the connection, running the `sum()` query on `tx`, asserts `3`. This proves `begin-tx` carries `:sql/scan-row`.
   - `query` returning multiple rows asserts `[{:n 3}]`-shaped maps with converted values, which covers `read-rows!` as well as `read-one-row!`.
 
-- [ ] **Step 3: Run the tests to see them fail**
+- [x] **Step 3: Run the tests to see them fail**
   Run: `cd duckdb && lgx test`
   Expected: the build succeeds; conversion tests FAIL on opaque values (for example `<go.*big.Int 3>`, `<go.time.Time …>`); plain scalar tests pass. If the runner cannot find `test/`, check how `sql/` runs its suite and match it.
+
+> Deviation: Test names avoid shadowing clojure.core fns (`list`, `double`, ... got a descriptive suffix) after the first run broke on the shadowed `list`.
 
 ### Task 4: Implement the conversion
 
 **Files:**
 - Modify: `duckdb/shim/shim.go`
 
-- [ ] **Step 1: Implement `ScanRow` and a `convert(v any, colType string) vm.Value`**
+- [x] **Step 1: Implement `ScanRow` and a `convert(v any, colType string) vm.Value`**
   - `ScanRow` reads `rows.ColumnTypes()` once per call, takes `DatabaseTypeName()` per column, scans, and converts each value with its column's type name. Nested values recurse with `colType == ""`.
   - Implement the Design table (decision 4) exactly. DuckDB type names come from `typeToStringMap` in duckdb-go `type.go` (`"DATE"`, `"TIME"`, `"TIMETZ"`, `"TIMESTAMP"`, `"TIMESTAMP_S"`, `"TIMESTAMP_MS"`, `"TIMESTAMP_NS"`, `"TIMESTAMPTZ"`, `"UUID"`, …); DECIMAL arrives as `"DECIMAL(w,s)"`.
   - To trim trailing fractional zeros, use Go layouts with `.999999` / `.999999999`.
@@ -257,15 +263,17 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
   - `duckdb.OrderedMap`: iterate `Keys()` and `Values()`.
   - Header doc comment: explain *why* each conversion exists (the spike's findings: `sum()` returning `*big.Int`, the UBIGINT wrap, opaque time) in the voice of `sql/shim/shim.go`.
 
-- [ ] **Step 2: Vet**
+- [x] **Step 2: Vet**
   The shim cannot build standalone (let-go `v0.0.0`). Rely on the runtime build: `cd duckdb && lgx test` compiles it. For quicker iteration, a `go.work` in `.tmp/` pointing at the shim and a let-go checkout (`~/Projects/let-go`) is fine. Do not commit it.
 
-- [ ] **Step 3: Run tests to verify they pass**
+- [x] **Step 3: Run tests to verify they pass**
   Run: `cd duckdb && lgx test`
   Expected: all pass. If a row's expectation proves wrong because of driver behaviour (for example `TIME` arriving with a zone), fix the shim if the table's intent is achievable. Otherwise update the table **and** the README value table together, and say so in the task report.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git add duckdb/lgx.edn duckdb/shim duckdb/src duckdb/test && git commit -m "duckdb: driver package with a value-converting shim"`
+
+> Deviation: Codex fixup: TIMETZ offsets with seconds keep them (`+02:00:30`). Nested UUIDs still arrive as raw bytes (Codex P2): out of scope per the plan, documented as a known limit.
 
 ### Task 5: `duckdb/example`
 
@@ -273,7 +281,7 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
 - Create: `duckdb/example/lgx.edn` (keep from Task 1, with the require of `sqlite.core` swapped for `duckdb.core`)
 - Create: `duckdb/example/main.lg` (replace the smoke check)
 
-- [ ] **Step 1: Write the example**
+- [x] **Step 1: Write the example**
   Follow `sqlite/example/main.lg` (`check` helper, ✓/✗, throw on failure, `(when-not *compiling-aot* (-main))`, `try`/`finally close!`). Cover:
   - DDL, parameterized inserts and `{:sql/update-count n}`;
   - `query` and `execute-one!`, including nil on an empty result;
@@ -282,16 +290,18 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
   - one analytics query (`date_trunc` + `count(distinct …)` + `sum()`) asserting plain ints and date strings;
   - a file-backed database at `/tmp/lgx-duckdb-example.duckdb` (removed at start), written, closed and reopened.
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
   Run: `cd duckdb/example && lgx run`
   Expected: all ✓, `all checks passed`.
 
-- [ ] **Step 3: AOT path**
+- [x] **Step 3: AOT path**
   Run: `cd duckdb/example && lgx build && ./bin/app`
   Expected: same output. The build does not execute `-main`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git add duckdb/example && git commit -m "duckdb: end-to-end example"`
+
+> Deviation: Added `duckdb/example/.gitignore` (`bin/`), matching the other examples - the repo root ignores only `.tmp/`.
 
 ### Task 6: README, CI, and the pure-Go rule
 
@@ -299,7 +309,7 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
 - Create: `duckdb/README.md`
 - Modify: `README.md`, `.github/workflows/test.yml`
 
-- [ ] **Step 1: `duckdb/README.md`**
+- [x] **Step 1: `duckdb/README.md`**
   Model it on `postgres/README.md`:
   - a usage snippet;
   - a **Requirements** section up front: cgo and a C toolchain (gcc/clang, Xcode CLT on macOS); native builds only; `lgx build --target` fails at build time; the binary grows by about 75 MB and links `libstdc++`/glibc dynamically (use debian-slim, not alpine or scratch); the first runtime build takes about 40 s;
@@ -307,22 +317,22 @@ This is the riskiest assumption, so it goes first: a `:go/local` shim that retur
   - **Ingest tip**: batch multi-row `VALUES`, with the spike numbers;
   - **Known limits**: nested UUID/DATE, BLOB as a raw-byte string, UNION/BIT boxed, no Appender, single-process file lock.
 
-- [ ] **Step 2: Root `README.md`**
+- [x] **Step 2: Root `README.md`**
   - Add a `duckdb/` row to the package table.
   - Rewrite "Rules for driver packages" so pure Go stays the rule, and DuckDB is named as the one exception with the reason (no pure-Go implementation exists) and the price, parallel to the wails paragraph.
   - In "Releasing", change "Only `sql` and `wails` have a shim" to include `duckdb`, and add `duckdb/shim/go.mod` to the paragraph about the `v0.0.0` let-go require.
 
-- [ ] **Step 3: CI shim override**
+- [x] **Step 3: CI shim override**
   In `.github/workflows/test.yml`, replace the `sql/shim/`-specific `if grep …; sed …` block with a loop. The loop must be a no-op, not a failure, under the step's `set -euo pipefail` when `$CHANGED_PATHS_FILE` does not exist (on a package-tag run `changed-packages.sh` exits before writing it) or when no `<pkg>/shim/` path matches. Guard with `[ -f "$CHANGED_PATHS_FILE" ]`, and keep the `grep` inside a construct where a no-match exit status is tolerated (for example `grep … || true`). For each distinct `<pkg>` where `^<pkg>/shim/` appears in `$CHANGED_PATHS_FILE`, run the same `sed` on `<pkg>/lgx.edn`, turning `<pkg>/shim {:go/version "…"}` into `{:go/local "shim"}`. Echo what was flipped. Keep the comment explaining why.
   Verify locally by simulation, running the loop under `bash -euo pipefail` against scratch copies of the `lgx.edn` files in three cases: a paths file listing `duckdb/shim/shim.go` and `sql/shim/shim.go` (only `:go/version` coords flip); a paths file with no shim paths (nothing flips, exit 0); and `CHANGED_PATHS_FILE` pointing at a missing file (nothing flips, exit 0). (duckdb's coord is still `:go/local` at this point, so it is a no-op there, which is fine.)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   `git add duckdb/README.md README.md .github/workflows/test.yml && git commit -m "duckdb: README, driver-rule exception, generic CI shim override"`
 
 ### Task 7: Review, push, PR (ask first)
 
-- [ ] **Step 1: Review** with /code-review or /review-with-codex on the `duckdb` branch against `master`. Fix what is real.
-- [ ] **Step 2: Full regression pass**
+- [x] **Step 1: Review** with /code-review or /review-with-codex on the `duckdb` branch against `master`. Fix what is real.
+- [x] **Step 2: Full regression pass**
   `cd sql && lgx test`, `cd duckdb && lgx test`, `cd duckdb/example && lgx run`, `cd sqlite/example && lgx run`, `cd ragtime && lgx test`. All green.
 - [ ] **Step 3: Ask the user** before `git push -u origin duckdb` and `gh pr create`. When the PR exists, register it with `link_pull_request`.
 - [ ] **Step 4: Wait for CI.** It should test every package, because `sql/` changed. The user merges.
@@ -342,11 +352,11 @@ Follows letgo-packages README "Releasing"; run on `master` after the merge.
 **Files:**
 - Create: `examples/with-duckdb/{lgx.edn,.mise.toml,main.lg,README.md}`
 
-- [ ] **Step 1: `lgx.edn`**
+- [x] **Step 1: `lgx.edn`**
   `:paths []`, `:main "main.lg"`, `:lg-runtime :built`, `:lg-version "1.13.0"`, `:targets {:bin {:out "bin/with-duckdb"}}`, and `:deps {abogoyavlensky/letgo-duckdb {:git/url "https://github.com/abogoyavlensky/letgo-packages" :git/tag "duckdb-v0.1.0" :deps/root "duckdb"}}`. Add a comment in the style of `examples/web-app/lgx.edn` explaining `:built` and cgo.
   Copy `.mise.toml` from `examples/web-app/`.
 
-- [ ] **Step 2: `main.lg`**
+- [x] **Step 2: `main.lg`**
   - In-memory `(db/open "")`, then an `events` table (`ts TIMESTAMP, visitor VARCHAR, path VARCHAR, referrer VARCHAR, duration_ms INTEGER`).
   - A small `insert-batch!` that builds one multi-row `VALUES` statement for a seq of event vectors, and an ingest of 1000 deterministic synthetic events in batches of 200 (timestamps as strings cast with `?::TIMESTAMP`).
   - Three queries, each printed as a small table: daily views and uniques (`date_trunc('day', ts)::DATE` gives `"2026-09-01"` strings); top pages with `quantile_cont` p50/p95; total time on site via `sum(duration_ms)`, a plain int with no cast.
@@ -354,27 +364,29 @@ Follows letgo-packages README "Releasing"; run on `master` after the merge.
   - `(when-not *compiling-aot* (-main))`.
   Keep it well under 100 lines, with comments explaining the batching choice and the no-cast `sum()`.
 
-- [ ] **Step 3: Run it**
+- [x] **Step 3: Run it**
   Run: `cd examples/with-duckdb && mise install && lgx run`
   Expected: the three tables print and assertions pass. Then `lgx build && ./bin/with-duckdb` gives the same output.
 
-- [ ] **Step 4: `README.md`**
+- [x] **Step 4: `README.md`**
   A few lines: what it shows, `lgx run`, the cgo/native-only note linking to the package README, and why batching.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   `git add examples/with-duckdb && git commit -m "examples: with-duckdb, analytics over the letgo-packages duckdb package"`
+
+> Deviation: Done before the release (Tasks 7-8), at the user's request. `lgx.edn` carries the final `duckdb-v0.1.0` git coord; it was verified (`lgx run`, `lgx build` + binary) with that coord temporarily swapped for `{:local/root ".../letgo-packages/duckdb"}`, then restored. The example cannot resolve for others until the tag is pushed, so the lgx PR must not merge before Task 8. Quantiles are `round`ed in SQL to keep float noise out of the output.
 
 ### Task 10: lgx docs (same-PR rule)
 
 **Files:**
 - Modify: `README.md` (Examples list), `docs/GO-ECOSYSTEM.md` ("Where we are"), `docs/knowledge-base/lgx-go-wrappers.md` ("Known limits")
 
-- [ ] **Step 1: Edit**
+- [x] **Step 1: Edit**
   - README Examples: add `examples/with-duckdb/`, an in-process analytics database via the letgo-packages `duckdb` package (cgo, native builds).
   - GO-ECOSYSTEM "Where we are": add `duckdb` to the shipped list, with one clause noting it is the one cgo driver.
   - lgx-go-wrappers "Known limits", the cgo bullet: name duckdb alongside wails.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git add README.md docs && git commit -m "docs: the duckdb package and with-duckdb example"`
 
 ### Task 11: Record the let-go uint64 boxing wrap
@@ -382,7 +394,7 @@ Follows letgo-packages README "Releasing"; run on `master` after the merge.
 **Files:**
 - Create: `docs/issues/boxvalue-uint64-wrap.md`; Modify: `docs/issues/README.md`
 
-- [ ] **Step 1: Write the issue**
+- [x] **Step 1: Write the issue**
   Follow the format of the existing `docs/issues/*.md` files. Cover:
   - where: `let-go/pkg/vm/value.go:192-193`, where `Int(v.Uint())` wraps any `uint64` above `math.MaxInt64`;
   - repro: DuckDB `18446744073709551615::UBIGINT` returns `-1`;
@@ -391,8 +403,10 @@ Follows letgo-packages README "Releasing"; run on `master` after the merge.
 
   Add it to the index in `docs/issues/README.md`.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
   `git add docs/issues && git commit -m "docs(issues): let-go BoxValue wraps uint64 above MaxInt64"`
+
+> Deviation: The issue proposes boxing to let-go's existing `vm.BigInt` (found while writing it) rather than only an error.
 
 ### Task 12: lgx PR (ask first)
 
