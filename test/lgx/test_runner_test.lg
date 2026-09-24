@@ -60,6 +60,20 @@
                         (path/join sep "p" "tests" "a_test.lg")))))
 
 ;; ---------------------------------------------------------------------------
+;; ns-collisions
+;; ---------------------------------------------------------------------------
+
+(deftest ns-collisions-empty-when-namespaces-are-distinct
+  (is (= [] (tr/ns-collisions [["test/a_test.lg" 'a-test]
+                               ["it/b_test.lg" 'b-test]]))))
+
+(deftest ns-collisions-groups-files-per-namespace
+  (is (= [['foo-test ["unit/foo_test.lg" "it/foo_test.lg"]]]
+         (tr/ns-collisions [["unit/foo_test.lg" 'foo-test]
+                            ["unit/a_test.lg" 'a-test]
+                            ["it/foo_test.lg" 'foo-test]]))))
+
+;; ---------------------------------------------------------------------------
 ;; exclude-entries
 ;; ---------------------------------------------------------------------------
 

@@ -358,6 +358,11 @@ between.
   > a declared dir nested in another (`["test" "test/it"]`) doesn't run its
   > files twice under two namespaces; the outer dir's entry wins, matching
   > single-file mode's first-containing-dir rule.
+  > Deviation (codex review): `lgx test` now exits 1 when a planned namespace
+  > is defined by more than one file (`unit/foo_test.lg` and
+  > `integration/foo_test.lg`), since only the first would load and the other
+  > file's tests would silently not run. New `test-runner/ns-collisions`;
+  > Task 5 gets an e2e scenario for it.
 
 - [x] **Step 5: Run tests to verify they pass**
   Run: `lg lgx.lg test test/lgx/test_runner_test.lg && lg lgx.lg test`

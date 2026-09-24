@@ -829,6 +829,36 @@
                    (os/exit 1))))]
     [(test-runner/test-entry project test-dir abs)]))
 
+(defn- discover-test-entries
+  "Every test file under test-dirs as harness entries, dir by dir in order. A
+   dir nested in another declared one would list its files twice; the first
+   (outer) dir's entry wins."
+  [project test-dirs]
+  (->> test-dirs
+       (mapcat (fn [dir]
+                 (map #(test-runner/test-entry project dir %)
+                      (test-runner/discover-test-files dir))))
+       (reduce (fn [[seen acc] [display :as e]]
+                 (if (contains? seen display)
+                   [seen acc]
+                   [(conj seen display) (conj acc e)]))
+               [#{} []])
+       second))
+
+(defn- fail-on-ns-collisions!
+  "Exit 1 when a namespace in `ns-syms` is defined by more than one discovered
+   file: only the first on the source path would load, so the others' tests
+   would never run while the plan reported them."
+  [discovered ns-syms]
+  (let [wanted (set ns-syms)
+        hits (filter #(contains? wanted (first %))
+                     (test-runner/ns-collisions discovered))]
+    (when (seq hits)
+      (doseq [[ns-sym files] hits]
+        (write! *err* (str "lgx: test namespace " ns-sym " is defined by more "
+                           "than one file (" (str/join ", " files) ")\n")))
+      (os/exit 1))))
+
 (defn- cmd-test [forward-args verbose? with]
   (let [{:keys [exclude positionals]}
         (try
@@ -870,25 +900,11 @@
       (write! *err* (str "lgx: no test directory in project (looked for: "
                          (render-test-dirs declared) ")\n"))
       (os/exit 1))
-    (let [entries (if single?
+    (let [all (discover-test-entries project test-dirs)
+          entries (if single?
                     (single-file-entries! test-dirs dirs-label
                                           (first positionals) project)
-                    (let [all (->> test-dirs
-                                   (mapcat (fn [dir]
-                                             (map #(test-runner/test-entry
-                                                     project dir %)
-                                                  (test-runner/discover-test-files
-                                                    dir))))
-                                   ;; A dir nested in another declared one
-                                   ;; would list its files twice; the first
-                                   ;; (outer) dir's entry wins.
-                                   (reduce (fn [[seen acc] [display :as e]]
-                                             (if (contains? seen display)
-                                               [seen acc]
-                                               [(conj seen display) (conj acc e)]))
-                                           [#{} []])
-                                   second)
-                          {:keys [entries unmatched]}
+                    (let [{:keys [entries unmatched]}
                           (test-runner/exclude-entries all exclude)]
                       ;; A typo must fail loud, before either empty-plan exit:
                       ;; silently running the test the user meant to skip is
@@ -905,6 +921,13 @@
                         (println "All test files excluded")
                         (os/exit 0))
                       entries))
+          ;; A plan namespace that another file also defines would load only
+          ;; one of the two. A single file joins the discovered set, since it
+          ;; need not match *_test.
+          _ (let [known (set (map first all))]
+              (fail-on-ns-collisions!
+                (concat all (remove #(contains? known (first %)) entries))
+                (map second entries)))
           with (auto-with! "test" with verbose?)
           basis (overlay-basis project cfg with nil)
           {:keys [results paths resource-paths]} basis

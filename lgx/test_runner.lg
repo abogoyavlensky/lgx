@@ -97,6 +97,21 @@
      :unmatched (vec (filter (fn [ns-sym] (not (contains? discovered ns-sym)))
                              excluded))}))
 
+(defn ns-collisions
+  "Namespaces more than one entry maps to, as [ns-symbol [display-file ...]]
+   pairs in first-appearance order. Only one file per namespace can load (the
+   first on the source path), so a collision means a test would silently run
+   the wrong file: unit/foo_test.lg and integration/foo_test.lg, or
+   foo_test.lg next to foo_test.cljc."
+  [entries]
+  (let [order (distinct (map second entries))
+        by-ns (group-by second entries)]
+    (vec (keep (fn [ns-sym]
+                 (let [es (get by-ns ns-sym)]
+                   (when (> (count es) 1)
+                     [ns-sym (mapv first es)])))
+               order))))
+
 (defn- has-test-extension? [p]
   (or (str/ends-with? p ".lg")
       (str/ends-with? p ".cljc")
