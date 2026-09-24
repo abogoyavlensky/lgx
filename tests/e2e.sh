@@ -448,16 +448,22 @@ pass "help: Options appears after Project tasks"
 assert_not_contains "$out" $'\e[' "help: output is plain (no color)"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 19: task name conflicting with built-in command is rejected"
+echo "==> Scenario 19: task named like a built-in overrides it"
 cat > "$proj_t/lgx.edn" <<'EOF'
 {:tasks
- {run {:doc "Bad" :do [{:sh "echo nope"}]}}}
+ {run {:doc "Wrapped" :do [{:sh "echo task-run"}]}}}
 EOF
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" run 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] || fail "override: expected exit 0, got $rc (output: $out)"
+assert_contains "$out" "task-run" "override: the task runs in place of the built-in"
+# lgx:run reaches the built-in past the task. This project has no :main, so
+# the built-in's own "nothing to run" error is the proof it was reached.
 set +e
-out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" install 2>&1)"; rc=$?
+out="$(cd "$proj_t" && LGX_HOME="$home_t" "$LGX" lgx:run 2>&1)"; rc=$?
 set -e
-[[ $rc -ne 0 ]] || fail "reserved-name: expected non-zero exit"
-assert_contains "$out" "conflicts with built-in command" "reserved-name: error message"
+[[ $rc -ne 0 ]] || fail "override: lgx:run expected non-zero exit"
+assert_not_contains "$out" "task-run" "override: lgx:run skips the task"
+assert_contains "$out" "nothing to run" "override: lgx:run reaches the built-in"
 
 rm -rf "$proj_t" "$home_t"
 
@@ -2477,7 +2483,7 @@ assert_contains "$out" ':paths — must be a vector, got "src"' \
     "invalid config: :paths error line"
 assert_contains "$out" ":targets :bin — missing required key :out" \
     "invalid config: :targets error line"
-assert_contains "$out" ":tasks lint :do [0] — unknown key :shh (allowed: :sh, :run)" \
+assert_contains "$out" ":tasks lint :do [0] — unknown key :shh (allowed: :sh, :run, :task)" \
     "invalid config: step error line with path"
 assert_not_contains "$out" "stack trace" \
     "invalid config: no stack trace leaks"
@@ -2741,6 +2747,8 @@ set -e
 pass "argless task: exits 1 (args no longer silently dropped)"
 assert_contains "$out" "task takes no arguments (got 1)" \
     "argless task: error states the arity"
+assert_contains "$out" "add :args/rest to it" \
+    "argless task: error points at the passthrough placeholder"
 assert_contains "$out" "usage: lgx fmt" "argless task: usage line printed"
 rm -rf "$proj_noargs" "$home_noargs"
 
@@ -3496,6 +3504,324 @@ assert_contains "$out" "totally-undefined-symbol" "ct broken: lg's diagnostic is
 assert_contains "$out" "failed to load" "ct broken: the load failure is reported"
 assert_contains "$out" "pass-1" "ct broken: the file that loads still runs"
 rm -rf "$proj_ct7" "$home_ct7"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 134: bash completion survives ':' being a word-break char"
+# Bash splits `lgx:te` into three words by default (COMP_WORDBREAKS), so the
+# adapter re-splits COMP_LINE itself. Exercised through the real script rather
+# than the pure candidate fns, which never see that tokenization.
+proj_bc="$(mktemp -d)"
+home_bc="$(mktemp -d)"
+cat > "$proj_bc/lgx.edn" <<'EOF'
+{:tasks
+ {test {:doc "Wrapped" :do [{:sh "echo wrapper"}]}
+  deploy {:args [{:name :env} {:name :mode :type [:enum "fast" "full"]}]
+          :do [{:sh "echo deploy"}]}}}
+EOF
+cat > "$proj_bc/drive.bash" <<'EOF'
+set -eu
+lgx_bin="$1"
+source <("$lgx_bin" completion bash)
+# Drive the adapter the way bash does: COMP_LINE is everything typed, while
+# COMP_WORDS holds only the command being completed (bash finds that boundary
+# itself). Passing them separately is what makes the `true && lgx te` case
+# meaningful — an adapter that re-split COMP_LINE would see `&& lgx te`.
+# COMP_WORDS is built with a read loop, not mapfile: macOS ships bash 3.2.
+complete_words() {
+    COMP_LINE="$1"
+    COMP_POINT=${#COMP_LINE}
+    # Tokenize $2 the way bash does with ':' in COMP_WORDBREAKS.
+    local split word
+    split="${2// /$'\n'}"
+    split="${split//:/$'\n':$'\n'}"
+    COMP_WORDS=()
+    while IFS= read -r word; do
+        COMP_WORDS+=("$word")
+    done <<< "$split"
+    COMP_WORDS[0]="$lgx_bin"
+    COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))
+    COMPREPLY=()
+    _lgx_complete
+    echo "${COMPREPLY[*]-}"
+}
+complete_line() { complete_words "$1" "$1"; }
+echo "t:$(complete_line 'lgx lgx:t')"
+echo "all:$(complete_line 'lgx lgx:')"
+echo "plain:$(complete_line 'lgx te')"
+echo "compound:$(complete_words 'true && lgx te' 'lgx te')"
+# Only the `lgx:` shape is rejoined, so ordinary argument completion is
+# untouched: an enum value still completes at its own position.
+echo "enum:$(complete_words 'lgx deploy prod fa' 'lgx deploy prod fa')"
+EOF
+out="$(cd "$proj_bc" && LGX_HOME="$home_bc" bash "$proj_bc/drive.bash" "$LGX" 2>&1)"
+# Bash replaces only the text after the last ':', so the candidate arrives trimmed.
+assert_contains "$out" "t:test" "bash completion: lgx:t completes to test"
+assert_contains "$out" "all:build clean info install nrepl repl run test" \
+    "bash completion: lgx: offers every overridable built-in"
+assert_contains "$out" "plain:test" "bash completion: a colon-free word still works"
+assert_contains "$out" "compound:test" \
+    "bash completion: a command after && still completes"
+assert_contains "$out" "enum:fast" \
+    "bash completion: argument completion is untouched by the rejoin"
+rm -rf "$proj_bc" "$home_bc"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 135: overriding test wraps the built-in and forwards args"
+if supports_source_paths; then
+    proj_ov="$(mktemp -d)"
+    home_ov="$(mktemp -d)"
+    mkdir -p "$proj_ov/test"
+    cat > "$proj_ov/test/foo_test.lg" <<'EOF'
+(ns foo-test
+  (:require [clojure.test :refer [deftest is]]))
+
+(deftest passes
+  (is (= 1 1)))
+EOF
+    cat > "$proj_ov/lgx.edn" <<'EOF'
+{:tasks
+ {test {:doc "Wrapped" :do [{:sh "echo wrapper"} {:task [lgx:test :args/rest]}]}}}
+EOF
+    out="$(cd "$proj_ov" && LGX_HOME="$home_ov" "$LGX" test 2>&1)"; rc=$?
+    [[ $rc -eq 0 ]] || fail "wrap: expected exit 0, got $rc (output: $out)"
+    assert_contains "$out" "wrapper" "wrap: the wrapping :sh step runs"
+    assert_contains "$out" "0 failures" "wrap: the built-in test run happens"
+    # :args/rest forwards the file argument through to the built-in.
+    out="$(cd "$proj_ov" && LGX_HOME="$home_ov" "$LGX" test test/foo_test.lg 2>&1)"
+    assert_contains "$out" "Running tests in test/foo_test.lg..." \
+        "wrap: :args/rest forwards the file argument"
+    # lgx:test bypasses the wrapper entirely.
+    out="$(cd "$proj_ov" && LGX_HOME="$home_ov" "$LGX" lgx:test 2>&1)"
+    assert_not_contains "$out" "wrapper" "wrap: lgx:test skips the wrapper"
+    assert_contains "$out" "0 failures" "wrap: lgx:test runs the built-in"
+    # Surplus args reach the built-in, which applies its own arity rule.
+    set +e
+    out="$(cd "$proj_ov" && LGX_HOME="$home_ov" "$LGX" test a b 2>&1)"; rc=$?
+    set -e
+    [[ $rc -ne 0 ]] || fail "wrap: expected non-zero exit for two positionals"
+    assert_contains "$out" "test takes at most one argument" \
+        "wrap: the built-in rejects the extra positional"
+    rm -rf "$proj_ov" "$home_ov"
+else
+    skip "override-test scenarios need -source-paths"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 136: a task that shells back into itself is stopped"
+proj_sr="$(mktemp -d)"
+home_sr="$(mktemp -d)"
+# Unquoted heredoc so the absolute bundle path lands in the file.
+cat > "$proj_sr/lgx.edn" <<EOF
+{:tasks
+ {test {:do [{:sh "$LGX test"}]}}}
+EOF
+set +e
+out="$(cd "$proj_sr" && LGX_HOME="$home_sr" "$LGX" test 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "cycle: expected non-zero exit"
+assert_contains "$out" "task 'test' is already running" "cycle: the guard fires"
+assert_contains "$out" "use lgx:test" "cycle: the error names the escape"
+rm -rf "$proj_sr" "$home_sr"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 137: an indirect :task cycle is stopped"
+proj_ic="$(mktemp -d)"
+home_ic="$(mktemp -d)"
+cat > "$proj_ic/lgx.edn" <<'EOF'
+{:tasks
+ {a {:do [{:task b}]}
+  b {:do [{:task a}]}}}
+EOF
+set +e
+out="$(cd "$proj_ic" && LGX_HOME="$home_ic" "$LGX" a 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "indirect-cycle: expected non-zero exit"
+assert_contains "$out" "task 'a' is already running (a > b > a)" \
+    "indirect-cycle: the chain is reported"
+rm -rf "$proj_ic" "$home_ic"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 138: two projects may each define the same task name"
+proj_np="$(mktemp -d)"
+home_np="$(mktemp -d)"
+mkdir -p "$proj_np/child"
+cat > "$proj_np/lgx.edn" <<EOF
+{:tasks
+ {check {:do [{:sh "echo root-check"} {:sh "cd child && $LGX check"}]}}}
+EOF
+cat > "$proj_np/child/lgx.edn" <<'EOF'
+{:tasks
+ {check {:do [{:sh "echo child-check"}]}}}
+EOF
+out="$(cd "$proj_np" && LGX_HOME="$home_np" "$LGX" check 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] || fail "nested: expected exit 0, got $rc (output: $out)"
+assert_contains "$out" "root-check" "nested: the outer task runs"
+assert_contains "$out" "child-check" "nested: the inner project's task runs too"
+# But a chain that re-enters the same task in the same project is still a cycle.
+cat > "$proj_np/child/lgx.edn" <<EOF
+{:tasks
+ {check {:do [{:sh "cd .. && $LGX check"}]}}}
+EOF
+set +e
+out="$(cd "$proj_np" && LGX_HOME="$home_np" "$LGX" check 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "nested: expected non-zero exit for A -> B -> A"
+assert_contains "$out" "already running" "nested: re-entry across projects is caught"
+rm -rf "$proj_np" "$home_np"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 139: a :task step inherits the caller's contexts"
+if supports_source_paths; then
+    proj_tc="$(mktemp -d)"
+    home_tc="$(mktemp -d)"
+    mkdir -p "$proj_tc/dev" "$proj_tc/scripts"
+    cat > "$proj_tc/dev/helper.lg" <<'EOF'
+(ns helper)
+(defn shout [] "from-dev-context")
+EOF
+    cat > "$proj_tc/scripts/hi.lg" <<'EOF'
+(ns hi (:require [helper]))
+(println (helper/shout))
+EOF
+    cat > "$proj_tc/lgx.edn" <<'EOF'
+{:contexts {:dev {:extra-paths ["dev"]}}
+ :tasks
+ {inner {:do [{:run "scripts/hi.lg"}]}
+  outer {:with [:dev] :do [{:task inner}]}}}
+EOF
+    out="$(cd "$proj_tc" && LGX_HOME="$home_tc" "$LGX" outer 2>&1)"; rc=$?
+    [[ $rc -eq 0 ]] || fail "ctx: expected exit 0, got $rc (output: $out)"
+    assert_contains "$out" "from-dev-context" "ctx: the caller's context reaches the callee"
+    # Without the caller, the callee cannot resolve the context-only namespace.
+    set +e
+    out="$(cd "$proj_tc" && LGX_HOME="$home_tc" "$LGX" inner 2>&1)"; rc=$?
+    set -e
+    [[ $rc -ne 0 ]] || fail "ctx: expected inner alone to fail"
+    assert_not_contains "$out" "from-dev-context" "ctx: inner alone has no :dev context"
+    rm -rf "$proj_tc" "$home_tc"
+else
+    skip ":task context scenarios need -source-paths"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 140: a :task step's exit code stops the chain"
+proj_te="$(mktemp -d)"
+home_te="$(mktemp -d)"
+cat > "$proj_te/lgx.edn" <<'EOF'
+{:tasks
+ {inner {:do [{:sh "exit 7"}]}
+  outer {:do [{:task inner} {:sh "echo after"}]}}}
+EOF
+set +e
+out="$(cd "$proj_te" && LGX_HOME="$home_te" "$LGX" outer 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 7 ]] || fail "task-exit: expected exit 7, got $rc (output: $out)"
+assert_not_contains "$out" "after" "task-exit: the chain stops at the failing step"
+rm -rf "$proj_te" "$home_te"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 141: a :task step passes its own args"
+proj_ta="$(mktemp -d)"
+home_ta="$(mktemp -d)"
+cat > "$proj_ta/lgx.edn" <<'EOF'
+{:tasks
+ {greet {:args [{:name :who}] :do [{:sh ["echo" "hi" :arg/who]}]}
+  ci {:do [{:task [greet "bob"]}]}}}
+EOF
+out="$(cd "$proj_ta" && LGX_HOME="$home_ta" "$LGX" ci 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] || fail "task-args: expected exit 0, got $rc (output: $out)"
+assert_contains "$out" "hi bob" "task-args: the argument reaches the callee"
+rm -rf "$proj_ta" "$home_ta"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 142: help marks a task that overrides a built-in"
+proj_ho="$(mktemp -d)"
+home_ho="$(mktemp -d)"
+cat > "$proj_ho/lgx.edn" <<'EOF'
+{:tasks
+ {clean {:doc "Project clean" :do [{:sh "echo clean"}]}}}
+EOF
+out="$(cd "$proj_ho" && LGX_HOME="$home_ho" "$LGX" help 2>&1)"
+assert_contains "$out" "(overrides built-in; run lgx:clean for the original)" \
+    "help: the override is marked"
+assert_contains "$out" "lgx lgx:<command>" "help: the lgx: row is listed"
+rm -rf "$proj_ho" "$home_ho"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 143: config errors for task names and :task targets"
+proj_ce="$(mktemp -d)"
+home_ce="$(mktemp -d)"
+check_config_error() {
+    local edn="$1"; local needle="$2"; local label="$3"
+    printf '%s\n' "$edn" > "$proj_ce/lgx.edn"
+    set +e
+    local out rc
+    out="$(cd "$proj_ce" && LGX_HOME="$home_ce" "$LGX" install 2>&1)"; rc=$?
+    set -e
+    [[ $rc -ne 0 ]] || fail "$label: expected non-zero exit"
+    assert_contains "$out" "$needle" "$label"
+}
+check_config_error '{:tasks {lgx:x {:do [{:sh "echo hi"}]}}}' \
+    "reserved for built-in commands" "config: lgx: prefixed task name"
+check_config_error '{:tasks {new {:do [{:sh "echo hi"}]}}}' \
+    "cannot be overridden" "config: fixed built-in name"
+check_config_error '{:tasks {ci {:do [{:task nope}]}}}' \
+    "references unknown task nope" "config: unknown :task target"
+check_config_error '{:tasks {ci {:do [{:task lgx:nope}]}}}' \
+    "unknown built-in" "config: unknown lgx: target"
+check_config_error '{:tasks {test {:do [{:task test}]}}}' \
+    "calls itself" "config: self-calling :task step"
+rm -rf "$proj_ce" "$home_ce"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 144: an unknown lgx: command is rejected"
+proj_ub="$(mktemp -d)"
+home_ub="$(mktemp -d)"
+echo '{}' > "$proj_ub/lgx.edn"
+set +e
+out="$(cd "$proj_ub" && LGX_HOME="$home_ub" "$LGX" lgx:nope 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "lgx-unknown: expected non-zero exit"
+assert_contains "$out" "is not a built-in command" "lgx-unknown: error message"
+assert_contains "$out" "lgx:test" "lgx-unknown: the error lists the built-ins"
+rm -rf "$proj_ub" "$home_ub"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 145: completion offers lgx: forms only where they apply"
+proj_cp="$(mktemp -d)"
+home_cp="$(mktemp -d)"
+cat > "$proj_cp/lgx.edn" <<'EOF'
+{:tasks
+ {test {:do [{:sh "echo hi"}]}}}
+EOF
+out="$(cd "$proj_cp" && LGX_HOME="$home_cp" "$LGX" __complete "" 2>&1)"
+assert_contains "$out" "lgx:test" "completion: the overridden built-in gets an lgx: form"
+assert_not_contains "$out" "lgx:run" "completion: other built-ins do not"
+out="$(cd "$proj_cp" && LGX_HOME="$home_cp" "$LGX" __complete "lgx:" 2>&1)"
+for c in build clean info install nrepl repl run test; do
+    assert_contains "$out" "lgx:$c" "completion: lgx: prefix offers lgx:$c"
+done
+echo '{}' > "$proj_cp/lgx.edn"
+out="$(cd "$proj_cp" && LGX_HOME="$home_cp" "$LGX" __complete "" 2>&1)"
+assert_not_contains "$out" "lgx:" "completion: no lgx: forms without overrides"
+rm -rf "$proj_cp" "$home_cp"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 146: a :task chain works when lgx is invoked through PATH"
+proj_pp="$(mktemp -d)"
+home_pp="$(mktemp -d)"
+cat > "$proj_pp/lgx.edn" <<'EOF'
+{:tasks
+ {inner {:do [{:sh "echo inner-ran"}]}
+  outer {:do [{:task inner}]}}}
+EOF
+# Bare `lgx` on PATH: argv[0] carries no path, so the child is only the same
+# binary if resolve-self-bin found it.
+out="$(cd "$proj_pp" && LGX_HOME="$home_pp" PATH="$(dirname "$LGX"):$PATH" \
+    lgx outer 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] || fail "path-invoke: expected exit 0, got $rc (output: $out)"
+assert_contains "$out" "inner-ran" "path-invoke: the child resolves to the same binary"
+rm -rf "$proj_pp" "$home_pp"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

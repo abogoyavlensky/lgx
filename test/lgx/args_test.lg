@@ -89,6 +89,51 @@
   (is (= "'a b; echo pwned'" (args/shell-quote "a b; echo pwned"))))
 
 ;; ---------------------------------------------------------------------------
+;; bind-args with :args/rest
+;; ---------------------------------------------------------------------------
+
+(deftest bind-rest-collects-surplus
+  (is (= {:bindings {:args/rest ["a" "b"]}}
+         (args/bind-args [] ["a" "b"] true))))
+
+(deftest bind-rest-after-declared
+  (is (= {:bindings {:arg/env "prod"
+                     :args/rest ["x" "--flag"]}}
+         (args/bind-args [{:name :env}] ["prod" "x" "--flag"] true))))
+
+(deftest bind-rest-empty-when-none
+  (is (= {:bindings {:args/rest []}}
+         (args/bind-args [] [] true)))
+  (is (= {:bindings {:arg/env "prod"
+                     :args/rest []}}
+         (args/bind-args [{:name :env}] ["prod"] true))))
+
+(deftest bind-rest-still-checks-declared-values
+  (is (= {:errors ["missing required argument <env>"]}
+         (args/bind-args [{:name :env}] [] true)))
+  (is (= {:errors ["argument <port> must be an integer, got \"x\""]}
+         (args/bind-args [{:name :port :type :int}] ["x" "extra"] true))))
+
+(deftest bind-without-rest-still-strict
+  (is (= {:errors ["task takes no arguments (got 1)"]}
+         (args/bind-args [] ["x"] false)))
+  (is (= {:errors ["task takes no arguments (got 1)"]}
+         (args/bind-args [] ["x"]))))
+
+;; ---------------------------------------------------------------------------
+;; uses-rest?
+;; ---------------------------------------------------------------------------
+
+(deftest uses-rest-detects-placeholder
+  (is (true? (args/uses-rest? [{:sh "x"} {:task ['lgx:test :args/rest]}])))
+  (is (true? (args/uses-rest? [{:sh ["echo" :args/rest]}])))
+  (is (true? (args/uses-rest? [{:run ["s.lg" :args/rest]}])))
+  (is (false? (args/uses-rest? [{:sh "x"} {:task ['lgx:test]}])))
+  ;; A string value can never carry the placeholder — there is no {{rest}}.
+  (is (false? (args/uses-rest? [{:sh "echo :args/rest"}])))
+  (is (false? (args/uses-rest? []))))
+
+;; ---------------------------------------------------------------------------
 ;; substitute
 ;; ---------------------------------------------------------------------------
 
@@ -113,6 +158,28 @@
                           {:arg/one "x"
                            :arg/two "y"}
                           false))))
+
+(deftest substitute-splices-rest-verbatim
+  (is (= ['lgx:test "a" "b"]
+         (args/substitute ['lgx:test :args/rest]
+                          {:args/rest ["a" "b"]}
+                          false))))
+
+(deftest substitute-splices-empty-rest-away
+  (is (= ["echo"]
+         (args/substitute ["echo" :args/rest] {:args/rest []} false))))
+
+(deftest substitute-quotes-each-rest-item
+  (is (= ["echo" "'a b'" "'c'"]
+         (args/substitute ["echo" :args/rest]
+                          {:args/rest ["a b" "c"]}
+                          true))))
+
+(deftest substitute-unbound-rest-throws
+  (is (= :threw
+         (try (args/substitute [:args/rest] {} false)
+              :no-throw
+              (catch e :threw)))))
 
 (deftest substitute-unbound-placeholder-throws
   (is (= :threw
@@ -177,6 +244,12 @@
          (args/signature [{:name :env}
                           {:name :version :default "latest"}]))))
 
+(deftest signature-appends-rest
+  (is (= "[args...]" (args/signature [] true)))
+  (is (= "<env> [args...]"
+         (args/signature [{:name :env}] true)))
+  (is (= "<env>" (args/signature [{:name :env}] false))))
+
 (deftest usage-no-decls
   (is (= "usage: lgx deploy" (args/usage-line "deploy" []))))
 
@@ -185,3 +258,11 @@
          (args/usage-line "deploy"
                           [{:name :env}
                            {:name :version :default "latest"}]))))
+
+
+(deftest usage-line-appends-rest
+  (is (= "usage: lgx ci [args...]" (args/usage-line "ci" [] true)))
+  (is (= "usage: lgx deploy <env> [args...]"
+         (args/usage-line "deploy" [{:name :env}] true)))
+  (is (= "usage: lgx deploy <env>"
+         (args/usage-line "deploy" [{:name :env}] false))))

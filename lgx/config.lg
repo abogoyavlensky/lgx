@@ -40,12 +40,24 @@
 (defn- go-key? [c]
   (boolean (some go-ns-key? (keys c))))
 
-;; Built-in CLI commands that may not be shadowed by a project task. Includes
-;; subcommands that don't exist yet (add, update, tasks) but that are reserved
-;; so the namespace is available for future use.
-(def reserved-task-names
-  #{"run" "repl" "nrepl" "install" "info" "new" "add" "update" "tasks" "help"
-    "version" "build" "test" "clean" "completion" "__complete"})
+;; Built-in CLI commands, split by whether a project task may carry the name.
+;;
+;; The overridable ones all operate on a project, so dispatch can prefer a
+;; task of the same name and still reach the original through lgx:<name>
+;; (test, build, run and clean are the most common task names there are, so
+;; reserving them made collisions structural). The fixed ones run without a
+;; project — a project can never sit in front of them, so a task named after
+;; one would simply be unreachable, and lgx:help is not a thing.
+(def overridable-commands
+  #{"run" "repl" "nrepl" "build" "test" "install" "info" "clean"})
+
+(def fixed-commands
+  #{"new" "help" "version" "completion" "__complete"})
+
+(defn overridable-command?
+  "True when `s` names a built-in a project task may override."
+  [s]
+  (contains? overridable-commands s))
 
 ;; ---------------------------------------------------------------------------
 ;; lgx.edn format as one schema value (see lgx.spec for the schema language)
@@ -309,6 +321,16 @@
   [x]
   (and (keyword? x) (= "arg" (namespace x))))
 
+;; The leftover-CLI-args placeholder. Its own namespace (:args/ rather than
+;; :arg/) keeps it from ever colliding with a declared arg named `rest`.
+(def ^:private rest-kw :args/rest)
+
+(defn- step-item-ok?
+  "True for a step vector item that needs no further checking: a literal
+   string, an :arg/<name> placeholder, or :args/rest."
+  [x]
+  (or (string? x) (placeholder-kw? x) (= rest-kw x)))
+
 (defn- action-value-errors
   "A step's :sh/:run value: a non-blank string or a non-empty vector whose
    items are strings or :arg/<name> placeholder keywords. Whether a
@@ -325,7 +347,7 @@
         (if (>= i (count v))
           acc
           (recur (inc i)
-                 (if (or (string? (nth v i)) (placeholder-kw? (nth v i)))
+                 (if (step-item-ok? (nth v i))
                    acc
                    (conj acc {:path [i]
                               :msg (str "must be a string or :arg/<name> "
@@ -335,15 +357,52 @@
     :else
     [(str "must be a string or vector of strings, got " (pr-str v))]))
 
+(defn- task-value-errors
+  "A step's :task value: the callee symbol, or a vector whose first item is
+   that symbol followed by the same items a :sh/:run vector takes. Whether
+   the symbol names a defined task or an overridable built-in is the
+   root-level task-targets-errors cross-check's job."
+  [v]
+  (cond
+    (symbol? v) []
+
+    (and (vector? v) (seq v))
+    (let [head (if (symbol? (first v))
+                 []
+                 [{:path [0]
+                   :msg (str "must be a symbol naming a task or a built-in, "
+                             "got " (pr-str (first v)))}])]
+      (loop [i 1
+             acc head]
+        (if (>= i (count v))
+          acc
+          (recur (inc i)
+                 (if (step-item-ok? (nth v i))
+                   acc
+                   (conj acc {:path [i]
+                              :msg (str "must be a string or :arg/<name> "
+                                        "placeholder, got "
+                                        (pr-str (nth v i)))}))))))
+
+    :else
+    [(str "must be a symbol or a vector whose first item is a symbol, got "
+          (pr-str v))]))
+
+(def ^:private action-keys [:sh :run :task])
+
+(def ^:private action-keys-label
+  (str/join ", " (map str action-keys)))
+
 (defn- exactly-one-action-errors [step]
-  (when (not= 1 (count (filter #(contains? step %) [:sh :run])))
-    "must contain exactly one of :sh, :run"))
+  (when (not= 1 (count (filter #(contains? step %) action-keys)))
+    (str "must contain exactly one of " action-keys-label)))
 
 (def ^:private step-schema
   [:and
    [:map {:closed true}
     [:sh {:optional true} [:fn action-value-errors]]
-    [:run {:optional true} [:fn action-value-errors]]]
+    [:run {:optional true} [:fn action-value-errors]]
+    [:task {:optional true} [:fn task-value-errors]]]
    [:fn exactly-one-action-errors]])
 
 (defn- do-errors
@@ -448,15 +507,30 @@
 (def ^:private args-schema
   [:and [:vector {:min 1} arg-schema] [:fn args-vector-errors]])
 
+(defn- unknown-placeholder-msg
+  "The message for an :arg/<name> placeholder that names no declared arg.
+   `:arg/rest` gets a pointer to :args/rest — the near-miss is common enough
+   that the bare \"unknown placeholder\" line reads like a typo report."
+  [item label]
+  (str (if (nil? label)
+         (str "placeholder " item " used but no :args declared")
+         (str "unknown placeholder " item " (declared: " label ")"))
+       (if (= item :arg/rest)
+         "; for the leftover CLI args use :args/rest"
+         "")))
+
 (defn- step-placeholder-errors
   "Unknown-:arg/* errors for one valid step, paths relative to the step.
-   `label` renders the declared names, or nil when the task has no :args."
+   `label` renders the declared names, or nil when the task has no :args.
+   :args/rest is not an :arg/ placeholder and needs no declaration, so it is
+   skipped."
   [declared label step]
-  (let [k (if (contains? step :sh) :sh :run)
+  (let [k (first (filter #(contains? step %) action-keys))
         v (get step k)]
     (if-not (vector? v)
       []
-      (loop [j 0
+      ;; A :task vector leads with the callee symbol, never a placeholder.
+      (loop [j (if (= k :task) 1 0)
              acc []]
         (if (>= j (count v))
           acc
@@ -465,11 +539,7 @@
                    (if (and (placeholder-kw? item)
                             (not (contains? declared item)))
                      (conj acc {:path [k j]
-                                :msg (if (nil? label)
-                                       (str "placeholder " item
-                                            " used but no :args declared")
-                                       (str "unknown placeholder " item
-                                            " (declared: " label ")"))})
+                                :msg (unknown-placeholder-msg item label)})
                      acc))))))))
 
 (defn- task-placeholder-errors
@@ -504,8 +574,15 @@
 
     ;; (str k) rather than (name k): only a bare name can shadow a built-in —
     ;; a namespaced foo/run dispatches as "foo/run", never as "run".
-    (contains? reserved-task-names (str k))
-    (str "conflicts with built-in command \"" k "\"; rename the task")))
+    (contains? fixed-commands (str k))
+    (str "conflicts with built-in command \"" k "\", which cannot be "
+         "overridden; rename the task")
+
+    (str/starts-with? (str k) "lgx:")
+    "the lgx: prefix is reserved for built-in commands; rename the task"
+
+    (str/starts-with? (str k) "-")
+    "task names cannot start with \"-\""))
 
 (def ^:private task-schema
   [:and
@@ -662,6 +739,65 @@
                                  (or (:with task) []))))
                  (or (:tasks cfg) {})))))
 
+(defn- task-callee
+  "The callee symbol of a :task step value, in either of its two forms."
+  [v]
+  (if (vector? v) (first v) v))
+
+(def builtins-label
+  "The `(built-ins: lgx:build, ...)` tail shared by every message that has to
+   list what an lgx:<name> word may name."
+  (str "(built-ins: "
+       (str/join ", " (map #(str "lgx:" %) (sort overridable-commands)))
+       ")"))
+
+(defn- task-step-target-errors
+  "One :task step's callee, checked against the project's tasks. `caller` is
+   the name of the task the step belongs to."
+  [defined caller v]
+  (let [callee (task-callee v)
+        s (str callee)]
+    (cond
+      (str/starts-with? s "lgx:")
+      (when-not (overridable-command? (subs s 4))
+        (str "references unknown built-in " s " " builtins-label))
+
+      (= callee caller)
+      (str "calls itself; use lgx:" s " to call the built-in")
+
+      (not (contains? defined callee))
+      (let [others (sort (map str (disj defined caller)))]
+        (str "references unknown task " s " "
+             (if (seq others)
+               (str "(defined: " (str/join ", " others) ")")
+               "(no other tasks defined)"))))))
+
+(defn- task-targets-errors
+  "Root-level cross-key rule: every :task step must name a defined task or an
+   overridable built-in, and no task may call itself. Runs only after the
+   structural schema passed, so step shapes hold. Walks both :do forms — a
+   single step map or a vector of steps — because validation runs before
+   normalize-config."
+  [cfg]
+  (let [tasks (or (:tasks cfg) {})
+        defined (set (keys tasks))
+        step-errors
+        (fn [caller step path]
+          (if-not (contains? step :task)
+            []
+            (if-let [msg (task-step-target-errors defined caller (:task step))]
+              [{:path (vec (concat [:tasks caller] path [:task]))
+                :msg msg}]
+              [])))]
+    (vec (mapcat (fn [[caller task]]
+                   (let [d (:do task)]
+                     (if (map? d)
+                       (step-errors caller d [:do])
+                       (mapcat (fn [i]
+                                 (step-errors caller (nth d i) [:do i]))
+                               (range (count d))))))
+                 tasks))))
+
 (defn- lg-runtime-errors
   "Root-level cross-key rule between :lg-runtime and :lg-version. :built
    links let-go itself, so it has nothing to build without a pin; :installed
@@ -699,6 +835,7 @@
     [:tasks {:optional true}
      [:map-of [:fn task-name-errors] task-schema]]]
    [:fn with-refs-errors]
+   [:fn task-targets-errors]
    [:fn lg-runtime-errors]])
 
 (defn- normalize-config

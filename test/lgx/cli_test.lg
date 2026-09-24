@@ -246,3 +246,76 @@
                  (catch e (ex-message e)))]
     (is (= "lgx: --exclude requires a comma-separated list of test namespaces"
            msg))))
+
+;; ---------------------------------------------------------------------------
+;; self-invocation / resolve-self-bin / strip-lgx-prefix / child-args
+;; ---------------------------------------------------------------------------
+
+(deftest self-invocation-dev-prefix
+  (is (= {:bin "lg" :prefix ["lgx.lg"]}
+         (cli/self-invocation ["lg" "lgx.lg" "run"]))))
+
+(deftest self-invocation-bundle
+  (is (= {:bin "/x/bin/lgx" :prefix []}
+         (cli/self-invocation ["/x/bin/lgx" "run"]))))
+
+(deftest self-invocation-bare-program-only
+  (is (= {:bin "lgx" :prefix []}
+         (cli/self-invocation ["lgx"]))))
+
+(deftest strip-lgx-prefix
+  (is (= "test" (cli/strip-lgx-prefix "lgx:test")))
+  (is (nil? (cli/strip-lgx-prefix "test")))
+  (is (= "" (cli/strip-lgx-prefix "lgx:"))))
+
+(deftest child-args-plain
+  (is (= ["fmt" "check"] (cli/child-args [] false "fmt" ["check"]))))
+
+(deftest child-args-with-and-verbose
+  (is (= ["--verbose" "--with" "dev,test" "fmt" "check"]
+         (cli/child-args [:dev :test] true "fmt" ["check"]))))
+
+(deftest child-args-keeps-context-namespace
+  ;; (subs (str k) 1), never (name k), so :app/dev survives the round trip
+  ;; through the child's own --with parsing.
+  (is (= ["--with" "app/dev" "fmt"]
+         (cli/child-args [:app/dev] false "fmt" []))))
+
+(deftest resolve-self-bin-absolute
+  (is (= "/x/bin/lgx"
+         (cli/resolve-self-bin "/x/bin/lgx" "/w" (fn [_] "/other/lgx")))))
+
+(deftest resolve-self-bin-relative-absolutizes
+  (is (= "/w/bin/lgx"
+         (cli/resolve-self-bin "./bin/lgx" "/w" (fn [_] nil)))))
+
+(deftest resolve-self-bin-bare-uses-lookup
+  (is (= "/b/lgx"
+         (cli/resolve-self-bin "lgx" "/w" (fn [n] (when (= n "lgx") "/b/lgx"))))))
+
+(deftest resolve-self-bin-bare-unresolved-unchanged
+  (is (= "lgx" (cli/resolve-self-bin "lgx" "/w" (fn [_] nil)))))
+
+;; Regression: the shell skips a non-executable file early on PATH, and
+;; os/stat cannot see the mode bits, so the lookup goes through `command -v`.
+(deftest path-lookup-skips-non-executable
+  (let [dir (str "/tmp/lgx-path-lookup-test-" (rand-int 100000000))
+        early (str dir "/early")
+        late (str dir "/late")]
+    (mkdir dir)
+    (mkdir early)
+    (mkdir late)
+    (spit (str early "/lgx-probe") "#!/bin/sh\n")
+    (spit (str late "/lgx-probe") "#!/bin/sh\n")
+    (os/sh "chmod" "-x" (str early "/lgx-probe"))
+    (os/sh "chmod" "+x" (str late "/lgx-probe"))
+    (let [prev (os/getenv "PATH")]
+      ;; Prepend rather than replace: os/sh resolves `sh` through PATH too.
+      (os/setenv "PATH" (str early ":" late ":" prev))
+      (let [found (cli/path-lookup "lgx-probe")]
+        (os/setenv "PATH" prev)
+        (os/sh "rm" "-rf" dir)
+        (is (= (str late "/lgx-probe") found))))))
+
+(deftest path-lookup-nil-for-unknown-name
+  (is (nil? (cli/path-lookup "lgx-definitely-not-a-real-program-xyz"))))

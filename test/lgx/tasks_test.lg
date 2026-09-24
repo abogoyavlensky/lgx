@@ -1,0 +1,83 @@
+;; Unit tests for lgx.tasks — the pure cycle-guard helpers.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.tasks-test
+  (:require [clojure.test :refer [deftest is]]
+            [lgx.tasks :as tasks]))
+
+;; ---------------------------------------------------------------------------
+;; stack-entries
+;; ---------------------------------------------------------------------------
+
+(deftest stack-entries-empty-when-unset
+  (is (= [] (tasks/stack-entries nil nil)))
+  (is (= [] (tasks/stack-entries "" ""))))
+
+(deftest stack-entries-pairs-names-with-roots
+  (is (= [{:name "ci" :root "/p"}
+          {:name "test" :root "/p"}]
+         (tasks/stack-entries "ci,test" "/p\n/p"))))
+
+(deftest stack-entries-keeps-distinct-roots
+  (is (= [{:name "check" :root "/root"}
+          {:name "check" :root "/root/child"}]
+         (tasks/stack-entries "check,check" "/root\n/root/child"))))
+
+(deftest stack-entries-tolerates-a-comma-in-a-root
+  ;; Roots are newline-joined precisely so a directory named `a,b` survives.
+  (is (= [{:name "ci" :root "/p/a,b"}]
+         (tasks/stack-entries "ci" "/p/a,b"))))
+
+(deftest stack-entries-empty-on-length-mismatch
+  ;; Something outside lgx set these; fail open rather than refuse to run.
+  (is (= [] (tasks/stack-entries "ci,test" "/p")))
+  (is (= [] (tasks/stack-entries "ci" "/p\n/p"))))
+
+;; ---------------------------------------------------------------------------
+;; stack-cycle?
+;; ---------------------------------------------------------------------------
+
+(deftest stack-cycle-detects-same-task-same-project
+  (is (true? (tasks/stack-cycle? [{:name "test" :root "/p"}] "test" "/p"))))
+
+(deftest stack-cycle-allows-same-name-in-another-project
+  ;; A monorepo root and its child may each define `check`.
+  (is (false? (tasks/stack-cycle? [{:name "check" :root "/root"}]
+                                  "check" "/root/child"))))
+
+(deftest stack-cycle-detects-re-entry-after-a-project-switch
+  ;; A -> B -> A is still a cycle: the ancestry survives the switch.
+  (is (true? (tasks/stack-cycle? [{:name "check" :root "/a"}
+                                  {:name "check" :root "/b"}]
+                                 "check" "/a"))))
+
+(deftest stack-cycle-allows-a-different-task-in-the-same-project
+  (is (false? (tasks/stack-cycle? [{:name "ci" :root "/p"}] "test" "/p"))))
+
+(deftest stack-cycle-empty-stack-is-never-a-cycle
+  (is (false? (tasks/stack-cycle? [] "test" "/p"))))
+
+;; ---------------------------------------------------------------------------
+;; stack-chain / stack-values
+;; ---------------------------------------------------------------------------
+
+(deftest stack-chain-appends-the-re-entered-name
+  (is (= "a > b > a"
+         (tasks/stack-chain [{:name "a" :root "/p"}
+                             {:name "b" :root "/p"}]
+                            "a")))
+  (is (= "test" (tasks/stack-chain [] "test"))))
+
+(deftest stack-values-push-onto-both
+  (is (= ["ci,test" "/p\n/p"]
+         (tasks/stack-values [{:name "ci" :root "/p"}] "test" "/p"))))
+
+(deftest stack-values-from-empty
+  (is (= ["test" "/p"] (tasks/stack-values [] "test" "/p"))))
+
+(deftest stack-values-round-trip
+  (let [[names roots] (tasks/stack-values [{:name "ci" :root "/a,b"}]
+                                          "test" "/c")]
+    (is (= [{:name "ci" :root "/a,b"}
+            {:name "test" :root "/c"}]
+           (tasks/stack-entries names roots)))))

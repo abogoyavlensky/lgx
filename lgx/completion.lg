@@ -8,6 +8,12 @@
 ;; Pure candidate logic for the hidden `lgx __complete` endpoint. Candidates
 ;; are offered at the command position, and at task arg positions whose decl
 ;; :type is [:enum ...] — no flag completion, no other argument completion.
+;;
+;; At the command position a bare TAB offers the built-ins, the project's
+;; tasks, and an `lgx:<name>` form only for the built-ins the project actually
+;; overrides — the escape is worth surfacing exactly where it is needed, and a
+;; bare prompt does not gain eight entries nobody asked for. Once the typed
+;; word starts with `lgx:`, every overridable built-in is offered.
 ;; Isolated from lgx.main so it can be unit-tested (lgx.main's load runs
 ;; (main)).
 ;; --------------------------------------------------------------------------
@@ -87,7 +93,12 @@
       (str/starts-with? cur "-") []
 
       (= :command-position state)
-      (matches (concat builtin-commands (keys tasks)) cur)
+      (let [overridden (filter config/overridable-command? (keys tasks))
+            lgx-forms (if (str/starts-with? cur "lgx:")
+                        (map #(str "lgx:" %) config/overridable-commands)
+                        (map #(str "lgx:" %) overridden))]
+        (matches (distinct (concat builtin-commands (keys tasks) lgx-forms))
+                 cur))
 
       (and (= :command-typed state) (contains? tasks command))
       (matches (or (enum-values (get tasks command) args-typed) []) cur)
@@ -105,14 +116,54 @@
   "# bash completion for lgx.
 # Load with: source <(lgx completion bash)
 _lgx_complete() {
-    local line
+    local line cur head i w
+    local -a words
     COMPREPLY=()
+    # Bash breaks words on ':' by default (COMP_WORDBREAKS), so `lgx lgx:te`
+    # reaches us as the three words `lgx` `:` `te` and lgx would read `lgx` as
+    # a finished command. Rejoin exactly that shape — a literal `lgx`
+    # immediately followed by a `:` token — and pass everything else through
+    # untouched: `lgx:` is the only colon lgx's own grammar has, and once bash
+    # has split a word it can no longer tell `foo:bar` from `foo: bar`.
+    # Working from COMP_WORDS rather than re-splitting COMP_LINE keeps the
+    # command boundary bash already found, so `true && lgx te` still
+    # completes against `lgx`.
+    words=()
+    i=0
+    while [ $i -le $COMP_CWORD ]; do
+        w=\"${COMP_WORDS[i]}\"
+        if [ $i -gt 0 ] && [ \"$w\" = \"lgx\" ] \\
+           && [ $((i + 1)) -le $COMP_CWORD ] \\
+           && [ \"${COMP_WORDS[i+1]}\" = \":\" ]; then
+            w=\"lgx:\"
+            i=$(( i + 2 ))
+            if [ $i -le $COMP_CWORD ]; then
+                w=\"$w${COMP_WORDS[i]}\"
+                i=$(( i + 1 ))
+            fi
+            words+=(\"$w\")
+            continue
+        fi
+        words+=(\"$w\")
+        i=$(( i + 1 ))
+    done
     # __complete already prefix-filters, so candidates go straight into
     # COMPREPLY. No compgen -W: it shell-expands the wordlist, which would
     # execute project-controlled text (e.g. an enum value \"$(cmd)\").
     while IFS= read -r line; do
         [ -n \"$line\" ] && COMPREPLY+=(\"$line\")
-    done < <(\"${COMP_WORDS[0]}\" __complete \"${COMP_WORDS[@]:1:COMP_CWORD}\" 2>/dev/null)
+    done < <(\"${COMP_WORDS[0]}\" __complete \"${words[@]:1}\" 2>/dev/null)
+    # Bash replaces only the text after the last word-break, so a candidate
+    # `lgx:test` completed from `lgx:t` must arrive as `test`.
+    cur=\"${words[${#words[@]}-1]}\"
+    if [ ${#COMPREPLY[@]} -gt 0 ]; then
+        case \"$cur\" in
+            *:*)
+                head=\"${cur%\"${cur##*:}\"}\"
+                COMPREPLY=(\"${COMPREPLY[@]#\"$head\"}\")
+                ;;
+        esac
+    fi
 }
 
 # -o default: fall back to filename completion when lgx offers nothing

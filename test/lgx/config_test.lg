@@ -565,16 +565,39 @@
          (load-cfg {:tasks {'dev {:extra-dep {}
                                   :do [{:sh "echo hi"}]}}}))))
 
-(deftest load-rejects-reserved-task-names
-  (doseq [n config/reserved-task-names]
+(deftest load-accepts-overridable-task-names
+  ;; A task may carry a built-in's name — dispatch prefers the task, and
+  ;; lgx:<name> still reaches the built-in.
+  (doseq [n config/overridable-commands]
+    (is (nil? (:errors (load-cfg {:tasks {(symbol n) {:do [{:sh "echo hi"}]}}})))))
+  ;; The 0.2.0-era speculative reservations are gone.
+  (is (nil? (:errors (load-cfg {:tasks {'add {:do [{:sh "echo hi"}]}
+                                        'update {:do [{:sh "echo hi"}]}
+                                        'tasks {:do [{:sh "echo hi"}]}}}))))
+  (is (contains? config/overridable-commands "test"))
+  (is (contains? config/overridable-commands "nrepl"))
+  (is (contains? config/overridable-commands "clean")))
+
+(deftest load-rejects-fixed-task-names
+  (doseq [n config/fixed-commands]
     (is (= {:errors [{:path [:tasks (symbol n)]
-                      :msg (str "conflicts with built-in command \"" n "\"; rename the task")}]}
+                      :msg (str "conflicts with built-in command \"" n
+                                "\", which cannot be overridden; rename the task")}]}
            (load-cfg {:tasks {(symbol n) {:do [{:sh "echo hi"}]}}}))))
-  ;; Explicit spot-checks: "test" and "nrepl" must stay reserved so projects
-  ;; can't shadow them (dispatch would always win, leaving the task unreachable).
-  (is (contains? config/reserved-task-names "test"))
-  (is (contains? config/reserved-task-names "nrepl"))
-  (is (contains? config/reserved-task-names "info")))
+  (is (contains? config/fixed-commands "new"))
+  (is (contains? config/fixed-commands "help"))
+  (is (contains? config/fixed-commands "version")))
+
+(deftest load-rejects-lgx-prefixed-task-name
+  (is (= {:errors [{:path [:tasks 'lgx:test]
+                    :msg (str "the lgx: prefix is reserved for built-in "
+                              "commands; rename the task")}]}
+         (load-cfg {:tasks {'lgx:test {:do [{:sh "echo hi"}]}}}))))
+
+(deftest load-rejects-dash-prefixed-task-name
+  (is (= {:errors [{:path [:tasks '-v]
+                    :msg "task names cannot start with \"-\""}]}
+         (load-cfg {:tasks {'-v {:do [{:sh "echo hi"}]}}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :do and step errors
@@ -598,18 +621,18 @@
 
 (deftest load-rejects-step-with-multiple-action-keys
   (is (= {:errors [{:path [:tasks 'fmt :do 0]
-                    :msg "must contain exactly one of :sh, :run"}]}
+                    :msg "must contain exactly one of :sh, :run, :task"}]}
          (load-cfg {:tasks {'fmt {:do [{:sh "echo a"
                                         :run "scripts/foo.lg"}]}}}))))
 
 (deftest load-rejects-step-with-no-action-key
   (is (= {:errors [{:path [:tasks 'fmt :do 0]
-                    :msg "must contain exactly one of :sh, :run"}]}
+                    :msg "must contain exactly one of :sh, :run, :task"}]}
          (load-cfg {:tasks {'fmt {:do [{}]}}}))))
 
 (deftest load-rejects-step-with-unknown-key
   (is (= {:errors [{:path [:tasks 'fmt :do 0]
-                    :msg "unknown key :env (allowed: :sh, :run)"}]}
+                    :msg "unknown key :env (allowed: :sh, :run, :task)"}]}
          (load-cfg {:tasks {'fmt {:do [{:sh "echo hi"
                                         :env {"FOO" "1"}}]}}}))))
 
@@ -626,6 +649,85 @@
   (is (= {:errors [{:path [:tasks 'fmt :do 0 :sh 1]
                     :msg "must be a string or :arg/<name> placeholder, got 5"}]}
          (load-cfg {:tasks {'fmt {:do [{:sh ["echo" 5]}]}}}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :task steps
+;; ---------------------------------------------------------------------------
+
+(def ^:private builtin-list
+  (str "lgx:build, lgx:clean, lgx:info, lgx:install, lgx:nrepl, lgx:repl, "
+       "lgx:run, lgx:test"))
+
+(deftest load-accepts-task-step-symbol
+  (let [cfg {:tasks {'fmt {:do [{:sh "echo fmt"}]}
+                     'ci {:do [{:task 'fmt}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-task-step-vector
+  (let [cfg {:tasks {'fmt {:do [{:sh "echo fmt"}]}
+                     'ci {:do [{:task ['fmt "check"]}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-task-step-builtin
+  (let [cfg {:tasks {'ci {:do [{:task 'lgx:test}
+                               {:task ['lgx:test "--exclude" "a"]}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-task-step-arg-placeholder
+  (let [cfg {:tasks {'fmt {:do [{:sh "echo fmt"}]}
+                     'ci {:args [{:name :mode}]
+                          :do [{:task ['fmt :arg/mode]}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-task-step-non-symbol
+  (is (= {:errors [{:path [:tasks 'ci :do 0 :task]
+                    :msg (str "must be a symbol or a vector whose first item "
+                              "is a symbol, got \"fmt\"")}]}
+         (load-cfg {:tasks {'ci {:do [{:task "fmt"}]}}})))
+  (is (= {:errors [{:path [:tasks 'ci :do 0 :task 0]
+                    :msg (str "must be a symbol naming a task or a built-in, "
+                              "got \"fmt\"")}]}
+         (load-cfg {:tasks {'ci {:do [{:task ["fmt"]}]}}})))
+  (is (= {:errors [{:path [:tasks 'ci :do 0 :task]
+                    :msg (str "must be a symbol or a vector whose first item "
+                              "is a symbol, got []")}]}
+         (load-cfg {:tasks {'ci {:do [{:task []}]}}}))))
+
+(deftest load-rejects-task-step-bad-tail-item
+  (is (= {:errors [{:path [:tasks 'fmt :do 0 :task 1]
+                    :msg "must be a string or :arg/<name> placeholder, got 5"}]}
+         (load-cfg {:tasks {'fmt {:do [{:task ['lgx:test 5]}]}}}))))
+
+(deftest load-rejects-task-step-unknown-task
+  (is (= {:errors [{:path [:tasks 'ci :do 0 :task]
+                    :msg "references unknown task nope (defined: fmt)"}]}
+         (load-cfg {:tasks {'fmt {:do [{:sh "echo fmt"}]}
+                            'ci {:do [{:task 'nope}]}}})))
+  (is (= {:errors [{:path [:tasks 'ci :do :task]
+                    :msg "references unknown task nope (no other tasks defined)"}]}
+         (load-cfg {:tasks {'ci {:do {:task 'nope}}}}))))
+
+(deftest load-rejects-task-step-unknown-builtin
+  (is (= {:errors [{:path [:tasks 'ci :do 0 :task]
+                    :msg (str "references unknown built-in lgx:nope "
+                              "(built-ins: " builtin-list ")")}]}
+         (load-cfg {:tasks {'ci {:do [{:task 'lgx:nope}]}}})))
+  ;; The fixed commands have no lgx: form either — they cannot be overridden,
+  ;; so there is never anything to reach past.
+  (is (= {:errors [{:path [:tasks 'ci :do 0 :task]
+                    :msg (str "references unknown built-in lgx:help "
+                              "(built-ins: " builtin-list ")")}]}
+         (load-cfg {:tasks {'ci {:do [{:task 'lgx:help}]}}}))))
+
+(deftest load-rejects-task-step-self-call
+  (is (= {:errors [{:path [:tasks 'test :do 0 :task]
+                    :msg "calls itself; use lgx:test to call the built-in"}]}
+         (load-cfg {:tasks {'test {:do [{:task 'test}]}}}))))
+
+(deftest load-rejects-step-with-task-and-sh
+  (is (= {:errors [{:path [:tasks 'ci :do 0]
+                    :msg "must contain exactly one of :sh, :run, :task"}]}
+         (load-cfg {:tasks {'ci {:do [{:sh "echo a" :task 'fmt}]}}}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: task :args declarations
@@ -763,6 +865,25 @@
          (load-cfg {:tasks {'d {:args [{:name :env}]
                                 :do [{:run ["t.lg" :arg/typo]}]}}}))))
 
+(deftest load-accepts-args-rest-in-step-vector
+  (let [cfg {:tasks {'fmt {:do [{:sh "echo fmt"}]}
+                     'ci {:do [{:sh ["echo" :args/rest]}
+                               {:run ["t.lg" :args/rest]}
+                               {:task ['fmt :args/rest]}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-arg-rest-with-hint
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg (str "placeholder :arg/rest used but no :args "
+                              "declared; for the leftover CLI args use "
+                              ":args/rest")}]}
+         (load-cfg {:tasks {'d {:do [{:sh ["echo" :arg/rest]}]}}})))
+  (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
+                    :msg (str "unknown placeholder :arg/rest (declared: :env)"
+                              "; for the leftover CLI args use :args/rest")}]}
+         (load-cfg {:tasks {'d {:args [{:name :env}]
+                                :do [{:sh ["echo" :arg/rest]}]}}}))))
+
 (deftest load-rejects-non-arg-keyword-in-step-vector
   (is (= {:errors [{:path [:tasks 'd :do 0 :sh 1]
                     :msg "must be a string or :arg/<name> placeholder, got :env"}]}
@@ -784,18 +905,23 @@
   (let [r (load-cfg {:tasks {'check {:do {:run "scripts/test.lg"}}}})]
     (is (= [{:run "scripts/test.lg"}] (get-in r [:cfg :tasks 'check :do])))))
 
+(deftest load-normalizes-single-task-step-map
+  (let [r (load-cfg {:tasks {'fmt {:do {:sh "echo hi"}}
+                             'ci {:do {:task 'fmt}}}})]
+    (is (= [{:task 'fmt}] (get-in r [:cfg :tasks 'ci :do])))))
+
 (deftest load-keeps-vector-do-as-is
   (let [r (load-cfg {:tasks {'ci {:do [{:sh "echo a"} {:run "t.lg"}]}}})]
     (is (= [{:sh "echo a"} {:run "t.lg"}] (get-in r [:cfg :tasks 'ci :do])))))
 
 (deftest load-rejects-single-step-map-with-no-action-key
   (is (= {:errors [{:path [:tasks 'fmt :do]
-                    :msg "must contain exactly one of :sh, :run"}]}
+                    :msg "must contain exactly one of :sh, :run, :task"}]}
          (load-cfg {:tasks {'fmt {:do {}}}}))))
 
 (deftest load-rejects-single-step-map-with-multiple-action-keys
   (is (= {:errors [{:path [:tasks 'fmt :do]
-                    :msg "must contain exactly one of :sh, :run"}]}
+                    :msg "must contain exactly one of :sh, :run, :task"}]}
          (load-cfg {:tasks {'fmt {:do {:sh "echo a"
                                        :run "scripts/foo.lg"}}}}))))
 
@@ -923,7 +1049,7 @@
   (is (= {:errors [{:path [:paths] :msg "must be a vector, got \"src\""}
                    {:path [:targets :bin] :msg "missing required key :out"}
                    {:path [:tasks 'lint :do 0]
-                    :msg "unknown key :shh (allowed: :sh, :run)"}]}
+                    :msg "unknown key :shh (allowed: :sh, :run, :task)"}]}
          (load-cfg {:paths "src"
                     :targets {:bin {}}
                     :tasks {'lint {:do [{:shh "x"}]}}}))))

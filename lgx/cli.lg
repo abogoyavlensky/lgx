@@ -1,11 +1,13 @@
 (ns lgx.cli
-  (:require [string :as str]))
+  (:require [lgx.path :as path]
+            [string :as str]))
 
 ;; --------------------------------------------------------------------------
 ;; CLI argv parsing
 ;;
 ;; Isolated from lgx.main so it can be unit-tested: lgx.main's load runs
-;; (main), so a test cannot require it. These helpers are pure.
+;; (main), so a test cannot require it. These helpers are pure, except for
+;; the `!`-suffixed wrappers that feed the real environment into one.
 ;; --------------------------------------------------------------------------
 
 (defn user-args
@@ -20,6 +22,84 @@
       (drop 2 argv)
       :else
       (rest argv))))
+
+(defn self-invocation
+  "Split `argv` into the pieces needed to re-invoke lgx as a child process:
+   {:bin <program> :prefix [<script> ...]}. Same rule as user-args — in dev
+   (`lg lgx.lg <cmd> ...`) the script path is part of the invocation, as a
+   bundle (`./lgx <cmd> ...`) there is nothing between the program and the
+   command. Pure: the program name is returned as argv gave it, so resolving
+   it to a real file is resolve-self-bin's job."
+  [argv]
+  (let [argv (vec argv)]
+    (if (and (>= (count argv) 2)
+             (str/ends-with? (nth argv 1) ".lg"))
+      {:bin (first argv)
+       :prefix [(nth argv 1)]}
+      {:bin (first argv)
+       :prefix []})))
+
+(defn resolve-self-bin
+  "Resolve argv[0] to a path a child process can exec. let-go has no
+   executable-path builtin, and argv[0] is a bare name when the user invoked
+   lgx through PATH, so: a value containing a separator is absolutized
+   against `cwd`; a bare name goes to `lookup`, which returns its resolved
+   path or nil. An unresolvable name is returned unchanged, leaving the child
+   to a plain PATH lookup.
+
+   Resolving rather than re-running `lgx` off PATH is what makes the child
+   the same binary as the parent, even under a version-manager shim: the
+   shim's own path is what resolves, and the child inherits the cwd the shim
+   keys on."
+  [argv0 cwd lookup]
+  (if (str/includes? argv0 os/file-separator)
+    (if (path/absolute? argv0)
+      argv0
+      (path/normalize (path/join cwd argv0)))
+    (or (lookup argv0) argv0)))
+
+(defn path-lookup
+  "Resolve a bare program name through PATH the way the shell does, via
+   `command -v`. Returns the resolved path, or nil when the name does not
+   resolve. Delegated to the shell rather than walking PATH with os/stat
+   because stat reports no mode bits: a non-executable file named `lgx`
+   early on PATH is one the shell skips and stat would not. The name is
+   passed as an argument, never interpolated into the script."
+  [name]
+  (let [r (try (os/sh "sh" "-c" "command -v -- \"$1\"" "sh" name)
+               (catch _ nil))]
+    (when (and r (zero? (:exit r)) (not (str/blank? (:out r))))
+      (str/trim (:out r)))))
+
+(defn resolve-self-bin!
+  "resolve-self-bin wired to the real environment."
+  [argv0]
+  (resolve-self-bin argv0 (os/cwd) path-lookup))
+
+(def ^:private lgx-prefix "lgx:")
+
+(defn strip-lgx-prefix
+  "The command name behind an `lgx:<name>` word, or nil when `cmd` carries no
+   such prefix. `lgx:` alone yields \"\", which names no built-in and so gets
+   the same error as any other unknown one."
+  [cmd]
+  (when (str/starts-with? cmd lgx-prefix)
+    (subs cmd (count lgx-prefix))))
+
+(defn child-args
+  "The argv a `:task` step hands the child lgx, after the self-invocation
+   prefix: the global flags the parent is running under, then the callee and
+   its args. `with` is the caller's effective context list, forwarded so the
+   child's own layering unions it with the callee's `:with`. Each context
+   renders as (subs (str k) 1) — never (name k), which would drop the
+   namespace of an :app/dev."
+  [with verbose? callee callee-args]
+  (vec (concat (if verbose? ["--verbose"] [])
+               (if (seq with)
+                 ["--with" (str/join "," (map #(subs (str %) 1) with))]
+                 [])
+               [callee]
+               callee-args)))
 
 (def ^:private with-error
   "lgx: --with requires a comma-separated list of context names")

@@ -11,6 +11,14 @@
 ;; its original CLI string, a filled :default is stringified. The
 ;; declarations themselves are validated in lgx.config; here a malformed
 ;; declaration is a programmer error.
+;;
+;; A step vector may also carry the :args/rest placeholder, which stands for
+;; the CLI args left over after the declared positionals bind. It travels in
+;; the same bindings map under :args/rest, but as a vector of strings rather
+;; than one string, and substitute splices it into N items. Its presence
+;; anywhere in a task's steps (uses-rest?) is what relaxes the otherwise
+;; strict arity check. The namespace differs from :arg/ on purpose, so it can
+;; never collide with a declared arg named `rest`.
 ;; --------------------------------------------------------------------------
 
 (defn- arg-key [decl]
@@ -36,44 +44,55 @@
 
       :else nil)))
 
+(def rest-key
+  "The bindings key the leftover CLI args bind under."
+  :args/rest)
+
 (defn bind-args
   "Bind `cli-args` (strings) positionally against `decls`. Returns
    {:bindings {:arg/<name> <string> ...}} or {:errors [msg ...]} with every
    error collected. Args without :default are required; unfilled trailing
-   args bind (str default)."
-  [decls cli-args]
-  (let [decls (vec decls)
-        cli-args (vec cli-args)]
-    (if (> (count cli-args) (count decls))
-      {:errors [(if (empty? decls)
-                  (str "task takes no arguments (got " (count cli-args) ")")
-                  (str "too many arguments (expected at most " (count decls)
-                       ", got " (count cli-args) ")"))]}
-      (loop [i 0
-             bindings {}
-             errors []]
-        (if (>= i (count decls))
-          (if (seq errors)
-            {:errors errors}
-            {:bindings bindings})
-          (let [decl (nth decls i)]
-            (cond
-              (< i (count cli-args))
-              (let [v (nth cli-args i)
-                    e (value-error decl v)]
-                (if e
-                  (recur (inc i) bindings (conj errors e))
-                  (recur (inc i) (assoc bindings (arg-key decl) v) errors)))
+   args bind (str default).
 
-              (contains? decl :default)
-              (recur (inc i)
-                     (assoc bindings (arg-key decl) (str (:default decl)))
-                     errors)
+   With `rest?` true the task uses :args/rest, so args past the declared
+   positionals are collected under :args/rest (a vector, empty when there
+   are none) instead of erroring. Without it, arity stays strict."
+  ([decls cli-args] (bind-args decls cli-args false))
+  ([decls cli-args rest?]
+   (let [decls (vec decls)
+         cli-args (vec cli-args)
+         surplus (vec (drop (count decls) cli-args))
+         cli-args (if rest? (vec (take (count decls) cli-args)) cli-args)]
+     (if (and (not rest?) (seq surplus))
+       {:errors [(if (empty? decls)
+                   (str "task takes no arguments (got " (count cli-args) ")")
+                   (str "too many arguments (expected at most " (count decls)
+                        ", got " (count cli-args) ")"))]}
+       (loop [i 0
+              bindings (if rest? {rest-key surplus} {})
+              errors []]
+         (if (>= i (count decls))
+           (if (seq errors)
+             {:errors errors}
+             {:bindings bindings})
+           (let [decl (nth decls i)]
+             (cond
+               (< i (count cli-args))
+               (let [v (nth cli-args i)
+                     e (value-error decl v)]
+                 (if e
+                   (recur (inc i) bindings (conj errors e))
+                   (recur (inc i) (assoc bindings (arg-key decl) v) errors)))
 
-              :else
-              (recur (inc i) bindings
-                     (conj errors (str "missing required argument <"
-                                       (name (:name decl)) ">"))))))))))
+               (contains? decl :default)
+               (recur (inc i)
+                      (assoc bindings (arg-key decl) (str (:default decl)))
+                      errors)
+
+               :else
+               (recur (inc i) bindings
+                      (conj errors (str "missing required argument <"
+                                        (name (:name decl)) ">")))))))))))
 
 (defn shell-quote
   "Wrap `s` in single quotes with embedded single quotes escaped as '\\''.
@@ -85,21 +104,46 @@
 (defn- placeholder? [item]
   (and (keyword? item) (= "arg" (namespace item))))
 
+(defn- rest-placeholder? [item]
+  (= rest-key item))
+
+(defn- bound-value [bindings item]
+  (if (contains? bindings item)
+    (get bindings item)
+    (throw (ex-info (str "unbound placeholder " item)
+                    {:placeholder item}))))
+
 (defn substitute
   "Replace each :arg/<name> keyword in step vector `v` with its bound value
-   from `bindings`, shell-quoted when `quote?` is true. String items pass
-   through verbatim. An unbound placeholder is a programmer error (config
-   validation rejects it) and throws ex-info."
+   from `bindings`, shell-quoted when `quote?` is true. An :args/rest item
+   splices into as many items as the leftover CLI args it is bound to (zero
+   when there are none), each quoted the same way. String items pass through
+   verbatim. An unbound placeholder is a programmer error (config validation
+   rejects it) and throws ex-info."
   [v bindings quote?]
-  (mapv (fn [item]
-          (if (placeholder? item)
-            (if (contains? bindings item)
-              (let [value (get bindings item)]
-                (if quote? (shell-quote value) value))
-              (throw (ex-info (str "unbound placeholder " item)
-                              {:placeholder item})))
-            item))
-        v))
+  (let [render (fn [value] (if quote? (shell-quote value) value))]
+    (vec (mapcat (fn [item]
+                   (cond
+                     (rest-placeholder? item)
+                     (mapv render (bound-value bindings item))
+
+                     (placeholder? item)
+                     [(render (bound-value bindings item))]
+
+                     :else [item]))
+                 v))))
+
+(defn uses-rest?
+  "True when any of `steps` carries the :args/rest placeholder in a
+   vector-form action value. A string value never matches — there is no
+   {{rest}} template form, because a joined splice would lose quoting."
+  [steps]
+  (boolean
+    (some (fn [step]
+            (some (fn [[_ v]]
+                    (and (vector? v) (some rest-placeholder? v)))
+                  step))
+          steps)))
 
 (defn expand
   "Replace each {{<name>}} token in `s` whose name matches a bound arg with
@@ -130,20 +174,24 @@
 
 (defn signature
   "Render decls as a space-joined signature: required args as <name>,
-   defaulted args as [name]. Empty string for no decls."
-  [decls]
-  (str/join " "
-            (map (fn [d]
-                   (let [n (name (:name d))]
-                     (if (contains? d :default)
-                       (str "[" n "]")
-                       (str "<" n ">"))))
-                 decls)))
+   defaulted args as [name]. Empty string for no decls. With `rest?` true
+   the task forwards leftover CLI args, so `[args...]` is appended."
+  ([decls] (signature decls false))
+  ([decls rest?]
+   (str/join " "
+             (concat (map (fn [d]
+                            (let [n (name (:name d))]
+                              (if (contains? d :default)
+                                (str "[" n "]")
+                                (str "<" n ">"))))
+                          decls)
+                     (if rest? ["[args...]"] [])))))
 
 (defn usage-line
   "Render `usage: lgx <task> <req> [opt]` from decls. With no decls just
-   `usage: lgx <task>`."
-  [task-name decls]
-  (let [sig (signature decls)]
-    (str "usage: lgx " task-name
-         (if (str/blank? sig) "" (str " " sig)))))
+   `usage: lgx <task>`. `rest?` appends `[args...]` (see signature)."
+  ([task-name decls] (usage-line task-name decls false))
+  ([task-name decls rest?]
+   (let [sig (signature decls rest?)]
+     (str "usage: lgx " task-name
+          (if (str/blank? sig) "" (str " " sig))))))

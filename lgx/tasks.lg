@@ -1,5 +1,6 @@
 (ns lgx.tasks
   (:require [lgx.args :as args]
+            [lgx.cli :as cli]
             [lgx.runner :as runner]
             [lgx.style :as style]
             [string :as str]))
@@ -13,21 +14,88 @@
 ;; action key:
 ;;   {:sh "..."}    shell command (string or vector joined by spaces)
 ;;   {:run "..."}   invoked like `lgx run ...` with the project basis
+;;   {:task fmt}    another task, or a built-in as lgx:<name>
+;;
+;; A :task step re-invokes lgx itself as a child process rather than calling
+;; the command in-process: every built-in either exits on its own paths or
+;; hands the process to `lg`, and repl/nrepl are interactive, so an in-process
+;; call could never return to continue the chain. The child is the same binary
+;; the parent runs (cli/self-invocation + cli/resolve-self-bin!), never a PATH
+;; lookup of whatever `lgx` happens to be, and it inherits stdio so an
+;; interactive callee still owns the terminal.
 ;;
 ;; A step value may reference the bound CLI values (`bindings`, built by
 ;; args/bind-args in cmd-task) in two ways, applied before the step runs:
 ;;   - :arg/<name> items in a vector-form value, replaced whole: shell-quoted
 ;;     for :sh (one shell word, never interpreted), verbatim for :run (each
 ;;     item is already one argv entry).
+;;   - :args/rest in a vector-form value, splicing in the CLI args left over
+;;     after the declared positionals bind — quoted per item for :sh,
+;;     verbatim for :run and :task.
 ;;   - {{<name>}} tokens inside any string — a whole-string value or a vector
 ;;     item — spliced in raw with no quoting added; tokens that don't name a
 ;;     declared arg pass through untouched. A :run string value is expanded
 ;;     first and then whitespace-split into argv.
 ;; The echoed step line shows the substituted command.
 ;;
-;; Like the rest of lgx, child processes run through os/sh which buffers
-;; stdout/stderr until the child exits. Output is replayed after each step.
+;; :sh and :run children run through os/sh, which buffers stdout/stderr until
+;; the child exits; their output is replayed after the step. A :task child is
+;; the exception — it inherits the parent's stdio, so its output streams live.
 ;; --------------------------------------------------------------------------
+
+;; --------------------------------------------------------------------------
+;; Cycle guard
+;;
+;; Every hop between tasks is a child process — a `:task` step spawns lgx, and
+;; a `:sh` step may too — so the chain of tasks already running travels in the
+;; environment rather than on a call stack. One mechanism therefore covers
+;; direct `:task` recursion, an indirect cycle, and the `{:sh "lgx test"}`
+;; mistake inside an override of `test`.
+;;
+;; An entry is a (task name, project root) pair: two projects may each define
+;; `check` without the inner one reading as recursion, while a chain that
+;; leaves a project and re-enters the same task is still caught. The pair
+;; travels as two parallel vars so the documented LGX_TASK_STACK stays the
+;; readable `a,b` name chain (it is what the --verbose env trace shows);
+;; LGX_TASK_ROOTS is its implementation detail. Roots are newline-joined
+;; because a directory name may legitimately contain a comma.
+;; --------------------------------------------------------------------------
+
+(def stack-var "LGX_TASK_STACK")
+(def roots-var "LGX_TASK_ROOTS")
+
+(defn- split-drop-blanks [s sep]
+  (vec (filter #(not (str/blank? %)) (str/split (or s "") sep))))
+
+(defn stack-entries
+  "Parse the inherited chain into [{:name <str> :root <str>} ...], innermost
+   last. A length mismatch between the two values means something outside lgx
+   set them, so the chain reads as empty — failing open beats refusing to run
+   a legitimate task."
+  [names-value roots-value]
+  (let [names (split-drop-blanks names-value ",")
+        roots (split-drop-blanks roots-value "\n")]
+    (if (= (count names) (count roots))
+      (mapv (fn [i] {:name (nth names i)
+                     :root (nth roots i)})
+            (range (count names)))
+      [])))
+
+(defn stack-cycle?
+  "True when `name` is already running in `root`."
+  [entries name root]
+  (boolean (some #(and (= name (:name %)) (= root (:root %))) entries)))
+
+(defn stack-chain
+  "The ` > `-joined name chain to print, with the re-entered name appended."
+  [entries name]
+  (str/join " > " (conj (mapv :name entries) name)))
+
+(defn stack-values
+  "The [names-value roots-value] pair to export after pushing (name, root)."
+  [entries name root]
+  [(str/join "," (conj (mapv :name entries) name))
+   (str/join "\n" (conj (mapv :root entries) root))])
 
 (defn- as-string [value]
   (if (vector? value) (str/join " " value) value))
@@ -71,11 +139,35 @@
         (os/setenv "LGX_RUN" (or prev ""))
         exit))))
 
-(defn- run-step! [step bindings lib-paths resource-paths verbose?]
+(defn- run-task-step! [value bindings child-with verbose?]
+  ;; The value's two forms collapse to one argv here: a bare symbol is a
+  ;; callee with no args, a vector is the callee plus its args. Substitution
+  ;; runs verbatim (no shell quoting) — each item is already one argv entry.
+  (let [v (if (vector? value)
+            (substituted value bindings false)
+            [value])
+        callee (str (first v))
+        callee-args (vec (rest v))
+        {:keys [bin prefix]} (cli/self-invocation os/args)
+        bin (cli/resolve-self-bin! bin)
+        argv (vec (concat prefix
+                          (cli/child-args child-with verbose? callee
+                                          callee-args)))]
+    (write! *err* (str "\n"
+                       (style/step-line
+                         (str/join " " (concat ["lgx" callee] callee-args)))
+                       "\n"))
+    (when verbose?
+      (write! *err* (str "+ " bin " " (str/join " " argv) "\n")))
+    (runner/exec-interactive! bin argv)))
+
+(defn- run-step! [step bindings lib-paths resource-paths child-with verbose?]
   (cond
     (contains? step :sh) (run-sh-step! (:sh step) bindings verbose?)
     (contains? step :run) (run-run-step! (:run step) bindings lib-paths
                                          resource-paths verbose?)
+    (contains? step :task) (run-task-step! (:task step) bindings child-with
+                                           verbose?)
     :else (throw (ex-info "step has no action key" {:step step}))))
 
 (defn run-task!
@@ -85,14 +177,16 @@
    is the resolved source-path list and `resource-paths` the resolved
    resource roots, both used for any `:run` steps. `bindings` maps
    :arg/<name> placeholders to their bound CLI values ({} when the task
-   declares no :args)."
-  [task-name task lib-paths resource-paths verbose? bindings]
+   declares no :args), plus :args/rest when the task forwards leftover args.
+   `child-with` is the caller's effective context-name list, forwarded as
+   `--with` to any `:task` step's child."
+  [task-name task lib-paths resource-paths verbose? bindings child-with]
   (write! *err* (str (style/task-header task-name) "\n"))
   (loop [steps (:do task)]
     (if (empty? steps)
       (os/exit 0)
       (let [exit (run-step! (first steps) bindings lib-paths resource-paths
-                            verbose?)]
+                            child-with verbose?)]
         (if (zero? exit)
           (recur (rest steps))
           (os/exit exit))))))
