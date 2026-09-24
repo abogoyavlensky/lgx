@@ -484,7 +484,7 @@ between.
 **Files:**
 - Modify: `README.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README**
+- [x] **Step 1: README**
   Commands table: `lgx test` row says "under the `:test` context's paths
   (`test/` by default)"; `lgx info` row adds the version, contexts, and
   applies blocks. `lgx test` details (line ~233): the paths rule and the
@@ -495,7 +495,7 @@ between.
   ~310) becomes `:test {:extra-paths ["test" "test-support"]}` with a comment
   that a project `:test` replaces the default. Use /writing-clearly.
 
-- [ ] **Step 2: ARCHITECTURE**
+- [x] **Step 2: ARCHITECTURE**
   `lgx info` (line ~137): the new lines. `lgx test` steps 3 and 8 (lines
   ~354 and ~422): dirs from the `:test` context, project-relative display,
   no hand-appended test dir. Contexts (line ~617): defaults as data, the
@@ -503,7 +503,11 @@ between.
   table, the `optional` path rule. Components table: `lgx/config.lg` line
   mentions the shipped defaults.
 
-- [ ] **Step 3: Commit**
+  > Deviation: ARCHITECTURE also drops a stale claim that `lgx help` ends
+  > with a note on the auto contexts (it does not), and documents the
+  > namespace-collision check. README's repl/nrepl rows lose "when defined".
+
+- [x] **Step 3: Commit**
   `git commit -am "docs: default contexts, :test paths, info output"`
 
 ## Follow-ups (not in this plan)

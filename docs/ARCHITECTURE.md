@@ -32,7 +32,7 @@ embedded git library ended up shelling out for edge cases anyway.
 ```
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring, apply-runtime! (the :lg-runtime decision), cmd-info
 lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port, build --target/--all; self-invocation + child argv for :task steps
-lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map
+lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map; the shipped default contexts and the per-command auto-contexts table
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
 lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
 lgx/cache.lg        gitlibs cache layout, fetch via git
@@ -84,8 +84,7 @@ because it runs under the user's `lg` and cannot require `lgx.style`.
 same everywhere. After a `Usage: lgx [options] <command> [args...]`
 synopsis it lists built-in commands under a `Built-in commands:` title and
 project tasks under a `Project tasks:` title, both as `lgx <name>` rows aligned
-to one shared description column, with `Options:` last, closed by a one-line
-note on the auto-applied `:dev`/`:test` convention contexts. Help stays usable when
+to one shared description column, with `Options:` last. Help stays usable when
 `lgx.edn` is invalid: the tasks section is replaced by a one-line warning
 (`(omitted — lgx.edn is invalid; run \`lgx install\` to see errors)`) instead
 of failing or silently dropping tasks.
@@ -143,19 +142,23 @@ nothing is built and no branch pin is resolved. `cmd-info` probes the
 environment (`lg -v`, `command -v go`, `go version`, the cache path from
 `gobuild/runtime-paths`, `LGX_LG`, `LGX_LETGO_REPLACE`) and hands the
 values to the pure `info-lines`, which renders aligned `label  value`
-lines on stdout: `project`, `lg-runtime`, `lg-version`, `lg`, then
-`version` (the outcome of `check-lg-version!`) under `:installed` or
-`go`/`let-go`/`LGX_LG` under `:built`, and `go-deps` with each coord's
-origin from `:go-origins`. A branch pin under `:built` prints
+lines on stdout: `project`, `lgx` (lgx's own version), `lg-runtime`,
+`lg-version`, `lg`, then `version` (the outcome of `check-lg-version!`)
+under `:installed` or `go`/`let-go`/`LGX_LG` under `:built`, `go-deps`
+with each coord's origin from `:go-origins`, then two blocks read from
+`lgx.config` so they cannot drift from behaviour: `contexts` (the
+effective contexts, `:dev` and `:test` first, then the project's sorted by
+name, each `pr-str`'d, with `(default)` on a shipped one) and `applies`
+(each auto-applying command and its context names). A branch pin under `:built` prints
 `unresolved`, since its cache path needs `go list -m` (network; exits on
 failure). Exit 1 only for an invalid `lgx.edn` or a failed dep fetch.
 
 ### `lgx run [args...]`
 
 Steps 1–4 match `install` — deps are auto-installed if missing — except
-that a context named `:dev`, when defined in `:contexts`, is prepended to
-the CLI `--with` list first (`config/auto-context` via `auto-with!` in
-`lgx.lg`; silent unless `--verbose`, which prints `+ auto context :dev`).
+that the `:dev` context is prepended to the CLI `--with` list first
+(`config/auto-context-names` via `auto-with!` in `lgx.lg`; silent unless
+`--verbose`, which prints `+ auto context :dev`).
 Then:
 
 5. If any dep was newly cloned during dependency resolution, print the same install
@@ -351,17 +354,24 @@ Steps 1–2 (project root, config load) match `install`. Then:
    + exit 1) and positionals. Two or more positionals →
    `lgx: test takes at most one argument` + exit 1; one positional plus
    `--exclude` → `lgx: --exclude cannot be combined with a test file` +
-   exit 1. Then resolve `<project-root>/test`. If it does not exist (or
-   is not a directory), exit 1 with `lgx: no test/ directory in project`
-   on stderr. These checks, and the file selection in step 5, all run
-   **before** the basis is built, so a bad invocation (or an empty plan)
-   never fetches deps.
-4. Build the basis as in `install` steps 3–4, with a context named
-   `:test`, when defined in `:contexts`, prepended to the CLI `--with`
-   list (`auto-with!`, as `run` does with `:dev` and `repl`/`nrepl` with
-   both `:dev` and `:test`). In code this step follows step 5: selection
-   depends only on the project root and `test/`, and finishing it first
-   keeps every cheap failure ahead of the dep fetch.
+   exit 1. Then read the test dirs: the effective `:test` context's
+   `:extra-paths` (`config/contexts`, so `["test"]` unless the project
+   replaces `:test`), in declared order. No `:extra-paths` at all →
+   `lgx: the :test context defines no :extra-paths, so lgx test has
+   nowhere to look` + exit 1. Each entry is joined onto the project root
+   and normalized; the ones that exist as directories are the test dirs.
+   None exists → `lgx: no test directory in project (looked for: test/)`
+   (every declared entry, `<p>/`, comma-joined) + exit 1. A missing entry
+   while another exists is skipped here; the basis still warns about it
+   if the project declared it (see [Contexts](#contexts)). These checks,
+   and the file selection in step 5, all run **before** the basis is
+   built, so a bad invocation (or an empty plan) never fetches deps.
+4. Build the basis as in `install` steps 3–4, with `:test` prepended to
+   the CLI `--with` list (`auto-with!`, as `run` does with `:dev` and
+   `repl`/`nrepl` with both `:dev` and `:test`). In code this step follows
+   step 5: selection depends only on the project root and the test dirs,
+   and finishing it first keeps every cheap failure ahead of the dep
+   fetch.
 5. Select the test files. If a positional `<file>` arg is provided,
    resolve it to an absolute path (project-root-relative inputs are
    joined against the project root), then `path/normalize` away any
@@ -371,23 +381,34 @@ Steps 1–2 (project root, config load) match `install`. Then:
    - extension is `.lg`, `.cljc`, or `.clj` →
      `lgx: not a test file (expected .lg, .cljc, or .clj): <path>` + exit 1
      if not.
-   - normalized absolute path starts with `<abs test-dir>/` →
-     `lgx: test file must be under test/: <path>` + exit 1 if not.
+   - normalized absolute path starts with `<abs test-dir>/` for one of
+     the test dirs (the first match wins and maps the namespace) →
+     `lgx: test file must be under a test path (test/): <path>` (the
+     existing dirs) + exit 1 if not.
    On success, the test plan is a one-entry vector with that file.
-   With no arg, walk `test/` recursively for `*_test.lg`,
+   With no arg, walk each test dir recursively, in order, for `*_test.lg`,
    `*_test.cljc`, and `*_test.clj` files, map each to its
-   `[display-file ns-symbol]` entry (step 6), then apply `--exclude`
+   `[display-file ns-symbol]` entry (step 6; a file reached through two
+   nested declared dirs keeps its first entry), then apply `--exclude`
    (`test-runner/exclude-entries`): drop entries whose ns symbol is
    named. Any name matching no entry →
    `lgx: --exclude names no test namespace: <ns>` (one line per name, in
    the order given) + exit 1. This is checked **before** either
    empty-plan exit, so a typo in an empty `test/` still fails rather
    than printing `No tests found`. Then: the walk returned no files →
-   print `No tests found in test/` + exit 0; every discovered entry was
-   excluded → print `All test files excluded` + exit 0.
-6. Map each absolute path to a namespace symbol: strip `test/` prefix
-   and the extension, split on `/`, hyphenate `_` per segment, join
-   with `.` (e.g. `test/lgx/config_test.lg` → `lgx.config-test`).
+   print `No tests found in test/` (the existing dirs) + exit 0; every
+   discovered entry was excluded → print `All test files excluded` +
+   exit 0. Finally, a planned namespace that more than one discovered file
+   maps to (`unit/foo_test.lg` and `integration/foo_test.lg`;
+   `test-runner/ns-collisions`) → `lgx: test namespace <ns> is defined by
+   more than one file (<files>)` + exit 1, since only the first on the
+   source path would load and the other's tests would silently not run.
+   In single-file mode only the chosen file's namespace is checked.
+6. Map each absolute path to a namespace symbol: strip the test dir it
+   was found under and the extension, split on `/`, hyphenate `_` per
+   segment, join with `.` (e.g. `test/lgx/config_test.lg` →
+   `lgx.config-test`). The display file is the path relative to the
+   project root, so a custom dir shows as `tests/foo_test.lg`.
    This is the reverse of let-go's resolver rule
    ([`docs/knowledge-base/let-go-resolver.md`](knowledge-base/let-go-resolver.md)).
 7. Generate the harness: a directory
@@ -416,14 +437,16 @@ Steps 1–2 (project root, config load) match `install`. Then:
    failures` summary and `(os/exit (if failed? 1 0))`. The opening
    `Running tests in <header>...` banner is printed by lgx itself (green,
    on stderr — see [Output styling](#output-styling)), not the harness;
-   walk-mode passes `test/`, single-file mode the entry's display path
-   (e.g. `test/foo_test.lg`).
-8. Compute `-source-paths` as project paths + dep paths + the absolute
-   `test/` path (so test namespaces can `require` each other and the
-   harness can `require` them) + the harness directory, last (so nothing in
-   a project shadows the harness's own namespaces). Compute
+   walk-mode passes the existing test dirs (`test/, integration/`),
+   single-file mode the entry's display path (e.g. `test/foo_test.lg`).
+8. Compute `-source-paths` as the basis paths + the harness directory,
+   last (so nothing in a project shadows the harness's own namespaces).
+   The test dirs are already in the basis paths through the `:test`
+   overlay, with the project's own paths and ahead of dep dirs, so test
+   namespaces can `require` each other, the harness can `require` them,
+   and a test dir's namespace shadows a dep's of the same name. Compute
    `-resource-paths` as the project's resolved resource roots
-   (project-only; the `test/` dir is *not* added as a resource root).
+   (project-only; test dirs are *not* added as resource roots).
 9. Run `lg -source-paths <X> -resource-paths <R> <harness-dir>/harness.lg` and capture
    its output.
    Normally the harness owns the `os/exit` and that exit code is passed
@@ -619,12 +642,31 @@ not call itself (`calls itself; use lgx:<name> to call the built-in`).
 A `:contexts` entry is a named overlay carrying only `:extra-deps`/
 `:extra-paths`/`:extra-resource-paths` — the per-task extras, lifted to the top
 level for reuse. They are applied by the CLI `--with a,b` flag (any command),
-a task's `:with` vector, and two name conventions: a context named `:dev`,
-when defined, auto-applies to `run`, `:test` to `test`, and `repl`/`nrepl` to
-**both** (`config/auto-context` returns `[name]`-or-`[]`; `auto-with!` in
-`lgx.lg` takes an ordered name list — `[:dev]` for `run`, `[:test]` for `test`,
-`[:dev :test]` for `repl` and `nrepl` — prepends the defined ones to the CLI
-`--with` list, and prints `+ auto context <name>` per name under `--verbose`).
+a task's `:with` vector, and the auto-contexts: `run` applies `:dev`, `test`
+applies `:test`, and `repl`/`nrepl` apply **both**. That table is one value,
+`config/auto-contexts`, read through `config/auto-context-names`; `auto-with!`
+in `lgx.lg` prepends the names to the CLI `--with` list and prints `+ auto
+context <name>` per name under `--verbose`. The table is fixed: what a context
+contains is the customization point, and `lgx info` prints both.
+
+`:dev` and `:test` always exist. `config/default-contexts` ships
+`{:dev {} :test {:extra-paths ["test"]}}`, and `config/contexts` returns
+`(merge default-contexts (:contexts cfg))`, so a project entry replaces the
+shipped one of the same name wholesale (deps.edn alias semantics). The merge
+happens at the accessor, not in `load-config`: the loaded map stays the
+user's file verbatim (config tests assert exact equality, and the raw file
+and the effective view are different things), while every reader
+(`with->overlay!`, `overlay-basis`, `cmd-test`, `info-lines`) goes through
+`config/contexts`. `with-refs-errors` validates a task's `:with` against the
+same union, so `:with [:dev]` loads in a project with no `:contexts`.
+
+A shipped default's paths are optional. `overlay-basis` passes
+`basis`/`resolve-project-paths` the set of `:extra-paths` contributed by
+applied contexts for which `config/default-context?` holds (shipped, not
+redefined by the project), minus any path the project declared itself (in
+`:paths`, one of its own applied contexts, or the task). Those resolve
+without the `warning: :paths entry not found` line, so `lgx repl` in a
+project without `test/` stays quiet; a path the project wrote still warns.
 A `:task` step forwards the caller's *effective* contexts (its `:with` plus the
 CLI `--with`) to the child as `--with`, so the callee layers them after its own
 `:with` — the child's existing layering does the union, with no new precedence
@@ -634,9 +676,9 @@ never a task's `:run` steps — so dev/test deps cannot leak into artifacts. `co
 list to a single `{:deps-pairs :paths :resource-paths}` overlay, folding
 overlap among the named contexts last-wins via `config/merge-coords` (and
 throwing on an unknown name; a task's `:with` is additionally validated against
-the defined contexts when `lgx.edn` loads). A reference to an undefined context
-fails loudly — at config-load for `:with`, at runtime for `--with`; the auto
-names are only ever added when defined, so they can't trigger that error.
+the effective contexts when `lgx.edn` loads). A reference to an unknown context
+fails loudly - at config-load for `:with`, at runtime for `--with`; the auto
+names always exist, so they can't trigger that error.
 
 `overlay-basis` in `lgx.lg` composes the final basis from these layers,
 lowest → highest precedence: project `:deps`/`:paths`/`:resource-paths` → auto
