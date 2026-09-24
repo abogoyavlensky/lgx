@@ -1,5 +1,7 @@
 # Default Contexts Implementation Plan
 
+**Status: completed** (2026-09-24)
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship `:dev` and `:test` as default contexts that lgx carries as data, make `lgx test` discover tests through the `:test` context's paths instead of a hardcoded `test/`, and have `lgx info` print its own version, the effective contexts, and which contexts each built-in applies.
@@ -515,3 +517,48 @@ between.
 - `--no-auto` (or similar) to drop a convention context from one invocation,
   if anyone needs `nrepl` without `:test`.
 - Bump the version and put the release note above into the GitHub release.
+
+## Completion summary
+
+Implemented as designed. `lgx/config.lg` ships `default-contexts` and
+`auto-contexts`; `config/contexts` merges the defaults under the project's
+own at read time, so `load-config` still returns the file verbatim. `lgx.lg`
+drives the four auto-applying commands from that one table, leaves a missing
+shipped-default path silent, discovers tests through the `:test` context's
+`:extra-paths`, and `lgx info` prints the lgx version, the effective contexts,
+and an `applies` block. Unit: 791 tests, 0 failures. E2E: 492 assertions pass
+(new Scenarios 147-155). An end-to-end run from `lgx new -t lib` confirmed
+test, repl, a second test dir, and info.
+
+Codex review found two real issues, both fixed as fixup commits:
+- The optional-path rule also silenced a path the project declared itself
+  when a shipped default contributed the same path (`{:paths ["test"]}` +
+  `--with test`). Declared paths are now excluded from the optional set.
+- Two test dirs holding the same relative file (`unit/foo_test.lg`,
+  `integration/foo_test.lg`) map to one namespace; only the first loads, so
+  a failing test could pass silently. `lgx test` now exits 1 naming both files.
+
+Deviations:
+- Task 2: `lgx install` never resolves `:paths`, so the smoke tests and
+  Scenarios 151-152 use `lgx --with test info` to check the warning.
+- Task 2: `with->overlay!`'s `(no contexts defined in lgx.edn)` branch removed
+  as dead code.
+- Task 3: walk mode drops a duplicate display path, so a declared dir nested
+  in another does not run its files twice.
+- Task 3 (review): new `test-runner/ns-collisions` and the collision error.
+- Task 5: Scenario 102's fixture gains `:extra-paths ["test"]`; Scenario 99
+  becomes `["test" "test-support"]` (the release-note breaking change);
+  Scenario 114 uses a bare `{}` and asserts the REPL stays silent. Item 9
+  asserts the project's namespace wins instead of reading `--verbose` path
+  order. The `lgx info` help row mentions contexts.
+- Task 6: removed a stale ARCHITECTURE claim about a help closing note.
+
+Release note addition: `lgx test` now refuses two test files that define the
+same namespace.
+
+What the plan could have specified better: the smoke and e2e steps for the
+missing-path warning named `lgx install`, which never resolves `:paths`. A
+quick check of which commands build the basis would have caught it. The
+multi-dir design also needed a rule for two dirs that map files to the same
+namespace.
+
