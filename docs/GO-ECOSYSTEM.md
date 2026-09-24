@@ -14,9 +14,12 @@ hiccup, medley, tools.cli, bond and dependency.
 
 ## Where we are
 
-`letgo-packages` ships `sql`, `sqlite`, `postgres` and `ragtime`. The sql layer is
-driver-agnostic, and postgres proves it: one added coord
-(`jackc/pgx/v5/stdlib`) and no Go code. That is our strongest artifact
+`letgo-packages` ships `sql`, `sqlite`, `postgres`, `duckdb` and `ragtime`. The sql
+layer is driver-agnostic, and postgres proves it: one added coord
+(`jackc/pgx/v5/stdlib`) and no Go code. duckdb is the one cgo driver (no
+pure-Go DuckDB exists) and adds a row-reading shim through the layer's
+`:sql/scan-row` hook, because its driver returns Go types let-go boxes
+opaquely. That is our strongest artifact
 and it appears nowhere outside a README.
 
 ## Candidates

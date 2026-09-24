@@ -626,6 +626,9 @@ clone.
 - [`examples/wails-desktop/`](./examples/wails-desktop) - desktop app with
   a webview UI, via a Go dep (`:go/*`) and the letgo-packages `wails`
   wrapper.
+- [`examples/with-duckdb/`](./examples/with-duckdb) - web analytics over an
+  in-process DuckDB, via the letgo-packages `duckdb` package (a cgo driver,
+  so native builds only).
 
 ## Projects using lgx
 

@@ -178,7 +178,8 @@ note these, none of which are obvious:
 ## Known limits
 
 - **No cross-compilation for a cgo dep.** `lgx build --target` forces
-  `CGO_ENABLED=0`. Pure-Go deps cross-build fine; the wails stack does not.
+  `CGO_ENABLED=0`. Pure-Go deps cross-build fine; the wails and duckdb
+  stacks do not.
 - **Mobile targets are not supported** and fail confusingly - see
   [`../issues/lgx-mobile-targets-buildmode.md`](../issues/lgx-mobile-targets-buildmode.md).
 - **No `:go/build-tags`.** Use the `GOFLAGS` environment variable
