@@ -59,6 +59,23 @@
   [s]
   (contains? overridable-commands s))
 
+;; The tool's shipped contexts, the counterpart of the Clojure CLI's root
+;; deps.edn aliases. They are never merged into the loaded config (load-config
+;; returns the user's file verbatim); `contexts` layers them under the
+;; project's :contexts at read time, and a project entry replaces a default of
+;; the same name wholesale.
+(def default-contexts
+  {:dev  {}
+   :test {:extra-paths ["test"]}})
+
+;; The contexts each built-in applies before any --with. Fixed: what a context
+;; contains is the customization point, not which command applies it.
+(def auto-contexts
+  {"run"   [:dev]
+   "repl"  [:dev :test]
+   "nrepl" [:dev :test]
+   "test"  [:test]})
+
 ;; ---------------------------------------------------------------------------
 ;; lgx.edn format as one schema value (see lgx.spec for the schema language)
 ;; ---------------------------------------------------------------------------
@@ -723,13 +740,12 @@
      [:fn bin-out-collision-errors]]]])
 
 (defn- with-refs-errors
-  "Root-level cross-key rule: every task :with entry must name a defined
-   context. Runs only after the structural schema passed, so shapes hold."
+  "Root-level cross-key rule: every task :with entry must name an effective
+   context (a shipped default or a project one). Runs only after the
+   structural schema passed, so shapes hold."
   [cfg]
-  (let [defined (set (keys (or (:contexts cfg) {})))
-        label (if (seq defined)
-                (str "(defined: " (str/join ", " (sort (map str defined))) ")")
-                "(no contexts defined)")]
+  (let [defined (set (keys (merge default-contexts (or (:contexts cfg) {}))))
+        label (str "(defined: " (str/join ", " (sort (map str defined))) ")")]
     (vec (mapcat (fn [[task-name task]]
                    (mapv (fn [c]
                            {:path [:tasks task-name :with]
@@ -1261,15 +1277,27 @@
   (or (:tasks cfg) {}))
 
 (defn contexts
-  "Return the :contexts map from a loaded cfg map, or {} if absent."
+  "The effective contexts: default-contexts merged with the project's own
+   :contexts. A project entry replaces the default of the same name wholesale."
   [cfg]
-  (or (:contexts cfg) {}))
+  (merge default-contexts (or (:contexts cfg) {})))
+
+(defn default-context?
+  "True when `name` is a shipped default the project's :contexts does not
+   redefine, i.e. the effective value is lgx's own."
+  [cfg name]
+  (and (contains? default-contexts name)
+       (not (contains? (or (:contexts cfg) {}) name))))
+
+(defn auto-context-names
+  "The contexts `command` applies before any --with, or [] for a command that
+   applies none. Callers prepend these to the CLI --with list, so an explicit
+   --with context wins over an auto one on a lib-name collision (last-wins)."
+  [command]
+  (get auto-contexts command []))
 
 (defn auto-context
-  "Return [name] when `name` is a defined context in cfg, else []. Convention
-   contexts: run/nrepl auto-apply :dev, test auto-applies :test. Callers
-   prepend the result to the CLI --with list, so an explicit --with context
-   wins over the auto one on a lib-name collision (last-wins)."
+  "Return [name] when `name` is an effective context in cfg, else []."
   [cfg name]
   (if (contains? (contexts cfg) name) [name] []))
 
