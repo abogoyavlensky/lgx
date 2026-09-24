@@ -1,0 +1,71 @@
+;; Web analytics in-process: ingest page views into an in-memory DuckDB,
+;; then ask it the questions an analytics dashboard asks.
+(ns main
+  (:require [duckdb.core :as db]
+            [string :as str]))
+
+(def ^:private paths ["/" "/pricing" "/docs" "/blog/duckdb" "/about"])
+
+(defn- event
+  "The i-th synthetic page view: [ts visitor path referrer duration-ms]."
+  [i]
+  [(format "2026-09-%02d %02d:%02d:00" (inc (mod i 7)) (mod (* i 7) 24) (mod i 60))
+   (str "v" (mod i 53))
+   (nth paths (mod i 5))
+   (when (zero? (mod i 3)) "https://news.ycombinator.com")
+   (+ 100 (mod (* i 37) 2000))])
+
+(defn- insert-batch!
+  "Insert many events with one multi-row VALUES statement. One statement
+   per event costs a round trip each; batching is ~14x faster, so a real
+   tracker buffers hits and flushes them like this."
+  [conn events]
+  (db/execute! conn (into [(str "insert into events values "
+                                (str/join ", " (repeat (count events)
+                                                       "(?::timestamp, ?, ?, ?, ?)")))]
+                          cat events)))
+
+(defn- print-table [title rows]
+  (println (str "\n" title))
+  (doseq [r rows] (println " " (str/join "  " (map (fn [[k v]] (str (name k) "=" v)) r)))))
+
+(defn- check [label ok]
+  (when-not ok (throw (ex-info (str "check failed: " label) {}))))
+
+(defn -main []
+  (let [conn (db/open "")
+        events (mapv event (range 1000))]
+    (try
+      (db/execute! conn ["create table events (ts timestamp, visitor varchar, path varchar,
+                                               referrer varchar, duration_ms integer)"])
+      (doseq [batch (partition-all 200 events)]
+        (insert-batch! conn batch))
+
+      (let [daily (db/query conn ["select ts::date as day, count(*) as views,
+                                          count(distinct visitor) as uniques
+                                   from events group by day order by day"])]
+        (print-table "Daily views and uniques" daily)
+        (check "seven days" (= 7 (count daily)))
+        (check "days are ISO date strings" (= "2026-09-01" (:day (first daily))))
+        (check "every event counted" (= 1000 (reduce + (map :views daily)))))
+
+      (print-table "Top pages, time on page (ms)"
+                   (db/query conn ["select path, count(*) as views,
+                                           round(quantile_cont(duration_ms, 0.5)) as p50,
+                                           round(quantile_cont(duration_ms, 0.95)) as p95
+                                    from events group by path order by views desc, path"]))
+
+      (let [totals (db/execute-one! conn ["select count(distinct visitor) as visitors,
+                                                  sum(duration_ms) as time_on_site_ms,
+                                                  count(referrer) as referred
+                                           from events"])]
+        (print-table "Totals" [totals])
+        ;; sum() over INTEGER is a HUGEINT in DuckDB; the package hands it
+        ;; back as a plain int, so it compares with let-go's own sum as-is.
+        (check "sum() is a plain int" (= (reduce + (map peek events)) (:time_on_site_ms totals)))
+        (check "53 distinct visitors" (= 53 (:visitors totals))))
+
+      (println "\nall checks passed")
+      (finally (db/close! conn)))))
+
+(when-not *compiling-aot* (-main))
