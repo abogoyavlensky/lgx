@@ -1296,11 +1296,6 @@
   [command]
   (get auto-contexts command []))
 
-(defn auto-context
-  "Return [name] when `name` is an effective context in cfg, else []."
-  [cfg name]
-  (if (contains? (contexts cfg) name) [name] []))
-
 (defn main
   "Return the :main entrypoint string from a loaded cfg map, or nil if absent."
   [cfg]

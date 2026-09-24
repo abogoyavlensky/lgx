@@ -273,7 +273,7 @@ mode resolves `lgx/*.lg` from the cwd. `make test` runs everything.
 **Files:**
 - Modify: `lgx.lg`
 
-- [ ] **Step 1: Implement**
+- [x] **Step 1: Implement**
   `auto-with! [cfg command with verbose?]` looks up
   `(config/auto-context-names command)` and prepends it; the four call sites
   pass `"run"`, `"repl"`, `"nrepl"`, `"test"`. Keep the `+ auto context`
@@ -286,8 +286,10 @@ mode resolves `lgx/*.lg` from the cwd. `make test` runs everything.
   are unaffected). In `overlay-basis`, compute it as the `:extra-paths` of
   every name in `names` for which `(config/default-context? cfg name)` holds,
   and pass it to `basis`. Update the docstrings that describe the layering.
+  > Deviation: also collapsed `with->overlay!`'s `(no contexts defined in
+  > lgx.edn)` branch, which became dead once `:dev`/`:test` always exist.
 
-- [ ] **Step 2: Smoke test**
+- [x] **Step 2: Smoke test**
   Run: `make build`, then in a throwaway dir with `{}` as `lgx.edn` and no
   `test/`:
   `bin/lgx --verbose --with test install`
@@ -295,7 +297,12 @@ mode resolves `lgx/*.lg` from the cwd. `make test` runs everything.
   `{:contexts {:test {:extra-paths ["test"]}}}` and rerun.
   Expected: `warning: :paths entry not found: test` (the user declared it).
 
-- [ ] **Step 3: Commit**
+  > Deviation: `lgx install` never resolves `:paths` (it only fetches deps),
+  > so the smoke used `bin/lgx --with test info` and `echo | bin/lgx repl`
+  > instead; both warn only for the user-declared `test`. Task 5's scenarios 6
+  > and 7 use `info` for the same reason.
+
+- [x] **Step 3: Commit**
   `git commit -am "basis: auto-contexts from one table; missing default paths resolve silently"`
 
 ### Task 3: Test runner and `lgx test` over the `:test` context paths

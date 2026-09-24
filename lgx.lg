@@ -375,14 +375,9 @@
              (if nm
                (do
                  (write! *err*
-                         (str "lgx: unknown context " nm " "
-                              (let [defined (:defined data)]
-                                (if (seq defined)
-                                  (str "(defined: "
-                                       (str/join ", " (sort (map str defined)))
-                                       ")")
-                                  "(no contexts defined in lgx.edn)"))
-                              "\n"))
+                         (str "lgx: unknown context " nm " (defined: "
+                              (str/join ", " (sort (map str (:defined data))))
+                              ")\n"))
                  (os/exit 1))
                (throw e))))))
 
@@ -498,13 +493,19 @@
 (defn- cmd-version []
   (println (str "lgx " version)))
 
-(defn- resolve-project-paths [label project paths]
-  (mapv (fn [p]
-          (let [abs (path/join project p)]
-            (when-not (file-exists? abs)
-              (write! *err* (str "warning: " label " entry not found: " p "\n")))
-            abs))
-        paths))
+(defn- resolve-project-paths
+  "Join each project-relative path onto `project`, warning on stderr for a
+   missing one unless it is in `optional` (a shipped default's path, which a
+   project need not have)."
+  ([label project paths]
+   (resolve-project-paths label project paths #{}))
+  ([label project paths optional]
+   (mapv (fn [p]
+           (let [abs (path/join project p)]
+             (when-not (or (file-exists? abs) (contains? optional p))
+               (write! *err* (str "warning: " label " entry not found: " p "\n")))
+             abs))
+         paths)))
 
 (defn- basis
   "Resolve `coords`, `raw-paths`, and `raw-resource-paths` into a basis for the
@@ -515,11 +516,13 @@
    project-relative source path list (project :paths, or project :paths ++ a
    task's :extra-paths); `raw-resource-paths` is the project-relative resource
    root list. Source paths include resolved dep dirs; resource paths are
-   project-only (deps never contribute resource roots)."
-  [project coords raw-paths raw-resource-paths]
+   project-only (deps never contribute resource roots). `optional-paths` is the
+   set of raw paths that resolve without a missing-entry warning."
+  [project coords raw-paths raw-resource-paths optional-paths]
   (let [{:keys [installs go-coords go-origins]}
         (ensure-all! project coords false)
-        own-paths (resolve-project-paths ":paths" project raw-paths)
+        own-paths (resolve-project-paths ":paths" project raw-paths
+                                         optional-paths)
         paths (vec (concat own-paths (mapcat :paths installs)))
         resource-paths (resolve-project-paths ":resource-paths" project
                                               raw-resource-paths)]
@@ -551,10 +554,17 @@
    inline :extra-* (highest). Resource paths layer the same way but, unlike
    source paths, never pick up dep dirs. With no contexts and no task this
    reduces to the project's own deps/paths/resource-paths. `cfg` is the
-   project's loaded config map (load-config!)."
+   project's loaded config map (load-config!). The :extra-paths of an applied
+   shipped default (config/default-context?) are optional: a project without
+   test/ gets no warning when repl applies :test, while a path the project
+   declared itself still warns when missing."
   [project cfg cli-with task]
   (let [names (vec (concat (or (:with task) []) cli-with))
         overlay (with->overlay! cfg names)
+        contexts (config/contexts cfg)
+        optional (set (mapcat #(when (config/default-context? cfg %)
+                                 (:extra-paths (get contexts %)))
+                              names))
         inline-deps (config/dep-pairs (or (:extra-deps task) {}))
         coords (reduce config/merge-coords
                        (config/coords cfg)
@@ -567,7 +577,7 @@
                              (concat (config/resource-paths cfg)
                                      (:resource-paths overlay)
                                      (or (:extra-resource-paths task) [])))]
-    (basis project coords raw-paths raw-resource-paths)))
+    (basis project coords raw-paths raw-resource-paths optional)))
 
 (defn- resolve-main-script! [project main-script]
   (let [abs (path/join project main-script)]
@@ -591,13 +601,13 @@
   (os/exit 1))
 
 (defn- auto-with!
-  "Prepend the convention contexts `names` (those defined in cfg's :contexts) to
-   the CLI --with list `with`: run auto-applies :dev, nrepl :dev and :test, test
-   :test. Names prepend left-to-right, so a later auto name wins over an earlier
-   one on a lib-name collision and an explicit --with context wins over all
+  "Prepend the contexts `command` applies (config/auto-contexts: run :dev, repl
+   and nrepl :dev and :test, test :test) to the CLI --with list `with`. Names
+   prepend left-to-right, so a later auto name wins over an earlier one on a
+   lib-name collision and an explicit --with context wins over all
    (last-wins). Silent by default; --verbose prints each auto-applied name."
-  [cfg names with verbose?]
-  (let [auto (vec (mapcat #(config/auto-context cfg %) names))]
+  [command with verbose?]
+  (let [auto (config/auto-context-names command)]
     (when verbose?
       (doseq [nm auto]
         (write! *err* (str "+ auto context " nm "\n"))))
@@ -617,7 +627,7 @@
         plan (runner/plan-run-args forward-args main-script)
         _ (when-let [reason (:error plan)]
             (run-target-error! reason))
-        with (auto-with! cfg [:dev] with verbose?)
+        with (auto-with! "run" with verbose?)
         basis (overlay-basis project cfg with nil)
         {:keys [results paths resource-paths]} basis
         _ (apply-runtime! cfg basis :warn verbose?)]
@@ -643,7 +653,7 @@
             (os/exit 1)))
         project (config/find-project!)
         cfg (config/load-config! project)
-        with (auto-with! cfg [:dev :test] with verbose?)
+        with (auto-with! "nrepl" with verbose?)
         basis (overlay-basis project cfg with nil)
         {:keys [results paths resource-paths]} basis
         _ (apply-runtime! cfg basis :warn verbose?)
@@ -671,7 +681,7 @@
     (os/exit 1))
   (let [project (config/find-project!)
         cfg (config/load-config! project)
-        with (auto-with! cfg [:dev :test] with verbose?)
+        with (auto-with! "repl" with verbose?)
         basis (overlay-basis project cfg with nil)
         {:keys [results paths resource-paths]} basis
         _ (apply-runtime! cfg basis :warn verbose?)]
@@ -851,7 +861,7 @@
                         (println "All test files excluded")
                         (os/exit 0))
                       entries))
-          with (auto-with! cfg [:test] with verbose?)
+          with (auto-with! "test" with verbose?)
           basis (overlay-basis project cfg with nil)
           {:keys [results paths resource-paths]} basis
           _ (apply-runtime! cfg basis :fail verbose?)
