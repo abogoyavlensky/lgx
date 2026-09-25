@@ -24,7 +24,7 @@
         ;; statement shape sqlite.core takes.
         com.github.seancorfield/honeysql
         {:git/url "https://github.com/seancorfield/honeysql"
-         :git/tag "v2.7.1437"}
+         :git/tag "v2.7.1479"}
 
         ;; integrant wires the db, the handler and the server together.
         ;; It depends on weavejester/dependency; lgx does not read a plain
