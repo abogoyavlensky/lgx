@@ -492,16 +492,17 @@
           path)))))
 
 (defn- install-extras
-  "The coord pairs `install --all` resolves on top of the base list `coords`:
-   every context's and task's :extra-deps plus the project's own :deps, minus
-   the pairs `coords` already holds. The project pairs are candidates because
-   a --with context can override a project coord in the base list, and --all
-   still warms the project's own."
+  "The coord pairs `install --all` walks in all mode: the base list `coords`,
+   the project's own :deps, and every context's and task's :extra-deps. The
+   base pairs are walked again (cache hits, so nothing prints twice) because a
+   first-wins walk skips a lib's losing coords, which a context replacing the
+   winner would need. The project pairs are there because a --with context can
+   override a project coord in the base list, and --all still warms the
+   project's own."
   [cfg coords]
-  (let [base (set coords)]
-    (vec (remove (fn [pair] (contains? base pair))
-                 (distinct (concat (config/coords cfg)
-                                   (config/extra-dep-pairs cfg)))))))
+  (vec (distinct (concat coords
+                         (config/coords cfg)
+                         (config/extra-dep-pairs cfg)))))
 
 (defn- cmd-install [forward-args with]
   (let [{:keys [all?]}
