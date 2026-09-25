@@ -87,7 +87,7 @@ lgx run
 | Command | What it does |
 | --- | --- |
 | `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`, `lib`) or a git URL. |
-| `lgx install` | Fetch deps from `:deps` into the gitlibs cache. Idempotent. Useful for editor navigation. Under `:lg-runtime :built`, also builds the runtime. |
+| `lgx install [--all]` | Fetch deps from `:deps` into the gitlibs cache. Idempotent. Useful for editor navigation. Under `:lg-runtime :built`, also builds the runtime. `--all` also fetches every context's and task's `:extra-deps`, so any later `--with` or task finds a warm cache. |
 | `lgx info` | Show the lgx version, which `lg` the project runs and why: `:lg-runtime`, `:lg-version`, the resolved `lg`, the version check (or the Go toolchain), every Go dep with the dep that introduced it, the effective contexts, and which contexts each command applies. Fetches deps like `install`, never builds. |
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts. |
@@ -632,7 +632,8 @@ project top level so any command or task can apply them (the `:dev`/`:test`
 contexts applied by the `console` task's `:with` above). Apply two ways:
 
 - **`lgx --with dev,test <command>`** - a global flag applied to `run`, `build`,
-  `test`, `install`, or a task (`install` pre-fetches the contexts' deps).
+  `test`, `install`, or a task (`install` pre-fetches the contexts' deps, and
+  `lgx install --all` pre-fetches every context's and task's).
 - **`:with [:dev]`** on a task - always applied; a global `--with` unions on top.
 
 A `:task` step passes the caller's effective contexts (its `:with` plus any CLI
@@ -793,10 +794,9 @@ clone.
 
 Shipped so far: source paths, per-coord `:deps/root`/`:local/root`, `:tasks`,
 `lgx build`/`test`/`new`, transitive deps, `lgx repl`/`nrepl`, `:contexts` with
-`--with`/`:with`, and let-go-side resources. Next:
+`--with`/`:with`, let-go-side resources, and `lgx install --all`. Next:
 
 - [ ] Install transitive dependencies from Clojure libs that use `deps.edn` or `project.clj`
-- [ ] `lgx install --all` - fetch deps from all contexts and tasks in lgx.edn.
 - [ ] `lgx deps` - print the dependency tree.
 - [ ] `lgx update` / `lgx update --check` - check and update outdated deps.
 

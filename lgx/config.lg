@@ -1242,8 +1242,9 @@
 
 (defn unresolved-declared
   "Return the subset of `pending` warning entries whose declared dep does not
-   already look resolved. `resolved` maps lib symbol → coord (ensure-all!'s
-   seen map); each pending entry carries `:declared [lib coord]`.
+   already look resolved. `resolved` is ensure-all!'s [[lib coord] ...] pairs
+   (a lib may repeat) or a lib symbol → coord map; each pending entry carries
+   `:declared [lib coord]`.
 
    Matching is tiered by the identity a declaration actually carries:
    a git URL (explicit or inferred from the lib name) compares by normalized
@@ -1258,8 +1259,8 @@
                           (when (string? (:git/url c))
                             (normalize-git-url (:git/url c))))
                         resolved))
-        libs (set (keys resolved))
-        artifacts (set (map name (keys resolved)))]
+        libs (set (map first resolved))
+        artifacts (set (map name libs))]
     (vec (filter
            (fn [entry]
              (let [[lib coord] (:declared entry)
@@ -1281,6 +1282,18 @@
    :contexts. A project entry replaces the default of the same name wholesale."
   [cfg]
   (merge default-contexts (or (:contexts cfg) {})))
+
+(defn extra-dep-pairs
+  "Every :extra-deps coord pair lgx.edn declares outside the project :deps:
+   each effective context's, then each task's, both sorted by name. Identical
+   pairs collapse; the same lib at differing coords keeps both, since
+   `lgx install --all` warms the cache for every layer. A task's :with names
+   contexts already covered here, so it is not re-read."
+  [cfg]
+  (let [by-name (fn [m] (sort-by (fn [[k _]] (str k)) m))
+        layers (concat (by-name (contexts cfg)) (by-name (tasks cfg)))]
+    (vec (distinct (mapcat (fn [[_ layer]] (dep-pairs (:extra-deps layer)))
+                           layers)))))
 
 (defn default-context?
   "True when `name` is a shipped default the project's :contexts does not

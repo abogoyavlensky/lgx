@@ -4032,5 +4032,159 @@ set -e
 assert_contains "$out" "is defined by more than one file" "ns collision single: the shadowed file is refused"
 rm -rf "$proj_dc9" "$home_dc9"
 
+# Push an empty commit onto bare repo $1; echoes the new sha.
+add_empty_commit() {
+    local bare="$1"
+    local work
+    work="$(mktemp -d)"
+    git clone --quiet "$bare" "$work" 2>/dev/null
+    git -C "$work" commit --quiet --allow-empty -m "second"
+    git -C "$work" push --quiet origin HEAD 2>/dev/null
+    git -C "$work" rev-parse HEAD
+    rm -rf "$work"
+}
+
+if supports_source_paths; then
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 156: install --all warms every context and task"
+fix_ia="$(mktemp -d)"
+home_ia="$(mktemp -d)"
+proj_ia="$(mktemp -d)"
+sha_ia_a="$(make_declaring_repo "$fix_ia/lib-a.git" liba)"
+sha_ia_a2="$(add_empty_commit "$fix_ia/lib-a.git")"
+sha_ia_b="$(make_declaring_repo "$fix_ia/lib-b.git" libb \
+    'deps.edn={:deps {unknown/lib {:mvn/version "1.2.3"}}}')"
+sha_ia_c="$(make_declaring_repo "$fix_ia/lib-c.git" libc)"
+cat > "$proj_ia/lgx.edn" <<EOF
+{:paths ["."]
+ :deps {test/lib-a {:git/url "file://$fix_ia/lib-a.git" :git/sha "$sha_ia_a"}}
+ :contexts {:ci {:extra-deps {test/lib-b {:git/url "file://$fix_ia/lib-b.git"
+                                          :git/sha "$sha_ia_b"}}}}
+ :tasks {deploy {:extra-deps {test/lib-c {:git/url "file://$fix_ia/lib-c.git"
+                                          :git/sha "$sha_ia_c"}}
+                 :do [{:run "main.lg"}]}}}
+EOF
+printf '(println :ran)\n' > "$proj_ia/main.lg"
+
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" install 2>&1)"
+assert_contains "$out" "test/lib-a ->" "install --all: plain install fetches the project dep"
+assert_not_contains "$out" "test/lib-b" "install --all: plain install skips the context dep"
+assert_not_contains "$out" "test/lib-c" "install --all: plain install skips the task dep"
+
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" install --all 2>&1)"
+assert_contains "$out" "Installing dependencies (all contexts and tasks)" "install --all: header names the mode"
+assert_contains "$out" "installing 2 dep(s)" "install --all: fetches the context and task deps"
+assert_contains "$out" "test/lib-b ->" "install --all: context dep fetched"
+assert_contains "$out" "test/lib-c ->" "install --all: task dep fetched"
+assert_not_contains "$out" "test/lib-a ->" "install --all: cached project dep is not re-listed"
+
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" install --all 2>&1)"
+assert_contains "$out" "all deps up to date" "install --all: second run is up to date"
+assert_eq "$(grep -c 'declares unknown/lib' <<<"$out")" "1" \
+    "install --all: a context dep's warning prints once"
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" --with ci install --all 2>&1)"
+assert_eq "$(grep -c 'declares unknown/lib' <<<"$out")" "1" \
+    "install --all: a warning both passes produce prints once"
+
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" --with ci run main.lg 2>&1)"
+assert_not_contains "$out" "installing" "install --all: --with ci run finds a warm cache"
+assert_contains "$out" ":ran" "install --all: --with ci run still runs"
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" deploy 2>&1)"
+assert_not_contains "$out" "installing" "install --all: the task finds a warm cache"
+assert_contains "$out" ":ran" "install --all: the task still runs"
+
+set +e
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" install extra 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "install --all: expected exit 1 for a stray arg, got $rc (output: $out)"
+assert_contains "$out" "other than --all" "install --all: a stray arg is rejected"
+set +e
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" --with nope install --all 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "install --all: expected exit 1 for an unknown context, got $rc (output: $out)"
+assert_contains "$out" "unknown context :nope" "install --all: --with is still validated"
+
+# A --with context overriding the project's coord: --all still warms both.
+cat > "$proj_ia/lgx.edn" <<EOF
+{:paths ["."]
+ :deps {test/lib-a {:git/url "file://$fix_ia/lib-a.git" :git/sha "$sha_ia_a"}}
+ :contexts {:ci {:extra-deps {test/lib-b {:git/url "file://$fix_ia/lib-b.git"
+                                          :git/sha "$sha_ia_b"}}}
+            :alt {:extra-deps {test/lib-a {:git/url "file://$fix_ia/lib-a.git"
+                                           :git/sha "$sha_ia_a2"}}}}
+ :tasks {deploy {:extra-deps {test/lib-c {:git/url "file://$fix_ia/lib-c.git"
+                                          :git/sha "$sha_ia_c"}}
+                 :do [{:run "main.lg"}]}}}
+EOF
+rm -rf "$home_ia"; home_ia="$(mktemp -d)"
+out="$(cd "$proj_ia" && LGX_HOME="$home_ia" "$LGX" --with alt install --all 2>&1)"
+assert_contains "$out" "installing 4 dep(s)" "install --all: override case fetches both lib-a coords, b and c"
+[[ -n "$(find "$home_ia/gitlibs" -type d -name "$sha_ia_a")" ]] \
+    || fail "install --all: the project's own lib-a coord is cached"
+pass "install --all: the project's own lib-a coord is cached"
+[[ -n "$(find "$home_ia/gitlibs" -type d -name "$sha_ia_a2")" ]] \
+    || fail "install --all: the context's lib-a coord is cached"
+pass "install --all: the context's lib-a coord is cached"
+rm -rf "$fix_ia" "$home_ia" "$proj_ia"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 157: install --all fetches one lib pinned at two shas"
+fix_i2="$(mktemp -d)"
+home_i2="$(mktemp -d)"
+proj_i2="$(mktemp -d)"
+sha_i2_1="$(make_declaring_repo "$fix_i2/lib.git" lib)"
+sha_i2_2="$(add_empty_commit "$fix_i2/lib.git")"
+cat > "$proj_i2/lgx.edn" <<EOF
+{:contexts {:x {:extra-deps {test/lib {:git/url "file://$fix_i2/lib.git" :git/sha "$sha_i2_1"}}}
+            :y {:extra-deps {test/lib {:git/url "file://$fix_i2/lib.git" :git/sha "$sha_i2_2"}}}}}
+EOF
+out="$(cd "$proj_i2" && LGX_HOME="$home_i2" "$LGX" install --all 2>&1)"
+assert_contains "$out" "installing 2 dep(s)" "two shas: both fetched"
+assert_eq "$(grep -c 'test/lib ->' <<<"$out")" "2" "two shas: one line per coord"
+assert_not_contains "$out" "already resolved" "two shas: no conflict warning in all mode"
+[[ -n "$(find "$home_i2/gitlibs" -type d -name "$sha_i2_1")" ]] \
+    || fail "two shas: first sha cached"
+pass "two shas: first sha cached"
+[[ -n "$(find "$home_i2/gitlibs" -type d -name "$sha_i2_2")" ]] \
+    || fail "two shas: second sha cached"
+pass "two shas: second sha cached"
+out="$(cd "$proj_i2" && LGX_HOME="$home_i2" "$LGX" install 2>/dev/null)"
+assert_eq "$out" "no deps in lgx.edn" "two shas: plain install has no deps"
+rm -rf "$fix_i2" "$home_i2" "$proj_i2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 158: install --all fetches a transitive coord the base walk skipped"
+# lib-p and lib-q declare lib-x at different shas; first-wins keeps lib-p's.
+# The :ci context swaps lib-p for a dep-free repo, so under --with ci lib-q's
+# lib-x coord is the one needed, and --all must have fetched it.
+fix_i3="$(mktemp -d)"
+home_i3="$(mktemp -d)"
+proj_i3="$(mktemp -d)"
+sha_i3_x1="$(make_declaring_repo "$fix_i3/lib-x.git" libx)"
+sha_i3_x2="$(add_empty_commit "$fix_i3/lib-x.git")"
+sha_i3_p="$(make_declaring_repo "$fix_i3/lib-p.git" libp \
+    "deps.edn={:deps {test/lib-x {:git/url \"file://$fix_i3/lib-x.git\" :git/sha \"$sha_i3_x1\"}}}")"
+sha_i3_q="$(make_declaring_repo "$fix_i3/lib-q.git" libq \
+    "deps.edn={:deps {test/lib-x {:git/url \"file://$fix_i3/lib-x.git\" :git/sha \"$sha_i3_x2\"}}}")"
+sha_i3_p2="$(make_declaring_repo "$fix_i3/lib-p2.git" libp)"
+cat > "$proj_i3/lgx.edn" <<EOF
+{:deps {test/lib-p {:git/url "file://$fix_i3/lib-p.git" :git/sha "$sha_i3_p"}
+        test/lib-q {:git/url "file://$fix_i3/lib-q.git" :git/sha "$sha_i3_q"}}
+ :contexts {:ci {:extra-deps {test/lib-p {:git/url "file://$fix_i3/lib-p2.git"
+                                          :git/sha "$sha_i3_p2"}}}}}
+EOF
+out="$(cd "$proj_i3" && LGX_HOME="$home_i3" "$LGX" install --all 2>&1)"
+[[ -n "$(find "$home_i3/gitlibs" -type d -name "$sha_i3_x2")" ]] \
+    || fail "skipped transitive: lib-q's lib-x coord is cached (output: $out)"
+pass "skipped transitive: lib-q's lib-x coord is cached"
+out="$(cd "$proj_i3" && LGX_HOME="$home_i3" "$LGX" --with ci install 2>/dev/null)"
+assert_eq "$out" "all deps up to date" "skipped transitive: --with ci install finds a warm cache"
+rm -rf "$fix_i3" "$home_i3" "$proj_i3"
+
+else
+    skip "install --all scenarios require lg with -source-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
