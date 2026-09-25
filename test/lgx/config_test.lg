@@ -1615,6 +1615,51 @@
   (is (= [] (config/unresolved-declared {} [])))
   (is (= [] (config/unresolved-declared {'a/b {:git/url "u" :git/sha "s"}} []))))
 
+(deftest unresolved-declared-accepts-resolved-pairs
+  ;; ensure-all! hands over [[lib coord] ...] (one lib may appear twice in all
+  ;; mode); a map and its pairs suppress the same entries.
+  (let [p (pending 'weavejester/dependency {:mvn/version "0.2.1"})]
+    (is (= []
+           (config/unresolved-declared
+             [['dev.weavejester/dependency {:git/url "https://github.com/w/d"
+                                            :git/tag "1.0.1"}]]
+             [p])))))
+
+;; ---------------------------------------------------------------------------
+;; extra-dep-pairs (every context's and task's :extra-deps, for install --all)
+;; ---------------------------------------------------------------------------
+
+(def ^:private coord-a {:git/url "https://example.com/a" :git/sha "a1"})
+(def ^:private coord-b {:git/url "https://example.com/b" :git/sha "b1"})
+(def ^:private coord-a2 {:git/url "https://example.com/a" :git/sha "a2"})
+
+(deftest extra-dep-pairs-excludes-project-deps
+  (is (= [] (config/extra-dep-pairs {:deps {'x/a coord-a}}))))
+
+(deftest extra-dep-pairs-orders-contexts-by-name
+  (is (= [['x/a coord-a] ['x/b coord-b]]
+         (config/extra-dep-pairs
+           {:contexts {:b {:extra-deps {'x/b coord-b}}
+                       :a {:extra-deps {'x/a coord-a}}}}))))
+
+(deftest extra-dep-pairs-collapses-identical-pairs
+  (is (= [['x/a coord-a]]
+         (config/extra-dep-pairs
+           {:contexts {:ci {:extra-deps {'x/a coord-a}}}
+            :tasks {'deploy {:extra-deps {'x/a coord-a}}}}))))
+
+(deftest extra-dep-pairs-keeps-differing-coords-for-one-lib
+  (is (= [['x/a coord-a] ['x/a coord-a2]]
+         (config/extra-dep-pairs
+           {:contexts {:ci {:extra-deps {'x/a coord-a}}}
+            :tasks {'deploy {:extra-deps {'x/a coord-a2}}}}))))
+
+(deftest extra-dep-pairs-task-with-adds-nothing-itself
+  (is (= [['x/a coord-a]]
+         (config/extra-dep-pairs
+           {:contexts {:a {:extra-deps {'x/a coord-a}}}
+            :tasks {'deploy {:with [:a]}}}))))
+
 (deftest project-clj-deps-at-skips-malformed-entries
   ;; A bare symbol, an empty vector, and a non-string version are dropped;
   ;; well-formed neighbours still come through.
