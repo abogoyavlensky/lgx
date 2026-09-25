@@ -17,7 +17,7 @@
         ;; modernc.org/sqlite driver in transitively.
         abogoyavlensky/letgo-sqlite
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/tag "sqlite-v0.1.0"
+         :git/tag "sqlite-v0.2.0"
          :deps/root "sqlite"}
 
         ;; SQL as data: (sql/format {...}) -> [sql & params], which is the
@@ -46,5 +46,5 @@
         ;; transitively; app.migrations holds only this app's history.
         abogoyavlensky/letgo-ragtime
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/tag "ragtime-v0.1.0"
+         :git/tag "ragtime-v0.2.0"
          :deps/root "ragtime"}}}
