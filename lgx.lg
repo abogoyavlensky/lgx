@@ -26,7 +26,8 @@
 ;; colored, and they are built at call time (in usage-for) so LGX_NO_COLOR is
 ;; honored at runtime rather than baked into the bundle during `lg -b`.
 (def ^:private command-rows
-  (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
+  (str "  lgx install [--all]          Fetch dependencies declared in lgx.edn\n"
+       "                               (--all also fetches every :contexts and :tasks :extra-deps)\n"
        "  lgx info                     Show which lg runs this project and why (:lg-runtime, :lg-version, Go deps) and its contexts\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context)\n"
@@ -490,29 +491,75 @@
             (write! *err* (str "+ custom lg runtime " path "\n")))
           path)))))
 
-(defn- cmd-install [with]
-  (let [project (config/find-project!)
+(defn- install-extras
+  "The coord pairs `install --all` resolves on top of the base list `coords`:
+   every context's and task's :extra-deps plus the project's own :deps, minus
+   the pairs `coords` already holds. The project pairs are candidates because
+   a --with context can override a project coord in the base list, and --all
+   still warms the project's own."
+  [cfg coords]
+  (let [base (set coords)]
+    (vec (remove (fn [pair] (contains? base pair))
+                 (distinct (concat (config/coords cfg)
+                                   (config/extra-dep-pairs cfg)))))))
+
+(defn- cmd-install [forward-args with]
+  (let [{:keys [all?]}
+        (try
+          (cli/parse-install-args (vec forward-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        project (config/find-project!)
         cfg (config/load-config! project)
         overlay (with->overlay! cfg (vec with))
         coords (config/merge-coords (config/coords cfg)
-                                    (:deps-pairs overlay))]
-    (write! *err* (str (style/header "Installing dependencies...") "\n"))
-    (let [basis (if (empty? coords)
+                                    (:deps-pairs overlay))
+        extras (if all? (install-extras cfg coords) [])]
+    (write! *err* (str (style/header (if all?
+                                       "Installing dependencies (all contexts and tasks)..."
+                                       "Installing dependencies..."))
+                       "\n"))
+    (let [basis (if (and (empty? coords) (empty? extras))
                   (do (println "no deps in lgx.edn")
                       {:go-coords []
                        :go-origins {}})
                   ;; The deliberate dependency-management moment: show every
                   ;; pending warning, including ones a warm cache would
                   ;; otherwise keep quiet.
-                  (let [{:keys [installs go-coords go-origins]
-                         :as result}
-                        (ensure-all! project coords {:all? false})]
-                    (report-resolution! result true)
+                  (let [base (when (seq coords)
+                               (ensure-all! project coords {:all? false}))
+                        base-lines (if base (resolution-lines base true) [])
+                        _ (doseq [line base-lines] (write! *err* line))
+                        ;; All mode fetches every distinct coord, so each
+                        ;; context and task finds a warm cache. Its Go coords
+                        ;; are dropped: the runtime is warmed for the base
+                        ;; basis only, and a context's Go deps build their own
+                        ;; runtime on first use.
+                        extra (when (seq extras)
+                                (ensure-all! project extras {:all? true}))
+                        ;; Checked against both passes' resolved pairs, so a
+                        ;; lib the base pins stays as quiet as in the real
+                        ;; --with basis; a line the base printed is not
+                        ;; repeated.
+                        extra-lines (if extra
+                                      (resolution-lines
+                                        (assoc extra :resolved
+                                               (concat (:resolved base)
+                                                       (:resolved extra)))
+                                        true)
+                                      [])
+                        printed (set base-lines)
+                        _ (doseq [line (distinct extra-lines)]
+                            (when-not (contains? printed line)
+                              (write! *err* line)))
+                        installs (vec (concat (:installs base)
+                                              (:installs extra)))]
                     (if (some :installed? installs)
                       (print-installs! installs)
                       (println "all deps up to date"))
-                    {:go-coords go-coords
-                     :go-origins go-origins}))]
+                    {:go-coords (or (:go-coords base) [])
+                     :go-origins (or (:go-origins base) {})}))]
       ;; Runs with or without deps: under :built, `lgx install` warms the
       ;; runtime so the first run has nothing left to discover — the
       ;; CI-friendly shape — and a deps-less project still needs that.
@@ -1296,7 +1343,7 @@
    indistinguishable from \"not a built-in\"."
   [name rest-args verbose? with]
   (case name
-    "install" (cmd-install with)
+    "install" (cmd-install (vec rest-args) with)
     "info" (cmd-info verbose? with)
     "run" (cmd-run (vec rest-args) verbose? with)
     "repl" (cmd-repl (vec rest-args) verbose? with)
