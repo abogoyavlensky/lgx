@@ -4032,5 +4032,31 @@ set -e
 assert_contains "$out" "is defined by more than one file" "ns collision single: the shadowed file is refused"
 rm -rf "$proj_dc9" "$home_dc9"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 156: one git dep reached with and without .git does not warn"
+groot="$(mktemp -d)"
+home_g="$(mktemp -d)"
+sha_g="$(make_bare_repo "$groot/lib")"
+# libP and libQ both depend on test/lib at the same sha; libQ spells the URL
+# with a trailing .git. Same repo, same commit: the dedupe must stay quiet.
+mkdir -p "$groot/libP/src/libp" "$groot/libQ/src/libq"
+printf '(ns libp.core)\n' > "$groot/libP/src/libp/core.lg"
+printf '(ns libq.core)\n' > "$groot/libQ/src/libq/core.lg"
+printf '{:deps {test/lib {:git/url "file://%s/lib" :git/sha "%s"}}}\n' \
+    "$groot" "$sha_g" > "$groot/libP/lgx.edn"
+printf '{:deps {test/lib {:git/url "file://%s/lib.git" :git/sha "%s"}}}\n' \
+    "$groot" "$sha_g" > "$groot/libQ/lgx.edn"
+mkdir -p "$groot/proj"
+cat > "$groot/proj/lgx.edn" <<EOF
+{:deps {dev/libP {:local/root "../libP"}
+        dev/libQ {:local/root "../libQ"}}}
+EOF
+printf '(require (quote test.fib))\n(println (test.fib/fib 10))\n' > "$groot/proj/main.lg"
+
+out="$(cd "$groot/proj" && LGX_HOME="$home_g" "$LGX" run main.lg 2>&1)"
+assert_contains "$out" "55" "git url spelling: the shared dep resolves"
+assert_not_contains "$out" "already resolved as" "git url spelling: .git suffix is not a conflict"
+rm -rf "$groot" "$home_g"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
