@@ -115,12 +115,23 @@
 
 (defn- coord-line
   "One go coord as a canonical line: lib|version|interop|local, empty slots for
-   absent keys. Sorting these is what makes the hash order-independent."
+   absent keys. Sorting these is what makes the hash order-independent.
+
+   A coord with :go/replace gets a fifth slot, replace:old=>new@v,... sorted by
+   old path. Only then: an always-present empty slot would change every
+   existing cache key and rebuild every runtime that has no replaces."
   [[lib c]]
-  (str/join "|" [(str lib)
-                 (or (:go/version c) "")
-                 (or (:go/interop c) "")
-                 (or (:go/local c) "")]))
+  (str/join "|" (concat [(str lib)
+                         (or (:go/version c) "")
+                         (or (:go/interop c) "")
+                         (or (:go/local c) "")]
+                        (if (seq (:go/replace c))
+                          [(str "replace:"
+                                (str/join "," (map (fn [[old target]]
+                                                     (str old "=>" target))
+                                                   (sort-by first
+                                                            (:go/replace c)))))]
+                          []))))
 
 (defn- hex64
   "Render a 64-bit hash as 16 unsigned hex digits. xxh3-64-str hands back Go's
@@ -182,6 +193,47 @@
       (str seg ".0.0")
       "v0.0.0")))
 
+(defn merged-replaces
+  "Pure. The one replace block the generated go.mod can carry, merged from
+   every coord's :go/replace. Replaces are global to the main module, so two
+   coords replacing the same module with different targets cannot both be
+   honoured — and unlike version skew, Go's MVS cannot settle it.
+
+   `reserved` maps a module path the rendered file already replaces to the
+   lib that owns it (the :go/local module paths); let-go itself is always
+   reserved, owned by the :lg-version pin (nil). Go rejects a second replace
+   for the same module, so naming one here is a config error.
+
+   Returns {:replaces {old \"new@v\"} :conflicts [{:module :a [lib target]
+   :b [lib target]}] :reserved [{:module :lib :by}]}. Identical entries from
+   two coords dedupe silently; in a conflict :a is the coord seen first."
+  [go-pairs reserved]
+  (let [reserved (assoc reserved letgo-module nil)
+        entries (mapcat (fn [[lib c]]
+                          (map (fn [[old target]] [lib old target])
+                               (sort-by first (:go/replace c))))
+                        go-pairs)
+        r (reduce (fn [acc [lib old target]]
+                    (let [prev (get (:owners acc) old)]
+                      (cond
+                        (contains? reserved old)
+                        (update acc :reserved conj
+                                {:module old :lib lib :by (get reserved old)})
+
+                        (nil? prev)
+                        (-> acc
+                            (assoc-in [:replaces old] target)
+                            (assoc-in [:owners old] [lib target]))
+
+                        (= (second prev) target) acc
+
+                        :else
+                        (update acc :conflicts conj
+                                {:module old :a prev :b [lib target]}))))
+                  {:replaces {} :conflicts [] :reserved [] :owners {}}
+                  entries)]
+    (dissoc r :owners)))
+
 (defn render-go-mod
   "Pure. The generated module's go.mod.
 
@@ -195,8 +247,9 @@
 
    `local-modules` is a vector of [coord module-path] pairs — reading the
    module path out of a :go/local target's own go.mod is the side-effecting
-   caller's job, so this stays pure."
-  [go-pairs replace-path local-modules]
+   caller's job, so this stays pure. `replaces` is merged-replaces' :replaces
+   map, rendered last and sorted by old path so the file is deterministic."
+  [go-pairs replace-path local-modules replaces]
   (let [replace? (not (str/blank? (or replace-path "")))]
     (str "module " runtime-module "\n"
          "\n"
@@ -217,7 +270,12 @@
          (str/join "" (map (fn [[c mod]]
                              (str "replace " mod " => "
                                   (mod-path (:go/local c)) "\n"))
-                           local-modules)))))
+                           local-modules))
+         (str/join "" (map (fn [[old target]]
+                             (let [[mod ver] (config/replace-target-parts
+                                               target)]
+                               (str "replace " old " => " mod " " ver "\n")))
+                           (sort-by first replaces))))))
 
 (defn letgo-version-parts
   "Pure. The [version commit] pair cli.Main reports, from the let-go version
@@ -482,17 +540,18 @@
                  (str/trim (:out r)) ")")))
     ver))
 
-(defn- write-module! [dir go-pairs replace-path version commit]
+(defn- write-module!
+  "Write the generated module. `locals` is the [coord module-path] vector
+   render-go-mod takes, `replaces` the merged :go/replace map."
+  [dir go-pairs replace-path locals replaces version commit]
   (mkdir dir)
-  (let [locals (mapv (fn [[_ c]] [c (module-path-at (:go/local c))])
-                     (local-coords go-pairs))]
-    (spit (path/join dir "go.mod")
-          (render-go-mod go-pairs replace-path locals))
-    (spit (path/join dir "main.go") (render-main-go go-pairs version commit))
-    (when (seq (interop-packages go-pairs))
-      (mkdir (path/join dir "interop"))
-      (spit (path/join dir "interop" "doc.go")
-            (render-interop-doc-go go-pairs)))))
+  (spit (path/join dir "go.mod")
+        (render-go-mod go-pairs replace-path locals replaces))
+  (spit (path/join dir "main.go") (render-main-go go-pairs version commit))
+  (when (seq (interop-packages go-pairs))
+    (mkdir (path/join dir "interop"))
+    (spit (path/join dir "interop" "doc.go")
+          (render-interop-doc-go go-pairs))))
 
 (defn- rewrite-main-with-selected-version!
   "Re-render main.go from the let-go version Go actually selected, read out of
@@ -615,6 +674,15 @@
    (ensure-runtime! go-pairs lg-version nil verbose?))
   ([go-pairs lg-version target verbose?]
    (let [replace-path (letgo-replace-path)
+         ;; Read up front: the :go/local module paths are both rendered and
+         ;; reserved against :go/replace, and the merge has to settle before
+         ;; runtime-paths, which may run `go list` for a mutable let-go ref.
+         local-pairs (local-coords go-pairs)
+         locals (mapv (fn [[_ c]] [c (module-path-at (:go/local c))])
+                      local-pairs)
+         merged (merged-replaces go-pairs
+                                 (zipmap (map second locals)
+                                         (map first local-pairs)))
          {:keys [src out live? lg-version]}
          (runtime-paths go-pairs lg-version target verbose?)]
      (if (and (file-exists? out) (not live?))
@@ -629,7 +697,8 @@
                           (:arch target) "...")
                      "Building custom lg runtime...")]
          (write! *err* (str (style/header label) "\n"))
-         (write-module! src go-pairs replace-path ver com)
+         (write-module! src go-pairs replace-path locals (:replaces merged)
+                        ver com)
          ;; -o is resolved relative to the -C directory, so out has to be
          ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
          (build-runtime! src out go-pairs lg-version replace-path target

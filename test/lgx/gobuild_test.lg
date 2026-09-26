@@ -189,6 +189,89 @@
             (gobuild/runtime-hash [sqlite] "1.11.1"
                                   {:os "linux" :arch "arm64"}))))
 
+(def ^:private webrtc "github.com/pion/webrtc/v4")
+(def ^:private webrtc-fork "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.1")
+
+(defn- with-replaces [[lib c] m]
+  [lib (assoc c :go/replace m)])
+
+(deftest runtime-hash-keeps-the-old-key-for-coords-without-replaces
+  ;; Captured before :go/replace existed: a coord without replaces must keep
+  ;; its four-slot line, or every cached runtime would rebuild on upgrade.
+  (is (= "750e47221612bd43" (gobuild/runtime-hash [sqlite] "1.11.1")))
+  (is (= "c96995fa2513d5a9" (gobuild/runtime-hash [sqlite sql shim] "1.11.1"))))
+
+(deftest runtime-hash-changes-when-a-replace-is-added
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [(with-replaces sqlite {webrtc webrtc-fork})]
+                                  "1.11.1"))))
+
+(deftest runtime-hash-changes-with-the-replace-target
+  (is (not= (gobuild/runtime-hash [(with-replaces sqlite {webrtc webrtc-fork})]
+                                  "1.11.1")
+            (gobuild/runtime-hash
+              [(with-replaces sqlite
+                 {webrtc "github.com/livekit/webrtc-pion/v4@v4.2.19"})]
+              "1.11.1"))))
+
+(deftest runtime-hash-is-stable-across-replace-order
+  (let [a "github.com/pion/dtls/v3"
+        a-fork "github.com/livekit/dtls/v3@v3.1.5-warp.1"]
+    (is (= (gobuild/runtime-hash
+             [(with-replaces sqlite (hash-map webrtc webrtc-fork a a-fork))]
+             "1.11.1")
+           (gobuild/runtime-hash
+             [(with-replaces sqlite (hash-map a a-fork webrtc webrtc-fork))]
+             "1.11.1")))))
+
+;; ---------------------------------------------------------------------------
+;; merged-replaces — one replace block for the whole tree
+;; ---------------------------------------------------------------------------
+
+(def ^:private lk ['github.com/livekit/livekit-server/pkg/service
+                   {:go/version "v1.13.7" :go/replace {webrtc webrtc-fork}}])
+
+(deftest merged-replaces-is-empty-without-replaces
+  (is (= {:replaces {} :conflicts [] :reserved []}
+         (gobuild/merged-replaces [sqlite sql shim] {}))))
+
+(deftest merged-replaces-collects-each-coords-entries
+  (is (= {webrtc webrtc-fork}
+         (:replaces (gobuild/merged-replaces [sqlite lk] {})))))
+
+(deftest merged-replaces-dedupes-identical-entries
+  (let [other (with-replaces sqlite {webrtc webrtc-fork})
+        r (gobuild/merged-replaces [lk other] {})]
+    (is (= {webrtc webrtc-fork} (:replaces r)))
+    (is (= [] (:conflicts r)))))
+
+(deftest merged-replaces-reports-a-conflict-naming-both-libs
+  (let [other (with-replaces sqlite
+                {webrtc "github.com/pion/webrtc/v4@v4.1.0"})
+        r (gobuild/merged-replaces [lk other] {})]
+    (is (= [{:module webrtc
+             :a ['github.com/livekit/livekit-server/pkg/service webrtc-fork]
+             :b ['modernc.org/sqlite "github.com/pion/webrtc/v4@v4.1.0"]}]
+           (:conflicts r)))))
+
+(deftest merged-replaces-reserves-the-let-go-module
+  (let [bad (with-replaces sqlite
+              {"github.com/nooga/let-go" "github.com/me/let-go@v1.0.0"})
+        r (gobuild/merged-replaces [bad] {})]
+    (is (= [{:module "github.com/nooga/let-go" :lib 'modernc.org/sqlite
+             :by nil}]
+           (:reserved r)))
+    (is (= {} (:replaces r)))))
+
+(deftest merged-replaces-reserves-local-module-paths
+  (let [bad (with-replaces sqlite
+              {"github.com/you/pkgs/shim" "github.com/me/shim@v1.0.0"})
+        r (gobuild/merged-replaces
+            [bad shim] {"github.com/you/pkgs/shim" 'github.com/you/pkgs/shim})]
+    (is (= [{:module "github.com/you/pkgs/shim" :lib 'modernc.org/sqlite
+             :by 'github.com/you/pkgs/shim}]
+           (:reserved r)))))
+
 ;; ---------------------------------------------------------------------------
 ;; target-env-args — how GOOS/GOARCH reach the go build subprocess
 ;; ---------------------------------------------------------------------------
@@ -279,7 +362,7 @@
   ;; The pinned case leaves let-go entirely to `go get` (letgo-get-args), the
   ;; same way every other :go/version coord is resolved — so a branch or sha
   ;; ref works without go.mod having to guess a version string for it.
-  (let [out (gobuild/render-go-mod [sqlite sql] nil [])]
+  (let [out (gobuild/render-go-mod [sqlite sql] nil [] {})]
     (is (str/includes? out "module lgx.local/runtime"))
     (is (not (str/includes? out "github.com/nooga/let-go")))
     (is (not (str/includes? out "replace")))))
@@ -287,7 +370,7 @@
 (deftest render-go-mod-emits-a-replace-for-a-local-let-go
   ;; A replace target still needs its v0.0.0 placeholder require: `go get`
   ;; cannot express a replace directive.
-  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [])]
+  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [] {})]
     (is (str/includes? out "require github.com/nooga/let-go v0.0.0"))
     (is (str/includes? out
                        "replace github.com/nooga/let-go => /Users/x/let-go"))))
@@ -296,11 +379,11 @@
   ;; A coord symbol is a *package* path, which is not always a *module* path
   ;; (golang.org/x/crypto/ssh lives in golang.org/x/crypto), so lgx lets
   ;; `go get <pkg>@<version>` resolve the owning module instead.
-  (let [out (gobuild/render-go-mod [sqlite] nil [])]
+  (let [out (gobuild/render-go-mod [sqlite] nil [] {})]
     (is (not (str/includes? out "modernc.org/sqlite")))))
 
 (deftest render-go-mod-omits-stdlib-coords
-  (let [out (gobuild/render-go-mod [sql] nil [])]
+  (let [out (gobuild/render-go-mod [sql] nil [] {})]
     (is (not (str/includes? out "database/sql")))))
 
 (deftest render-go-mod-requires-and-replaces-each-local-module
@@ -308,13 +391,14 @@
   ;; reads it from the target's own go.mod and passes it in.
   (let [out (gobuild/render-go-mod
               [shim] nil
-              [[{:go/local "/proj/shim"} "github.com/you/pkgs/sqlite/shim"]])]
+              [[{:go/local "/proj/shim"} "github.com/you/pkgs/sqlite/shim"]]
+              {})]
     (is (str/includes? out "require github.com/you/pkgs/sqlite/shim v0.0.0"))
     (is (str/includes?
           out "replace github.com/you/pkgs/sqlite/shim => /proj/shim"))))
 
 (deftest render-go-mod-ends-with-a-newline
-  (is (str/ends-with? (gobuild/render-go-mod [sqlite] nil []) "\n")))
+  (is (str/ends-with? (gobuild/render-go-mod [sqlite] nil [] {}) "\n")))
 
 ;; ---------------------------------------------------------------------------
 ;; render-main-go
@@ -575,23 +659,25 @@
 (deftest render-go-mod-uses-the-major-aware-placeholder-version
   (let [out (gobuild/render-go-mod
               [shim] nil
-              [[{:go/local "/proj/shim"} "example.com/mod/v2"]])]
+              [[{:go/local "/proj/shim"} "example.com/mod/v2"]]
+              {})]
     (is (str/includes? out "require example.com/mod/v2 v2.0.0"))))
 
 (deftest render-go-mod-quotes-a-replace-path-with-spaces
   ;; The directive grammar splits on whitespace, so an unquoted path parses as
   ;; a path plus a bogus version and go.mod fails to load.
-  (let [out (gobuild/render-go-mod [sqlite] "/tmp/sp ace" [])]
+  (let [out (gobuild/render-go-mod [sqlite] "/tmp/sp ace" [] {})]
     (is (str/includes? out "=> \"/tmp/sp ace\""))))
 
 (deftest render-go-mod-quotes-a-local-module-path-with-spaces
   (let [out (gobuild/render-go-mod
               [shim] nil
-              [[{:go/local "/tmp/sp ace/shim"} "example.com/mod"]])]
+              [[{:go/local "/tmp/sp ace/shim"} "example.com/mod"]]
+              {})]
     (is (str/includes? out "=> \"/tmp/sp ace/shim\""))))
 
 (deftest render-go-mod-leaves-ordinary-paths-unquoted
-  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [])]
+  (let [out (gobuild/render-go-mod [sqlite] "/Users/x/let-go" [] {})]
     (is (str/includes? out "=> /Users/x/let-go\n"))))
 
 (deftest split-ignores-unknown-go-keys-on-third-party-coords
