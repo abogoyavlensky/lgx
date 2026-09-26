@@ -16,7 +16,7 @@
             [lgx.version :as version]
             [string :as str]))
 
-(def version "0.3.2")
+(def version "0.4.0")
 
 ;; Description column the static rows below are hand-aligned to; task rows align
 ;; to it too (see task-line). If you re-pad the rows, update this constant.
@@ -26,7 +26,8 @@
 ;; colored, and they are built at call time (in usage-for) so LGX_NO_COLOR is
 ;; honored at runtime rather than baked into the bundle during `lg -b`.
 (def ^:private command-rows
-  (str "  lgx install                  Fetch dependencies declared in lgx.edn\n"
+  (str "  lgx install [--all]          Fetch dependencies declared in lgx.edn\n"
+       "                               (--all also fetches every :contexts and :tasks :extra-deps)\n"
        "  lgx info                     Show which lg runs this project and why (:lg-runtime, :lg-version, Go deps) and its contexts\n"
        "  lgx run [args...]            Run a script via `lg` with deps on the source path\n"
        "                               (uses :main from lgx.edn when script is omitted; auto-applies :dev context)\n"
@@ -196,21 +197,30 @@
          "; add a :git coord to lgx.edn :deps or exclude it"
          " (see examples/clojure-libs/)\n")))
 
-(defn- emit-warnings!
-  "Print one line per declared dep the walk could not resolve.
+(defn- resolution-lines
+  "The warning lines an ensure-all! `result` reports: its inline :warnings in
+   walk order, then one line per declared dep the walk could not resolve.
 
-   Emitted only after the whole walk, so a dep resolved later in BFS order
-   never falsely warns, and filtered twice. First by resolution: a declared dep
-   that matches something already resolved is silent. Then by moment, unless
-   `warn-all?`: only deps whose declaring lib was freshly installed in this
-   walk are reported, so a warm cache stays quiet in the day-to-day run/build/
-   test loop. `lgx install` passes warn-all?, being both the deliberate
-   dependency-management moment and the way to re-read these warnings."
-  [seen pending warn-all?]
-  (let [unresolved (config/unresolved-declared seen pending)
+   The unresolved lines are computed only after the whole walk, so a dep
+   resolved later in BFS order never falsely warns, and filtered twice. First
+   by resolution: a declared dep that matches something in :resolved is
+   silent. Then by moment, unless `warn-all?`: only deps whose declaring lib
+   was freshly installed in this walk are reported, so a warm cache stays
+   quiet in the day-to-day run/build/test loop. `lgx install` passes
+   warn-all?, being both the deliberate dependency-management moment and the
+   way to re-read these warnings."
+  [result warn-all?]
+  (let [unresolved (config/unresolved-declared (:resolved result)
+                                               (:pending result))
         shown (if warn-all? unresolved (filter :installed? unresolved))]
-    (doseq [entry shown]
-      (write! *err* (warning-line entry)))))
+    (vec (concat (:warnings result) (map warning-line shown)))))
+
+(defn- report-resolution!
+  "Write an ensure-all! result's warning lines (see resolution-lines) to
+   stderr."
+  [result warn-all?]
+  (doseq [line (resolution-lines result warn-all?)]
+    (write! *err* line)))
 
 (defn- ensure-all!
   "Resolve the project's coords and, transitively, the coords each fetched dep
@@ -219,8 +229,14 @@
    closer to the root wins on conflicts (first-wins): the first coord seen for
    a lib name is kept, and a later, differing coord for the same lib is skipped
    with a warning. That also means a top-level coord always overrides whatever
-   a dep declares. The `seen` map terminates cycles. Returns the install
-   results in resolution order.
+   a dep declares. The `seen` map ({lib [id ...]}) terminates cycles.
+
+   All mode (`opts` {:all? true}, for `lgx install --all`) instead fetches
+   every distinct coord: an entry is skipped only when its exact id was
+   already seen, so one lib pinned at two coords is fetched twice, and no
+   conflict warning fires — there is no single basis to conflict in. Go
+   coords still split out, but the caller discards them, so their conflict
+   warnings are not collected either.
 
    Each queue entry carries its resolution base — the directory a relative
    :local/root is resolved against. Top-level coords use the project root;
@@ -234,33 +250,41 @@
    are collected — including the ones a dep declares in its own lgx.edn — and
    returned for the custom-runtime build.
 
-   `warn-all?` shows every unresolved declared dep instead of only those
-   surfacing from a fresh install (see emit-warnings!).
+   Nothing is written here: the caller prints the result's warnings with
+   report-resolution!.
 
-   Returns {:installs [...] :go-coords [[lib coord] ...] :go-origins {...}},
-   where :go-origins maps each Go coord lib to the dep lib whose lgx.edn
-   declared it — nil for a coord in the project's own lgx.edn — so an error
-   (or `lgx info`) can say which dep pulled a Go package in."
-  [project coords warn-all?]
-  (let [split0 (gobuild/split-go-coords
+   Returns {:installs [...] :go-coords [[lib coord] ...] :go-origins {...}
+   :warnings [line ...] :resolved [[lib id] ...] :pending [...]}, where
+   :go-origins maps each Go coord lib to the dep lib whose lgx.edn declared
+   it — nil for a coord in the project's own lgx.edn — so an error (or
+   `lgx info`) can say which dep pulled a Go package in. :warnings are the
+   inline lines in walk order; :resolved and :pending feed the unresolved-
+   declared-dep lines (see resolution-lines)."
+  [project coords opts]
+  (let [all? (:all? opts)
+        go-warnings (fn [split] (if all? [] (:warnings split)))
+        split0 (gobuild/split-go-coords
                  (mapv (fn [[lib c]] {:lib lib
                                       :coord c
                                       :base project}) coords)
                  {})]
-    (doseq [w (:warnings split0)] (write! *err* w))
     (loop [queue (:src split0)
            seen {}
            out []
            pending []
+           warnings (go-warnings split0)
            go-seen (:seen-go split0)
            go-pairs (:go-pairs split0)
            go-origins (into {} (map (fn [[glib _]] [glib nil])
                                     (:go-pairs split0)))]
       (if (empty? queue)
-        (do (emit-warnings! seen pending warn-all?)
-            {:installs out
-             :go-coords go-pairs
-             :go-origins go-origins})
+        {:installs out
+         :go-coords go-pairs
+         :go-origins go-origins
+         :warnings warnings
+         :resolved (vec (mapcat (fn [[lib ids]] (map (fn [id] [lib id]) ids))
+                                seen))
+         :pending pending}
         (let [{:keys [lib coord base via via-source via-installed? declared]}
               (first queue)
               rest-q (vec (rest queue))
@@ -281,16 +305,20 @@
             (recur rest-q seen out
                    (conj pending (pending-warning via via-installed? warn-about
                                                   (:error normalized)))
-                   go-seen go-pairs go-origins)
-            (let [id (:ok normalized)]
-              (if (contains? seen lib)
-                (do
-                  (when (not= (get seen lib) id)
-                    (write! *err*
-                            (str "warning: " lib " already resolved as "
-                                 (coord-label (get seen lib)) "; ignoring "
-                                 (coord-label id) "\n")))
-                  (recur rest-q seen out pending go-seen go-pairs go-origins))
+                   warnings go-seen go-pairs go-origins)
+            (let [id (:ok normalized)
+                  ids (get seen lib)]
+              (if (if all?
+                    (some (fn [x] (= id x)) ids)
+                    (contains? seen lib))
+                (recur rest-q seen out pending
+                       (if (or all? (= (first ids) id))
+                         warnings
+                         (conj warnings
+                               (str "warning: " lib " already resolved as "
+                                    (coord-label (first ids)) "; ignoring "
+                                    (coord-label id) "\n")))
+                       go-seen go-pairs go-origins)
               ;; A fetch failure aborts only when the coord is the user's own;
               ;; one reached through a dep's metadata degrades to a warning.
                 (let [fetched (attempt (fn [] (cache/ensure-lib! coord base)))]
@@ -299,7 +327,7 @@
                            (conj pending
                                  (pending-warning via via-installed? warn-about
                                                   (:error fetched)))
-                           go-seen go-pairs go-origins)
+                           warnings go-seen go-pairs go-origins)
                     (let [{:keys [paths dir installed?]} (:ok fetched)
                         ;; :deps/root relocates where the dep's lgx.edn is
                         ;; read (config/dep-config-dir) — and the children it
@@ -333,9 +361,8 @@
                           row {:lib lib
                                :paths paths
                                :installed? installed?}]
-                      (doseq [w (:warnings split)] (write! *err* w))
                       (recur (vec (concat rest-q (:src split)))
-                             (assoc seen lib id)
+                             (assoc seen lib (conj (or ids []) id))
                              (conj out (if via
                                          (assoc row
                                                 :via via
@@ -343,6 +370,7 @@
                                          row))
                              (vec (concat pending
                                           (:pending found)))
+                             (vec (concat warnings (go-warnings split)))
                              (:seen-go split)
                              (vec (concat go-pairs
                                           (:go-pairs split)))
@@ -474,27 +502,76 @@
             (write! *err* (str "+ custom lg runtime " path "\n")))
           path)))))
 
-(defn- cmd-install [with]
-  (let [project (config/find-project!)
+(defn- install-extras
+  "The coord pairs `install --all` walks in all mode: the base list `coords`,
+   the project's own :deps, and every context's and task's :extra-deps. The
+   base pairs are walked again (cache hits, so nothing prints twice) because a
+   first-wins walk skips a lib's losing coords, which a context replacing the
+   winner would need. The project pairs are there because a --with context can
+   override a project coord in the base list, and --all still warms the
+   project's own."
+  [cfg coords]
+  (vec (distinct (concat coords
+                         (config/coords cfg)
+                         (config/extra-dep-pairs cfg)))))
+
+(defn- cmd-install [forward-args with]
+  (let [{:keys [all?]}
+        (try
+          (cli/parse-install-args (vec forward-args))
+          (catch e
+                 (write! *err* (str (ex-message e) "\n"))
+            (os/exit 1)))
+        project (config/find-project!)
         cfg (config/load-config! project)
         overlay (with->overlay! cfg (vec with))
         coords (config/merge-coords (config/coords cfg)
-                                    (:deps-pairs overlay))]
-    (write! *err* (str (style/header "Installing dependencies...") "\n"))
-    (let [basis (if (empty? coords)
+                                    (:deps-pairs overlay))
+        extras (if all? (install-extras cfg coords) [])]
+    (write! *err* (str (style/header (if all?
+                                       "Installing dependencies (all contexts and tasks)..."
+                                       "Installing dependencies..."))
+                       "\n"))
+    (let [basis (if (and (empty? coords) (empty? extras))
                   (do (println "no deps in lgx.edn")
                       {:go-coords []
                        :go-origins {}})
                   ;; The deliberate dependency-management moment: show every
                   ;; pending warning, including ones a warm cache would
                   ;; otherwise keep quiet.
-                  (let [{:keys [installs go-coords go-origins]}
-                        (ensure-all! project coords true)]
+                  (let [base (when (seq coords)
+                               (ensure-all! project coords {:all? false}))
+                        base-lines (if base (resolution-lines base true) [])
+                        _ (doseq [line base-lines] (write! *err* line))
+                        ;; All mode fetches every distinct coord, so each
+                        ;; context and task finds a warm cache. Its Go coords
+                        ;; are dropped: the runtime is warmed for the base
+                        ;; basis only, and a context's Go deps build their own
+                        ;; runtime on first use.
+                        extra (when (seq extras)
+                                (ensure-all! project extras {:all? true}))
+                        ;; Checked against both passes' resolved pairs, so a
+                        ;; lib the base pins stays as quiet as in the real
+                        ;; --with basis; a line the base printed is not
+                        ;; repeated.
+                        extra-lines (if extra
+                                      (resolution-lines
+                                        (assoc extra :resolved
+                                               (concat (:resolved base)
+                                                       (:resolved extra)))
+                                        true)
+                                      [])
+                        printed (set base-lines)
+                        _ (doseq [line (distinct extra-lines)]
+                            (when-not (contains? printed line)
+                              (write! *err* line)))
+                        installs (vec (concat (:installs base)
+                                              (:installs extra)))]
                     (if (some :installed? installs)
                       (print-installs! installs)
                       (println "all deps up to date"))
-                    {:go-coords go-coords
-                     :go-origins go-origins}))]
+                    {:go-coords (or (:go-coords base) [])
+                     :go-origins (or (:go-origins base) {})}))]
       ;; Runs with or without deps: under :built, `lgx install` warms the
       ;; runtime so the first run has nothing left to discover — the
       ;; CI-friendly shape — and a deps-less project still needs that.
@@ -530,8 +607,10 @@
    project-only (deps never contribute resource roots). `optional-paths` is the
    set of raw paths that resolve without a missing-entry warning."
   [project coords raw-paths raw-resource-paths optional-paths]
-  (let [{:keys [installs go-coords go-origins]}
-        (ensure-all! project coords false)
+  (let [{:keys [installs go-coords go-origins]
+         :as result}
+        (ensure-all! project coords {:all? false})
+        _ (report-resolution! result false)
         own-paths (resolve-project-paths ":paths" project raw-paths
                                          optional-paths)
         paths (vec (concat own-paths (mapcat :paths installs)))
@@ -1276,7 +1355,7 @@
    indistinguishable from \"not a built-in\"."
   [name rest-args verbose? with]
   (case name
-    "install" (cmd-install with)
+    "install" (cmd-install (vec rest-args) with)
     "info" (cmd-info verbose? with)
     "run" (cmd-run (vec rest-args) verbose? with)
     "repl" (cmd-repl (vec rest-args) verbose? with)

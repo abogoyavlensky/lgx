@@ -143,6 +143,21 @@
       :else
       (throw (ex-info nrepl-args-error {})))))
 
+(def ^:private install-args-error
+  "lgx: install does not take arguments other than --all")
+
+(defn parse-install-args
+  "Parse the `install` command's rest-args. Returns {:all? true} when `--all`
+   is present (it may repeat), else {:all? false}. Throws ex-info on any other
+   token."
+  [args]
+  (loop [args (seq args)
+         all? false]
+    (cond
+      (nil? args) {:all? all?}
+      (= "--all" (first args)) (recur (next args) true)
+      :else (throw (ex-info install-args-error {})))))
+
 (def ^:private target-value-error
   "lgx: --target requires a value in <os>/<arch> form (e.g. linux/arm64)")
 

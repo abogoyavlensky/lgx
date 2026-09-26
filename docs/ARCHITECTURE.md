@@ -31,7 +31,7 @@ embedded git library ended up shelling out for edge cases anyway.
 
 ```
 lgx.lg              ns lgx.main — entry, subcommand dispatch, basis/overlay wiring, apply-runtime! (the :lg-runtime decision), cmd-info
-lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port, build --target/--all; self-invocation + child argv for :task steps
+lgx/cli.lg          pure argv parsing: program-prefix strip, leading --verbose/--with, nrepl --port, build --target/--all, install --all; self-invocation + child argv for :task steps
 lgx/config.lg       find lgx.edn (walks up), load + validate + normalize it once per invocation; the format lives here as one schema value; pure accessors over the loaded map; the shipped default contexts and the per-command auto-contexts table
 lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:path :msg} ...] (accumulates sibling errors; never throws on invalid values — a malformed schema does throw; :and short-circuits), error->line rendering
 lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
@@ -127,12 +127,34 @@ of failing or silently dropping tasks.
    warning. Coords are compared after `coord-id` absolutizes a relative
    `:local/root` and strips a trailing `/` or `.git` from a `:git/url`, so
    one repo spelled two ways is not a conflict. The seen set also
-   terminates cycles.
+   terminates cycles. `ensure-all!` writes nothing itself: it returns its
+   warning lines (`:warnings`, plus the `:resolved` pairs and `:pending`
+   entries the unresolved-declared lines are computed from), and the
+   caller prints them with `report-resolution!`.
 5. If any dep was newly cloned, print `installing N dep(s)...`, one
    `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
    already cached, print `all deps up to date`. Empty `:deps` prints
    `no deps in lgx.edn`.
-6. `apply-runtime!` (see [Go deps](#go-deps)), with or without deps: under
+6. `lgx install --all` adds a second, **all-mode** pass after the base
+   pass above. It walks the base pairs, the project `:deps`, and
+   `config/extra-dep-pairs` (every effective context's and task's
+   `:extra-deps`, sorted by name, identical pairs collapsed). The base pairs
+   are walked again because first-wins skips a lib's losing transitive
+   coords, which a context replacing the winner would need. The project
+   pairs are there because a `--with` context can override one in the base
+   list. All mode fetches every distinct coord, so one lib pinned at two
+   shas is fetched twice, and it never prints the `already resolved`
+   warning. It can fetch a transitive coord that a real basis would
+   override at top level; that superset is harmless, since the cache is
+   content-addressed. The pass's unresolved-declared lines are computed
+   against both passes' `:resolved` pairs, and a line the base pass already
+   printed is not repeated. Both passes' fresh installs share one
+   `installing N dep(s)...` block, and `no deps in lgx.edn` prints only
+   when both lists are empty. The runtime is warmed for the base basis only:
+   the pass's Go coords are dropped, and a context's Go deps build their
+   runtime on first use. `install` rejects any argument other than `--all`
+   (`cli/parse-install-args`).
+7. `apply-runtime!` (see [Go deps](#go-deps)), with or without deps: under
    `:built` this is what warms the runtime so the first `run` has nothing
    left to build, and a deps-less project still needs that.
 
@@ -700,7 +722,8 @@ layers are: project + auto-context + CLI `--with` for `run`/`repl`/`nrepl`/`test
 and project + CLI `--with` only for `build`/`install` (no auto layer —
 `cmd-build`/`cmd-install` never call `auto-with!`). `install` resolves the
 same overlay so it pre-fetches a context's deps (auto names included only
-via an explicit `--with dev,test`).
+via an explicit `--with dev,test`). `install --all` goes further and fetches
+every context's and task's `:extra-deps` (see [`lgx install`](#lgx-install)).
 
 ### `lgx new <name> [-t <tpl>]`
 

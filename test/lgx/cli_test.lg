@@ -104,6 +104,29 @@
   (is (= :threw (threw? #(cli/parse-nrepl-args ["--port" "7888" "extra"])))))
 
 ;; ---------------------------------------------------------------------------
+;; parse-install-args
+;; ---------------------------------------------------------------------------
+
+(deftest install-no-args
+  (is (= {:all? false} (cli/parse-install-args []))))
+
+(deftest install-all-flag
+  (is (= {:all? true} (cli/parse-install-args ["--all"]))))
+
+(deftest install-all-flag-repeated
+  (is (= {:all? true} (cli/parse-install-args ["--all" "--all"]))))
+
+(deftest install-unexpected-arg-throws
+  (is (= :threw (threw? #(cli/parse-install-args ["extra"]))))
+  (is (= :threw (threw? #(cli/parse-install-args ["--all" "extra"])))))
+
+(deftest install-unexpected-arg-message
+  (let [msg (try (cli/parse-install-args ["extra"])
+                 nil
+                 (catch e (ex-message e)))]
+    (is (str/includes? msg "other than --all"))))
+
+;; ---------------------------------------------------------------------------
 ;; parse-new-args
 ;; ---------------------------------------------------------------------------
 
