@@ -234,6 +234,24 @@
                   entries)]
     (dissoc r :owners)))
 
+(defn merged-replace-errors
+  "Pure. One message per :conflicts and :reserved entry of a merged-replaces
+   result, in that order; empty when the merge is clean."
+  [{:keys [conflicts reserved]}]
+  (vec (concat
+         (map (fn [{:keys [module a b]}]
+                (str ":go/replace conflict for " module ": " (first a)
+                     " wants " (second a) ", " (first b) " wants "
+                     (second b)))
+              conflicts)
+         (map (fn [{:keys [module lib by]}]
+                (str ":go/replace for " module " from " lib
+                     " collides with "
+                     (if (nil? by)
+                       "the :lg-version pin"
+                       (str "the :go/local coord " by))))
+              reserved))))
+
 (defn render-go-mod
   "Pure. The generated module's go.mod.
 
@@ -683,6 +701,10 @@
          merged (merged-replaces go-pairs
                                  (zipmap (map second locals)
                                          (map first local-pairs)))
+         ;; Before runtime-paths and before any file is written: a conflict
+         ;; must stop the run before Go is invoked at all.
+         _ (when-let [errs (seq (merged-replace-errors merged))]
+             (die! (str/join "\nerror: " errs)))
          {:keys [src out live? lg-version]}
          (runtime-paths go-pairs lg-version target verbose?)]
      (if (and (file-exists? out) (not live?))

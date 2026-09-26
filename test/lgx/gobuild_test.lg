@@ -272,6 +272,34 @@
              :by 'github.com/you/pkgs/shim}]
            (:reserved r)))))
 
+(deftest merged-replace-errors-is-empty-for-a-clean-merge
+  (is (= [] (gobuild/merged-replace-errors
+              (gobuild/merged-replaces [lk] {})))))
+
+(deftest merged-replace-errors-names-the-module-and-both-libs
+  (let [other (with-replaces sqlite
+                {webrtc "github.com/pion/webrtc/v4@v4.1.0"})]
+    (is (= [(str ":go/replace conflict for github.com/pion/webrtc/v4: "
+                 "github.com/livekit/livekit-server/pkg/service wants "
+                 webrtc-fork ", modernc.org/sqlite wants "
+                 "github.com/pion/webrtc/v4@v4.1.0")]
+           (gobuild/merged-replace-errors
+             (gobuild/merged-replaces [lk other] {}))))))
+
+(deftest merged-replace-errors-names-what-a-reserved-module-collides-with
+  (let [bad (with-replaces sqlite
+              {"github.com/nooga/let-go" "github.com/me/let-go@v1.0.0"
+               "github.com/you/pkgs/shim" "github.com/me/shim@v1.0.0"})]
+    (is (= [(str ":go/replace for github.com/nooga/let-go from "
+                 "modernc.org/sqlite collides with the :lg-version pin")
+            (str ":go/replace for github.com/you/pkgs/shim from "
+                 "modernc.org/sqlite collides with the :go/local coord "
+                 "github.com/you/pkgs/shim")]
+           (gobuild/merged-replace-errors
+             (gobuild/merged-replaces
+               [bad shim]
+               {"github.com/you/pkgs/shim" 'github.com/you/pkgs/shim}))))))
+
 ;; ---------------------------------------------------------------------------
 ;; target-env-args — how GOOS/GOARCH reach the go build subprocess
 ;; ---------------------------------------------------------------------------
