@@ -3282,6 +3282,44 @@ assert_contains "$lg_line" "is a branch" "info branch: the reason is named"
 rm -rf "$proj_in" "$home_in"
 
 # ---------------------------------------------------------------------------
+echo "==> Scenario 160: a malformed :go/replace is a config error"
+proj_gr="$(mktemp -d)"
+home_gr="$(mktemp -d)"
+cat > "$proj_gr/lgx.edn" <<'EOF'
+{:paths ["."] :lg-runtime :built :lg-version "1.13.0"
+ :deps {github.com/livekit/livekit-server/pkg/service
+        {:go/version "v1.13.7"
+         :go/replace {"github.com/pion/webrtc/v4" "nope"}}}}
+EOF
+set +e
+out="$(cd "$proj_gr" && LGX_HOME="$home_gr" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "go/replace malformed: expected non-zero exit (output: $out)"
+pass "go/replace malformed: info exits non-zero"
+assert_contains "$out" "<module>@<version>" "go/replace malformed: names the expected form"
+assert_contains "$out" '"nope"' "go/replace malformed: quotes the bad value"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 161: lgx info lists a coord's :go/replace entries"
+cat > "$proj_gr/lgx.edn" <<'EOF'
+{:paths ["."] :lg-runtime :built :lg-version "1.13.0"
+ :deps {github.com/livekit/livekit-server/pkg/service
+        {:go/version "v1.13.7"
+         :go/replace {"github.com/pion/webrtc/v4" "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.1"}}}}
+EOF
+set +e
+out="$(cd "$proj_gr" && LGX_HOME="$home_gr" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "go/replace info: expected exit 0, got $rc (output: $out)"
+pass "go/replace info: exits 0 without building"
+assert_contains "$out" \
+    "replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4@v4.2.18-warp.1" \
+    "go/replace info: the replace is listed under its coord"
+[[ ! -e "$home_gr/runtimes" ]] || fail "go/replace info: runtimes cache was created"
+pass "go/replace info: no runtime cache was created"
+rm -rf "$proj_gr" "$home_gr"
+
+# ---------------------------------------------------------------------------
 # Scenarios 127-133: lgx test over let-go's clojure.test port
 # (nooga/let-go#863, lg >= 1.13.0). 127-128 pin the output contract the
 # earlier test scenarios also cover; the rest are the cases only the port

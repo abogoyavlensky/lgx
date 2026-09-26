@@ -1212,11 +1212,19 @@
                      [(info-line "LGX_LG" (str (:user-lg env)
                                                " (conflicts with :lg-runtime :built)"))]
                      []))))
+        ;; Each coord's :go/replace entries sit indented under its label, so
+        ;; the forks the runtime will link are visible without reading the
+        ;; generated go.mod.
+        dep-rows (fn [[_ c :as pair]]
+                   (cons (go-dep-label pair go-origins)
+                         (map (fn [[old target]]
+                                (str "  replace " old " => " target))
+                              (sort-by first (:go/replace c)))))
         deps (if (empty? go-pairs)
                [(info-line "go-deps" "(none)")]
-               (cons (info-line "go-deps" (go-dep-label (first go-pairs) go-origins))
-                     (map #(info-continuation (go-dep-label % go-origins))
-                          (rest go-pairs))))
+               (let [rows (mapcat dep-rows go-pairs)]
+                 (cons (info-line "go-deps" (first rows))
+                       (map info-continuation (rest rows)))))
         contexts (config/contexts cfg)
         context-names (concat [:dev :test]
                               (sort-by str (remove #{:dev :test}
