@@ -459,6 +459,15 @@ The rules:
 | External module | `:go/version` or `:go/local`, plus optional `:go/interop` |
 | `:go/version` | anything Go accepts - a tag, a sha, a branch |
 | `:go/local` | relative to the file that declares it; a `replace` directive, for development |
+| `:go/replace` | on an external module only: `{"<module>" "<module>@<version>"}`, one `replace` directive per entry |
+
+`:go/replace` is for a library that compiles only against forks of its own
+dependencies. Go honours `replace` only in the main module, so the forks a
+library's own `go.mod` names are ignored once it is a dependency; copy them
+onto its coord instead, in the `<module>@<version>` form
+`go mod edit -replace` takes. They propagate from a dep's `lgx.edn` like any
+Go coord, and two coords replacing one module with different targets is an
+error.
 
 `:lg-version` pins the let-go the runtime is built from. Version conflicts
 across the tree are left to Go's own MVS - lgx writes what it resolved and

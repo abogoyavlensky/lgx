@@ -131,11 +131,11 @@ Part 2's CI cannot pass on a released lgx until one carries `:go/replace`: `.mis
 - Modify: `lgx/config.lg`
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write the failing tests** next to `load-rejects-unknown-go-key`. Cases: accepts `:go/replace` with `:go/version`; accepts it with `:go/local`; rejects it on a stdlib coord (`database/sql`); rejects an empty map; rejects a non-map; rejects a value without `@` (message names the key and the expected `<module>@<version>` form); rejects a key whose first segment has no dot; rejects it as the only `:go/*` key (existing "must specify :go/version" error still fires). Also update the unknown-key test's expected "allowed:" list.
-- [ ] **Step 2: Run them to see them fail.** Run: `bin/lgx test` from the repo root (build first with `make build` if `bin/lgx` is stale). Expected: the new tests FAIL, everything else passes.
-- [ ] **Step 3: Implement.** Add `:go/replace` to `go-key-set` (not to `go-value-keys`, whose entries are asserted non-blank strings). Add a private `go-replace-errors` returning `at-key`-style errors for the map shape, and call it from the `has-go?` branch of `coord-errors`. Extend the unknown-key message to `(allowed: :go/version, :go/interop, :go/local, :go/replace)`. Keep `go-coord?` as is: it keys off `go-key-set`, so a coord with only `:go/replace` is still a Go coord and fails the existing external-coord rule.
-- [ ] **Step 4: Run tests.** Run: `bin/lgx test`. Expected: PASS.
-- [ ] **Step 5: Commit.** `git commit -m "config: accept :go/replace on external Go coords"`
+- [x] **Step 1: Write the failing tests** next to `load-rejects-unknown-go-key`. Cases: accepts `:go/replace` with `:go/version`; accepts it with `:go/local`; rejects it on a stdlib coord (`database/sql`); rejects an empty map; rejects a non-map; rejects a value without `@` (message names the key and the expected `<module>@<version>` form); rejects a key whose first segment has no dot; rejects it as the only `:go/*` key (existing "must specify :go/version" error still fires). Also update the unknown-key test's expected "allowed:" list.
+- [x] **Step 2: Run them to see them fail.** Run: `bin/lgx test` from the repo root (build first with `make build` if `bin/lgx` is stale). Expected: the new tests FAIL, everything else passes.
+- [x] **Step 3: Implement.** Add `:go/replace` to `go-key-set` (not to `go-value-keys`, whose entries are asserted non-blank strings). Add a private `go-replace-errors` returning `at-key`-style errors for the map shape, and call it from the `has-go?` branch of `coord-errors`. Extend the unknown-key message to `(allowed: :go/version, :go/interop, :go/local, :go/replace)`. Keep `go-coord?` as is: it keys off `go-key-set`, so a coord with only `:go/replace` is still a Go coord and fails the existing external-coord rule.
+- [x] **Step 4: Run tests.** Run: `bin/lgx test`. Expected: PASS.
+- [x] **Step 5: Commit.** `git commit -m "config: accept :go/replace on external Go coords"`
 
 ### Task 2: Hash, merge and render replaces
 
@@ -143,23 +143,24 @@ Part 2's CI cannot pass on a released lgx until one carries `:go/replace`: `.mis
 - Modify: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write the failing tests.**
+- [x] **Step 1: Write the failing tests.**
   - `runtime-hash` changes when a replace is added, changes when a replace target changes, and is unchanged for a coord without replaces compared to the hash computed before this change (assert the literal 16-hex value the current code returns for `[sqlite]` and `"1.11.1"`, captured before editing).
   - `merged-replaces`: dedupes identical entries from two coords; reports a conflict with both libs when targets differ; returns an empty map for coords without replaces; reports `:reserved` when a replace names `github.com/nooga/let-go` or a module in the reserved set (the `:go/local` module paths).
   - `render-go-mod`: emits `replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.18-warp.1` for a merged map, after the local-module replaces, sorted by old path; emits nothing extra for an empty map. Update existing `render-go-mod` calls for the new arity.
-- [ ] **Step 2: Run them to see them fail.** Run: `bin/lgx test`. Expected: the new tests FAIL.
-- [ ] **Step 3: Implement.** `coord-line` appends the replace slot only when `(:go/replace c)` is non-empty. `merged-replaces` is pure, in the "Rendering the generated module" section. `render-go-mod` takes `[go-pairs replace-path local-modules replaces]`; split each value on the last `@` when rendering. Thread the new arity through in the same commit: `write-module!` gains a `replaces` parameter, and `ensure-runtime!` computes the local module paths (`module-path-at`) and `(:replaces (merged-replaces go-pairs reserved))` before calling `runtime-paths`, so the tree builds and runs at this commit; the conflict `die!`s land in Task 3.
-- [ ] **Step 4: Run tests.** Run: `bin/lgx test`. Expected: PASS.
-- [ ] **Step 5: Commit.** `git commit -m "gobuild: hash, merge and render :go/replace directives"`
+- [x] **Step 2: Run them to see them fail.** Run: `bin/lgx test`. Expected: the new tests FAIL.
+- [x] **Step 3: Implement.** `coord-line` appends the replace slot only when `(:go/replace c)` is non-empty. `merged-replaces` is pure, in the "Rendering the generated module" section. `render-go-mod` takes `[go-pairs replace-path local-modules replaces]`; split each value on the last `@` when rendering. Thread the new arity through in the same commit: `write-module!` gains a `replaces` parameter, and `ensure-runtime!` computes the local module paths (`module-path-at`) and `(:replaces (merged-replaces go-pairs reserved))` before calling `runtime-paths`, so the tree builds and runs at this commit; the conflict `die!`s land in Task 3.
+- [x] **Step 4: Run tests.** Run: `bin/lgx test`. Expected: PASS.
+- [x] **Step 5: Commit.** `git commit -m "gobuild: hash, merge and render :go/replace directives"`
+> Deviation: `ensure-runtime!` reads the `:go/local` module paths once and passes them to `write-module!` (which gained `locals` as well as `replaces`) instead of `write-module!` reading them again. `merged-replaces` takes `reserved` as a map `{module-path owning-lib}`, and each `:reserved` entry carries `:by` (the owning lib, nil for let-go) so the error message can name the colliding `:go/local` coord.
 
 ### Task 3: Wire replaces into the runtime build and prove it against livekit-server
 
 **Files:**
 - Modify: `lgx/gobuild.lg` (`write-module!`, `ensure-runtime!`)
 
-- [ ] **Step 1: Wire.** In `ensure-runtime!`, right after `merged-replaces` and before `runtime-paths`, `die!` on `:conflicts` with `:go/replace conflict for <module>: <lib-a> wants <target-a>, <lib-b> wants <target-b>`, and on `:reserved` with the collision message from the design. Both fire before any file is written and before Go is invoked, including the `go list` a mutable `:lg-version` triggers.
-- [ ] **Step 2: Build lgx.** Run: `make build`. Expected: `bin/lgx` rebuilt without errors.
-- [ ] **Step 3: Prove it end to end** with a throwaway project and cache. Create `/tmp/lgx-replace-probe/lgx.edn`:
+- [x] **Step 1: Wire.** In `ensure-runtime!`, right after `merged-replaces` and before `runtime-paths`, `die!` on `:conflicts` with `:go/replace conflict for <module>: <lib-a> wants <target-a>, <lib-b> wants <target-b>`, and on `:reserved` with the collision message from the design. Both fire before any file is written and before Go is invoked, including the `go list` a mutable `:lg-version` triggers.
+- [x] **Step 2: Build lgx.** Run: `make build`. Expected: `bin/lgx` rebuilt without errors.
+- [x] **Step 3: Prove it end to end** with a throwaway project and cache. Create `/tmp/lgx-replace-probe/lgx.edn`:
   ```clojure
   {:paths ["."] :main "main.lg" :lg-runtime :built :lg-version "1.13.0"
    :deps {github.com/livekit/livekit-server/pkg/service
@@ -169,31 +170,34 @@ Part 2's CI cannot pass on a released lgx until one carries `:go/replace`: `.mis
                         "github.com/pion/ice/v4" "github.com/livekit/ice/v4@v4.4.0-warp.2"}}}}
   ```
   and `main.lg` containing `(println :linked)`. Run: `cd /tmp/lgx-replace-probe && LGX_HOME=/tmp/lgx-replace-home /home/agent/Projects/lgx/bin/lgx run --verbose`. Expected: the runtime builds (first build takes about a minute, more on a cold module cache), the generated `go.mod` under `/tmp/lgx-replace-home/runtimes/*/src/` contains the three replace lines, and the output ends with `:linked`. Then remove the replace map from the coord, use a fresh `LGX_HOME`, and confirm the build fails with `EnableSped undefined`, which proves the replaces are load-bearing.
-- [ ] **Step 4: Prove the conflict paths.** Add a second coord with the same webrtc key and a different target; `lgx run` must exit non-zero with the conflict message before invoking Go. Then replace that with a `:go/replace` keyed on `github.com/nooga/let-go`; expect the reserved-module message.
-- [ ] **Step 5: Commit.** `git commit -m "gobuild: render :go/replace into the runtime module"`
+- [x] **Step 4: Prove the conflict paths.** Add a second coord with the same webrtc key and a different target; `lgx run` must exit non-zero with the conflict message before invoking Go. Then replace that with a `:go/replace` keyed on `github.com/nooga/let-go`; expect the reserved-module message.
+- [x] **Step 5: Commit.** `git commit -m "gobuild: render :go/replace into the runtime module"`
+> Deviation: `--verbose` is a global lgx option, so the probe ran as `lgx --verbose run` (as written, `lgx run --verbose` forwards the flag to `lg`, which exits 2 after the runtime build). The conflict and reserved messages are rendered by a new pure `gobuild/merged-replace-errors`, which has its own unit tests, and all of them are reported in one `die!`. Probe results: runtime built in 1m12s (51 MB) with the three replace lines and printed `:linked`; without them, `se.EnableSped undefined`; both error paths exit 1 with no `go` invocation and no runtimes dir, including under a mutable `:lg-version "main"`.
 
 ### Task 4: `lgx info` and e2e coverage
 
 **Files:**
 - Modify: `lgx.lg`, `tests/e2e.sh`
 
-- [ ] **Step 1: info.** In the `deps` block of the info renderer, after each coord's label, add `info-continuation` lines `replace <old> => <new@v>` for that coord's replaces, sorted.
-- [ ] **Step 2: e2e scenarios** after the `:lg-runtime` validation block (around line 3119), in the same no-toolchain style:
+- [x] **Step 1: info.** In the `deps` block of the info renderer, after each coord's label, add `info-continuation` lines `replace <old> => <new@v>` for that coord's replaces, sorted.
+- [x] **Step 2: e2e scenarios** after the `:lg-runtime` validation block (around line 3119), in the same no-toolchain style:
   - a project whose coord has `:go/replace {"github.com/pion/webrtc/v4" "nope"}` → `lgx info` exits non-zero and the output contains `<module>@<version>`;
   - a project with a valid replace and `:lg-runtime :built` → `lgx info` exits zero and the output contains `replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4@v4.2.18-warp.1` (info under `:built` reports the cache path without building).
-- [ ] **Step 3: Run the suites.** Run: `bash tests/run.sh`. Expected: unit tests PASS and e2e reports the new assertions passing with no failures.
-- [ ] **Step 4: Commit.** `git commit -m "info, e2e: show and check :go/replace"`
+- [x] **Step 3: Run the suites.** Run: `bash tests/run.sh`. Expected: unit tests PASS and e2e reports the new assertions passing with no failures.
+- [x] **Step 4: Commit.** `git commit -m "info, e2e: show and check :go/replace"`
+> Deviation: the replace lines are indented two extra spaces under their coord's label so they read as belonging to it. The e2e scenarios are numbered 160 and 161 (the next free numbers) and sit after Scenario 126, the `lgx info` block.
 
 ### Task 5: Documentation
 
 **Files:**
 - Modify: `README.md`, `docs/knowledge-base/lgx-go-runtimes.md`, `docs/knowledge-base/lgx-go-wrappers.md`, `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README.** Add a `:go/replace` row to the Go deps rules table and one sentence under it: what it is for, the `<module>@<version>` form, and that it propagates from a dep's `lgx.edn` like any Go coord.
-- [ ] **Step 2: lgx-go-runtimes.md.** "What the hash covers": the replace slot, and that coords without replaces keep their old keys. "The build steps": replaces are in the rendered go.mod before `go get`. Add a gotcha: replaces are global, conflicts across the tree are an error, and a dep's own `go.mod` replaces are ignored by Go, which is why the key exists.
-- [ ] **Step 3: lgx-go-wrappers.md.** Under Shape B add a paragraph: a library that compiles only against forks needs `:go/replace` on its shim coord, copied from its `go.mod`; livekit is the worked case. Add `livekit/shim/shim.go` to the "Verify against" footer.
-- [ ] **Step 4: ARCHITECTURE.md.** In "Go deps", one paragraph on `:go/replace`: validated in `coord-errors`, merged by `gobuild/merged-replaces`, rendered by `render-go-mod`.
-- [ ] **Step 5: Commit.** `git commit -m "docs: :go/replace"`
+- [x] **Step 1: README.** Add a `:go/replace` row to the Go deps rules table and one sentence under it: what it is for, the `<module>@<version>` form, and that it propagates from a dep's `lgx.edn` like any Go coord.
+- [x] **Step 2: lgx-go-runtimes.md.** "What the hash covers": the replace slot, and that coords without replaces keep their old keys. "The build steps": replaces are in the rendered go.mod before `go get`. Add a gotcha: replaces are global, conflicts across the tree are an error, and a dep's own `go.mod` replaces are ignored by Go, which is why the key exists.
+- [x] **Step 3: lgx-go-wrappers.md.** Under Shape B add a paragraph: a library that compiles only against forks needs `:go/replace` on its shim coord, copied from its `go.mod`; livekit is the worked case. Add `livekit/shim/shim.go` to the "Verify against" footer.
+- [x] **Step 4: ARCHITECTURE.md.** In "Go deps", one paragraph on `:go/replace`: validated in `coord-errors`, merged by `gobuild/merged-replaces`, rendered by `render-go-mod`.
+- [x] **Step 5: Commit.** `git commit -m "docs: :go/replace"`
+> Deviation: the wrappers doc footer also names `livekit/lgx.edn` (where the replace block lives), and the ARCHITECTURE `lgx info` paragraph mentions the replace lines. Plan-doc progress is committed along with the docs.
 
 ### Task 6: livekit shim, server lifecycle
 

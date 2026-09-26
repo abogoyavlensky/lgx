@@ -44,7 +44,10 @@ version to name, so the pair is `("dev", "replace")`.
   cache key names the commit, not the name pointing at it; a semver or
   full sha is hashed literally and stays offline on cache hits.
 - every Go coord, canonicalized as `lib|version|interop|local` and
-  sorted, so declaration order does not matter
+  sorted, so declaration order does not matter. A coord with
+  `:go/replace` gets a fifth slot, `replace:old=>new@v,...` sorted by
+  old path; a coord without replaces keeps the four-slot line, so
+  runtimes cached before `:go/replace` existed stay valid
 - the target platform (`target|<os>/<arch>`) for a cross-build. A
   native build adds nothing, so pre-target caches stay valid; the
   host's own platform named explicitly still hashes differently, since
@@ -77,7 +80,9 @@ would mean walking it on every command.
 ## The build steps
 
 With cwd `src/` (passed as `go -C <dir>`, so no path goes through shell
-quoting):
+quoting), after `go.mod` is rendered - with every merged `:go/replace`
+entry as a `replace` line, so the forks are in force when `go get`
+resolves the coords:
 
 1. `go get github.com/nooga/let-go@<ref>` - skipped under
    `LGX_LETGO_REPLACE`, whose replace directive `go get` cannot express
@@ -143,6 +148,19 @@ Every unix-family target verified so far (linux/amd64, linux/arm64,
 darwin/arm64) builds.
 
 ## Gotchas
+
+**A dependency's own `go.mod` replaces are ignored.** Go honours
+`replace` only in the main module, which is the generated runtime
+module, so a library that compiles only against forks (livekit-server
+replaces three pion modules) fails to build as a dependency
+(`se.EnableSped undefined`). That is what `:go/replace` on a coord is
+for: its entries are rendered into the runtime's `go.mod`. Replaces
+are global to that file, so `gobuild/merged-replaces` merges them
+across the tree before anything is written or Go is invoked: identical
+entries dedupe, two different targets for one module are an error
+naming both coords, and a replace of `github.com/nooga/let-go` or of a
+`:go/local` module path (both already replaced by the rendered file)
+is an error too.
 
 **The interop placeholder's blank imports are load-bearing.**
 `main.go` imports `lgx.local/runtime/interop`, but nothing imports the

@@ -170,7 +170,8 @@ values to the pure `info-lines`, which renders aligned `label  value`
 lines on stdout: `project`, `lgx` (lgx's own version), `lg-runtime`,
 `lg-version`, `lg`, then `version` (the outcome of `check-lg-version!`)
 under `:installed` or `go`/`let-go`/`LGX_LG` under `:built`, `go-deps`
-with each coord's origin from `:go-origins`, then two blocks read from
+with each coord's origin from `:go-origins` (and its `:go/replace`
+entries as indented `replace old => new@v` lines), then two blocks read from
 `lgx.config` so they cannot drift from behaviour: `contexts` (the
 effective contexts, `:dev` and `:test` first, then the project's sorted by
 name, each `pr-str`'d, with `(default)` on a shipped one) and `applies`
@@ -916,6 +917,19 @@ at a time (rather than the whole entry list at once) is what preserves
 that ordering. A relative `:go/local` is made absolute against the
 declaring file's directory at collection time, while that base is still
 known - the same rule `coord-id` applies to `:local/root`.
+
+`:go/replace` on an external coord carries module `replace` directives,
+for a library that only compiles against forks: Go honours `replace` only
+in the main module, which is the generated runtime module, so a
+dependency's own replaces never apply. The map shape is validated in
+`config/coord-errors`; being per-coord, it rides the same propagation as
+the coord itself. `gobuild/ensure-runtime!` merges every coord's entries
+with the pure `gobuild/merged-replaces` before `runtime-paths` and before
+any file is written, and exits on a conflict (one module, two targets) or
+on a replace of let-go or a `:go/local` module path, which the rendered
+file already replaces. `gobuild/render-go-mod` then emits the merged map
+as sorted `replace` lines, and `coord-line` adds a replace slot to the
+cache key only for coords that have one.
 
 `apply-runtime!` is the single place the runtime enters a command. It
 runs right after the basis, because only then are the transitive Go

@@ -89,6 +89,15 @@ struct constructors are emitted and let-go cannot build an
 `application.NewService[T]` - the whole backend - would vanish with no
 diagnostic. See [`lgx-wails-desktop.md`](./lgx-wails-desktop.md).
 
+**A library that compiles only against forks needs `:go/replace`.** Go
+ignores a dependency's own `replace` lines, so a shim over such a library does
+not build until its coord carries them. Copy the block from the library's
+`go.mod` at the pinned tag onto the shim coord in the package's `lgx.edn`, and
+copy it again whenever the pin moves; consumers inherit it through the normal
+Go-coord propagation. `livekit` is the worked case: livekit-server replaces
+three pion modules with LiveKit's forks and fails with `se.EnableSped
+undefined` without them.
+
 **Callbacks only cross the boundary one way.** A Go func *returned* by a
 package boxes into a let-go fn (`pkg/vm/value.go:200`, `reflect.Func` ->
 `NativeFnType.Box`), but nothing converts a let-go fn into a Go func: let-go's
@@ -202,6 +211,7 @@ note these, none of which are obvious:
 >
 > **In [letgo-packages](https://github.com/abogoyavlensky/letgo-packages):**
 > `sql/shim/shim.go` (Shape A), `wails/shim/shim.go` (Shape B),
+> `livekit/shim/shim.go` and `livekit/lgx.edn` (Shape B with `:go/replace`),
 > each package's `README.md` and `example/`.
 >
 > **In [let-go](https://github.com/nooga/let-go):** `pkg/vm/value.go`
