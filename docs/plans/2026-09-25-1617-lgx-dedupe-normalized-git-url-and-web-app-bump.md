@@ -68,29 +68,31 @@ If upstream declines the hint-aware change, the fallback is the `:lg` guard on H
 - Modify: `lgx/config.lg`, `lgx.lg`
 - Test: `test/lgx/config_test.lg`, `tests/e2e.sh`
 
-- [ ] **Step 1: Write the failing unit test**
+- [x] **Step 1: Write the failing unit test**
   In `test/lgx/config_test.lg`, next to the `unresolved-declared` tests, add `deftest normalize-git-url-strips-suffix-and-slash` asserting that `https://h/o/r`, `https://h/o/r.git`, `https://h/o/r/` and `https://h/o/r.git/` all normalize to `https://h/o/r`, and that surrounding whitespace is trimmed. It calls `config/normalize-git-url`, which is private today.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
   Run: `lg lgx.lg test` from the repo root (dev mode, per `docs/knowledge-base/lgx-dev-workflow.md`), or `make build && bin/lgx test`.
   Expected: FAIL, unresolved var `config/normalize-git-url`.
 
-- [ ] **Step 3: Make it public and use it in `coord-id`**
+- [x] **Step 3: Make it public and use it in `coord-id`**
   Change `defn-` to `defn` for `normalize-git-url` in `lgx/config.lg`. In `lgx.lg` `coord-id`, when the coord has a string `:git/url`, return it with that key normalized; keep the `:local/root` branch as is. Extend the docstring: the id is what the first-wins dedupe compares, so it must be spelling-independent, and `ensure-lib!` still receives the original coord.
 
-- [ ] **Step 4: Run unit tests**
+- [x] **Step 4: Run unit tests**
   Run: `bin/lgx test` (after `make build`).
   Expected: PASS.
 
-- [ ] **Step 5: Add the e2e scenario**
+- [x] **Step 5: Add the e2e scenario**
   In `tests/e2e.sh`, append a scenario after the last one (the next unused number; 156 at the time of writing): two local libs `libP` and `libQ` each depending on `test/lib` at the same sha from the file:// bare repo the harness seeds (see the `make_project` helper and Scenario 63 for the local-lib shape), with `libQ` spelling the URL with a trailing `.git`; the project depends on both. Assert the run prints the expected output and that stderr does not contain `already resolved as`. Reuse the existing `assert_contains`/`pass`/`fail` helpers and the `LGX_HOME` isolation the neighbours use.
 
-- [ ] **Step 6: Run e2e**
+- [x] **Step 6: Run e2e**
   Run: `make test`
   Expected: all scenarios pass, including 63 (differing coords still warn) and the new one.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
   `git commit -am "deps: compare git coords by normalized URL in the first-wins dedupe"`
+
+> Deviation: the `lg` on PATH was mise's `github-nooga-let-go` 1.12.2, which cannot load the 0.3.2 test harness (`ns-interns`). Every build and test ran with `LGX_LG=$(mise which lg)` (1.13.0, per `.mise.toml`), as `tests/run.sh` does. The commit staged files by name, not `-am`, because the three sibling plans had uncommitted edits in the tree. Scenario 156 was checked against a HEAD build first: it failed there and passes with the change. Result: `8ef4c7c`, 792 unit tests and 494 e2e assertions passing. Codex review: no findings.
 
 ### Task 2: Record the two let-go findings in `docs/issues/`
 
@@ -99,26 +101,33 @@ If upstream declines the hint-aware change, the fallback is the `:lg` guard on H
 - Create: `docs/issues/letgo-reflection-warning-ignores-type-hints.md`
 - Modify: `docs/issues/README.md`
 
-- [ ] **Step 1: Write the two entries**
+- [x] **Step 1: Write the two entries**
   Follow the shape of `docs/issues/letgo-push-thread-bindings.md`. Each has: repo `nooga/let-go`, status `draft` (updated to the PR link by whoever opens it), a summary in two or three sentences, "How it was found" naming the web-app example and HoneySQL's `set!`, a minimal reproduction (the two-file `lib.setter`/`lib.later` project for the leak; `(fn [^String s] (.length s))` with the flag on for the hint one), the Clojure behaviour it diverges from, and a pointer to `docs/plans/2026-09-25-1617-letgo-warn-on-reflection-per-load.md`. Use /writing-clearly.
 
-- [ ] **Step 2: Index and commit**
+- [x] **Step 2: Index and commit**
   Add a row for each entry to the "Upstream (nooga/let-go)" table in `docs/issues/README.md`, status `draft`. Stage the new files explicitly, since `-a` only picks up tracked ones: `git add docs/issues/letgo-warn-on-reflection-leaks-across-loads.md docs/issues/letgo-reflection-warning-ignores-type-hints.md docs/issues/README.md && git commit -m "docs/issues: let-go reflection warning leaks across loads and ignores type hints"`
+
+> Done as `c4ce054`. Both entries say the upstream PR is not open yet and name the fork branch carrying the change. The type-hints entry records the 2 chained-call HoneySQL warnings that the let-go change does not clear (33 to 2), taken from the let-go plan's Task 2 Step 7 result. Codex review: no findings.
 
 ### Task 3: Bring `examples/web-app` to zero warnings
 
 **Files:**
 - Modify: `examples/web-app/lgx.edn`, `examples/web-app/README.md`
 
-- [ ] **Step 1: Bump HoneySQL to v2.7.1479 (unblocked)**
+- [x] **Step 1: Bump HoneySQL to v2.7.1479 (unblocked)**
   Change the honeysql coord's `:git/tag` to `"v2.7.1479"`, the first release with let-go support in CI. Run the capture from Design ("definition of done") from `examples/web-app` with Go on PATH, then `../../bin/lgx test`.
   Expected: `started`; tests pass; the line count is unchanged or lower than 51 (record it in the commit message).
   `git commit -am "examples/web-app: honeysql v2.7.1479"`
 
-- [ ] **Step 2: Bump the letgo-packages tags (blocked until `sqlite-v0.2.0` and `ragtime-v0.2.0` exist)**
+  > Result (`6400002`): `started`, 51 → 25 lines, tests 7/36/0. HoneySQL's own reflection warnings drop from 33 to 7 (`util.cljc:14,20,21×3`, `sql.cljc:343,348`). 1 `already resolved`, 3 `already refers` and 14 leaked reflection warnings remain.
+  > Deviation: the baseline run started from an empty DB and counted 53, which is 51 warnings plus two `Applying 00x-...` migration lines. Every count here reuses the migrated `/tmp/t.db`, as the Design's capture does, so the count is warnings only. A run that fetches a dep also prints `installing ...` lines, so each count comes from a second, warm run.
+
+- [x] **Step 2: Bump the letgo-packages tags (blocked until `sqlite-v0.2.0` and `ragtime-v0.2.0` exist)**
   Change `sqlite-v0.1.0` to `sqlite-v0.2.0` and `ragtime-v0.1.0` to `ragtime-v0.2.0`. Run the same capture and `lgx test`.
   Expected: `started`; tests pass; `grep -c 'already resolved' /tmp/webapp.out` is `0`; `grep 'already refers' /tmp/webapp.out` shows only the HoneySQL `upper-case` line, which Step 4 removes. The sqlite `open` and `close!` lines must be gone.
   `git commit -am "examples/web-app: letgo-packages v0.2.0 tags"`
+
+  > Result (`c10ffc1`): `started`, 25 → 22 lines, tests 7/36/0. `already resolved` is 0 and the only `already refers` line is HoneySQL's `upper-case`. The 21 reflection warnings: 7 HoneySQL, 12 `sql-v0.2.0` (now its own checkout, reached by tag), 1 sqlite, 1 ragtime core.
 
 - [ ] **Step 3: Bump let-go (blocked until a release contains the per-load binding fix)**
   Set `:lg-version` to that release. Update the comment above it in `lgx.edn` and the paragraph in `README.md` (around line 81) that explains why the pin is what it is: add that this release scopes `*warn-on-reflection*` per file. Run the same capture and `lgx test`.
@@ -137,3 +146,25 @@ If upstream declines the hint-aware change, the fallback is the `:lg` guard on H
 
 - [ ] **Step 6: Docs sync**
   Grep `docs/knowledge-base/` for `web-app`, `ensure-all!` and `coord-id`; fix any claim this work made stale, in the same commit as the last bump. Then `git commit`.
+
+  > Partial: `docs/ARCHITECTURE.md` step 4 said "a later differing coord" warns without saying the comparison is on normalized coords, so it now names `coord-id` and what it strips (`a4ef836`). That belonged in Task 1's commit and was missed there. `docs/knowledge-base/` had no stale claims. The `README.md` let-go paragraph is updated with Step 3.
+
+---
+
+## Status (2026-09-25)
+
+**In progress: Tasks 1 and 2 done; Task 3 Steps 1-2 done; Steps 3-5 blocked; Step 6 partly done.**
+
+- Task 1 (`8ef4c7c`): `coord-id` normalizes `:git/url` via the now-public `config/normalize-git-url`. Unit test plus e2e Scenario 156 (fails on the old build, passes now). `make test`: 792 unit tests, 494 e2e assertions, all green.
+- Task 2 (`c4ce054`): two `docs/issues/` entries plus README rows, status `draft` with the fork branches named. Update them to the PR links once the let-go PRs open.
+- Task 3: HoneySQL v2.7.1479 (`6400002`) and the letgo-packages v0.2.0 tags (`c10ffc1`) take the web-app from 51 warning lines to 22. The 22 are HoneySQL's `upper-case` (honeysql PR, not merged), 14 leaked reflection warnings (let-go per-load fix, not released) and 7 HoneySQL reflection warnings (let-go hint change, not released; the let-go plan expects 2 chained-call sites to survive it). ARCHITECTURE doc sync is `a4ef836`.
+- Blocked: Step 3 waits for a let-go release with `fix/warn-on-reflection-per-load` (and possibly the known-locals change). Step 4 waits for a HoneySQL tag carrying the `upper-case` exclude. Step 5 then needs a decision on the chained-call warnings that survive the hint change: HoneySQL's `:lg` guard on `set!`, or accepting them.
+- Codex reviewed each task and found nothing to fix. One run failed with a transient 401; the retry passed.
+
+Deviations so far:
+- Every build and test ran with `LGX_LG=$(mise which lg)` (1.13.0), because the `lg` on PATH is 1.12.2 and cannot load the test harness.
+- Commits staged files by name, not `-am`, because the sibling plans had uncommitted edits.
+- Warning counts reuse the migrated `/tmp/t.db` and come from a warm second run, so migration and `installing` lines are not counted.
+- The ARCHITECTURE first-wins sentence was updated in a follow-up commit, not in Task 1's commit.
+
+**What the plan could have specified better:** pin `LGX_LG`/the `lg` version for dev runs, and say that the capture count assumes a migrated DB and a warm dep cache.
