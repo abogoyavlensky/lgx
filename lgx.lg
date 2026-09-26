@@ -57,12 +57,23 @@
     (:git/tag c) (str (:git/url c) "#" (:git/tag c))
     :else (str c)))
 
-(defn- coord-id [base c]
-  (if-let [local (:local/root c)]
-    (assoc c :local/root (if (path/absolute? local)
-                           (path/normalize local)
-                           (path/normalize (path/join base local))))
-    c))
+(defn- coord-id
+  "The identity ensure-all!'s first-wins dedupe compares, so it must not depend
+   on spelling: a relative :local/root is absolutized and a :git/url loses its
+   trailing slash and .git. cache/ensure-lib! still receives the original
+   coord, so the cache layout is unaffected."
+  [base c]
+  (cond
+    (:local/root c)
+    (let [local (:local/root c)]
+      (assoc c :local/root (if (path/absolute? local)
+                             (path/normalize local)
+                             (path/normalize (path/join base local)))))
+
+    (string? (:git/url c))
+    (assoc c :git/url (config/normalize-git-url (:git/url c)))
+
+    :else c))
 
 (defn- coords-at!
   "config/coords-at, but an invalid dep config prints its rendered report and

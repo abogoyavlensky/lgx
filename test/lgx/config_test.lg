@@ -1554,6 +1554,11 @@
 (defn- pending [lib coord]
   {:declaring 'some/dep :declared [lib coord]})
 
+(deftest normalize-git-url-strips-suffix-and-slash
+  (doseq [url ["https://h/o/r" "https://h/o/r.git" "https://h/o/r/"
+               "https://h/o/r.git/" "  https://h/o/r.git \n"]]
+    (is (= "https://h/o/r" (config/normalize-git-url url)))))
+
 (deftest unresolved-declared-suppresses-on-normalized-url-match
   ;; Trailing .git and trailing slash are noise, not identity.
   (doseq [resolved-url ["https://github.com/foo/bar"

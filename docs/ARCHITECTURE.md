@@ -124,11 +124,13 @@ of failing or silently dropping tasks.
    `config/coords-at`); an invalid `:deps` there reports
    `lgx: invalid lgx.edn in <dir> (N errors)` and exits 1. Duplicate lib
    names are first-wins: a later differing coord is skipped with a
-   warning. The seen set also terminates cycles. `ensure-all!` writes
-   nothing itself: it returns its warning lines (`:warnings`, plus the
-   `:resolved` pairs and `:pending` entries the unresolved-declared lines
-   are computed from), and the caller prints them with
-   `report-resolution!`.
+   warning. Coords are compared after `coord-id` absolutizes a relative
+   `:local/root` and strips a trailing `/` or `.git` from a `:git/url`, so
+   one repo spelled two ways is not a conflict. The seen set also
+   terminates cycles. `ensure-all!` writes nothing itself: it returns its
+   warning lines (`:warnings`, plus the `:resolved` pairs and `:pending`
+   entries the unresolved-declared lines are computed from), and the
+   caller prints them with `report-resolution!`.
 5. If any dep was newly cloned, print `installing N dep(s)...`, one
    `<lib> -> <path>` line per **new** dep, and `done`. If every dep was
    already cached, print `all deps up to date`. Empty `:deps` prints

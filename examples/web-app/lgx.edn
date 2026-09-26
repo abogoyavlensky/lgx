@@ -17,14 +17,14 @@
         ;; modernc.org/sqlite driver in transitively.
         abogoyavlensky/letgo-sqlite
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/tag "sqlite-v0.1.0"
+         :git/tag "sqlite-v0.2.0"
          :deps/root "sqlite"}
 
         ;; SQL as data: (sql/format {...}) -> [sql & params], which is the
         ;; statement shape sqlite.core takes.
         com.github.seancorfield/honeysql
         {:git/url "https://github.com/seancorfield/honeysql"
-         :git/tag "v2.7.1437"}
+         :git/tag "v2.7.1479"}
 
         ;; integrant wires the db, the handler and the server together.
         ;; It depends on weavejester/dependency; lgx does not read a plain
@@ -46,5 +46,5 @@
         ;; transitively; app.migrations holds only this app's history.
         abogoyavlensky/letgo-ragtime
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/tag "ragtime-v0.1.0"
+         :git/tag "ragtime-v0.2.0"
          :deps/root "ragtime"}}}

@@ -1230,7 +1230,7 @@
 ;; Suppression: does a declared dep look like something already resolved?
 ;; ---------------------------------------------------------------------------
 
-(defn- normalize-git-url
+(defn normalize-git-url
   "Strip the parts of a git URL that carry no identity — a trailing slash and
    a trailing .git — so the same repo written two ways compares equal."
   [url]
