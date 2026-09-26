@@ -1843,7 +1843,80 @@
                                           {:go/interops "sql"}}}))]
     (is (= 1 (count errors)))
     (is (= [:deps 'database/sql] (:path (first errors))))
-    (is (str/includes? (:msg (first errors)) "unknown key :go/interops"))))
+    (is (str/includes? (:msg (first errors)) "unknown key :go/interops"))
+    (is (str/includes? (:msg (first errors))
+                       "(allowed: :go/version, :go/interop, :go/local, :go/replace)"))))
+
+(def ^:private webrtc-replace
+  {"github.com/pion/webrtc/v4" "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.1"})
+
+(deftest load-accepts-go-replace-with-version
+  (let [cfg {:deps {'github.com/livekit/livekit-server/pkg/service
+                    {:go/version "v1.13.7" :go/replace webrtc-replace}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-go-replace-with-local
+  (let [cfg {:deps {'github.com/you/pkgs/shim
+                    {:go/local "shim" :go/replace webrtc-replace}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-go-replace-on-stdlib-coord
+  (let [errors (:errors (load-cfg {:deps {'database/sql
+                                          {:go/interop "sql"
+                                           :go/replace webrtc-replace}}}))]
+    (is (= 1 (count errors)))
+    (is (str/includes? (:msg (first errors)) "standard-library package"))))
+
+(deftest load-rejects-go-replace-as-only-go-key
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/replace webrtc-replace}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'modernc.org/sqlite] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "must specify :go/version"))))
+
+(deftest load-rejects-empty-go-replace
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.0.0"
+                                           :go/replace {}}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'modernc.org/sqlite :go/replace] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "non-empty map"))))
+
+(deftest load-rejects-non-map-go-replace
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.0.0"
+                                           :go/replace ["a" "b"]}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'modernc.org/sqlite :go/replace] (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "must be a map"))))
+
+(deftest load-rejects-go-replace-value-without-version
+  (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                          {:go/version "v1.0.0"
+                                           :go/replace {"github.com/pion/webrtc/v4"
+                                                        "nope"}}}}))]
+    (is (= 1 (count errors)))
+    (is (= [:deps 'modernc.org/sqlite :go/replace "github.com/pion/webrtc/v4"]
+           (:path (first errors))))
+    (is (str/includes? (:msg (first errors)) "<module>@<version>"))
+    (is (str/includes? (:msg (first errors)) "\"nope\""))))
+
+(deftest load-rejects-go-replace-value-with-blank-side
+  (doseq [v ["@v1.0.0" "github.com/x/y@" "  "]]
+    (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                            {:go/version "v1.0.0"
+                                             :go/replace {"github.com/a/b" v}}}}))]
+      (is (= 1 (count errors)))
+      (is (str/includes? (:msg (first errors)) "<module>@<version>")))))
+
+(deftest load-rejects-go-replace-key-that-is-not-a-module-path
+  (doseq [k ["database/sql" "  " :github.com/a/b]]
+    (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite
+                                            {:go/version "v1.0.0"
+                                             :go/replace {k "github.com/x/y@v1.0.0"}}}}))]
+      (is (= 1 (count errors)))
+      (is (= [:deps 'modernc.org/sqlite :go/replace k] (:path (first errors))))
+      (is (str/includes? (:msg (first errors)) "module path")))))
 
 (deftest load-rejects-deps-root-on-go-coord
   (let [errors (:errors (load-cfg {:deps {'modernc.org/sqlite

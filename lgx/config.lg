@@ -25,7 +25,9 @@
 (def ^:private git-keys #{:git/url :git/sha :git/tag})
 
 (def ^:private go-value-keys [:go/version :go/interop :go/local])
-(def ^:private go-key-set (set go-value-keys))
+;; :go/replace is a map, not a string, so it stays out of go-value-keys (whose
+;; entries are checked as non-blank strings) and has its own rule below.
+(def ^:private go-key-set (conj (set go-value-keys) :go/replace))
 
 ;; Family marker, kept ahead of coord-errors so the coord check can branch on
 ;; it. The public go-coord? below is the same test.
@@ -146,6 +148,51 @@
        "use :git/url + :git/tag (or :git/sha) pointing at the lib's repo "
        "(see examples/clojure-libs/)"))
 
+(defn replace-target-parts
+  "Split a :go/replace value `<module>@<version>` on its last `@` into
+   [module version], or nil when there is no `@`."
+  [v]
+  (let [i (str/last-index-of v "@")]
+    (when (and i (>= i 0))
+      [(subs v 0 i) (subs v (inc i))])))
+
+(defn- go-replace-errors
+  "A coord's :go/replace: a non-empty map of module path to
+   `<module>@<version>`, the pair `go mod edit -replace old=new@v` takes. Only
+   module-to-module replacement: a directory replacement is what :go/local
+   already is."
+  [v]
+  (cond
+    (not (map? v))
+    [(str "must be a map of module path to \"<module>@<version>\", got "
+          (pr-str v))]
+
+    (empty? v)
+    ["must be a non-empty map of module path to \"<module>@<version>\""]
+
+    :else
+    (vec (mapcat
+           (fn [[k target]]
+             (let [[mod ver] (when (string? target)
+                               (replace-target-parts target))]
+               (cond
+                 ;; Go's own module-path rule (go-stdlib? below): the first
+                 ;; segment of a module path is a domain, so it has a dot.
+                 (or (not (string? k))
+                     (str/blank? k)
+                     (not (str/includes? (first (str/split k "/")) ".")))
+                 [{:path [k]
+                   :msg (str "key must be a module path (a string whose first "
+                             "segment has a dot), got " (pr-str k))}]
+
+                 (or (str/blank? (or mod "")) (str/blank? (or ver "")))
+                 [{:path [k]
+                   :msg (str "must be \"<module>@<version>\", got "
+                             (pr-str target))}]
+
+                 :else [])))
+           v))))
+
 (defn- coord-errors
   "Coord rule: :local/root or :git/url + (:git/sha | :git/tag), optional
    :deps/root and :exclusions. Coord maps are open — unknown keys are
@@ -188,13 +235,19 @@
                                                   (keys c))))]
                (if (seq unknown)
                  [(str "unknown key " (str/join ", " unknown)
-                       " (allowed: :go/version, :go/interop, :go/local)")]
+                       " (allowed: :go/version, :go/interop, :go/local, "
+                       ":go/replace)")]
                  []))
              (mapcat (fn [k]
                        (if (contains? c k)
                          (at-key k (non-blank-string-errors (get c k)))
                          []))
                      go-value-keys)
+             ;; Whether the coord may carry replaces at all (an external
+             ;; module, not stdlib) is go-deps-errors' job: it needs the lib.
+             (if (contains? c :go/replace)
+               (at-key :go/replace (go-replace-errors (:go/replace c)))
+               [])
              ;; Both name parts of a Clojure source tree a Go package does not
              ;; have. Accepting them would advertise an option the Go pipeline
              ;; silently ignores.
