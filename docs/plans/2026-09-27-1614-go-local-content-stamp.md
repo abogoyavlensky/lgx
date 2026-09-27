@@ -124,12 +124,14 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
 **Files:**
 - Modify: `docs/knowledge-base/lgx-go-runtimes.md`, `docs/knowledge-base/lgx-go-wrappers.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/plans/2026-09-19-2129-letgo-packages-shim-release.md`
 
-- [ ] **Step 1: lgx-go-runtimes.md.** Cache layout: add `local.stamp`. Rebuild policy: replace the `:go/local` bullet with the stamp rule and the "no stamp after a failed build" property; `LGX_LETGO_REPLACE` stays always-live. "What the hash does not cover": the contents are not in the *hash*, they are in the *stamp*, and why the split (one directory per declaration, rebuilt in place). Note the walk cost scales with the local tree, that `.git` is skipped, that symlinks are followed with a depth cap of 32, and that FIFOs or devices inside a `:go/local` directory are unsupported.
-- [ ] **Step 2: lgx-go-wrappers.md.** Rewrite the "Tags come in two kinds" bullet under Known limits: an in-tree shim with `{:go/local "shim"}` is now the recommended shape and costs one tag; the nested Go module tag is the older model that `sql`, `wails` and `duckdb` still use. Point at livekit as the worked case. Keep the `Verify against` footer accurate.
-- [ ] **Step 3: README.md.** The `:go/local` table row: drop "for development"; say a relative module dir, rebuilt when its files change.
-- [ ] **Step 4: ARCHITECTURE.md.** In the `:built` bullet of `apply-runtime!`, one sentence on the stamp.
-- [ ] **Step 5: 09-19 plan.** Under its status line add: the deferred lgx-side fix landed as `docs/plans/2026-09-27-1614-go-local-content-stamp.md`.
-- [ ] **Step 6: Commit.** `git commit -m "docs: :go/local content stamp"`
+- [x] **Step 1: lgx-go-runtimes.md.** Cache layout: add `local.stamp`. Rebuild policy: replace the `:go/local` bullet with the stamp rule and the "no stamp after a failed build" property; `LGX_LETGO_REPLACE` stays always-live. "What the hash does not cover": the contents are not in the *hash*, they are in the *stamp*, and why the split (one directory per declaration, rebuilt in place). Note the walk cost scales with the local tree, that `.git` is skipped, that symlinks are followed with a depth cap of 32, and that FIFOs or devices inside a `:go/local` directory are unsupported.
+- [x] **Step 2: lgx-go-wrappers.md.** Rewrite the "Tags come in two kinds" bullet under Known limits: an in-tree shim with `{:go/local "shim"}` is now the recommended shape and costs one tag; the nested Go module tag is the older model that `sql`, `wails` and `duckdb` still use. Point at livekit as the worked case. Keep the `Verify against` footer accurate.
+- [x] **Step 3: README.md.** The `:go/local` table row: drop "for development"; say a relative module dir, rebuilt when its files change.
+- [x] **Step 4: ARCHITECTURE.md.** In the `:built` bullet of `apply-runtime!`, one sentence on the stamp.
+- [x] **Step 5: 09-19 plan.** Under its status line add: the deferred lgx-side fix landed as `docs/plans/2026-09-27-1614-go-local-content-stamp.md`.
+- [x] **Step 6: Commit.** `git commit -m "docs: :go/local content stamp"`
+
+> Deviation: `lgx-go-runtimes.md` also documents the `GOFLAGS`/`CGO_ENABLED` lines in the stamp (from the Task 2 review), notes that `lgx info` can show a stale `:go/local` runtime as built, and says that deleting `local.stamp` forces a rebuild.
 
 ### Task 5: letgo-packages pilot, livekit ships its shim in-tree
 

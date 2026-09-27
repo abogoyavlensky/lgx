@@ -945,7 +945,11 @@ inferring a mode:
   and before any build; then `gobuild/preflight!` (Go on `PATH`),
   `gobuild/ensure-runtime!` with the project's Go coords (an empty set
   renders a stock module at the pin), and `LGX_LG` pointed at the built
-  binary so `runner.lg` picks it up unchanged. Returns the path.
+  binary so `runner.lg` picks it up unchanged. Returns the path. With
+  `:go/local` coords, a cached binary is reused only while its
+  `local.stamp` (a hash of those directories' files, plus `GOFLAGS` and
+  `CGO_ENABLED`) matches what is on disk now; see
+  [`lgx-go-runtimes.md`](knowledge-base/lgx-go-runtimes.md).
 
 Config load already guarantees the pin shape per mode
 (`config/lg-runtime-errors`): `:built` requires `:lg-version`, and

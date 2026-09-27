@@ -17,6 +17,7 @@ path and whether the runtime exists yet.
 ```
 $LGX_HOME/runtimes/<hash>/
   lg                     the built binary
+  local.stamp            what the :go/local dirs held at build time
   src/
     go.mod               module lgx.local/runtime
     main.go              os.Exit(cli.Main("<version>", "<commit>"))
@@ -61,16 +62,45 @@ per platform (plus the host runtime for a Go-deps project);
 `lgx clean --runtimes` reclaims them.
 
 What the hash does **not** cover is the *contents* of a `:go/local`
-directory or an `LGX_LETGO_REPLACE` checkout. Hashing a working tree
-would mean walking it on every command.
+directory or an `LGX_LETGO_REPLACE` checkout. A `:go/local` directory's
+contents are in the *stamp* instead (`local.stamp`, below). The split is
+deliberate: the hash says *where* a runtime lives, the stamp says
+*whether* it is still current. So one declaration keeps one directory,
+and an edit rebuilds it in place, with Go's build cache still warm,
+instead of leaving a new ~25 MB entry behind every time. Two gitlibs
+checkouts of a package at different tags have different absolute paths,
+so they still get separate runtimes.
+
+`runtime-stamp` is the `locals-stamp` of every `:go/local` coord (one
+line per coord, sorted by lib), followed by `GOFLAGS=` and
+`CGO_ENABLED=` lines. Both variables change what `go build` produces
+(`GOFLAGS` is how build tags get in today) without touching the hash.
+`local-stamp` walks the directory in sorted order and hashes each file's
+relative path and contents with xxh3. `go.mod` and `go.sum` count; a
+directory named `.git` is skipped. Symlinks are followed, since
+`os/stat` has no `lstat`, and a depth cap of 32 turns a symlink cycle
+into an error naming the directory. FIFOs and devices inside a
+`:go/local` directory are unsupported (Go's own module packaging
+excludes them too). The walk runs on every command, and its cost grows
+with the tree: milliseconds for a shim, more for a large vendored
+module.
 
 ## Rebuild policy
 
-- `<hash>/lg` exists and no working tree is involved: use it, run
+- `<hash>/lg` exists and there are no `:go/local` coords: use it, run
   nothing.
-- Any `:go/local` coord, or `LGX_LETGO_REPLACE` set: always re-run the
-  build steps. `go build` is incremental, so a no-op rebuild is under a
-  second. This is the price of not hashing working trees.
+- `:go/local` coords: use `<hash>/lg` when `local.stamp` equals the
+  `runtime-stamp` computed now. Otherwise lgx deletes the old stamp,
+  rebuilds (`go build` is incremental, so this takes about a second),
+  and writes the new stamp only after the build succeeds. So a failed
+  or interrupted build leaves no stamp, and the next command rebuilds.
+  Editing only `.lg` files in the package never triggers a rebuild.
+- `LGX_LETGO_REPLACE` set: always re-run the build steps. A whole
+  let-go checkout is not stamped.
+- `lgx info` only checks whether `<hash>/lg` exists. It never computes
+  or writes a stamp, so it stays offline and never runs Go; a
+  `:go/local` runtime whose files changed since the build still shows
+  as built.
 - `LGX_LG` set by the user under `:built`: an error, for every command,
   checked before anything is built. The built runtime is the only `lg`
   that resolves the project's Go namespaces, so there is nothing for an
@@ -260,8 +290,8 @@ LGX_LETGO_REPLACE=/path/to/let-go lgx run
 ```
 
 It emits `require github.com/nooga/let-go v0.0.0` plus a `replace`, and
-forces a rebuild on every command. This is how the pipeline is tested
-against an unreleased let-go - `pkg/cli` and `cmd/lginterop -out-pkg`
+forces a rebuild on every command (the checkout is not stamped). This is
+how the pipeline is tested against an unreleased let-go - `pkg/cli` and `cmd/lginterop -out-pkg`
 have to exist in the version being linked, so a pinned `:lg-version`
 only works once a release carries them.
 
@@ -282,6 +312,7 @@ only works once a release carries them.
 | `undefined: unix.SIGWINCH ...` on a windows target | let-go does not build for `GOOS=windows` yet (upstream issue) |
 | C sources / `cgo` errors on a cross target | The dep needs cgo; cross-builds run `CGO_ENABLED=0`, so use a pure-Go driver |
 
+To force a rebuild of a `:go/local` runtime, delete its `local.stamp`.
 To force a cold rebuild, delete the leaf
 (`rm -rf $LGX_HOME/runtimes/<hash>/`), or drop the whole cache with
 `lgx clean --runtimes` (`--dry-run` first reports what would go).

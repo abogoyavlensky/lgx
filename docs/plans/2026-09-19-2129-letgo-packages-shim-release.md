@@ -2,6 +2,8 @@
 
 **Status: completed 2026-09-19.**
 
+The deferred lgx-side fix landed as `docs/plans/2026-09-27-1614-go-local-content-stamp.md`: a content stamp lets a `:go/local` shim ship in-tree with one tag.
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Tag the two Go shims in letgo-packages as versioned nested Go modules, switch their `lgx.edn` coords from `:go/local` to `:go/version`, tag the lgx-level packages, re-pin lgx's examples to those tags, and write the release guide into the letgo-packages README — so `lgx run` on a project using these packages reuses the cached runtime instead of re-driving the Go toolchain on every invocation.

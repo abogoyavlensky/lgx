@@ -458,7 +458,7 @@ The rules:
 | Standard-library package (first path segment has no dot) | `:go/interop` only |
 | External module | `:go/version` or `:go/local`, plus optional `:go/interop` |
 | `:go/version` | anything Go accepts - a tag, a sha, a branch |
-| `:go/local` | relative to the file that declares it; a `replace` directive, for development |
+| `:go/local` | a module dir, relative to the file that declares it; a `replace` directive, rebuilt when its files change |
 | `:go/replace` | on an external module only: `{"<module>" "<module>@<version>"}`, one `replace` directive per entry |
 
 `:go/replace` is for a library that compiles only against forks of its own

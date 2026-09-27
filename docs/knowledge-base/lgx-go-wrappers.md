@@ -193,13 +193,17 @@ note these, none of which are obvious:
   [`../issues/lgx-mobile-targets-buildmode.md`](../issues/lgx-mobile-targets-buildmode.md).
 - **No `:go/build-tags`.** Use the `GOFLAGS` environment variable
   ([`../issues/lgx-no-go-build-tags.md`](../issues/lgx-no-go-build-tags.md)).
-- **Tags come in two kinds.** A package is tagged `<pkg>-vX.Y.Z` for
-  `:git/tag`. A package with a Go shim (`sql`, `wails`) additionally tags it
-  `<pkg>/shim/vX.Y.Z` as a nested Go module, which its `lgx.edn` pins with
-  `:go/version` - a `:go/local` coord would make lgx treat the runtime as
-  live and rebuild it on every command. The release order and the `v0.0.0`
-  let-go require in the shims' `go.mod` are documented in the letgo-packages
-  README under "Releasing".
+- **Ship the shim in-tree; one tag per release.** A package with a Go shim
+  keeps it under `<pkg>/shim/` and declares it `{:go/local "shim"}` in its
+  `lgx.edn`, so the `<pkg>-vX.Y.Z` tag a consumer puts in `:git/tag` carries
+  the shim too. lgx reuses the built runtime until the shim's files change
+  (the `local.stamp` rule in [`lgx-go-runtimes.md`](./lgx-go-runtimes.md)),
+  so consumers pay one build. That needs lgx 0.4.2 or newer; older lgx
+  rebuilds on every command but still works. `livekit` is the worked case.
+  `sql`, `wails` and `duckdb` still use the older model: a second
+  `<pkg>/shim/vX.Y.Z` tag as a nested Go module, pinned with `:go/version`.
+  Their release order and the `v0.0.0` let-go require in the shims'
+  `go.mod` are documented in the letgo-packages README under "Releasing".
 
 ---
 
