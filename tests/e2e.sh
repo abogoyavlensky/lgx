@@ -3320,6 +3320,46 @@ pass "go/replace info: no runtime cache was created"
 rm -rf "$proj_gr" "$home_gr"
 
 # ---------------------------------------------------------------------------
+# A :go/local runtime is reused while its content stamp matches, but info
+# never computes or writes one: it stays offline and never invokes Go.
+echo "==> Scenario 162: lgx info with a :go/local coord stays offline"
+proj_gl="$(mktemp -d)"
+home_gl="$(mktemp -d)"
+mkdir -p "$proj_gl/shim"
+printf 'module example.com/shim\n\ngo 1.22\n' > "$proj_gl/shim/go.mod"
+cat > "$proj_gl/lgx.edn" <<'EOF'
+{:paths ["."] :lg-runtime :built :lg-version "1.13.0"
+ :deps {example.com/shim {:go/local "shim"}}}
+EOF
+set +e
+out="$(cd "$proj_gl" && LGX_HOME="$home_gl" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "go/local info: expected exit 0, got $rc (output: $out)"
+pass "go/local info: exits 0"
+assert_contains "$out" "local $proj_gl/shim" "go/local info: the local dir is listed"
+assert_not_contains "$out" "Building custom lg runtime" "go/local info: nothing is built"
+[[ -z "$(find "$home_gl" -name local.stamp 2>/dev/null)" ]] \
+    || fail "go/local info: a local.stamp was written"
+pass "go/local info: no local.stamp was written"
+
+# Only sh on PATH: `go` cannot run, so info reporting it absent (and still
+# exiting 0) proves the command never needed it.
+nogo_path="$home_gl/no-go-bin"
+mkdir -p "$nogo_path"
+ln -s "$(command -v sh)" "$nogo_path/sh"
+set +e
+out="$(cd "$proj_gl" && PATH="$nogo_path" LGX_HOME="$home_gl" "$LGX" info 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || fail "go/local info no go: expected exit 0, got $rc (output: $out)"
+pass "go/local info no go: exits 0"
+go_line="$(printf '%s\n' "$out" | grep '^go  ' || true)"
+assert_contains "$go_line" "not on PATH" "go/local info no go: go is reported absent"
+[[ -z "$(find "$home_gl" -name local.stamp 2>/dev/null)" ]] \
+    || fail "go/local info no go: a local.stamp was written"
+pass "go/local info no go: no local.stamp was written"
+rm -rf "$proj_gl" "$home_gl"
+
+# ---------------------------------------------------------------------------
 # Scenarios 127-133: lgx test over let-go's clojure.test port
 # (nooga/let-go#863, lg >= 1.13.0). 127-128 pin the output contract the
 # earlier test scenarios also cover; the rest are the cases only the port

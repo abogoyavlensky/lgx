@@ -111,10 +111,13 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Scenario.** Next to the existing `:go/replace` info scenarios (around line 3290): a `:built` project with `{:go/local "shim"}` pointing at a temp module dir containing a `go.mod`; `lgx info` exits zero, prints the coord's `local <abs path>` line, and prints no `Building custom lg runtime`. Make the two guarantees explicit: run it with a fresh `LGX_HOME` and assert afterwards that no `local.stamp` exists anywhere under `$LGX_HOME/runtimes` (`find` returns nothing), and run it with `PATH` stripped of the Go toolchain (the existing `:lg-runtime` scenarios show the pattern) and assert it still exits zero and reports `go` as not on PATH.
-- [ ] **Step 2: Run everything.** Run: `bash tests/run.sh`. Expected: unit tests PASS, e2e PASS including the new assertions.
-- [ ] **Step 3: Regression on consumers.** With `bin/lgx`: `cd examples/web-app && lgx run` twice (no local coords: unchanged, second run is a hit), and `cd /home/agent/Projects/letgo-packages/sqlite/example && lgx run` (the sql shim is pinned by `:go/version`, so this is a plain regression check on a no-locals runtime). Expected: PASS, no behaviour change.
-- [ ] **Step 4: Commit.** `git commit -m "e2e: :go/local under info stays offline"`
+- [x] **Step 1: Scenario.** Next to the existing `:go/replace` info scenarios (around line 3290): a `:built` project with `{:go/local "shim"}` pointing at a temp module dir containing a `go.mod`; `lgx info` exits zero, prints the coord's `local <abs path>` line, and prints no `Building custom lg runtime`. Make the two guarantees explicit: run it with a fresh `LGX_HOME` and assert afterwards that no `local.stamp` exists anywhere under `$LGX_HOME/runtimes` (`find` returns nothing), and run it with `PATH` stripped of the Go toolchain (the existing `:lg-runtime` scenarios show the pattern) and assert it still exits zero and reports `go` as not on PATH.
+- [x] **Step 2: Run everything.** Run: `bash tests/run.sh`. Expected: unit tests PASS, e2e PASS including the new assertions.
+- [x] **Step 3: Regression on consumers.** With `bin/lgx`: `cd examples/web-app && lgx run` twice (no local coords: unchanged, second run is a hit), and `cd /home/agent/Projects/letgo-packages/sqlite/example && lgx run` (the sql shim is pinned by `:go/version`, so this is a plain regression check on a no-locals runtime). Expected: PASS, no behaviour change.
+- [x] **Step 4: Commit.** `git commit -m "e2e: :go/local under info stays offline"`
+
+> Deviation: the no-Go `PATH` holds a single `sh` symlink, which `os/sh` needs to probe for `go`. No existing scenario strips Go from `PATH` to copy from.
+> Note: `examples/web-app` fails on its local, git-ignored `todos.db` (the table exists but ragtime has no record of the migration), on master too. Against a fresh `DB_PATH`, both runs serve HTTP 200 with no rebuild. `sqlite/example`: two runs, no rebuild, all checks pass.
 
 ### Task 4: Documentation
 
