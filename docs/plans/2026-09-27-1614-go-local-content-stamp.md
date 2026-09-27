@@ -1,6 +1,6 @@
 # `:go/local` content stamp Implementation Plan
 
-**Status: Tasks 1-5 completed 2026-09-27. Task 6 (release) waits for the user's go-ahead.**
+**Status: completed and released 2026-09-27 (lgx v0.4.2, letgo-packages livekit-v0.1.1).**
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -153,8 +153,11 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
 
 Do not run without the user's go-ahead: it tags and pushes public repos.
 
-- [ ] **Step 1: lgx 0.4.2.** Bump `version` in `lgx.lg`, commit, tag `v0.4.2`, push, wait for the release workflow.
-- [ ] **Step 2: letgo-packages.** Bump `lgx` in `.mise.toml` to `0.4.2` and commit. Tag `livekit-v0.1.1` on **that** commit (the one carrying the bump, not the Task 5 commit: CI checks out the tag and reads `.mise.toml` from it, so a tag on the earlier commit would run on 0.4.1) and push. Expected: CI runs livekit's tests on the new lgx; the runtime cache key in the workflow (`hashFiles('**/lgx.edn')`) still applies.
+- [x] **Step 1: lgx 0.4.2.** Bump `version` in `lgx.lg`, commit, tag `v0.4.2`, push, wait for the release workflow.
+- [x] **Step 2: letgo-packages.** Bump `lgx` in `.mise.toml` to `0.4.2` and commit. Tag `livekit-v0.1.1` on **that** commit (the one carrying the bump, not the Task 5 commit: CI checks out the tag and reads `.mise.toml` from it, so a tag on the earlier commit would run on 0.4.1) and push. Expected: CI runs livekit's tests on the new lgx; the runtime cache key in the workflow (`hashFiles('**/lgx.edn')`) still applies.
+
+> Released: both branches were fast-forwarded into master. lgx `v0.4.2` is tagged on `Bump version to 0.4.2`; the release workflow published the four platform archives and the test workflow passed. letgo-packages `livekit-v0.1.1` is tagged on `Bump lgx to 0.4.2, ...`, which also moves the livekit README snippet to the new tag. CI on the tag ran livekit's tests on lgx 0.4.2 (10 tests, 0 failures), and master CI passed too.
+> End-to-end after release: with the downloaded lgx 0.4.2 and an empty `LGX_HOME`, a fresh consumer depending only on `:git/tag "livekit-v0.1.1"` built the runtime once (10.2s, Go cache warm). The second `lgx run` took 0.67s with no build. `lgx info` showed the shim as `local` under the gitlibs checkout with its three replaces. `lgx build` reused the runtime, and `./bin/app` passed.
 
 ---
 
