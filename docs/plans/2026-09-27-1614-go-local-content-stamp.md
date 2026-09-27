@@ -1,5 +1,7 @@
 # `:go/local` content stamp Implementation Plan
 
+**Status: Tasks 1-5 completed 2026-09-27. Task 6 (release) waits for the user's go-ahead.**
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop rebuilding the custom `lg` runtime on every command when a `:go/local` coord is in play; rebuild only when the local module's files actually changed. Then pilot the payoff in letgo-packages: the `livekit` package ships its shim in-tree with a single package tag, no nested Go module tag and no CI coord flip.
@@ -153,3 +155,23 @@ Do not run without the user's go-ahead: it tags and pushes public repos.
 
 - [ ] **Step 1: lgx 0.4.2.** Bump `version` in `lgx.lg`, commit, tag `v0.4.2`, push, wait for the release workflow.
 - [ ] **Step 2: letgo-packages.** Bump `lgx` in `.mise.toml` to `0.4.2` and commit. Tag `livekit-v0.1.1` on **that** commit (the one carrying the bump, not the Task 5 commit: CI checks out the tag and reads `.mise.toml` from it, so a tag on the earlier commit would run on 0.4.1) and push. Expected: CI runs livekit's tests on the new lgx; the runtime cache key in the workflow (`hashFiles('**/lgx.edn')`) still applies.
+
+---
+
+## Completion summary
+
+**Implemented.** lgx branch `go-local-content-stamp`: `local-stamp`, `locals-stamp` and `runtime-stamp` in `lgx/gobuild.lg`. `runtime-paths` is live only under `LGX_LETGO_REPLACE` and returns `:stamp`. `ensure-runtime!` reuses a `:go/local` runtime while `local.stamp` matches, deletes the old stamp before a rebuild, and writes the new one after the build succeeds. A symlink cycle stops the command with an error naming the directory. Unit tests cover all of this, and e2e scenario 162 checks that `info` with a `:go/local` coord never builds, never writes a stamp and needs no Go. Docs are updated (runtimes KB, wrappers KB, README, ARCHITECTURE, the 09-19 plan). letgo-packages branch `livekit-in-tree-shim`: livekit commits `{:go/local "shim" :go/replace {...}}`, and its README, the root README's Releasing section and the CI comment describe the one-tag model.
+
+**Verified.** Full suite (`bash tests/run.sh`): 839 unit tests plus e2e, all pass. livekit example against `bin/lgx`: fresh cache 1 build then 0 (a hit run takes 0.69s); shim edit, revert and `GOFLAGS` change each rebuild once; a broken shim exits 1 and leaves no stamp. livekit `lgx test`, `lgx run`, `lgx build` and `./bin/app` pass. A project whose `:go/local` dir holds a symlink cycle exits 1 with the directory named.
+
+**Issues.** `examples/web-app` fails against its own git-ignored `todos.db` (the table exists but the migration is unrecorded). It does the same on master; with a fresh `DB_PATH` it serves 200. A codex review run was killed once by a session break and re-run.
+
+**Deviations.**
+- Task 1: `local-stamp` throws `ex-info` instead of calling `die!`, and `ensure-runtime!` turns the throw into `die!`.
+- Task 2 (codex must-fix): the stamp also records `GOFLAGS` and `CGO_ENABLED`, so switching build tags still rebuilds a `:go/local` runtime, as it did when these runtimes rebuilt on every command.
+- Task 3: the no-Go `PATH` holds only an `sh` symlink.
+- Task 4: extra doc notes (stamp env lines, `info` can show a stale `:go/local` runtime as built, deleting `local.stamp` forces a rebuild).
+- Task 5: also reworded "Working on a shim" and step 3 of the two-tag procedure in the root README.
+
+**What the plan could have specified better:** it treated rebuild-on-every-command as a cost only, and missed that it also made environment-driven build settings (`GOFLAGS` build tags) take effect. It also said `die!` for a walk that tests call directly.
+
