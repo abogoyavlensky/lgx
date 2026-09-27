@@ -74,11 +74,13 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
 - Modify: `lgx/gobuild.lg`
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write the failing tests.** Build a temp module under `(os/temp-dir)` with `go.mod`, `shim.go`, a nested `internal/x.go`, and a `.git/HEAD` file. Assert: `local-stamp` is a 16-hex string; calling it twice gives the same value; changing one byte in `shim.go` changes it; adding a file changes it; renaming a file changes it (same contents, different path); writing into `.git/` does not change it; an empty directory stamps to a stable value; a directory symlink pointing at an ancestor (`ln -s .. loop` inside the temp module, via `os/sh`) makes it throw with the directory name in the message rather than hang. For `locals-stamp`: order of the local coords does not matter; a coord with no `:go/local` is ignored; the empty case returns nil.
-- [ ] **Step 2: Run them to see them fail.** Run: `make build && bin/lgx test`. Expected: the new tests FAIL, the rest pass.
-- [ ] **Step 3: Implement** both fns in the "The runtime cache key" section of `gobuild.lg`, reusing `hex64`. Use `os/ls` (names only) plus `path/join` and `os/stat`, whose record carries the directory flag (check `fileStatMapping` in let-go's `pkg/rt/os.go` for the field name). Sort entry names before recursing so the result is deterministic across filesystems.
-- [ ] **Step 4: Run tests.** Expected: PASS.
-- [ ] **Step 5: Commit.** `git commit -m "gobuild: content stamp for :go/local directories"`
+- [x] **Step 1: Write the failing tests.** Build a temp module under `(os/temp-dir)` with `go.mod`, `shim.go`, a nested `internal/x.go`, and a `.git/HEAD` file. Assert: `local-stamp` is a 16-hex string; calling it twice gives the same value; changing one byte in `shim.go` changes it; adding a file changes it; renaming a file changes it (same contents, different path); writing into `.git/` does not change it; an empty directory stamps to a stable value; a directory symlink pointing at an ancestor (`ln -s .. loop` inside the temp module, via `os/sh`) makes it throw with the directory name in the message rather than hang. For `locals-stamp`: order of the local coords does not matter; a coord with no `:go/local` is ignored; the empty case returns nil.
+- [x] **Step 2: Run them to see them fail.** Run: `make build && bin/lgx test`. Expected: the new tests FAIL, the rest pass.
+- [x] **Step 3: Implement** both fns in the "The runtime cache key" section of `gobuild.lg`, reusing `hex64`. Use `os/ls` (names only) plus `path/join` and `os/stat`, whose record carries the directory flag (check `fileStatMapping` in let-go's `pkg/rt/os.go` for the field name). Sort entry names before recursing so the result is deterministic across filesystems.
+- [x] **Step 4: Run tests.** Expected: PASS.
+- [x] **Step 5: Commit.** `git commit -m "gobuild: content stamp for :go/local directories"`
+
+> Deviation: `local-stamp` throws `ex-info` on the depth cap instead of calling `die!` (which `os/exit`s and would kill the test runner); `ensure-runtime!` turns the throw into `die!` in Task 2.
 
 ### Task 2: Stamp-gated cache hits
 

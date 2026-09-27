@@ -225,6 +225,103 @@
              "1.11.1")))))
 
 ;; ---------------------------------------------------------------------------
+;; local-stamp / locals-stamp — what a :go/local directory contains
+;; ---------------------------------------------------------------------------
+
+(defn- temp-module! [tag]
+  (let [d (str (os/temp-dir) "/lgx-stamp-" tag "-" (rand-int 100000000))]
+    (mkdir d)
+    (mkdir (str d "/internal"))
+    (mkdir (str d "/.git"))
+    (spit (str d "/go.mod") "module example.com/shim\n\ngo 1.22\n")
+    (spit (str d "/shim.go") "package shim\n")
+    (spit (str d "/internal/x.go") "package internal\n")
+    (spit (str d "/.git/HEAD") "ref: refs/heads/main\n")
+    d))
+
+(defn- rm-rf! [p]
+  (os/sh "rm" "-rf" p))
+
+(deftest local-stamp-is-16-hex-digits-and-stable
+  (let [d (temp-module! "stable")
+        s (gobuild/local-stamp d)]
+    (is (string? s))
+    (is (= 16 (count s)))
+    (is (nil? (re-find #"[^0-9a-f]" s)))
+    (is (= s (gobuild/local-stamp d)))
+    (rm-rf! d)))
+
+(deftest local-stamp-changes-with-a-byte-of-content
+  (let [d (temp-module! "byte")
+        before (gobuild/local-stamp d)]
+    (spit (str d "/shim.go") "package shiM\n")
+    (is (not= before (gobuild/local-stamp d)))
+    (rm-rf! d)))
+
+(deftest local-stamp-changes-when-a-file-is-added
+  (let [d (temp-module! "add")
+        before (gobuild/local-stamp d)]
+    (spit (str d "/internal/y.go") "package internal\n")
+    (is (not= before (gobuild/local-stamp d)))
+    (rm-rf! d)))
+
+(deftest local-stamp-changes-when-a-file-is-renamed
+  ;; Same bytes under another name is a different module.
+  (let [d (temp-module! "rename")
+        before (gobuild/local-stamp d)]
+    (os/sh "mv" (str d "/shim.go") (str d "/shim2.go"))
+    (is (not= before (gobuild/local-stamp d)))
+    (rm-rf! d)))
+
+(deftest local-stamp-ignores-the-git-directory
+  (let [d (temp-module! "git")
+        before (gobuild/local-stamp d)]
+    (spit (str d "/.git/HEAD") "ref: refs/heads/other\n")
+    (spit (str d "/.git/index") "x")
+    (is (= before (gobuild/local-stamp d)))
+    (rm-rf! d)))
+
+(deftest local-stamp-of-an-empty-directory-is-stable
+  (let [d (str (os/temp-dir) "/lgx-stamp-empty-" (rand-int 100000000))]
+    (mkdir d)
+    (let [s (gobuild/local-stamp d)]
+      (is (= 16 (count s)))
+      (is (= s (gobuild/local-stamp d))))
+    (rm-rf! d)))
+
+(deftest local-stamp-throws-on-a-symlink-cycle
+  ;; os/stat follows symlinks, so a link to an ancestor would recurse forever
+  ;; without the depth cap.
+  (let [d (temp-module! "cycle")
+        _ (os/sh "ln" "-s" ".." (str d "/internal/loop"))
+        msg (try (gobuild/local-stamp d) nil
+                 (catch e (ex-message e)))]
+    (is (string? msg))
+    (is (and msg (str/includes? msg d)))
+    (rm-rf! d)))
+
+(deftest locals-stamp-ignores-coord-order
+  (let [a (temp-module! "order-a")
+        b (temp-module! "order-b")
+        pa ['example.com/a {:go/local a}]
+        pb ['example.com/b {:go/local b}]]
+    (spit (str b "/shim.go") "package b\n")
+    (is (= (gobuild/locals-stamp [pa pb]) (gobuild/locals-stamp [pb pa])))
+    (is (= 16 (count (gobuild/locals-stamp [pa pb]))))
+    (rm-rf! a)
+    (rm-rf! b)))
+
+(deftest locals-stamp-ignores-coords-without-go-local
+  (let [a (temp-module! "only")
+        pa ['example.com/a {:go/local a}]]
+    (is (= (gobuild/locals-stamp [pa]) (gobuild/locals-stamp [sqlite pa sql])))
+    (rm-rf! a)))
+
+(deftest locals-stamp-is-nil-without-local-coords
+  (is (nil? (gobuild/locals-stamp [])))
+  (is (nil? (gobuild/locals-stamp [sqlite sql]))))
+
+;; ---------------------------------------------------------------------------
 ;; merged-replaces — one replace block for the whole tree
 ;; ---------------------------------------------------------------------------
 

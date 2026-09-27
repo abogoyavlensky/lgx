@@ -160,6 +160,54 @@
                                 (sort (map coord-line go-pairs))))]
      (hex64 (hash/xxh3-64-str body)))))
 
+;; The hash names a :go/local directory by path, never by content: its files
+;; are in the *stamp* instead, kept next to the built binary. The stamp decides
+;; whether a cached runtime is still current; the hash decides where it lives.
+
+(def ^:private stamp-max-depth
+  "How deep local-stamp descends. os/stat follows symlinks and there is no
+   lstat, so a link to an ancestor looks like an endless tree; the cap turns
+   that into an error naming the directory."
+  32)
+
+(defn local-stamp
+  "Hex xxh3-64 over every file under the absolute directory `root`, as sorted
+   `<relative-path>|<content-hash>` lines. Directories named .git are skipped;
+   everything else counts, go.mod and go.sum included. Symlinks are followed.
+   Throws when the walk nests deeper than stamp-max-depth. Reads only."
+  [root]
+  (let [walk (fn walk [rel depth]
+               (when (> depth stamp-max-depth)
+                 (throw (ex-info (str ":go/local " root " nests deeper than "
+                                      stamp-max-depth " directories "
+                                      "(a symlink cycle?)")
+                                 {:root root})))
+               (let [abs (if (= rel "") root (path/join root rel))]
+                 (mapcat (fn [name]
+                           (let [r (if (= rel "") name (path/join rel name))
+                                 p (path/join root r)]
+                             (cond
+                               (not (:dir? (os/stat p)))
+                               [(str r "|" (hash/xxh3-64-str (slurp p)))]
+
+                               (= name ".git") []
+
+                               :else (walk r (inc depth)))))
+                         (sort (os/ls abs)))))]
+    (hex64 (hash/xxh3-64-str (str/join "\n" (walk "" 0))))))
+
+(defn locals-stamp
+  "One stamp for every :go/local coord in `go-pairs`: hex xxh3-64 over
+   `<lib>|<local-stamp>` lines sorted by lib. nil when there are none."
+  [go-pairs]
+  (let [locals (sort-by (comp str first)
+                        (filter (fn [[_ c]] (some? (:go/local c))) go-pairs))]
+    (when (seq locals)
+      (hex64 (hash/xxh3-64-str
+               (str/join "\n" (map (fn [[lib c]]
+                                     (str lib "|" (local-stamp (:go/local c))))
+                                   locals)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Rendering the generated module
 ;; ---------------------------------------------------------------------------
