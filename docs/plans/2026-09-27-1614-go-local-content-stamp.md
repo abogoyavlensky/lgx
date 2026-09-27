@@ -138,12 +138,14 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
 **Files (letgo-packages):**
 - Modify: `livekit/lgx.edn`, `livekit/README.md`, `README.md`, `.github/workflows/test.yml`
 
-- [ ] **Step 1: lgx.edn.** Make the coord `{:go/local "shim" :go/replace {...}}` permanently, and rewrite its comment: the shim ships inside the package tag; lgx 0.4.2 or newer reuses the built runtime until the shim's files change, older lgx rebuilds on each command; keep the `:go/replace` block rule. Drop the "keep on one line for CI" note.
-- [ ] **Step 2: livekit/README.md.** Requirements: "lgx 0.4.2 or newer for cached runs; earlier versions work but rebuild the runtime on every command". Replace the "The shim ships as the tagged Go module" paragraph with the one-tag model. Remove the local-flip instruction.
-- [ ] **Step 3: Root README, Releasing.** Add a short "In-tree shims" paragraph before the numbered procedure: livekit keeps its shim under `:go/local`, releases with the package tag alone, and new packages should do the same; the two-tag procedure below applies to `sql`, `wails` and `duckdb` until each is moved. Update the "Only `sql`, `wails`, `duckdb` and `livekit` have a shim" sentence accordingly.
-- [ ] **Step 4: CI comment.** In `test.yml`, amend the shim-override comment: packages with an in-tree shim (livekit) already test the working tree, and the `sed` pattern skips them because their coord has no `:go/version`. No behaviour change.
-- [ ] **Step 5: Verify.** `cd livekit && LGX_HOME=/tmp/lgx-stamp-home /home/agent/Projects/lgx/bin/lgx test` and `cd livekit/example && ... lgx run` twice (second run: no build header) and `lgx build && ./bin/app`. Expected: all PASS, exit 0.
-- [ ] **Step 6: Commit.** `git commit -m "livekit: ship the shim in-tree, one tag per release"`
+- [x] **Step 1: lgx.edn.** Make the coord `{:go/local "shim" :go/replace {...}}` permanently, and rewrite its comment: the shim ships inside the package tag; lgx 0.4.2 or newer reuses the built runtime until the shim's files change, older lgx rebuilds on each command; keep the `:go/replace` block rule. Drop the "keep on one line for CI" note.
+- [x] **Step 2: livekit/README.md.** Requirements: "lgx 0.4.2 or newer for cached runs; earlier versions work but rebuild the runtime on every command". Replace the "The shim ships as the tagged Go module" paragraph with the one-tag model. Remove the local-flip instruction.
+- [x] **Step 3: Root README, Releasing.** Add a short "In-tree shims" paragraph before the numbered procedure: livekit keeps its shim under `:go/local`, releases with the package tag alone, and new packages should do the same; the two-tag procedure below applies to `sql`, `wails` and `duckdb` until each is moved. Update the "Only `sql`, `wails`, `duckdb` and `livekit` have a shim" sentence accordingly.
+- [x] **Step 4: CI comment.** In `test.yml`, amend the shim-override comment: packages with an in-tree shim (livekit) already test the working tree, and the `sed` pattern skips them because their coord has no `:go/version`. No behaviour change.
+- [x] **Step 5: Verify.** `cd livekit && LGX_HOME=/tmp/lgx-stamp-home /home/agent/Projects/lgx/bin/lgx test` and `cd livekit/example && ... lgx run` twice (second run: no build header) and `lgx build && ./bin/app`. Expected: all PASS, exit 0.
+- [x] **Step 6: Commit.** `git commit -m "livekit: ship the shim in-tree, one tag per release"`
+
+> Result: `lgx test` (10 tests, 0 failures), `example` `lgx run` twice, `lgx build` and `./bin/app` all exit 0 with no runtime build, since the stamp from Task 2 still matches. Also reworded the root README's "Working on a shim" paragraph (it said lgx rebuilds on every command) and dropped livekit from step 3 of the two-tag procedure. The usage snippet in `livekit/README.md` still names `livekit-v0.1.0`; bump it with the Task 6 tag.
 
 ### Task 6: Release (user-triggered)
 
