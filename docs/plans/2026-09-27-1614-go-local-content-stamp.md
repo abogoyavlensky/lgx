@@ -88,10 +88,10 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
 - Modify: `lgx/gobuild.lg` (`runtime-paths`, `ensure-runtime!`)
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write the failing test** for `runtime-paths`: with a `:go/local` coord and no `LGX_LETGO_REPLACE`, `:live?` is false and `:stamp` is `<dir>/local.stamp`; with `LGX_LETGO_REPLACE` set (the tests already have a pattern for env-dependent fns; follow it), `:live?` is true. Update any existing test that asserted the old live behaviour.
-- [ ] **Step 2: Run it to see it fail.**
-- [ ] **Step 3: Implement.** In `ensure-runtime!`, after the replace merge and `runtime-paths`: compute `want` as `(locals-stamp go-pairs)` (nil when no locals); `hit?` is `out` exists, not live, and `(or (nil? want) (= want (slurp stamp)))` guarded by `file-exists?`. On a miss, `delete-file` the stamp if present, build as today, then `spit` the stamp when `want` is non-nil. Update the docstring: the live case is now `LGX_LETGO_REPLACE` alone.
-- [ ] **Step 4: Prove it end to end.** Run `make build` first so `bin/lgx` carries the change, then use a throwaway cache against the livekit package working tree:
+- [x] **Step 1: Write the failing test** for `runtime-paths`: with a `:go/local` coord and no `LGX_LETGO_REPLACE`, `:live?` is false and `:stamp` is `<dir>/local.stamp`; with `LGX_LETGO_REPLACE` set (the tests already have a pattern for env-dependent fns; follow it), `:live?` is true. Update any existing test that asserted the old live behaviour.
+- [x] **Step 2: Run it to see it fail.**
+- [x] **Step 3: Implement.** In `ensure-runtime!`, after the replace merge and `runtime-paths`: compute `want` as `(locals-stamp go-pairs)` (nil when no locals); `hit?` is `out` exists, not live, and `(or (nil? want) (= want (slurp stamp)))` guarded by `file-exists?`. On a miss, `delete-file` the stamp if present, build as today, then `spit` the stamp when `want` is non-nil. Update the docstring: the live case is now `LGX_LETGO_REPLACE` alone.
+- [x] **Step 4: Prove it end to end.** Run `make build` first so `bin/lgx` carries the change, then use a throwaway cache against the livekit package working tree:
   ```
   cd /home/agent/Projects/letgo-packages/livekit/example
   sed -i 's#livekit/shim {:go/version "[^"]*"#livekit/shim {:go/local "shim"#' ../lgx.edn   # the pilot flip, kept in Task 5
@@ -99,8 +99,10 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
   LGX_HOME=/tmp/lgx-stamp-home /home/agent/Projects/lgx/bin/lgx run 2>&1 | grep -c "Building custom lg runtime"
   ```
   Expected: `1` then `0`, and the example's assertions pass both times. Then append a comment line to `../shim/shim.go` and run again: `1`. Revert the comment: `1` again (content differs from the last build), then `0`. Time the hit run with `time`; expect well under a second on top of the example itself.
-- [ ] **Step 5: A failed build leaves no stamp.** Three checks. Remove `/tmp/lgx-stamp-home/runtimes/*/lg` but keep the stamp; run once; expected: it rebuilds (the hit test requires `out`). Remove the stamp alone; expected: it rebuilds. Then, with a good build and a matching stamp in place, break `../shim/shim.go` with a syntax error and run; expected: `go build` fails, lgx exits non-zero, and `local.stamp` is gone from the runtime directory; fix the file and run; expected: a rebuild, then a hit.
-- [ ] **Step 6: Commit.** `git commit -m "gobuild: reuse a :go/local runtime while its stamp matches"`
+- [x] **Step 5: A failed build leaves no stamp.** Three checks. Remove `/tmp/lgx-stamp-home/runtimes/*/lg` but keep the stamp; run once; expected: it rebuilds (the hit test requires `out`). Remove the stamp alone; expected: it rebuilds. Then, with a good build and a matching stamp in place, break `../shim/shim.go` with a syntax error and run; expected: `go build` fails, lgx exits non-zero, and `local.stamp` is gone from the runtime directory; fix the file and run; expected: a rebuild, then a hit.
+- [x] **Step 6: Commit.** `git commit -m "gobuild: reuse a :go/local runtime while its stamp matches"`
+
+> Result: fresh cache 1 build then 0 (hit run 0.69s total); shim edit 1, revert 1, then 0; missing binary, missing stamp and a broken shim all rebuild, and the broken build exits 1 with no `local.stamp` left.
 
 ### Task 3: e2e and regression run
 

@@ -698,8 +698,10 @@
 
 (defn runtime-paths
   "Where the runtime for this declaration lives in the cache, and whether it
-   is `live` (rebuilt on every invocation). Returns {:dir :src :out :live?
-   :lg-version}, where :lg-version is the ref as it enters the cache key.
+   is `live` (rebuilt on every invocation — only under LGX_LETGO_REPLACE).
+   Returns {:dir :src :out :stamp :live? :lg-version}, where :stamp is the file
+   holding the locals-stamp the binary was built from, and :lg-version is the
+   ref as it enters the cache key.
 
    A branch or tag resolves to its pseudo-version here, before anything else:
    the hash, go get, and (later) the version the binary reports all see the
@@ -719,8 +721,8 @@
     {:dir dir
      :src (path/join dir "src")
      :out (path/join dir "lg")
-     :live? (boolean (or (some? replace-path)
-                         (seq (local-coords go-pairs))))
+     :stamp (path/join dir "local.stamp")
+     :live? (some? replace-path)
      :lg-version lg-version}))
 
 (defn ensure-runtime!
@@ -728,10 +730,13 @@
    return its absolute path.
 
    The binary is cached at $LGX_HOME/runtimes/<hash>/lg and a hit short-circuits
-   everything — except when a :go/local coord or LGX_LETGO_REPLACE is in play.
-   Those point at working trees whose *content* is not in the hash, so the
-   build steps re-run every time; `go build` is incremental, so that costs
-   about a second.
+   everything. With :go/local coords, a hit also needs the local.stamp beside
+   the binary to equal the locals-stamp of those directories now: the hash
+   names them by path, so their content is checked here instead. The stamp is
+   written only after a build succeeds, so a failed or interrupted build
+   leaves none and the next command rebuilds. LGX_LETGO_REPLACE points at a
+   whole let-go checkout that is not stamped, so it rebuilds every time;
+   `go build` is incremental, so that costs about a second.
 
    `target` is a {:os :arch} platform for a cross-build — it joins the hash
    (one cached binary per platform) and sets GOOS/GOARCH/CGO_ENABLED=0 on the
@@ -753,9 +758,14 @@
          ;; must stop the run before Go is invoked at all.
          _ (when-let [errs (seq (merged-replace-errors merged))]
              (die! (str/join "\nerror: " errs)))
-         {:keys [src out live? lg-version]}
-         (runtime-paths go-pairs lg-version target verbose?)]
-     (if (and (file-exists? out) (not live?))
+         {:keys [src out stamp live? lg-version]}
+         (runtime-paths go-pairs lg-version target verbose?)
+         want (try (locals-stamp go-pairs)
+                   (catch e (die! (ex-message e))))]
+     (if (and (file-exists? out)
+              (not live?)
+              (or (nil? want)
+                  (and (file-exists? stamp) (= want (slurp stamp)))))
        out
        (let [;; The pre-tidy main.go embeds the *requested* version; after
              ;; `go mod tidy` the build rewrites it from the version Go
@@ -767,12 +777,18 @@
                           (:arch target) "...")
                      "Building custom lg runtime...")]
          (write! *err* (str (style/header label) "\n"))
+         ;; Drop the old stamp first: if this build fails, none may remain
+         ;; to vouch for the binary it leaves behind.
+         (when (file-exists? stamp)
+           (delete-file stamp))
          (write-module! src go-pairs replace-path locals (:replaces merged)
                         ver com)
          ;; -o is resolved relative to the -C directory, so out has to be
          ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
          (build-runtime! src out go-pairs lg-version replace-path target
                          verbose?)
+         (when want
+           (spit stamp want))
          out)))))
 
 ;; ---------------------------------------------------------------------------

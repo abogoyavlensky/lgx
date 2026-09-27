@@ -322,6 +322,25 @@
   (is (nil? (gobuild/locals-stamp [sqlite sql]))))
 
 ;; ---------------------------------------------------------------------------
+;; runtime-paths — where a runtime lives and whether it is always rebuilt
+;; ---------------------------------------------------------------------------
+
+(deftest runtime-paths-a-local-coord-is-not-live
+  ;; The stamp decides whether a :go/local runtime is current, so the local
+  ;; coord alone no longer forces a rebuild.
+  (os/setenv "LGX_LETGO_REPLACE" "")
+  (let [{:keys [dir stamp live?]} (gobuild/runtime-paths [shim] "1.11.1" nil
+                                                         false)]
+    (is (false? live?))
+    (is (= (str dir "/local.stamp") stamp))))
+
+(deftest runtime-paths-a-let-go-replace-is-live
+  (os/setenv "LGX_LETGO_REPLACE" "/x/let-go")
+  (let [r (gobuild/runtime-paths [shim] "1.11.1" nil false)]
+    (os/setenv "LGX_LETGO_REPLACE" "")
+    (is (true? (:live? r)))))
+
+;; ---------------------------------------------------------------------------
 ;; merged-replaces — one replace block for the whole tree
 ;; ---------------------------------------------------------------------------
 
