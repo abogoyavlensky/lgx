@@ -1,6 +1,6 @@
 # `:go/replace` and the `livekit` package Implementation Plan
 
-**Status: completed (Tasks 1-10). Task 11, the release, is left for the user to trigger.**
+**Status: completed, including the Task 11 release (lgx v0.4.1, livekit/shim/v0.1.0, livekit-v0.1.0).**
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -268,10 +268,13 @@ Part 2's CI cannot pass on a released lgx until one carries `:go/replace`: `.mis
 
 Do not run this task without the user's go-ahead: it tags and pushes public repos.
 
-- [ ] **Step 1: lgx.** Bump `version` in `lgx.lg` to `0.5.0`, update the README's release notes if it has them, commit, tag `v0.5.0`, push. Wait for the release workflow to publish binaries.
-- [ ] **Step 2: letgo-packages `.mise.toml`.** Bump `lgx` to `0.5.0`. Commit.
-- [ ] **Step 3: Shim module.** Tag `livekit/shim/v0.1.0` on the commit holding the shim, push the tag, and verify from a throwaway module that `go get github.com/abogoyavlensky/letgo-packages/livekit/shim@v0.1.0` resolves to plain `v0.1.0` (require let-go first, per the root README).
-- [ ] **Step 4: Flip the coord.** Set `livekit/lgx.edn` to `{:go/version "v0.1.0" :go/replace {...}}`, commit, tag `livekit-v0.1.0`, push. Expected: CI runs the livekit package on lgx 0.5.0 and passes.
+- [x] **Step 1: lgx.** Bump `version` in `lgx.lg` to `0.5.0`, update the README's release notes if it has them, commit, tag `v0.5.0`, push. Wait for the release workflow to publish binaries.
+- [x] **Step 2: letgo-packages `.mise.toml`.** Bump `lgx` to `0.5.0`. Commit.
+- [x] **Step 3: Shim module.** Tag `livekit/shim/v0.1.0` on the commit holding the shim, push the tag, and verify from a throwaway module that `go get github.com/abogoyavlensky/letgo-packages/livekit/shim@v0.1.0` resolves to plain `v0.1.0` (require let-go first, per the root README).
+- [x] **Step 4: Flip the coord.** Set `livekit/lgx.edn` to `{:go/version "v0.1.0" :go/replace {...}}`, commit, tag `livekit-v0.1.0`, push. Expected: CI runs the livekit package on lgx 0.5.0 and passes.
+> Deviation (user's call): lgx was released as **0.4.1**, not 0.5.0, and the package tag is `livekit-v0.1.0` (the repo's `<pkg>-vX.Y.Z` form). letgo-packages `master` had moved on (duckdb, and sql pinned by tag) and had generalised the CI shim override into one loop. The merge folded livekit into that loop: its `sed` no longer requires the closing `}`, and livekit's coord opens on the lib's line, so its `:go/replace` map survives the flip. The standalone livekit block was dropped. `go get .../livekit/shim@v0.1.0` resolved to plain `v0.1.0`, and the package tests passed against the published shim on a fresh cache before `livekit-v0.1.0` was tagged.
+> End-to-end after release: the downloaded lgx 0.4.1 (checksum verified) ran a fresh consumer project that depends only on `:git/tag "livekit-v0.1.0"`, with an empty `LGX_HOME`. `lgx info` listed the shim and its three replaces, inherited through the git dep. `lgx run` and the built 78 MiB binary both passed every check: integrant start, CreateRoom/ListRooms, a 401 for a grantless token, join-token minting, webhook rejection, and a clean halt. `lgx build` started no server.
+> CI: letgo-packages `master` and the `livekit-v0.1.0` tag run both passed on lgx 0.4.1 via mise (livekit: 10 tests, 0 failures).
 
 ---
 
