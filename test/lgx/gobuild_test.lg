@@ -321,6 +321,29 @@
   (is (nil? (gobuild/locals-stamp [])))
   (is (nil? (gobuild/locals-stamp [sqlite sql]))))
 
+(deftest runtime-stamp-is-nil-without-local-coords
+  (is (nil? (gobuild/runtime-stamp [sqlite sql]))))
+
+(deftest runtime-stamp-changes-with-goflags-and-cgo
+  ;; GOFLAGS is how build tags reach the build; a :go/local runtime used to
+  ;; rebuild every time, so switching tags took effect, and still has to.
+  (let [a (temp-module! "env")
+        pairs [['example.com/a {:go/local a}]]
+        _ (os/setenv "GOFLAGS" "")
+        _ (os/setenv "CGO_ENABLED" "")
+        plain (gobuild/runtime-stamp pairs)
+        _ (os/setenv "GOFLAGS" "-tags=production")
+        tagged (gobuild/runtime-stamp pairs)
+        _ (os/setenv "GOFLAGS" "")
+        _ (os/setenv "CGO_ENABLED" "0")
+        no-cgo (gobuild/runtime-stamp pairs)]
+    (os/setenv "CGO_ENABLED" "")
+    (is (str/starts-with? plain (gobuild/locals-stamp pairs)))
+    (is (not= plain tagged))
+    (is (not= plain no-cgo))
+    (is (= plain (gobuild/runtime-stamp pairs)))
+    (rm-rf! a)))
+
 ;; ---------------------------------------------------------------------------
 ;; runtime-paths — where a runtime lives and whether it is always rebuilt
 ;; ---------------------------------------------------------------------------

@@ -104,6 +104,8 @@ On an lgx without the stamp, this configuration still works and merely rebuilds 
 
 > Result: fresh cache 1 build then 0 (hit run 0.69s total); shim edit 1, revert 1, then 0; missing binary, missing stamp and a broken shim all rebuild, and the broken build exits 1 with no `local.stamp` left.
 
+> Deviation (codex review): `local.stamp` holds `runtime-stamp`, the `locals-stamp` plus `GOFLAGS=` and `CGO_ENABLED=` lines. An always-live `:go/local` runtime used to pick up `GOFLAGS=-tags=...` (the documented build-tag workaround) on every run; without these lines, switching tags would reuse a stale binary. Pinned runtimes are unchanged: they never saw `GOFLAGS` after the first build.
+
 ### Task 3: e2e and regression run
 
 **Files:**
