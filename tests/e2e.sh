@@ -4289,5 +4289,82 @@ assert_contains "$out" "55" "git url spelling: the shared dep resolves"
 assert_not_contains "$out" "already resolved as" "git url spelling: .git suffix is not a conflict"
 rm -rf "$groot" "$home_g"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 163: lgx build with :target :lgb writes a portable .lgb"
+proj_l="$(mktemp -d)"
+home_l="$(mktemp -d)"
+mkdir -p "$proj_l/src/app"
+cat > "$proj_l/lgx.edn" <<'EOF'
+{:paths ["src"]
+ :main "main.lg"
+ :targets {:bin {:target :lgb :out "dist/app.lgb"}}}
+EOF
+cat > "$proj_l/src/app/greet.lg" <<'EOF'
+(ns app.greet)
+(defn hello [] :hello-from-lgb)
+EOF
+cat > "$proj_l/main.lg" <<'EOF'
+(ns app.main (:require [app.greet :as greet]))
+(when-not *compiling-aot*
+  (println (greet/hello)))
+EOF
+out="$(cd "$proj_l" && LGX_HOME="$home_l" "$LGX" build 2>&1)"
+[[ -f "$proj_l/dist/app.lgb" ]] || fail "lgb build: expected dist/app.lgb"
+pass "lgb build: writes the artifact at :out"
+assert_contains "$out" "built $proj_l/dist/app.lgb" "lgb build: prints success line with abs out path"
+# Run from a clean dir with no sources nearby: the required namespace must be
+# inside the artifact.
+clean_l="$(mktemp -d)"
+cp "$proj_l/dist/app.lgb" "$clean_l/app.lgb"
+out_run="$(cd "$clean_l" && "${LGX_LG:-lg}" app.lgb 2>&1)"
+assert_eq "$out_run" ":hello-from-lgb" "lgb build: artifact runs with lg from a clean dir"
+out_run="$(cd "$proj_l" && LGX_HOME="$home_l" "$LGX" run dist/app.lgb 2>&1)"
+assert_contains "$out_run" ":hello-from-lgb" "lgb build: artifact runs via lgx run"
+rm -rf "$proj_l" "$home_l" "$clean_l"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 164: lgx build --target on an :lgb project errors"
+proj_l2="$(mktemp -d)"
+home_l2="$(mktemp -d)"
+cat > "$proj_l2/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:target :lgb :out "dist/app.lgb"}}}
+EOF
+echo '(println :hi)' > "$proj_l2/main.lg"
+set +e
+out="$(cd "$proj_l2" && LGX_HOME="$home_l2" "$LGX" build --target linux/amd64 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "lgb --target: expected non-zero exit (got $rc)"
+assert_contains "$out" "--target and --all do not apply to :target :lgb" \
+    "lgb --target: clear error"
+[[ ! -e "$proj_l2/dist" ]] || fail "lgb --target: expected no dist/ to be created"
+pass "lgb --target: writes nothing"
+rm -rf "$proj_l2" "$home_l2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 165: an :lgb build warns that resources are not embedded"
+if supports_resource_paths; then
+    proj_l3="$(mktemp -d)"
+    home_l3="$(mktemp -d)"
+    mkdir -p "$proj_l3/resources"
+    echo "x" > "$proj_l3/resources/greeting.txt"
+    cat > "$proj_l3/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :resource-paths ["resources"]
+ :targets {:bin {:target :lgb :out "dist/app.lgb"}}}
+EOF
+    echo '(when-not *compiling-aot* (println :hi))' > "$proj_l3/main.lg"
+    set +e
+    out="$(cd "$proj_l3" && LGX_HOME="$home_l3" "$LGX" build 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "lgb resources: expected success (got $rc)"
+    [[ -f "$proj_l3/dist/app.lgb" ]] || fail "lgb resources: expected dist/app.lgb"
+    assert_contains "$out" "warning: :resource-paths are not embedded in a .lgb artifact" \
+        "lgb resources: warns that resources are not embedded"
+    rm -rf "$proj_l3" "$home_l3"
+else
+    skip "lgb resources warning requires lg with -resource-paths support"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

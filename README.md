@@ -92,7 +92,7 @@ lgx run
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts. |
-| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). |
+| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). With `:target :lgb`, writes a portable `.lgb` bytecode file via `lg -c` instead. |
 | `lgx test [file] [--exclude <ns,...>]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under the `:test` context's paths (`test/` by default). With `<file>`, run just that file. `--exclude` skips the named test namespaces (repeatable, comma-separated). |
 | `lgx clean <--cache...>` | Remove caches under `$LGX_HOME`: `--runtimes`, `--gitlibs`, `--templates`, or `--all`; `--dry-run` only reports. Prints bytes reclaimed. Never automatic. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. A task may carry a built-in's name, in which case it runs instead of that built-in. |
@@ -230,6 +230,30 @@ Rules that follow from the mechanics:
 - `windows/*` targets fail until let-go itself builds for Windows (see
   `docs/issues/windows-build-unix-only-term.md`).
 
+#### Bytecode output (`:target :lgb`)
+
+Set `:target :lgb` to build a `.lgb` bytecode file instead of an
+executable:
+
+```clojure
+:targets {:bin {:target :lgb
+                :out "dist/app.lgb"}}
+```
+
+`lgx build` then runs `lg [extra-args...] -c <:out> <:main>`. The file holds
+`:main` and every namespace it loads, and it is platform-independent: run it
+with `lg dist/app.lgb` from any directory. A project with Go deps needs a
+runtime that links them, so run it with `lgx run dist/app.lgb` instead.
+
+- `:platforms`, `{{os}}`/`{{arch}}` in `:out`, `--target`, `--all` and
+  `-bundle-base` do not apply and are rejected. Other args are forwarded to
+  `lg` (`-z` compresses the file).
+- Resources are not embedded, unlike in an executable. The build warns when
+  `:resource-paths` is set; pass `-resource-paths` to `lg` when running the
+  file.
+- Leave `:target` out for the standalone executable. `:lgb` is the only
+  value for now.
+
 ### `lgx test` details
 
 `lgx test` walks the `:test` context's `:extra-paths` for `*_test.lg` /
@@ -314,7 +338,8 @@ key's rules in detail.
  ; Build output for `lgx build`. :bin is the only target; :out is relative to
  ; the project root (lgx creates the parent dir if missing). Optional
  ; :platforms lists cross-compile targets for `lgx build --all`; {{os}} and
- ; {{arch}} in :out keep their artifacts on distinct paths.
+ ; {{arch}} in :out keep their artifacts on distinct paths. Optional :target:
+ ; omit it for a standalone executable; :lgb writes a portable bytecode file.
  :targets {:bin {:out "bin/myapp"}}
 
  ; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`

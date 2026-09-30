@@ -370,6 +370,24 @@ compile time.
 resolution with `lgx run`; the structural differences are the argument
 shape, the per-target loop, and the required-config / mkdir steps.
 
+**`:target :lgb`.** When `:targets :bin` sets `:target :lgb`
+(`config/bin-target`), `cmd-build` hands off to `build-lgb!` right
+after the config loads, before `resolve-build-targets`. `build-lgb!`:
+
+- checks `:main` and that the script exists;
+- rejects `--target`, `--all` and a forwarded `-bundle-base` with
+  `gobuild/lgb-build-arg-error`;
+- resolves the basis and applies the runtime with `:fail`, as the
+  executable path does;
+- execs `lg -source-paths <X> -resource-paths <R> [forwarded-args...]
+  -c <abs-out> <abs-main>` on the host runtime.
+
+There is no per-target loop and no bundle base: a `.lgb` is one
+platform-independent file. `lg -c` does not embed resources, so a
+basis with resource paths prints a warning first. `:platforms`, or an
+`{{os}}`/`{{arch}}` placeholder in `:out`, is rejected at config load
+(`bin-target-errors`).
+
 ### `lgx test`
 
 Steps 1–2 (project root, config load) match `install`. Then:

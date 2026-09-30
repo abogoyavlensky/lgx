@@ -42,6 +42,14 @@ consequences worth knowing:
    path doesn't touch it, so the guard runs `(main)` exactly once at
    bundle startup.
 
+## `-c` writes bytecode only
+
+`lg -c out.lgb script.lg` writes the program and every namespace it
+loads, and `lg out.lgb` runs it from any directory. Unlike `-b`, it does
+not embed `-resource-paths`: `io/resource` returns nil when the `.lgb`
+runs away from the resource dirs (verified on let-go main `a141e406`).
+`lgx build` with `:target :lgb` warns about this.
+
 ## Cross-OS bundling
 
 ```
