@@ -354,7 +354,7 @@
 
 (deftest load-rejects-unknown-bin-key
   (is (= {:errors [{:path [:targets :bin]
-                    :msg "unknown key :foo (allowed: :out, :platforms)"}]}
+                    :msg "unknown key :foo (allowed: :out, :platforms, :target)"}]}
          (load-cfg {:targets {:bin {:out "bin/app" :foo 1}}}))))
 
 (deftest load-rejects-bad-out
@@ -506,6 +506,54 @@
                                                          :arch "amd64"}]}}})))
   (is (= [] (config/platforms {:targets {:bin {:out "a"}}})))
   (is (= [] (config/platforms {}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :targets :bin :target
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-target-lgb
+  (let [cfg {:targets {:bin {:target :lgb :out "dist/app.lgb"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-an-unsupported-target
+  ;; Readers of #60 will try :native; name the one value that works and the
+  ;; way to get an executable.
+  (is (= {:errors [{:path [:targets :bin :target]
+                    :msg (str "must be :lgb (omit :target for a standalone "
+                              "executable), got :native")}]}
+         (load-cfg {:targets {:bin {:target :native :out "bin/app"}}})))
+  (is (= {:errors [{:path [:targets :bin :target]
+                    :msg (str "must be :lgb (omit :target for a standalone "
+                              "executable), got \"lgb\"")}]}
+         (load-cfg {:targets {:bin {:target "lgb" :out "dist/app.lgb"}}}))))
+
+(deftest load-rejects-platforms-for-an-lgb-target
+  (is (= {:errors [{:path [:targets :bin :platforms]
+                    :msg (str "does not apply to :target :lgb - a .lgb "
+                              "artifact is platform-independent; remove "
+                              ":platforms")}]}
+         (load-cfg {:targets {:bin {:target :lgb
+                                    :out "dist/app.lgb"
+                                    :platforms [{:os "linux"
+                                                 :arch "amd64"}]}}}))))
+
+(deftest load-rejects-a-placeholder-in-an-lgb-out
+  ;; Nothing expands it for :lgb, so it would land as a literal file name.
+  (let [msg (str "has an {{os}} or {{arch}} placeholder, but :target :lgb "
+                 "builds one platform-independent artifact - use a plain "
+                 "path such as \"dist/app.lgb\"")]
+    (is (= {:errors [{:path [:targets :bin :out] :msg msg}]}
+           (load-cfg {:targets {:bin {:target :lgb
+                                      :out "dist/app_{{os}}.lgb"}}})))
+    (is (= {:errors [{:path [:targets :bin :out] :msg msg}]}
+           (load-cfg {:targets {:bin {:target :lgb
+                                      :out "dist/{{arch}}/app.lgb"}}})))))
+
+(deftest bin-target-accessor
+  (is (= :lgb (config/bin-target {:targets {:bin {:target :lgb
+                                                  :out "dist/app.lgb"}}})))
+  (is (nil? (config/bin-target {:targets {:bin {:out "bin/app"}}})))
+  (is (nil? (config/bin-target {}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :tasks

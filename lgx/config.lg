@@ -782,6 +782,37 @@
                        "distinguishes them")}
             (recur (inc i) (assoc seen rendered label))))))))
 
+(defn- bin-target-value-errors
+  "The one supported :target is :lgb; omitting it keeps the standalone
+   executable. Named in the message because a reader of #60 will try
+   :native."
+  [v]
+  (when-not (= :lgb v)
+    (str "must be :lgb (omit :target for a standalone executable), got "
+         (pr-str v))))
+
+(defn- bin-target-errors
+  "Cross-key rule over the :bin map for :target :lgb: one platform-independent
+   artifact, so :platforms and an {{os}}/{{arch}} placeholder in :out (which
+   nothing would expand) are both mistakes. Runs before the :out collision
+   check so an :lgb config with platforms hears about :platforms first."
+  [bin]
+  (when (= :lgb (:target bin))
+    (cond
+      (contains? bin :platforms)
+      {:path [:platforms]
+       :msg (str "does not apply to :target :lgb - a .lgb artifact is "
+                 "platform-independent; remove :platforms")}
+
+      (or (str/includes? (:out bin) "{{os}}")
+          (str/includes? (:out bin) "{{arch}}"))
+      {:path [:out]
+       :msg (str "has an {{os}} or {{arch}} placeholder, but :target :lgb "
+                 "builds one platform-independent artifact - use a plain "
+                 "path such as \"dist/app.lgb\"")}
+
+      :else nil)))
+
 (def ^:private targets-schema
   [:map {:closed true}
    [:bin {:optional true}
@@ -789,7 +820,9 @@
      [:map {:closed true}
       [:out rel-path-schema]
       [:platforms {:optional true}
-       [:and [:vector platform-schema] [:fn platform-dup-errors]]]]
+       [:and [:vector platform-schema] [:fn platform-dup-errors]]]
+      [:target {:optional true} [:fn bin-target-value-errors]]]
+     [:fn bin-target-errors]
      [:fn bin-out-collision-errors]]]])
 
 (defn- with-refs-errors
@@ -1387,3 +1420,9 @@
   "Return the :platforms vector under :targets :bin, or [] if absent."
   [cfg]
   (or (:platforms (:bin (targets cfg))) []))
+
+(defn bin-target
+  "Return the :target under :targets :bin (:lgb), or nil for the default
+   standalone executable."
+  [cfg]
+  (:target (:bin (targets cfg))))
