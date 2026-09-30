@@ -831,6 +831,24 @@
 
     :else {:targets [nil]}))
 
+(defn lgb-build-arg-error
+  "Pure. Why this `lgx build` invocation cannot build a :target :lgb artifact,
+   or nil when it can. A .lgb is one platform-independent file, so platform
+   selection has nothing to act on, and -bundle-base names the base binary of
+   an executable that `lg -c` never makes. Checked before resolve-build-targets,
+   whose --all error would otherwise pre-empt this clearer one."
+  [cli-targets all? forward-args]
+  (cond
+    (or (seq cli-targets) all?)
+    (str "--target and --all do not apply to :target :lgb - a .lgb artifact "
+         "is platform-independent")
+
+    (some #(= "-bundle-base" %) forward-args)
+    (str "-bundle-base does not apply to :target :lgb - it names the base "
+         "binary of a standalone executable")
+
+    :else nil))
+
 (defn target-out
   "Pure. The :out path one target's artifact lands on: the template expanded
    for a cross target, byte-for-byte :out for native (nil) — which is what

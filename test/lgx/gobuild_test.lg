@@ -506,6 +506,33 @@
          (gobuild/target-out "dist/app_{{os}}_{{arch}}" nil)))
   (is (= "bin/app" (gobuild/target-out "bin/app" nil))))
 
+(def ^:private lgb-platform-error
+  (str "--target and --all do not apply to :target :lgb - a .lgb artifact "
+       "is platform-independent"))
+
+(def ^:private lgb-base-error
+  (str "-bundle-base does not apply to :target :lgb - it names the base "
+       "binary of a standalone executable"))
+
+(deftest lgb-build-arg-error-nil-for-a-plain-build
+  (is (nil? (gobuild/lgb-build-arg-error [] false [])))
+  ;; Other forwarded args (-z compresses) pass through to lg -c.
+  (is (nil? (gobuild/lgb-build-arg-error [] false ["-z"]))))
+
+(deftest lgb-build-arg-error-rejects-platform-selection
+  (is (= lgb-platform-error
+         (gobuild/lgb-build-arg-error [linux-arm64] false [])))
+  (is (= lgb-platform-error (gobuild/lgb-build-arg-error [] true []))))
+
+(deftest lgb-build-arg-error-rejects-a-bundle-base
+  (is (= lgb-base-error
+         (gobuild/lgb-build-arg-error [] false ["-bundle-base" "/x/lg"]))))
+
+(deftest lgb-build-arg-error-reports-platforms-first
+  (is (= lgb-platform-error
+         (gobuild/lgb-build-arg-error [linux-arm64] false
+                                      ["-bundle-base" "/x/lg"]))))
+
 ;; ---------------------------------------------------------------------------
 ;; letgo-ref — what the hash and go.mod see for let-go itself
 ;; ---------------------------------------------------------------------------
