@@ -126,7 +126,7 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
 **Files:**
 - Create: `docs/backlog/native-build-target.md`
 
-- [ ] **Step 1: Write the entry.** Follow `docs/backlog/built-runtime-not-stripped.md` for shape: a `# title` line, `**Status: open**`, then `## Problem` and whatever sections help. Title: "`lgx build` cannot compile application Lisp to native Go (`:target :native`)". Content, from Decision 7:
+- [x] **Step 1: Write the entry.** Follow `docs/backlog/built-runtime-not-stripped.md` for shape: a `# title` line, `**Status: open**`, then `## Problem` and whatever sections help. Title: "`lgx build` cannot compile application Lisp to native Go (`:target :native`)". Content, from Decision 7:
   - The request (lgx #60, the `:native` part) and the phase-1 scope that shipped `:lgb` instead.
   - The two routes and exactly what blocks each on let-go main `a141e406`:
     - entry frame: `eval` nil Var panic in a compiled `-main` (#992), and inline `fn` panic (#783);
@@ -135,7 +135,7 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
   - The preferred route once unblocked: runtime + `lg -b`. It reuses lgx's generated module, and `eval`, the REPL and dynamic loading keep working.
   - An acceptance test: an execution test must prove compiled functions run (the var holds a `<native-fn>`), not just produce correct output.
 
-- [ ] **Step 2: Commit, on its own.**
+- [x] **Step 2: Commit, on its own.**
   `git add docs/backlog/native-build-target.md && git commit -m "Backlog: native build target (:target :native)"`
 
 ### Task 2: `:target` in the config schema
@@ -144,7 +144,7 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
 - Modify: `lgx/config.lg` (`targets-schema` around line 785, and the helpers above it; the accessor near `platforms`, around line 1386)
 - Test: `test/lgx/config_test.lg` (the `:targets` sections, around lines 336-420)
 
-- [ ] **Step 1: Write the failing tests.** Next to the existing `:targets` tests, and using `load-cfg`, add:
+- [x] **Step 1: Write the failing tests.** Next to the existing `:targets` tests, and using `load-cfg`, add:
   - `load-accepts-target-lgb`, for `{:targets {:bin {:target :lgb :out "dist/app.lgb"}}}`.
   - Rejections of `:target :native` and `:target "lgb"`, each with the exact message from "Shared shapes".
   - Rejection of `:lgb` with a one-entry `:platforms`.
@@ -153,11 +153,11 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
 
   Update the existing unknown-key test's expected message to `unknown key :foo (allowed: :out, :platforms, :target)`. First check the order the validator actually lists keys in, and match it.
 
-- [ ] **Step 2: Run to verify they fail.**
+- [x] **Step 2: Run to verify they fail.**
   Run: `bin/lgx test test/lgx/config_test.lg`
   Expected: FAIL on the new tests (and the updated unknown-key test).
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - Add `[:target {:optional true} [:fn bin-target-value-errors]]` to the `:bin` map. The fn returns nil for `:lgb` and the targeted message otherwise.
   - Add a `[:fn bin-target-errors]` to the `:bin` `:and`, **before** `bin-out-collision-errors`, so an `:lgb` config with platforms reports the `:platforms` message rather than a collision. When `(= :lgb (:target bin))`:
     - return `{:path [:platforms] :msg ...}` if `:platforms` is present;
@@ -165,11 +165,11 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
     - otherwise nil.
   - Add `bin-target` beside `platforms`, with a docstring matching its neighbours.
 
-- [ ] **Step 4: Run to verify they pass.**
+- [x] **Step 4: Run to verify they pass.**
   Run: `bin/lgx test test/lgx/config_test.lg`
   Expected: PASS, whole file.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "config: :target :lgb under :targets :bin"`
 
 ### Task 3: CLI check for `:lgb` builds
@@ -178,23 +178,23 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
 - Modify: `lgx/gobuild.lg` (after `resolve-build-targets`, around line 832)
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write the failing tests** for `lgb-build-arg-error`:
+- [x] **Step 1: Write the failing tests** for `lgb-build-arg-error`:
   - nil for `[] false []` and for `[] false ["-z"]`;
   - the `--target/--all` message for `[{:os "linux" :arch "amd64"}] false []` and for `[] true []`;
   - the `-bundle-base` message for `[] false ["-bundle-base" "/x/lg"]`;
   - the `--target/--all` message when both problems are present (it is checked first).
 
-- [ ] **Step 2: Run to verify they fail.**
+- [x] **Step 2: Run to verify they fail.**
   Run: `bin/lgx test test/lgx/gobuild_test.lg`
   Expected: FAIL, unresolved `lgb-build-arg-error`.
 
-- [ ] **Step 3: Implement** `lgb-build-arg-error`: pure, with the signature and messages from "Shared shapes".
+- [x] **Step 3: Implement** `lgb-build-arg-error`: pure, with the signature and messages from "Shared shapes".
 
-- [ ] **Step 4: Run to verify they pass.**
+- [x] **Step 4: Run to verify they pass.**
   Run: `bin/lgx test test/lgx/gobuild_test.lg`
   Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "gobuild: reject platform and base flags for :lgb builds"`
 
 ### Task 4: The `:lgb` build path
@@ -203,7 +203,7 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
 - Modify: `lgx.lg` (`cmd-build` around line 798; help rows around line 38)
 - Test: `tests/e2e.sh` (append after Scenario 159)
 
-- [ ] **Step 1: Write the failing e2e scenarios.** Model them on Scenario 25 (build happy path) and 81 (resources), with the same `mktemp` / `LGX_HOME` / cleanup pattern. Number them 160 onward.
+- [x] **Step 1: Write the failing e2e scenarios.** Model them on Scenario 25 (build happy path) and 81 (resources), with the same `mktemp` / `LGX_HOME` / cleanup pattern. Number them 160 onward.
   - **160, `:lgb` happy path.**
     - lgx.edn: `{:main "main.lg" :targets {:bin {:target :lgb :out "dist/app.lgb"}}}`.
     - `main.lg`: a namespace that requires a second project namespace under `:paths ["src"]`, and prints a value from it inside `(when-not *compiling-aot* …)`.
@@ -213,22 +213,25 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
   - **161, flags rejected.** On the same kind of project, `lgx build --target linux/amd64` exits non-zero, contains `--target and --all do not apply to :target :lgb`, and `dist/` does not exist.
   - **162, resources warn.** Guard it with `supports_resource_paths`, as Scenario 81 does. With `:resource-paths ["resources"]` and `:target :lgb`, the build succeeds and its output contains `warning: :resource-paths are not embedded in a .lgb artifact`.
 
-- [ ] **Step 2: Run to verify they fail.**
+- [x] **Step 2: Run to verify they fail.**
   Run: `bash tests/run.sh`
   Expected: FAIL at Scenario 160. Today's `cmd-build` passes `-b`, so `dist/app.lgb` is an executable and no `.lgb` artifact is written. The first failing assertion should say so.
 
-- [ ] **Step 3: Implement** the flow from "Build flow for `:lgb`":
+- [x] **Step 3: Implement** the flow from "Build flow for `:lgb`":
   - Branch on `(config/bin-target cfg)` after the shared checks (`:main`, `:bin`, `resolve-main-script!`).
   - In the `:lgb` branch, do not call `resolve-build-targets`. Its `--all` error would pre-empt the clearer `:lgb` message.
   - The executable branch stays as it is.
   - Update the help row to say `lgx build` bundles an executable via `lg -b`, or writes a `.lgb` via `lg -c` when `:target :lgb`. Keep the two-line row format.
 
-- [ ] **Step 4: Run to verify they pass.**
+- [x] **Step 4: Run to verify they pass.**
   Run: `bash tests/run.sh`
   Expected: `All tests passed.`, with the new scenarios passing and Scenarios 25-30 and 81 unchanged.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "build: :target :lgb writes a .lgb artifact via lg -c"`
+
+> Deviation: the new e2e scenarios are numbered 163-165, not 160-162, because 160-162 were already taken by `:go/replace` and `:go/local` scenarios earlier in the file (numbers are not in file order). Scenarios 164 and 165 wrap their capture in `set +e`/`set -e`, as Scenario 27 does, because `tests/e2e.sh` runs under `set -eu`.
+> Deviation: `cmd-build` branches right after the config loads, into a new `build-lgb!` that always exits, rather than after the shared `:main`/`:bin` checks. The executable path keeps its original order untouched, and `build-lgb!` repeats the `:main` check through a shared `build-main-required` message. (`:bin` is implied by `:target :lgb`.)
 
 ### Task 5: Docs
 
