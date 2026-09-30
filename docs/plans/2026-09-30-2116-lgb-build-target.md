@@ -1,5 +1,7 @@
 # `:target :lgb` build output Implementation Plan
 
+**Status: completed 2026-09-30 (unreleased).**
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let `lgx build` produce a portable `.lgb` bytecode artifact when `:targets :bin` sets `:target :lgb`. Record native compilation (`:target :native`) in the backlog, blocked on upstream let-go work.
@@ -240,31 +242,58 @@ A small private fn such as `build-lgb!` keeps this out of the executable path. C
 - Modify: `docs/ARCHITECTURE.md` (`### lgx build [args...]` around line 309)
 - Modify: `docs/knowledge-base/let-go-bundling.md`
 
-- [ ] **Step 1: README.**
+- [x] **Step 1: README.**
   - The command table row mentions `:target :lgb`.
   - "`lgx build` details" gets a short subsection: the config example, what goes into the artifact, how to run it (`lg app.lgb`, or `lgx run dist/app.lgb` for projects with Go deps), no `:platforms` / `--target` / `--all` / `-bundle-base`, and resources not embedded.
   - The annotated lgx.edn shows `:target` as a commented option under `:bin`: *"omit for a standalone executable; :lgb writes a portable bytecode file"*.
 
-- [ ] **Step 2: ARCHITECTURE.** Add the `:lgb` branch to the `lgx build` section: after the shared steps 1-2 it runs `gobuild/lgb-build-arg-error`, skips steps 3-4 and 6, and execs `lg … [forwarded] -c <abs-out> <abs-main>` on the host runtime. Mention the resource warning. Add a row to the runtime table if that reads more clearly than prose.
+- [x] **Step 2: ARCHITECTURE.** Add the `:lgb` branch to the `lgx build` section: after the shared steps 1-2 it runs `gobuild/lgb-build-arg-error`, skips steps 3-4 and 6, and execs `lg … [forwarded] -c <abs-out> <abs-main>` on the host runtime. Mention the resource warning. Add a row to the runtime table if that reads more clearly than prose.
 
-- [ ] **Step 3: let-go-bundling knowledge base.** Add one line near the `-c` mention: `-c` writes bytecode only, and does not embed `-resource-paths` the way `-b` does (verified on let-go main `a141e406`). Leave the "Verify against" footer as is unless the claim needs another source file.
+- [x] **Step 3: let-go-bundling knowledge base.** Add one line near the `-c` mention: `-c` writes bytecode only, and does not embed `-resource-paths` the way `-b` does (verified on let-go main `a141e406`). Leave the "Verify against" footer as is unless the claim needs another source file.
 
-- [ ] **Step 4: Check the docs against the code.** Re-read each changed paragraph against `lgx.lg`, `lgx/config.lg` and `lgx/gobuild.lg`. Every flag, message and path named must match.
+- [x] **Step 4: Check the docs against the code.** Re-read each changed paragraph against `lgx.lg`, `lgx/config.lg` and `lgx/gobuild.lg`. Every flag, message and path named must match.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "docs: :target :lgb build output"`
 
 ### Task 6: Final verification
 
-- [ ] **Step 1: Full suite.**
+- [x] **Step 1: Full suite.**
   Run: `bash tests/run.sh`
   Expected: `All tests passed.`
 
-- [ ] **Step 2: Lint and format**, if the tools are installed.
+- [x] **Step 2: Lint and format**, if the tools are installed.
   Run: `make lint` and `make fmt-check`
   Expected: no new findings in touched files.
 
-- [ ] **Step 3: Sanity-check by hand** in a scratch project with an `:lgb` target:
+- [x] **Step 3: Sanity-check by hand** in a scratch project with an `:lgb` target:
   - `bin/lgx build` then `lg dist/app.lgb` works;
   - `bin/lgx --verbose build` shows `-c` and no `-b` or `-bundle-base`;
   - an executable project still shows `-b` exactly as before.
+
+---
+
+## Completion summary
+
+`lgx build` now writes a portable `.lgb` via `lg -c` when `:targets :bin` sets `:target :lgb`. Leaving `:target` out keeps the `lg -b` executable, with the same argv (checked with `--verbose`).
+
+- **Config.** `:target` accepts only `:lgb`, with a targeted message for anything else. `:platforms` and `{{os}}`/`{{arch}}` in `:out` are rejected for `:lgb`.
+- **CLI.** `--target`, `--all` and `-bundle-base` are rejected before any work.
+- **Resources.** A warning notes that `-c` does not embed them.
+- **Backlog.** The deferred `:native` target is recorded in `docs/backlog/native-build-target.md` (let-go #783, #991, #992, #990, #660, PR #977).
+
+Tests:
+- `bash tests/run.sh` passes: 848 unit tests and 542 e2e assertions.
+- `make lint` shows only the 3 warnings that already existed.
+- `cljfmt` is not installed, so the format check was skipped.
+
+Issues:
+- The per-task Codex reviews did not run: Codex hit its usage limit (it resets Oct 1, 00:02). Each task was self-reviewed instead.
+- The `:native` experiments during planning disproved one claim I had made to the user. The bundle loader does call `ApplyGoOverrides`, so the plan's Decision 7 was corrected before commit. The real cause is still open as let-go #991.
+
+Deviations, all recorded under Task 4:
+- The e2e scenarios are numbered 163-165, because 160-162 were already taken.
+- Scenarios 164 and 165 wrap their capture in `set +e`/`set -e`, because the script runs under `set -eu`.
+- `cmd-build` branches into `build-lgb!` right after the config loads, not after the shared checks. The executable path stays untouched, and the `:main` message is a shared `build-main-required`.
+
+**What the plan could have specified better:** checking the highest scenario number with `grep -o 'Scenario [0-9]*' tests/e2e.sh | sort -n | tail -1` rather than taking the last one in the file, and pointing at `set -eu` for the expected-failure pattern.
