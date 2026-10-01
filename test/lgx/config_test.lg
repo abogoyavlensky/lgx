@@ -354,7 +354,7 @@
 
 (deftest load-rejects-unknown-bin-key
   (is (= {:errors [{:path [:targets :bin]
-                    :msg "unknown key :foo (allowed: :out, :platforms, :target)"}]}
+                    :msg "unknown key :foo (allowed: :out, :platforms, :target, :wasm)"}]}
          (load-cfg {:targets {:bin {:out "bin/app" :foo 1}}}))))
 
 (deftest load-rejects-bad-out
@@ -516,14 +516,14 @@
     (is (= {:cfg cfg} (load-cfg cfg)))))
 
 (deftest load-rejects-an-unsupported-target
-  ;; Readers of #60 will try :native; name the one value that works and the
-  ;; way to get an executable.
+  ;; Readers of #60 will try :native; name the values that work and the way
+  ;; to get an executable.
   (is (= {:errors [{:path [:targets :bin :target]
-                    :msg (str "must be :lgb (omit :target for a standalone "
+                    :msg (str "must be :lgb or :wasm (omit :target for a standalone "
                               "executable), got :native")}]}
          (load-cfg {:targets {:bin {:target :native :out "bin/app"}}})))
   (is (= {:errors [{:path [:targets :bin :target]
-                    :msg (str "must be :lgb (omit :target for a standalone "
+                    :msg (str "must be :lgb or :wasm (omit :target for a standalone "
                               "executable), got \"lgb\"")}]}
          (load-cfg {:targets {:bin {:target "lgb" :out "dist/app.lgb"}}}))))
 
@@ -553,7 +553,113 @@
   (is (= :lgb (config/bin-target {:targets {:bin {:target :lgb
                                                   :out "dist/app.lgb"}}})))
   (is (nil? (config/bin-target {:targets {:bin {:out "bin/app"}}})))
+  (is (= :wasm (config/bin-target {:targets {:bin {:target :wasm
+                                                   :out "dist/web"}}})))
   (is (nil? (config/bin-target {}))))
+
+;; ---------------------------------------------------------------------------
+;; load-config: :targets :bin :target :wasm
+;; ---------------------------------------------------------------------------
+
+(deftest load-accepts-target-wasm
+  (let [cfg {:targets {:bin {:target :wasm :out "dist/web"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-accepts-wasm-options
+  (let [cfg {:targets {:bin {:target :wasm
+                             :out "dist/web"
+                             :wasm {:shell :none
+                                    :payload :external
+                                    :host-eval true}}}}]
+    (is (= {:cfg cfg} (load-cfg cfg))))
+  (let [cfg {:targets {:bin {:target :wasm
+                             :out "dist/web"
+                             :wasm {:shell :xterm
+                                    :payload :inline
+                                    :host-eval false}}}}]
+    (is (= {:cfg cfg} (load-cfg cfg))))
+  (let [cfg {:targets {:bin {:target :wasm
+                             :out "dist/web"
+                             :wasm {:shell "web/shell.html"}}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-platforms-for-a-wasm-target
+  (is (= {:errors [{:path [:targets :bin :platforms]
+                    :msg (str "does not apply to :target :wasm - a browser "
+                              "WASM app is built for js/wasm only; remove "
+                              ":platforms")}]}
+         (load-cfg {:targets {:bin {:target :wasm
+                                    :out "dist/web"
+                                    :platforms [{:os "linux"
+                                                 :arch "amd64"}]}}}))))
+
+(deftest load-rejects-a-placeholder-in-a-wasm-out
+  (let [msg (str "has an {{os}} or {{arch}} placeholder, but :target :wasm "
+                 "builds one web directory - use a plain path such as "
+                 "\"dist/web\"")]
+    (is (= {:errors [{:path [:targets :bin :out] :msg msg}]}
+           (load-cfg {:targets {:bin {:target :wasm
+                                      :out "dist/web_{{os}}"}}})))
+    (is (= {:errors [{:path [:targets :bin :out] :msg msg}]}
+           (load-cfg {:targets {:bin {:target :wasm
+                                      :out "dist/{{arch}}/web"}}})))))
+
+(deftest load-rejects-wasm-options-without-target-wasm
+  ;; Options a build would silently ignore are a mistake.
+  (let [err {:path [:targets :bin :wasm] :msg "applies only to :target :wasm"}]
+    (is (= {:errors [err]}
+           (load-cfg {:targets {:bin {:out "bin/app" :wasm {}}}})))
+    (is (= {:errors [err]}
+           (load-cfg {:targets {:bin {:target :lgb
+                                      :out "dist/app.lgb"
+                                      :wasm {:payload :inline}}}})))))
+
+(deftest load-rejects-a-bad-wasm-shell
+  (let [bad (fn [v]
+              (load-cfg {:targets {:bin {:target :wasm
+                                         :out "dist/web"
+                                         :wasm {:shell v}}}}))
+        path [:targets :bin :wasm :shell]
+        shape-msg (fn [v]
+                    (str "must be :xterm, :none, or a relative path to an "
+                         "HTML template, got " v))]
+    (is (= {:errors [{:path path :msg (shape-msg ":fancy")}]} (bad :fancy)))
+    (is (= {:errors [{:path path :msg (shape-msg "42")}]} (bad 42)))
+    (is (= {:errors [{:path path :msg "must be relative (no leading /)"}]}
+           (bad "/abs/shell.html")))
+    (is (= {:errors [{:path path :msg "must not contain .. segments"}]}
+           (bad "../shell.html")))))
+
+(deftest load-rejects-a-bad-wasm-payload
+  (is (= {:errors [{:path [:targets :bin :wasm :payload]
+                    :msg "must be one of: :inline, :external, got :stream"}]}
+         (load-cfg {:targets {:bin {:target :wasm
+                                    :out "dist/web"
+                                    :wasm {:payload :stream}}}}))))
+
+(deftest load-rejects-a-bad-wasm-host-eval
+  (is (= {:errors [{:path [:targets :bin :wasm :host-eval]
+                    :msg "must be true or false, got \"yes\""}]}
+         (load-cfg {:targets {:bin {:target :wasm
+                                    :out "dist/web"
+                                    :wasm {:host-eval "yes"}}}}))))
+
+(deftest load-rejects-an-unknown-wasm-key
+  (is (= {:errors [{:path [:targets :bin :wasm]
+                    :msg (str "unknown key :tinygo (allowed: :shell, "
+                              ":payload, :host-eval)")}]}
+         (load-cfg {:targets {:bin {:target :wasm
+                                    :out "dist/web"
+                                    :wasm {:tinygo true}}}}))))
+
+(deftest bin-wasm-accessor
+  (is (= {:shell :none}
+         (config/bin-wasm {:targets {:bin {:target :wasm
+                                           :out "dist/web"
+                                           :wasm {:shell :none}}}})))
+  (is (= {} (config/bin-wasm {:targets {:bin {:target :wasm
+                                              :out "dist/web"}}})))
+  (is (= {} (config/bin-wasm {}))))
 
 ;; ---------------------------------------------------------------------------
 ;; load-config: :tasks

@@ -783,35 +783,71 @@
             (recur (inc i) (assoc seen rendered label))))))))
 
 (defn- bin-target-value-errors
-  "The one supported :target is :lgb; omitting it keeps the standalone
-   executable. Named in the message because a reader of #60 will try
-   :native."
+  "The supported :target values are :lgb and :wasm; omitting it keeps the
+   standalone executable. Named in the message because a reader of #60 will
+   try :native."
   [v]
-  (when-not (= :lgb v)
-    (str "must be :lgb (omit :target for a standalone executable), got "
-         (pr-str v))))
+  (when-not (contains? #{:lgb :wasm} v)
+    (str "must be :lgb or :wasm (omit :target for a standalone executable), "
+         "got " (pr-str v))))
+
+(def ^:private single-artifact-phrases
+  "Per :target, how the :platforms and :out placeholder errors describe the
+   one artifact it builds."
+  {:lgb {:platforms "a .lgb artifact is platform-independent"
+         :out "builds one platform-independent artifact"
+         :example "dist/app.lgb"}
+   :wasm {:platforms "a browser WASM app is built for js/wasm only"
+          :out "builds one web directory"
+          :example "dist/web"}})
 
 (defn- bin-target-errors
-  "Cross-key rule over the :bin map for :target :lgb: one platform-independent
+  "Cross-key rule over the :bin map. :target :lgb and :wasm each build one
    artifact, so :platforms and an {{os}}/{{arch}} placeholder in :out (which
-   nothing would expand) are both mistakes. Runs before the :out collision
-   check so an :lgb config with platforms hears about :platforms first."
+   nothing would expand) are both mistakes, and the :wasm options map is a
+   mistake under any other target. Runs before the :out collision check so a
+   single-artifact config with platforms hears about :platforms first."
   [bin]
-  (when (= :lgb (:target bin))
+  (let [target (:target bin)
+        phrases (get single-artifact-phrases target)]
     (cond
-      (contains? bin :platforms)
+      (and phrases (contains? bin :platforms))
       {:path [:platforms]
-       :msg (str "does not apply to :target :lgb - a .lgb artifact is "
-                 "platform-independent; remove :platforms")}
+       :msg (str "does not apply to :target " target " - "
+                 (:platforms phrases) "; remove :platforms")}
 
-      (or (str/includes? (:out bin) "{{os}}")
-          (str/includes? (:out bin) "{{arch}}"))
+      (and phrases
+           (or (str/includes? (:out bin) "{{os}}")
+               (str/includes? (:out bin) "{{arch}}")))
       {:path [:out]
-       :msg (str "has an {{os}} or {{arch}} placeholder, but :target :lgb "
-                 "builds one platform-independent artifact - use a plain "
-                 "path such as \"dist/app.lgb\"")}
+       :msg (str "has an {{os}} or {{arch}} placeholder, but :target " target
+                 " " (:out phrases) " - use a plain path such as "
+                 (pr-str (:example phrases)))}
+
+      (and (contains? bin :wasm) (not= :wasm target))
+      {:path [:wasm] :msg "applies only to :target :wasm"}
 
       :else nil)))
+
+(defn- wasm-shell-errors
+  ":xterm and :none name lg's built-in shells; a string is a project-relative
+   HTML template, held to the usual relative-path rule."
+  [v]
+  (cond
+    (contains? #{:xterm :none} v) nil
+    (string? v) (rel-path-errors v)
+    :else (str "must be :xterm, :none, or a relative path to an HTML "
+               "template, got " (pr-str v))))
+
+(defn- boolean-errors [v]
+  (when-not (boolean? v)
+    (str "must be true or false, got " (pr-str v))))
+
+(def ^:private wasm-opts-schema
+  [:map {:closed true}
+   [:shell {:optional true} [:fn wasm-shell-errors]]
+   [:payload {:optional true} [:enum :inline :external]]
+   [:host-eval {:optional true} [:fn boolean-errors]]])
 
 (def ^:private targets-schema
   [:map {:closed true}
@@ -821,7 +857,8 @@
       [:out rel-path-schema]
       [:platforms {:optional true}
        [:and [:vector platform-schema] [:fn platform-dup-errors]]]
-      [:target {:optional true} [:fn bin-target-value-errors]]]
+      [:target {:optional true} [:fn bin-target-value-errors]]
+      [:wasm {:optional true} wasm-opts-schema]]
      [:fn bin-target-errors]
      [:fn bin-out-collision-errors]]]])
 
@@ -1422,7 +1459,12 @@
   (or (:platforms (:bin (targets cfg))) []))
 
 (defn bin-target
-  "Return the :target under :targets :bin (:lgb), or nil for the default
-   standalone executable."
+  "Return the :target under :targets :bin (:lgb or :wasm), or nil for the
+   default standalone executable."
   [cfg]
   (:target (:bin (targets cfg))))
+
+(defn bin-wasm
+  "Return the :wasm options map under :targets :bin, or {} if absent."
+  [cfg]
+  (or (:wasm (:bin (targets cfg))) {}))
