@@ -92,7 +92,7 @@ lgx run
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts. |
-| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). With `:target :lgb`, writes a portable `.lgb` bytecode file via `lg -c` instead. |
+| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). With `:target :lgb`, writes a portable `.lgb` bytecode file via `lg -c` instead; with `:target :wasm`, a browser web app via `lg -w`. |
 | `lgx test [file] [--exclude <ns,...>]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under the `:test` context's paths (`test/` by default). With `<file>`, run just that file. `--exclude` skips the named test namespaces (repeatable, comma-separated). |
 | `lgx clean <--cache...>` | Remove caches under `$LGX_HOME`: `--runtimes`, `--gitlibs`, `--templates`, or `--all`; `--dry-run` only reports. Prints bytes reclaimed. Never automatic. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. A task may carry a built-in's name, in which case it runs instead of that built-in. |
@@ -229,6 +229,8 @@ Rules that follow from the mechanics:
   base. `LGX_LG` is rejected under `:built`.
 - `windows/*` targets fail until let-go itself builds for Windows (see
   `docs/issues/windows-build-unix-only-term.md`).
+- `js/wasm` is rejected as an executable platform: `lg -b` would write a
+  bare module with no page or loader. Use `:target :wasm` for a browser app.
 
 #### Bytecode output (`:target :lgb`)
 
@@ -251,8 +253,43 @@ runtime that links them, so run it with `lgx run dist/app.lgb` instead.
 - Resources are not embedded, unlike in an executable. The build warns when
   `:resource-paths` is set; pass `-resource-paths` to `lg` when running the
   file.
-- Leave `:target` out for the standalone executable. `:lgb` is the only
-  value for now.
+- Leave `:target` out for the standalone executable.
+
+#### Browser WASM output (`:target :wasm`)
+
+Set `:target :wasm` to build a browser web app instead of an executable:
+
+```clojure
+:targets {:bin {:target :wasm
+                :out "dist/web"
+                :wasm {:shell :none          ; :xterm (default), :none, or "web/shell.html"
+                       :payload :external    ; :inline (default) or :external
+                       :host-eval true}}}    ; default false
+```
+
+`lgx build` then runs `lg [wasm flags] [extra-args...] -w <:out> <:main>`.
+`:out` is a directory: it gets `index.html` and `coi-serviceworker.js`, plus
+`main.wasm` with `:payload :external`. Serve it over HTTP, for example
+`python3 -m http.server -d dist/web`.
+
+The `:wasm` keys map to `lg` flags: `:shell` to `-w-shell` (a template path
+is relative to the project), `:payload` to `-w-wasm`, `:host-eval true` to
+`-w-host-eval`. A key left out keeps `lg`'s default, and the same flag
+passed on the command line overrides the config.
+
+- `lg -w` compiles the app with Go, so `go` must be on PATH, even under
+  `:lg-runtime :installed`.
+- `:platforms`, `{{os}}`/`{{arch}}` in `:out`, `--target`, `--all` and
+  `-bundle-base` do not apply and are rejected. A `:wasm` map without
+  `:target :wasm` is rejected too.
+- Go deps (`:go/*`, direct or transitive) are an error: `lg -w` builds its
+  own Go module that carries only let-go. Resources are not embedded; the
+  build warns when `:resource-paths` is set. Both are tracked in
+  [#61](https://github.com/abogoyavlensky/lgx/issues/61).
+- lgx does not clean `:out`. Switching from `:external` to `:inline` leaves
+  the old `main.wasm` behind.
+- One `lgx.edn` declares one artifact kind: contexts cannot override
+  `:targets`.
 
 ### `lgx test` details
 
@@ -339,7 +376,8 @@ key's rules in detail.
  ; the project root (lgx creates the parent dir if missing). Optional
  ; :platforms lists cross-compile targets for `lgx build --all`; {{os}} and
  ; {{arch}} in :out keep their artifacts on distinct paths. Optional :target:
- ; omit it for a standalone executable; :lgb writes a portable bytecode file.
+ ; omit it for a standalone executable; :lgb writes a portable bytecode file;
+ ; :wasm writes a browser web app, with options under :wasm.
  :targets {:bin {:out "bin/myapp"}}
 
  ; Named overlays of extra paths/deps. Apply with `lgx --with dev,test <cmd>`
@@ -398,7 +436,8 @@ key's rules in detail.
 - `:main` is substituted by `lgx run` when no script is given, and bundled by
   `lgx build`. It need not live under `:paths`.
 - `:resource-paths` are passed to `lg` as `-resource-paths` for run/test and
-  **embedded into the binary** by `lgx build`, so `(io/resource "…")` keeps
+  **embedded into the binary** by `lgx build` (not into a `:target :lgb` or
+  `:wasm` artifact), so `(io/resource "…")` keeps
   working with no files beside the executable. Unlike source paths, resource
   roots come only from your project, never from dependencies.
 - Missing `:paths`/`:resource-paths` entries print a warning.
