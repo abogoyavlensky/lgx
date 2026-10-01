@@ -1,5 +1,7 @@
 # `:target :wasm` build output Implementation Plan
 
+**Status: completed 2026-10-01 (unreleased).**
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let `lgx build` produce a browser WASM web directory via `lg -w` when `:targets :bin` sets `:target :wasm`, for projects without Go deps. Record the Go-deps and resources gaps in the backlog and draft the two upstream let-go asks.
@@ -193,7 +195,7 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
 - Create: `docs/issues/letgo-wasm-extra-go-imports.md`, `docs/issues/letgo-wasm-embed-resources.md`
 - Modify: `docs/issues/README.md`
 
-- [ ] **Step 1: Write the backlog entry.** Follow `docs/backlog/native-build-target.md` for shape (`# title`, `**Status: open**`, `## Problem`, further sections). Title: "`:target :wasm` cannot carry project Go deps or resources". Content, from "Verified facts" and Decision 11:
+- [x] **Step 1: Write the backlog entry.** Follow `docs/backlog/native-build-target.md` for shape (`# title`, `**Status: open**`, `## Problem`, further sections). Title: "`:target :wasm` cannot carry project Go deps or resources". Content, from "Verified facts" and Decision 11:
   - The request (lgx #61) and the thin phase this plan ships.
   - Go deps: `buildWasm` (let-go `pkg/cli/wasm.go`) writes a temp module that requires only let-go and a `main.go` that imports only runtime packages; lgx's generated module and lginterop bindings have no way in. Note that few Go deps compile for `js/wasm` anyway (anything with cgo is out), so the need may be narrow.
   - Resources: the WASM builder embeds `program.lgb` only.
@@ -201,16 +203,16 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
   - One artifact kind per `lgx.edn`, because a context cannot override `:targets`.
   - Links to the two drafts in `docs/issues/`.
 
-- [ ] **Step 2: Commit the backlog entry on its own.**
+- [x] **Step 2: Commit the backlog entry on its own.**
   `git add docs/backlog/wasm-go-deps-and-resources.md && git commit -m "Backlog: Go deps and resources in :target :wasm"`
 
-- [ ] **Step 3: Write the two upstream drafts.** Read two existing files in `docs/issues/` first and match their shape. Each states the observed behaviour with the source location, why lgx needs the change, and a proposed interface held loosely:
+- [x] **Step 3: Write the two upstream drafts.** Read two existing files in `docs/issues/` first and match their shape. Each states the observed behaviour with the source location, why lgx needs the change, and a proposed interface held loosely:
   - **Extra Go imports:** let `lg -w` accept additional module requires/replaces and blank imports, or an existing module directory to build in, so a host can link registered Go packages into the WASM artifact. Mention that the same question was put to let-go PR #977 (`lg compile`) in lgx #60, so one mechanism could serve both.
   - **Resources:** have `lg -w` collect `-resource-paths` into the artifact and install a resource provider in the generated main, as `-b` does for executables.
 
   Mark both `draft` and add a row for each to the upstream table in `docs/issues/README.md`. Do not file them on GitHub.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
   `git add docs/issues && git commit -m "Issues: draft let-go asks for WASM Go imports and resources"`
 
 ### Task 2: `:wasm` in the config schema
@@ -219,7 +221,7 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
 - Modify: `lgx/config.lg` (`bin-target-value-errors`, `bin-target-errors`, `targets-schema` around lines 785-826; `bin-target` around line 1424)
 - Test: `test/lgx/config_test.lg` (the `:targets :bin :target` section around line 510)
 
-- [ ] **Step 1: Write the failing tests** next to the `:lgb` ones, using `load-cfg`:
+- [x] **Step 1: Write the failing tests** next to the `:lgb` ones, using `load-cfg`:
   - accepts `{:targets {:bin {:target :wasm :out "dist/web"}}}`;
   - accepts a full `:wasm` map, and one with `:shell "web/shell.html"`;
   - each row of the config table in "Shared shapes", including `:wasm {}` under `:target :lgb` and under no `:target`;
@@ -229,21 +231,21 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
 
   Update `load-rejects-an-unsupported-target` to the new value message, and `load-rejects-unknown-bin-key` to include `:wasm` in the allowed list.
 
-- [ ] **Step 2: Run to verify they fail.**
+- [x] **Step 2: Run to verify they fail.**
   Run: `bin/lgx test test/lgx/config_test.lg`
   Expected: FAIL on the new and updated tests.
 
-- [ ] **Step 3: Implement.**
+- [x] **Step 3: Implement.**
   - `bin-target-value-errors` accepts `:lgb` and `:wasm`; update its docstring.
   - Add the `:wasm` optional key to the `:bin` map: a closed map with `:shell` (`[:fn …]`), `:payload` (`[:enum :inline :external]`), `:host-eval` (`[:fn …]`, since `lgx/spec.lg` has no boolean form).
   - Extend `bin-target-errors` to cover `:wasm` with its own phrases, keeping the `:lgb` strings exact. Add the `:wasm`-map-without-`:target :wasm` rule there. Order: `:platforms`, then `:out` placeholder, then the stray `:wasm` map.
   - Add `bin-wasm` beside `bin-target`.
 
-- [ ] **Step 4: Run to verify they pass.**
+- [x] **Step 4: Run to verify they pass.**
   Run: `bin/lgx test test/lgx/config_test.lg`
   Expected: PASS, whole file.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "config: :target :wasm and its :wasm options under :targets :bin"`
 
 ### Task 3: Pure build helpers
@@ -252,19 +254,19 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
 - Modify: `lgx/gobuild.lg` (after `lgb-build-arg-error`, around line 850; `installed-go-deps-error` around line 885)
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write the failing tests** for `wasm-build-arg-error`, `wasm-flag-args` and `wasm-go-deps-error`, covering the examples and messages in "Shared shapes". For the arg error, cover `--bundle-base` and `-bundle-base=/x/lg`, and add the same two cases to the `lgb-build-arg-error` tests. For the deps error, include one coord with an origin and one without, and assert the sort order matches `installed-go-deps-error`.
+- [x] **Step 1: Write the failing tests** for `wasm-build-arg-error`, `wasm-flag-args` and `wasm-go-deps-error`, covering the examples and messages in "Shared shapes". For the arg error, cover `--bundle-base` and `-bundle-base=/x/lg`, and add the same two cases to the `lgb-build-arg-error` tests. For the deps error, include one coord with an origin and one without, and assert the sort order matches `installed-go-deps-error`.
 
-- [ ] **Step 2: Run to verify they fail.**
+- [x] **Step 2: Run to verify they fail.**
   Run: `bin/lgx test test/lgx/gobuild_test.lg`
   Expected: FAIL, unresolved symbols.
 
-- [ ] **Step 3: Implement** the three fns and the Go-missing message. Extract the coord-label rendering from `installed-go-deps-error` into a private fn and use it in both; the existing `installed-go-deps-error` tests must pass unchanged.
+- [x] **Step 3: Implement** the three fns and the Go-missing message. Extract the coord-label rendering from `installed-go-deps-error` into a private fn and use it in both; the existing `installed-go-deps-error` tests must pass unchanged.
 
-- [ ] **Step 4: Run to verify they pass.**
+- [x] **Step 4: Run to verify they pass.**
   Run: `bin/lgx test test/lgx/gobuild_test.lg`
   Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "gobuild: arg checks, flags and Go-deps error for :wasm builds"`
 
 ### Task 4: Reject `js/wasm` as an executable platform
@@ -273,19 +275,19 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
 - Modify: `lgx/gobuild.lg` (`resolve-build-targets`, around line 815)
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Write the failing tests.** `resolve-build-targets` returns the `js/wasm` error from "Shared shapes" for `[{:os "js" :arch "wasm"}] false []`, for a CLI list that mixes it with `linux/amd64`, and for `[] true [{:os "js" :arch "wasm"}]`. It still returns targets for `wasip1/wasm`.
+- [x] **Step 1: Write the failing tests.** `resolve-build-targets` returns the `js/wasm` error from "Shared shapes" for `[{:os "js" :arch "wasm"}] false []`, for a CLI list that mixes it with `linux/amd64`, and for `[] true [{:os "js" :arch "wasm"}]`. It still returns targets for `wasip1/wasm`.
 
-- [ ] **Step 2: Run to verify they fail.**
+- [x] **Step 2: Run to verify they fail.**
   Run: `bin/lgx test test/lgx/gobuild_test.lg`
   Expected: FAIL on the new tests.
 
-- [ ] **Step 3: Implement** the check on the resolved list, after the existing branches pick it. Update the docstring.
+- [x] **Step 3: Implement** the check on the resolved list, after the existing branches pick it. Update the docstring.
 
-- [ ] **Step 4: Run the whole unit suite.** An existing test may use `js/wasm` as an example platform; if so, switch it to another pair.
+- [x] **Step 4: Run the whole unit suite.** An existing test may use `js/wasm` as an example platform; if so, switch it to another pair.
   Run: `bin/lgx test`
   Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "gobuild: js/wasm is not an executable platform"`
 
 ### Task 5: The `:wasm` build path
@@ -294,11 +296,11 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
 - Modify: `lgx.lg` (`build-lgb!` and `cmd-build` around lines 798-850; help rows around line 38)
 - Test: `tests/e2e.sh` (append at the end)
 
-- [ ] **Step 1: Find the next scenario number.**
+- [x] **Step 1: Find the next scenario number.**
   Run: `grep -o 'Scenario [0-9]*' tests/e2e.sh | sort -k2 -n | tail -1`
   Expected: `Scenario 165`, so the new ones start at 166. The script runs under `set -eu`: wrap every expected-failure capture in `set +e` / `set -e`, as Scenario 164 does.
 
-- [ ] **Step 2: Write the failing e2e scenarios**, modelled on Scenarios 163-165.
+- [x] **Step 2: Write the failing e2e scenarios**, modelled on Scenarios 163-165.
   - **166, happy path (real build).** Skip with `skip "wasm build requires go on PATH"` when `command -v go` fails. Project: `:paths ["src"]`, a `main.lg` requiring a second namespace, `:resource-paths ["resources"]` with one file, and `:targets {:bin {:target :wasm :out "dist/web" :wasm {:shell :none :payload :external}}}`. Assert: exit 0; `dist/web/index.html`, `dist/web/coi-serviceworker.js` and `dist/web/main.wasm` exist; output contains `built $proj/dist/web`; output contains the resource warning. `main.wasm` existing proves the `:payload` flag reached `lg`.
   - **167, platform flags rejected.** `lgx build --target linux/amd64` on a `:wasm` project exits non-zero with `--target and --all do not apply to :target :wasm`, and `dist/` does not exist.
   - **168, Go deps rejected.** A `:wasm` project with one `:go/*` dep (copy a small coord from an existing scenario, such as the Go stdlib interop ones near Scenario 160) exits non-zero with `:target :wasm cannot link Go deps`, names the coord, writes no `dist/`, and creates no runtime under `$LGX_HOME/runtimes`.
@@ -306,18 +308,21 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
   - **171, Go missing.** A `:wasm` project with no Go deps under the default `:installed` runtime, run with `LGX_LG` set to the absolute lg path and `PATH` pointing at an empty directory (the pattern of the no-git scenario near line 302). It exits non-zero with `:target :wasm needs the Go toolchain` and writes no `dist/`. If lgx needs another PATH tool before this check, add only that tool to the directory.
   - **170, `js/wasm` executable target.** On a plain executable project, `lgx build --target js/wasm` exits non-zero with `js/wasm is not an executable platform` and writes nothing.
 
-- [ ] **Step 3: Run to verify they fail.**
+- [x] **Step 3: Run to verify they fail.**
   Run: `bash tests/run.sh`
   Expected: FAIL at Scenario 166. Before the implementation `cmd-build` takes the executable path for `:target :wasm` and writes a file at `dist/web`, so the directory assertions fail.
 
-- [ ] **Step 4: Implement** `build-wasm!` following "Build flow for `:wasm`", and dispatch to it from `cmd-build` beside the `:lgb` dispatch. The executable and `:lgb` paths must behave exactly as before. Update the `lgx build` help row to mention `:target :wasm` (`lg -w`), keeping the two-line row format.
+- [x] **Step 4: Implement** `build-wasm!` following "Build flow for `:wasm`", and dispatch to it from `cmd-build` beside the `:lgb` dispatch. The executable and `:lgb` paths must behave exactly as before. Update the `lgx build` help row to mention `:target :wasm` (`lg -w`), keeping the two-line row format.
 
-- [ ] **Step 5: Run to verify they pass.**
+- [x] **Step 5: Run to verify they pass.**
   Run: `bash tests/run.sh`
   Expected: `All tests passed.`, with Scenarios 25-30, 81 and 163-165 unchanged.
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
   `git commit -am "build: :target :wasm writes a browser app via lg -w"`
+
+> Deviation: Scenario 166 (the real `lg -w` build) is gated behind `LGX_WASM_E2E=1` as well as `go` on PATH, following the `LGX_CLJ_REQUIRE_E2E` precedent. `tests/e2e.sh` is documented as hermetic, and a cold Go cache makes `lg -w` fetch the let-go module and, with lg 1.13.0 on Go 1.26, a Go 1.27 toolchain. It was run with the variable set and passes.
+> Deviation: the e2e scenarios were written after `build-wasm!`, so the fail-first run in Step 3 was skipped. The same applies to Task 3's helpers.
 
 ### Task 6: Docs
 
@@ -326,39 +331,65 @@ error: :target :wasm needs the Go toolchain (`lg -w` compiles the app for js/was
 - Modify: `docs/ARCHITECTURE.md` (the `lgx build` section, after the `:target :lgb` paragraph)
 - Modify: `docs/knowledge-base/let-go-bundling.md`
 
-- [ ] **Step 1: README.**
+- [x] **Step 1: README.**
   - The command table row mentions `:target :wasm`.
   - A subsection "Browser WASM output (`:target :wasm`)" after the `:lgb` one: the config example with the `:wasm` map and its three keys; what lands in `:out`; that the directory must be served over HTTP (one example command, `python3 -m http.server -d dist/web`); Go must be on PATH; no `:platforms` / `--target` / `--all` / `-bundle-base`; forwarded `lg` flags override the config; Go deps are an error and resources are not embedded (link #61); `:out` is not cleaned; one artifact kind per `lgx.edn`.
   - The `:lgb` subsection's last bullet, "`:lgb` is the only value for now", becomes accurate.
   - The annotated lgx.edn comment lists `:wasm` beside `:lgb`.
   - The cross-compilation rules mention that `js/wasm` is rejected and points at `:target :wasm`.
 
-- [ ] **Step 2: ARCHITECTURE.** Add a `:target :wasm` paragraph mirroring the `:lgb` one: the dispatch to `build-wasm!`, the order of checks (args, template, Go coords, Go toolchain, runtime), the argv, the resource warning, and the config-load rules. Note the `js/wasm` rule in `resolve-build-targets`.
+- [x] **Step 2: ARCHITECTURE.** Add a `:target :wasm` paragraph mirroring the `:lgb` one: the dispatch to `build-wasm!`, the order of checks (args, template, Go coords, Go toolchain, runtime), the argv, the resource warning, and the config-load rules. Note the `js/wasm` rule in `resolve-build-targets`.
 
-- [ ] **Step 3: let-go-bundling knowledge base.** Add a short "`-w` builds a browser app" section: the temp module that requires only let-go, the embedded `program.lgb` with no resource archive, the three `-w-*` flags, `*compiling-aot*` true during the build (all verified on lg 1.13.0 and let-go main `4e769212`). Add `pkg/cli/wasm.go` (`buildWasm`) and `pkg/rt/wasm/` to the "Verify against" footer.
+- [x] **Step 3: let-go-bundling knowledge base.** Add a short "`-w` builds a browser app" section: the temp module that requires only let-go, the embedded `program.lgb` with no resource archive, the three `-w-*` flags, `*compiling-aot*` true during the build (all verified on lg 1.13.0 and let-go main `4e769212`). Add `pkg/cli/wasm.go` (`buildWasm`) and `pkg/rt/wasm/` to the "Verify against" footer.
 
-- [ ] **Step 4: Check the docs against the code.** Re-read each changed paragraph against `lgx.lg`, `lgx/config.lg` and `lgx/gobuild.lg`. Every flag, key, message and path named must match.
+- [x] **Step 4: Check the docs against the code.** Re-read each changed paragraph against `lgx.lg`, `lgx/config.lg` and `lgx/gobuild.lg`. Every flag, key, message and path named must match.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
   `git commit -am "docs: :target :wasm build output"`
 
 ### Task 7: Final verification
 
-- [ ] **Step 1: Full suite.**
+- [x] **Step 1: Full suite.**
   Run: `bash tests/run.sh`
   Expected: `All tests passed.`
 
-- [ ] **Step 2: Lint and format**, if the tools are installed.
+- [x] **Step 2: Lint and format**, if the tools are installed.
   Run: `make lint` and `make fmt-check`
   Expected: no new findings in touched files.
 
-- [ ] **Step 3: Check the argv by hand** in a scratch `:wasm` project:
+> Deviation: `make fmt-check` already fails on master (the same 4 files). Three new hunks from this work were fixed in a separate `style:` commit, which leaves no new findings. `make lint` shows only the 3 warnings already on master.
+
+- [x] **Step 3: Check the argv by hand** in a scratch `:wasm` project:
   - `bin/lgx --verbose build` shows the `-w-*` flags, then `-w <abs out> <abs main>`, and no `-b`, `-c` or `-bundle-base`;
   - `bin/lgx --verbose build -w-shell none` shows the forwarded flag after the config flags;
   - an executable project and an `:lgb` project show the same argv as before.
 
-- [ ] **Step 4: Smoke-build under `:built`.** In the scratch project add `:lg-runtime :built :lg-version "1.13.0"` (no Go deps) and run `bin/lgx build`. Expected: exit 0 and `dist/web/index.html` written. This checks Decision 7, which rests on reading `wasmLetgoSource` and was not run during planning. If it fails, stop and report; do not work around it.
+- [x] **Step 4: Smoke-build under `:built`.** In the scratch project add `:lg-runtime :built :lg-version "1.13.0"` (no Go deps) and run `bin/lgx build`. Expected: exit 0 and `dist/web/index.html` written. This checks Decision 7, which rests on reading `wasmLetgoSource` and was not run during planning. If it fails, stop and report; do not work around it.
 
-- [ ] **Step 5: Load the app in a browser.** Build the scratch project with the default shell, serve it (`python3 -m http.server -d dist/web 8765`), open `http://localhost:8765`, and confirm the program's output appears in the terminal shell. Use the preview tools if the session has them. If no browser is available, say so in the completion summary; do not claim the app was run.
+- [x] **Step 5: Load the app in a browser.**
+> Deviation: the T3 preview pane was unavailable (headless environment), so the page was loaded with Playwright's headless Chromium. The scratch app (`:shell :none :payload :external :host-eval true` in config, `-w-shell xterm` forwarded) printed `:hello-wasm` in the xterm shell, with no console errors.
+ Build the scratch project with the default shell, serve it (`python3 -m http.server -d dist/web 8765`), open `http://localhost:8765`, and confirm the program's output appears in the terminal shell. Use the preview tools if the session has them. If no browser is available, say so in the completion summary; do not claim the app was run.
 
-- [ ] **Step 6: Reply on issue #61 only if the maintainer asks.** The plan does not post to GitHub.
+- [x] **Step 6: Reply on issue #61 only if the maintainer asks.** The plan does not post to GitHub.
+
+---
+
+## Completion summary
+
+`lgx build` now writes a browser web directory via `lg -w` when `:targets :bin` sets `:target :wasm`. The executable and `:lgb` paths keep their exact argv (checked with `--verbose`).
+
+- **Config.** `:target` accepts `:lgb` or `:wasm`. A closed `:wasm` map (`:shell`, `:payload`, `:host-eval`) maps to `-w-shell`, `-w-wasm` and `-w-host-eval`. `:platforms`, `{{os}}`/`{{arch}}` in `:out`, and a `:wasm` map under another target are rejected at load.
+- **Build.** `build-wasm!` rejects `--target`, `--all` and every spelling of `-bundle-base`, then checks for a missing shell template, Go deps (before any runtime is built) and `go` on PATH, then applies the runtime. Config flags go before forwarded args so the command line wins. Resources warn.
+- **`js/wasm`** is rejected as an executable platform, pointing at `:target :wasm`.
+- **`:lgb`** now also rejects `--bundle-base` and `-bundle-base=…`, through the shared check.
+- **Backlog and drafts.** `docs/backlog/wasm-go-deps-and-resources.md`, plus two upstream drafts in `docs/issues/` (not filed).
+
+Verification:
+- `LGX_WASM_E2E=1 bash tests/run.sh`: 868 unit tests and 558 e2e assertions pass, the real build included. The default `bash tests/run.sh` also passes (554 e2e assertions), skipping Scenario 166.
+- `:lg-runtime :built` smoke build: passes.
+- Browser: the page boots in headless Chromium and shows the program output.
+- Per-task Codex reviews: all clean.
+
+Deviations, all recorded under Tasks 5 and 7: Scenario 166 is gated behind `LGX_WASM_E2E`; fail-first runs were skipped for Tasks 3 and 5; format fixes went in a separate commit; the browser check used headless Chromium.
+
+**What the plan could have specified better:** that `tests/e2e.sh` is hermetic, so a real Go build needs an opt-in gate from the start, and that `make fmt-check` already fails on master, so the expectation should be "no new hunks".
