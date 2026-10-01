@@ -812,12 +812,7 @@
 ;; Wiring the runtime into the commands
 ;; ---------------------------------------------------------------------------
 
-(defn resolve-build-targets
-  "Pure. The target list one `lgx build` works through, from the parsed CLI
-   targets, the --all flag, and lgx.edn's :platforms. An explicit --target
-   list wins outright; --all takes every declared platform; neither is the
-   native build — one entry, nil target, no Go involvement. Returns
-   {:targets [...]} or {:error msg}."
+(defn- resolve-build-targets*
   [cli-targets all? platforms]
   (cond
     (seq cli-targets) {:targets (vec cli-targets)}
@@ -830,6 +825,23 @@
                    "name one with --target <os>/<arch>")})
 
     :else {:targets [nil]}))
+
+(defn resolve-build-targets
+  "Pure. The target list one `lgx build` works through, from the parsed CLI
+   targets, the --all flag, and lgx.edn's :platforms. An explicit --target
+   list wins outright; --all takes every declared platform; neither is the
+   native build — one entry, nil target, no Go involvement. Returns
+   {:targets [...]} or {:error msg}.
+
+   js/wasm in the resolved list is an error: `lg -b` on a js/wasm runtime
+   writes a bare module with no page or loader, and :target :wasm is the way
+   to a browser app. wasip1/wasm is a separate contract and passes."
+  [cli-targets all? platforms]
+  (let [r (resolve-build-targets* cli-targets all? platforms)]
+    (if (some #(= {:os "js" :arch "wasm"} %) (:targets r))
+      {:error (str "js/wasm is not an executable platform - set :target :wasm "
+                   "under :targets :bin to build a browser app")}
+      r)))
 
 (defn- bundle-base-arg?
   "True for every spelling Go's flag package reads as -bundle-base: one or

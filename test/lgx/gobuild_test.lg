@@ -480,6 +480,27 @@
   (is (= {:targets [nil]}
          (gobuild/resolve-build-targets [] false [linux-arm64]))))
 
+(def ^:private js-wasm {:os "js" :arch "wasm"})
+
+(def ^:private js-wasm-error
+  {:error (str "js/wasm is not an executable platform - set :target :wasm "
+               "under :targets :bin to build a browser app")})
+
+(deftest resolve-targets-rejects-js-wasm
+  ;; lg -b on a js/wasm runtime writes a bare module with no page or loader.
+  (is (= js-wasm-error (gobuild/resolve-build-targets [js-wasm] false [])))
+  (is (= js-wasm-error
+         (gobuild/resolve-build-targets [{:os "linux" :arch "amd64"} js-wasm]
+                                        false [])))
+  (is (= js-wasm-error
+         (gobuild/resolve-build-targets [] true [linux-arm64 js-wasm]))))
+
+(deftest resolve-targets-keeps-wasip1
+  ;; WASI is a separate contract and is not rejected.
+  (let [wasip1 {:os "wasip1" :arch "wasm"}]
+    (is (= {:targets [wasip1]}
+           (gobuild/resolve-build-targets [wasip1] false [])))))
+
 (deftest target-out-expands-the-template-for-a-target
   (is (= "dist/app_linux_arm64"
          (gobuild/target-out "dist/app_{{os}}_{{arch}}" linux-arm64))))
