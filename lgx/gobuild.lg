@@ -831,6 +831,30 @@
 
     :else {:targets [nil]}))
 
+(defn- bundle-base-arg?
+  "True for every spelling Go's flag package reads as -bundle-base: one or
+   two dashes, with the value as the next arg or attached by =."
+  [arg]
+  (or (contains? #{"-bundle-base" "--bundle-base"} arg)
+      (str/starts-with? arg "-bundle-base=")
+      (str/starts-with? arg "--bundle-base=")))
+
+(defn- single-artifact-arg-error
+  "Pure. The shared check behind lgb- and wasm-build-arg-error: platform
+   selection has nothing to act on for an artifact built once, and
+   -bundle-base names the base binary of an executable neither builds.
+   `what` completes the platform message for the target."
+  [target what cli-targets all? forward-args]
+  (cond
+    (or (seq cli-targets) all?)
+    (str "--target and --all do not apply to :target " target " - " what)
+
+    (some bundle-base-arg? forward-args)
+    (str "-bundle-base does not apply to :target " target " - it names the "
+         "base binary of a standalone executable")
+
+    :else nil))
+
 (defn lgb-build-arg-error
   "Pure. Why this `lgx build` invocation cannot build a :target :lgb artifact,
    or nil when it can. A .lgb is one platform-independent file, so platform
@@ -838,16 +862,32 @@
    an executable that `lg -c` never makes. Checked before resolve-build-targets,
    whose --all error would otherwise pre-empt this clearer one."
   [cli-targets all? forward-args]
-  (cond
-    (or (seq cli-targets) all?)
-    (str "--target and --all do not apply to :target :lgb - a .lgb artifact "
-         "is platform-independent")
+  (single-artifact-arg-error :lgb "a .lgb artifact is platform-independent"
+                             cli-targets all? forward-args))
 
-    (some #(= "-bundle-base" %) forward-args)
-    (str "-bundle-base does not apply to :target :lgb - it names the base "
-         "binary of a standalone executable")
+(defn wasm-build-arg-error
+  "Pure. Why this `lgx build` invocation cannot build a :target :wasm app, or
+   nil when it can. `lg -w` always builds for js/wasm, so platform selection
+   has nothing to act on, and it never takes a bundle base."
+  [cli-targets all? forward-args]
+  (single-artifact-arg-error :wasm
+                             "a browser WASM app is built for js/wasm only"
+                             cli-targets all? forward-args))
 
-    :else nil))
+(defn wasm-flag-args
+  "Pure. The lg flags for the :wasm options map, in :shell, :payload,
+   :host-eval order. `project` absolutizes a template path. Absent keys emit
+   nothing, so lg's own defaults apply."
+  [project wasm-opts]
+  (let [shell (:shell wasm-opts)
+        payload (:payload wasm-opts)]
+    (vec (concat
+           (when shell
+             ["-w-shell" (if (string? shell) (path/join project shell) (name shell))])
+           (when payload
+             ["-w-wasm" (name payload)])
+           (when (true? (:host-eval wasm-opts))
+             ["-w-host-eval"])))))
 
 (defn target-out
   "Pure. The :out path one target's artifact lands on: the template expanded
@@ -882,21 +922,44 @@
 (def ^:private built-fix
   "  add :lg-runtime :built to lgx.edn (needs `go` on PATH)")
 
+(defn- go-dep-labels
+  "Pure. Every Go coord, sorted by lib, each with the dep that introduced it
+   (`go-origins` maps a coord lib to its declaring dep lib, nil for the
+   project's own), joined for a `Go deps:` line."
+  [go-pairs go-origins]
+  (str/join ", "
+            (map (fn [[lib _]]
+                   (if-let [origin (get go-origins lib)]
+                     (str lib " (via " origin ")")
+                     (str lib)))
+                 (sort-by (fn [[lib _]] (str lib)) go-pairs))))
+
 (defn installed-go-deps-error
-  "Pure. The error for a Go coord under :installed: every coord in the tree,
-   sorted by lib, each with the dep that introduced it (`go-origins` maps a
-   coord lib to its declaring dep lib, nil for the project's own), then the
-   one-line fix."
+  "Pure. The error for a Go coord under :installed: every coord in the tree
+   with its origin (go-dep-labels), then the one-line fix."
   [go-pairs go-origins explicit?]
-  (let [labels (map (fn [[lib _]]
-                      (if-let [origin (get go-origins lib)]
-                        (str lib " (via " origin ")")
-                        (str lib)))
-                    (sort-by (fn [[lib _]] (str lib)) go-pairs))]
-    (str "error: this project needs an lg built with the Go toolchain, but "
-         (mode-phrase explicit?) "\n"
-         "  Go deps: " (str/join ", " labels) "\n"
-         built-fix ", or drop the dep.\n")))
+  (str "error: this project needs an lg built with the Go toolchain, but "
+       (mode-phrase explicit?) "\n"
+       "  Go deps: " (go-dep-labels go-pairs go-origins) "\n"
+       built-fix ", or drop the dep.\n"))
+
+(defn wasm-go-deps-error
+  "Pure. The error for Go coords in a :target :wasm build. `lg -w` builds its
+   own module that requires only let-go, so neither :installed nor :built can
+   get them into the app (docs/backlog/wasm-go-deps-and-resources.md)."
+  [go-pairs go-origins]
+  (str "error: :target :wasm cannot link Go deps - `lg -w` builds a Go module "
+       "that carries only let-go\n"
+       "  Go deps: " (go-dep-labels go-pairs go-origins) "\n"
+       "  drop the dep, or build an executable instead (tracked in lgx issue "
+       "#61).\n"))
+
+(def wasm-go-missing-error
+  "The error when a :target :wasm build finds no `go` on PATH. Under
+   :installed lgx otherwise never needs Go, but `lg -w` always does."
+  (str "error: :target :wasm needs the Go toolchain (`lg -w` compiles the app "
+       "for js/wasm), but `go` is not on PATH.\n"
+       "  install it with `mise use -g go@latest`, or from https://go.dev/dl\n"))
 
 (defn installed-cross-error
   "Pure. The error for a cross-build under :installed without a user
