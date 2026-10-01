@@ -825,7 +825,8 @@
                  (pr-str (:example phrases)))}
 
       (and (contains? bin :wasm) (not= :wasm target))
-      {:path [:wasm] :msg "applies only to :target :wasm"}
+      {:path [:wasm]
+       :msg "applies only to :target :wasm"}
 
       :else nil)))
 

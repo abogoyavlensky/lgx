@@ -838,7 +838,8 @@
    to a browser app. wasip1/wasm is a separate contract and passes."
   [cli-targets all? platforms]
   (let [r (resolve-build-targets* cli-targets all? platforms)]
-    (if (some #(= {:os "js" :arch "wasm"} %) (:targets r))
+    (if (some #(= {:os "js"
+                   :arch "wasm"} %) (:targets r))
       {:error (str "js/wasm is not an executable platform - set :target :wasm "
                    "under :targets :bin to build a browser app")}
       r)))

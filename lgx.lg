@@ -860,7 +860,8 @@
                (not (file-exists? (path/join project shell))))
       (write! *err* (str "lgx: :wasm :shell template not found: " shell "\n"))
       (os/exit 1))
-    (let [{:keys [results paths resource-paths] :as basis}
+    (let [{:keys [results paths resource-paths]
+           :as basis}
           (overlay-basis project cfg with nil)]
       (print-installs! results)
       (when (seq (:go-coords basis))
