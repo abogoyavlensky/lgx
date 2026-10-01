@@ -480,6 +480,27 @@
   (is (= {:targets [nil]}
          (gobuild/resolve-build-targets [] false [linux-arm64]))))
 
+(def ^:private js-wasm {:os "js" :arch "wasm"})
+
+(def ^:private js-wasm-error
+  {:error (str "js/wasm is not an executable platform - set :target :wasm "
+               "under :targets :bin to build a browser app")})
+
+(deftest resolve-targets-rejects-js-wasm
+  ;; lg -b on a js/wasm runtime writes a bare module with no page or loader.
+  (is (= js-wasm-error (gobuild/resolve-build-targets [js-wasm] false [])))
+  (is (= js-wasm-error
+         (gobuild/resolve-build-targets [{:os "linux" :arch "amd64"} js-wasm]
+                                        false [])))
+  (is (= js-wasm-error
+         (gobuild/resolve-build-targets [] true [linux-arm64 js-wasm]))))
+
+(deftest resolve-targets-keeps-wasip1
+  ;; WASI is a separate contract and is not rejected.
+  (let [wasip1 {:os "wasip1" :arch "wasm"}]
+    (is (= {:targets [wasip1]}
+           (gobuild/resolve-build-targets [wasip1] false [])))))
+
 (deftest target-out-expands-the-template-for-a-target
   (is (= "dist/app_linux_arm64"
          (gobuild/target-out "dist/app_{{os}}_{{arch}}" linux-arm64))))
@@ -532,6 +553,80 @@
   (is (= lgb-platform-error
          (gobuild/lgb-build-arg-error [linux-arm64] false
                                       ["-bundle-base" "/x/lg"]))))
+
+(deftest lgb-build-arg-error-rejects-every-bundle-base-spelling
+  ;; Go's flag package accepts one or two dashes, with the value attached by
+  ;; = or as the next arg.
+  (is (= lgb-base-error
+         (gobuild/lgb-build-arg-error [] false ["--bundle-base" "/x/lg"])))
+  (is (= lgb-base-error
+         (gobuild/lgb-build-arg-error [] false ["-bundle-base=/x/lg"])))
+  (is (= lgb-base-error
+         (gobuild/lgb-build-arg-error [] false ["--bundle-base=/x/lg"])))
+  (is (nil? (gobuild/lgb-build-arg-error [] false ["-bundle-based"]))))
+
+(def ^:private wasm-platform-error
+  (str "--target and --all do not apply to :target :wasm - a browser WASM "
+       "app is built for js/wasm only"))
+
+(def ^:private wasm-base-error
+  (str "-bundle-base does not apply to :target :wasm - it names the base "
+       "binary of a standalone executable"))
+
+(deftest wasm-build-arg-error-nil-for-a-plain-build
+  (is (nil? (gobuild/wasm-build-arg-error [] false [])))
+  ;; Other forwarded args (-w-shell overrides the config) pass through.
+  (is (nil? (gobuild/wasm-build-arg-error [] false ["-w-shell" "none"]))))
+
+(deftest wasm-build-arg-error-rejects-platform-selection
+  (is (= wasm-platform-error
+         (gobuild/wasm-build-arg-error [linux-arm64] false [])))
+  (is (= wasm-platform-error (gobuild/wasm-build-arg-error [] true []))))
+
+(deftest wasm-build-arg-error-rejects-a-bundle-base
+  (is (= wasm-base-error
+         (gobuild/wasm-build-arg-error [] false ["-bundle-base" "/x/lg"])))
+  (is (= wasm-base-error
+         (gobuild/wasm-build-arg-error [] false ["--bundle-base" "/x/lg"])))
+  (is (= wasm-base-error
+         (gobuild/wasm-build-arg-error [] false ["-bundle-base=/x/lg"]))))
+
+(deftest wasm-build-arg-error-reports-platforms-first
+  (is (= wasm-platform-error
+         (gobuild/wasm-build-arg-error [] true ["-bundle-base" "/x/lg"]))))
+
+(deftest wasm-flag-args-maps-options-to-lg-flags
+  (is (= [] (gobuild/wasm-flag-args "/p" {})))
+  (is (= ["-w-shell" "none" "-w-wasm" "external" "-w-host-eval"]
+         (gobuild/wasm-flag-args "/p" {:host-eval true
+                                       :payload :external
+                                       :shell :none})))
+  (is (= ["-w-shell" "xterm" "-w-wasm" "inline"]
+         (gobuild/wasm-flag-args "/p" {:shell :xterm :payload :inline})))
+  (is (= ["-w-shell" "/p/web/shell.html"]
+         (gobuild/wasm-flag-args "/p" {:shell "web/shell.html"})))
+  (is (= [] (gobuild/wasm-flag-args "/p" {:host-eval false}))))
+
+(deftest wasm-go-deps-error-names-origins
+  ;; Same coord labels and order as installed-go-deps-error.
+  (is (= (str "error: :target :wasm cannot link Go deps - `lg -w` builds a "
+              "Go module that carries only let-go\n"
+              "  Go deps: database/sql (via abogoyavlensky/letgo-sql), "
+              "modernc.org/sqlite\n"
+              "  drop the dep, or build an executable instead (tracked in "
+              "lgx issue #61).\n")
+         (gobuild/wasm-go-deps-error
+           [['modernc.org/sqlite {:go/version "v1.57.0"}]
+            ['database/sql {:go/interop "sql"}]]
+           {'database/sql 'abogoyavlensky/letgo-sql
+            'modernc.org/sqlite nil}))))
+
+(deftest wasm-go-missing-error-names-the-fix
+  (is (= (str "error: :target :wasm needs the Go toolchain (`lg -w` compiles "
+              "the app for js/wasm), but `go` is not on PATH.\n"
+              "  install it with `mise use -g go@latest`, or from "
+              "https://go.dev/dl\n")
+         gobuild/wasm-go-missing-error)))
 
 ;; ---------------------------------------------------------------------------
 ;; letgo-ref — what the hash and go.mod see for let-go itself

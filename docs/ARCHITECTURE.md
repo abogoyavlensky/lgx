@@ -388,6 +388,30 @@ basis with resource paths prints a warning first. `:platforms`, or an
 `{{os}}`/`{{arch}}` placeholder in `:out`, is rejected at config load
 (`bin-target-errors`).
 
+**`:target :wasm`.** `cmd-build` hands off to `build-wasm!` at the same
+point. `build-wasm!` checks, in order, before anything is built:
+
+- `:main` and that the script exists;
+- `--target`, `--all` and a forwarded `-bundle-base` (any spelling),
+  with `gobuild/wasm-build-arg-error`;
+- that a string `:wasm :shell` template exists;
+- the resolved basis has no Go coords (`gobuild/wasm-go-deps-error`):
+  `lg -w` builds its own js/wasm module that requires only let-go, so
+  neither runtime mode can get them into the app;
+- `go` is on PATH (`lg -w` always runs `go build`, even under
+  `:installed`).
+
+Then it applies the runtime with `:fail`, warns when the basis has
+resource paths (nothing is embedded), and execs `lg -source-paths <X>
+-resource-paths <R> [wasm flags] [forwarded-args...] -w <abs-out>
+<abs-main>`. The wasm flags come from `gobuild/wasm-flag-args`; they go
+first so a forwarded `-w-*` flag wins. Config load rejects `:platforms`,
+an `{{os}}`/`{{arch}}` placeholder, and a `:wasm` options map under any
+other target.
+
+`resolve-build-targets` rejects `js/wasm` on the executable path: `lg -b`
+on a js/wasm runtime writes a bare module with no page or loader.
+
 ### `lgx test`
 
 Steps 1–2 (project root, config load) match `install`. Then:

@@ -30,6 +30,8 @@ the ones that belong to lgx itself.
 | [boxvalue-uint64-wrap.md](./boxvalue-uint64-wrap.md) | `BoxValue` converts unsigned ints with `Int(v.Uint())`, so a `uint64` above `MaxInt64` silently wraps negative (DuckDB `UBIGINT` max arrives as `-1`) | draft, worked around in letgo-packages `duckdb/shim` |
 | [letgo-warn-on-reflection-leaks-across-loads.md](./letgo-warn-on-reflection-leaks-across-loads.md) | `rt.WithFile` binds only `*file*`, so a library's `(set! *warn-on-reflection* true)` stays on for every file loaded after it - 14 warnings from namespaces loaded after HoneySQL | draft (fix on `fix/warn-on-reflection-per-load`) |
 | [letgo-reflection-warning-ignores-type-hints.md](./letgo-reflection-warning-ignores-type-hints.md) | The host reflection warning treats every local as unknown, so `(.length ^String s)` and a `(StringBuilder.)`-bound local warn where the JVM does not - 33 warnings inside HoneySQL | draft (change on `feat/reflection-warning-known-locals`) |
+| [letgo-wasm-extra-go-imports.md](./letgo-wasm-extra-go-imports.md) | `lg -w` builds in a temp module that requires only let-go, so a host's extra Go packages never reach the WASM app - blocks Go deps in lgx `:target :wasm` | draft |
+| [letgo-wasm-embed-resources.md](./letgo-wasm-embed-resources.md) | `lg -w` does not embed `-resource-paths` the way `-b` does, so `io/resource` finds nothing in the browser | draft |
 
 ## lgx's own
 

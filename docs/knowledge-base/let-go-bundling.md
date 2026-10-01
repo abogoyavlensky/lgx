@@ -50,6 +50,19 @@ not embed `-resource-paths`: `io/resource` returns nil when the `.lgb`
 runs away from the resource dirs (verified on let-go main `a141e406`).
 `lgx build` with `:target :lgb` warns about this.
 
+## `-w` builds a browser app
+
+`lg -w <dir> script.lg` compiles the program on the host (with
+`*compiling-aot*` true, as `-b` and `-c` do), then writes a throwaway Go
+module in a temp dir and runs `go build` for `js/wasm`. The module's
+`go.mod` requires only let-go and its generated `main.go` imports only
+runtime packages, so a custom `lg`'s extra Go packages never reach the
+app. It embeds `program.lgb` and no resource archive. `<dir>` gets
+`index.html` and `coi-serviceworker.js`; `-w-wasm external` adds
+`main.wasm`, `-w-shell xterm|none|<template>` picks the page, and
+`-w-host-eval` exposes `LetGoHost.eval`. Verified on lg 1.13.0 and let-go
+main `4e769212`. `lgx build` with `:target :wasm` drives it.
+
 ## Cross-OS bundling
 
 ```
@@ -79,6 +92,10 @@ directory. Bundle to a distinct path (`bin/lgx`, not `lgx`).
 > `*compiling-aot*` setting),
 > [`pkg/resolver/resolver.go`](https://github.com/nooga/let-go/blob/main/pkg/resolver/resolver.go)
 > (`LoadedChunks`, `LoadOrder`),
+> [`pkg/cli/wasm.go`](https://github.com/nooga/let-go/blob/main/pkg/cli/wasm.go)
+> (`buildWasm`),
+> [`pkg/rt/wasm/`](https://github.com/nooga/let-go/tree/main/pkg/rt/wasm)
+> (`RenderMain`),
 > [`pkg/rt/lang.go`](https://github.com/nooga/let-go/blob/main/pkg/rt/lang.go)
 > (`*compiling-aot*` Var def),
 > [`pkg/bytecode/`](https://github.com/nooga/let-go/tree/main/pkg/bytecode)

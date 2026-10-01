@@ -4366,5 +4366,150 @@ else
     skip "lgb resources warning requires lg with -resource-paths support"
 fi
 
+# ---------------------------------------------------------------------------
+# :target :wasm. Scenario 166 is the one real build: `lg -w` runs `go build`
+# for js/wasm, which fetches the let-go module (and possibly a newer Go
+# toolchain) on a cold Go cache, so it is gated behind LGX_WASM_E2E to keep
+# the default suite hermetic. The rest fail before any Go call.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 166: lgx build with :target :wasm writes a web directory"
+if [[ -n "${LGX_WASM_E2E:-}" ]] && command -v go >/dev/null 2>&1; then
+    proj_w="$(mktemp -d)"
+    home_w="$(mktemp -d)"
+    mkdir -p "$proj_w/src/app" "$proj_w/resources"
+    echo "x" > "$proj_w/resources/greeting.txt"
+    cat > "$proj_w/lgx.edn" <<'EOF'
+{:paths ["src"]
+ :main "main.lg"
+ :resource-paths ["resources"]
+ :targets {:bin {:target :wasm
+                 :out "dist/web"
+                 :wasm {:shell :none :payload :external}}}}
+EOF
+    cat > "$proj_w/src/app/greet.lg" <<'EOF'
+(ns app.greet)
+(defn hello [] :hello-from-wasm)
+EOF
+    cat > "$proj_w/main.lg" <<'EOF'
+(ns app.main (:require [app.greet :as greet]))
+(println (greet/hello))
+EOF
+    set +e
+    out="$(cd "$proj_w" && LGX_HOME="$home_w" "$LGX" build 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "wasm build: expected success (got $rc, output: $out)"
+    pass "wasm build: exits 0"
+    for f in index.html coi-serviceworker.js main.wasm; do
+        [[ -f "$proj_w/dist/web/$f" ]] || fail "wasm build: expected dist/web/$f"
+    done
+    # main.wasm exists only under -w-wasm external: the :payload flag reached lg.
+    pass "wasm build: writes the page, service worker and external main.wasm"
+    assert_contains "$out" "built $proj_w/dist/web" "wasm build: prints success line with abs out path"
+    assert_contains "$out" "warning: :resource-paths are not embedded in a browser WASM app" \
+        "wasm build: warns that resources are not embedded"
+    rm -rf "$proj_w" "$home_w"
+else
+    skip "wasm build needs go on PATH and network on a cold Go cache (set LGX_WASM_E2E=1 to run)"
+fi
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 167: lgx build --target on a :wasm project errors"
+proj_w2="$(mktemp -d)"
+home_w2="$(mktemp -d)"
+cat > "$proj_w2/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:target :wasm :out "dist/web"}}}
+EOF
+echo '(println :hi)' > "$proj_w2/main.lg"
+set +e
+out="$(cd "$proj_w2" && LGX_HOME="$home_w2" "$LGX" build --target linux/amd64 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "wasm --target: expected non-zero exit (got $rc)"
+assert_contains "$out" "--target and --all do not apply to :target :wasm" \
+    "wasm --target: clear error"
+[[ ! -e "$proj_w2/dist" ]] || fail "wasm --target: expected no dist/ to be created"
+pass "wasm --target: writes nothing"
+rm -rf "$proj_w2" "$home_w2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 168: a :wasm build rejects Go deps before building anything"
+proj_w3="$(mktemp -d)"
+home_w3="$(mktemp -d)"
+cat > "$proj_w3/lgx.edn" <<'EOF'
+{:paths ["."] :main "main.lg" :lg-runtime :built :lg-version "1.13.0"
+ :deps {modernc.org/sqlite {:go/version "v1.57.0"}}
+ :targets {:bin {:target :wasm :out "dist/web"}}}
+EOF
+echo '(println :hi)' > "$proj_w3/main.lg"
+set +e
+out="$(cd "$proj_w3" && LGX_HOME="$home_w3" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "wasm go deps: expected non-zero exit (got $rc)"
+assert_contains "$out" ":target :wasm cannot link Go deps" "wasm go deps: clear error"
+assert_contains "$out" "Go deps: modernc.org/sqlite" "wasm go deps: names the coord"
+assert_not_contains "$out" "Building custom lg runtime" "wasm go deps: no runtime is built"
+[[ ! -e "$proj_w3/dist" ]] || fail "wasm go deps: expected no dist/ to be created"
+[[ ! -e "$home_w3/runtimes" ]] || fail "wasm go deps: expected no runtime cache"
+pass "wasm go deps: writes nothing"
+rm -rf "$proj_w3" "$home_w3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 169: a :wasm build with a missing shell template errors"
+proj_w4="$(mktemp -d)"
+home_w4="$(mktemp -d)"
+cat > "$proj_w4/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:target :wasm :out "dist/web" :wasm {:shell "web/shell.html"}}}}
+EOF
+echo '(println :hi)' > "$proj_w4/main.lg"
+set +e
+out="$(cd "$proj_w4" && LGX_HOME="$home_w4" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "wasm shell: expected non-zero exit (got $rc)"
+assert_contains "$out" ":wasm :shell template not found: web/shell.html" \
+    "wasm shell: names the missing template"
+rm -rf "$proj_w4" "$home_w4"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 170: --target js/wasm on an executable project errors"
+proj_w5="$(mktemp -d)"
+home_w5="$(mktemp -d)"
+cat > "$proj_w5/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:out "bin/app"}}}
+EOF
+echo '(println :hi)' > "$proj_w5/main.lg"
+set +e
+out="$(cd "$proj_w5" && LGX_HOME="$home_w5" "$LGX" build --target js/wasm 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "js/wasm target: expected non-zero exit (got $rc)"
+assert_contains "$out" "js/wasm is not an executable platform" "js/wasm target: clear error"
+assert_contains "$out" "set :target :wasm" "js/wasm target: points at :target :wasm"
+[[ ! -e "$proj_w5/bin" ]] || fail "js/wasm target: expected no bin/ to be created"
+pass "js/wasm target: writes nothing"
+rm -rf "$proj_w5" "$home_w5"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 171: a :wasm build without go on PATH errors"
+proj_w6="$(mktemp -d)"
+home_w6="$(mktemp -d)"
+empty_path_w="$(mktemp -d)"
+cat > "$proj_w6/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:target :wasm :out "dist/web"}}}
+EOF
+echo '(println :hi)' > "$proj_w6/main.lg"
+set +e
+out="$(cd "$proj_w6" && PATH="$empty_path_w" LGX_LG="$LGX_LG" LGX_HOME="$home_w6" \
+    "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "wasm no go: expected non-zero exit (got $rc)"
+assert_contains "$out" ":target :wasm needs the Go toolchain" "wasm no go: clear error"
+[[ ! -e "$proj_w6/dist" ]] || fail "wasm no go: expected no dist/ to be created"
+pass "wasm no go: writes nothing"
+rm -rf "$proj_w6" "$home_w6" "$empty_path_w"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
