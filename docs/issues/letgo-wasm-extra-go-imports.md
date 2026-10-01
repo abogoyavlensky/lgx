@@ -2,7 +2,7 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** draft
+**Status:** filed as [nooga/let-go#998](https://github.com/nooga/let-go/issues/998)
 
 Found while adding `:target :wasm` to `lgx build` (lgx #61), on let-go main
 `4e769212` and lg 1.13.0.

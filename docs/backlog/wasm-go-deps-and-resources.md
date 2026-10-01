@@ -26,7 +26,7 @@ deps for `:target :wasm`.
 Few Go deps compile for `js/wasm` anyway: anything with cgo (sqlite,
 duckdb) is out. So the real need may be narrow.
 
-Upstream draft: [`docs/issues/letgo-wasm-extra-go-imports.md`](../issues/letgo-wasm-extra-go-imports.md).
+Upstream: nooga/let-go#998 ([`docs/issues/letgo-wasm-extra-go-imports.md`](../issues/letgo-wasm-extra-go-imports.md)).
 
 ## Resources
 
@@ -35,7 +35,7 @@ The WASM builder embeds `program.lgb` and nothing else. `-b` collects
 at startup; `-w` does neither, so `io/resource` finds nothing in the
 browser.
 
-Upstream draft: [`docs/issues/letgo-wasm-embed-resources.md`](../issues/letgo-wasm-embed-resources.md).
+Upstream: nooga/let-go#999 ([`docs/issues/letgo-wasm-embed-resources.md`](../issues/letgo-wasm-embed-resources.md)).
 
 ## Also deferred
 
