@@ -255,15 +255,15 @@ Shared shapes:
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Find the next number:** `grep -o 'Scenario [0-9]*' tests/e2e.sh | sort -n | tail -1` (173 at the time of writing).
-- [ ] **Step 2: Add scenarios** (expected failures wrapped in `set +e`/`set -e`):
+- [x] **Step 1: Find the next number:** `grep -o 'Scenario [0-9]*' tests/e2e.sh | sort -n | tail -1` (173 at the time of writing).
+- [x] **Step 2: Add scenarios** (expected failures wrapped in `set +e`/`set -e`):
   - `:target :native` with no `:lg-runtime` fails at config load with the `:built` message.
   - A forwarded `-bundle-base x` is rejected.
   - A `:main` without an `ns` form is rejected, with the message, before any runtime build (assert that no `$home/runtimes` directory exists).
   - `(ns app.main ...)` is rejected the same way.
   Use `:lg-runtime :built :lg-version "d0108ba6"` and `env -u LGX_LG` for the `:built` cases. The checks run before `apply-runtime!`, so no Go build happens.
-- [ ] **Step 3: Run** `bash tests/e2e.sh`. Expected: PASS.
-- [ ] **Step 4: Commit** `git commit -m "e2e: :target :native config and entry checks"`
+- [x] **Step 3: Run** `bash tests/e2e.sh`. Expected: PASS.
+- [x] **Step 4: Commit** `git commit -m "e2e: :target :native config and entry checks"`
 
 ### Task 7: Gated real-build e2e scenario
 

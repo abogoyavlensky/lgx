@@ -4603,5 +4603,79 @@ else
     skip "wasm Go-dep build needs go, node and network (set LGX_WASM_E2E=1 to run)"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 174: :target :native needs :lg-runtime :built"
+proj_n1="$(mktemp -d)"
+home_n1="$(mktemp -d)"
+cat > "$proj_n1/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:target :native :out "dist/app"}}}
+EOF
+printf '(ns app.core)\n(defn -main [& _] (println :hi))\n(-main)\n' > "$proj_n1/main.lg"
+set +e
+out="$(cd "$proj_n1" && LGX_HOME="$home_n1" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "native :installed: expected non-zero exit (got $rc)"
+assert_contains "$out" ":target :native needs :lg-runtime :built" \
+    "native :installed: config error names :built"
+[[ ! -e "$proj_n1/dist" ]] || fail "native :installed: expected no dist/"
+pass "native :installed: writes nothing"
+rm -rf "$proj_n1" "$home_n1"
+
+# The remaining hermetic :native scenarios use :built with a pin; their checks
+# run before apply-runtime!, so no Go build happens (asserted via runtimes/).
+native_cfg='{:main "main.lg"
+ :lg-runtime :built
+ :lg-version "d0108ba6"
+ :targets {:bin {:target :native :out "dist/app"}}}'
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 175: :target :native rejects forwarded lg args"
+proj_n2="$(mktemp -d)"
+home_n2="$(mktemp -d)"
+echo "$native_cfg" > "$proj_n2/lgx.edn"
+printf '(ns app.core)\n(defn -main [& _] (println :hi))\n(-main)\n' > "$proj_n2/main.lg"
+set +e
+out="$(cd "$proj_n2" && env -u LGX_LG LGX_HOME="$home_n2" "$LGX" build -bundle-base x 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "native forward: expected non-zero exit (got $rc)"
+assert_contains "$out" "lgx build with :target :native takes no lg args (got -bundle-base x)" \
+    "native forward: clear error"
+[[ ! -e "$home_n2/runtimes" ]] || fail "native forward: a runtime was built"
+pass "native forward: builds nothing"
+rm -rf "$proj_n2" "$home_n2"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 176: :target :native needs an ns form in :main"
+proj_n3="$(mktemp -d)"
+home_n3="$(mktemp -d)"
+echo "$native_cfg" > "$proj_n3/lgx.edn"
+printf '(defn -main [& _] (println :hi))\n(-main)\n' > "$proj_n3/main.lg"
+set +e
+out="$(cd "$proj_n3" && env -u LGX_LG LGX_HOME="$home_n3" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "native no ns: expected non-zero exit (got $rc)"
+assert_contains "$out" ":target :native needs main.lg to start with an ns form" \
+    "native no ns: clear error"
+[[ ! -e "$home_n3/runtimes" ]] || fail "native no ns: a runtime was built"
+pass "native no ns: builds nothing"
+rm -rf "$proj_n3" "$home_n3"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 177: :target :native rejects a :main namespace ending in main"
+proj_n4="$(mktemp -d)"
+home_n4="$(mktemp -d)"
+echo "$native_cfg" > "$proj_n4/lgx.edn"
+printf '(ns app.main)\n(defn -main [& _] (println :hi))\n(-main)\n' > "$proj_n4/main.lg"
+set +e
+out="$(cd "$proj_n4" && env -u LGX_LG LGX_HOME="$home_n4" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "native main segment: expected non-zero exit (got $rc)"
+assert_contains "$out" "cannot build namespace app.main: a last segment of main becomes Go package main" \
+    "native main segment: clear error"
+[[ ! -e "$home_n4/runtimes" ]] || fail "native main segment: a runtime was built"
+pass "native main segment: builds nothing"
+rm -rf "$proj_n4" "$home_n4"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
