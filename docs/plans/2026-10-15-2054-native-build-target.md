@@ -188,15 +188,17 @@ Shared shapes:
 (compile-module-supported? help-text) ;=> true iff it contains both "-module" and "-import"
 ```
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
   - `main-ns-error`: nil for `(ns myapp.app ...)`. The no-`ns` message for a non-`ns` or nil form. The `main`-segment message for `(ns main)` and `(ns myapp.main)`. Both messages as in the table.
   - `native-compile-argv`: host and cross cases, and empty imports. All flags come before the files.
   - `compile-module-supported?`: true for a trimmed `lg compile -h` usage text from `d0108ba6` (the `-module <dir>` and `-import <pkg>` lines; the source is let-go `pkg/rt/core/lg/commands/compile.lg`), false for text without them.
   - `native-build-arg-error`: nil for `[]`, the table message for `["-bundle-base" "x"]`.
-- [ ] **Step 2: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: fail.
-- [ ] **Step 3: Implement.** Reuse `gobuild/target-env-args`' values for the GOOS/GOARCH part if it fits; otherwise inline them. Keep `env` as the first element so `os/sh` takes the whole vector.
-- [ ] **Step 4: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: PASS.
-- [ ] **Step 5: Commit** `git commit -m "native: entry checks, lg compile argv, -module probe"`
+- [x] **Step 2: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: fail.
+- [x] **Step 3: Implement.** Reuse `gobuild/target-env-args`' values for the GOOS/GOARCH part if it fits; otherwise inline them. Keep `env` as the first element so `os/sh` takes the whole vector.
+- [x] **Step 4: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: PASS.
+- [x] **Step 5: Commit** `git commit -m "native: entry checks, lg compile argv, -module probe"`
+
+> Deviation: the codex review of Task 2 found the walker could list a file twice when two lib spellings (`foo-bar`, `foo_bar`) resolve to it; the fix and its regression test ride in Task 3's commit.
 
 ### Task 4: Generalize staging and import args
 

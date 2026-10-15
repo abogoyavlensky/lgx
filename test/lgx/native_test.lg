@@ -107,3 +107,83 @@
     (is (= {:files ["/p/main.lg" "/r/bad.lg"]
             :skipped [{:ns 'bad :path "/r/bad.lg" :reason :unreadable}]}
            (walk ["/r"] "/p/main.lg" files)))))
+
+;; ---------------------------------------------------------------------------
+;; main-ns-error
+;; ---------------------------------------------------------------------------
+
+(deftest main-ns-error-accepts-an-ns-form
+  (is (nil? (native/main-ns-error "main.lg" '(ns myapp.app (:require [x]))))))
+
+(deftest main-ns-error-needs-an-ns-form
+  (let [msg (str ":target :native needs main.lg to start with an ns form - "
+                 "without one, the native binary runs -main twice")]
+    (is (= msg (native/main-ns-error "main.lg" '(defn -main []))))
+    (is (= msg (native/main-ns-error "main.lg" nil)))))
+
+(deftest main-ns-error-rejects-a-main-segment
+  (is (= (str ":target :native cannot build namespace myapp.main: a last "
+              "segment of main becomes Go package main - rename it")
+         (native/main-ns-error "main.lg" '(ns myapp.main))))
+  (is (= (str ":target :native cannot build namespace main: a last "
+              "segment of main becomes Go package main - rename it")
+         (native/main-ns-error "main.lg" '(ns main)))))
+
+;; ---------------------------------------------------------------------------
+;; native-build-arg-error
+;; ---------------------------------------------------------------------------
+
+(deftest native-build-arg-error-takes-no-forwarded-args
+  (is (nil? (native/native-build-arg-error [])))
+  (is (= "lgx build with :target :native takes no lg args (got -bundle-base x)"
+         (native/native-build-arg-error ["-bundle-base" "x"]))))
+
+;; ---------------------------------------------------------------------------
+;; native-compile-argv
+;; ---------------------------------------------------------------------------
+
+(def ^:private argv-opts
+  {:lg "/rt/lg"
+   :module "/tmp/lgx-native-1"
+   :out "/p/dist/app"
+   :files ["/p/main.lg" "/p/src/a.lg"]
+   :imports ["-import" "lgx.local/runtime/interop"]
+   :source-paths ["/p/src" "/d/src"]
+   :target nil})
+
+(deftest native-compile-argv-for-the-host
+  (is (= ["env" "LG_READ_CLJ=1" "LG_SOURCE_PATHS=/p/src:/d/src"
+          "/rt/lg" "compile" "-module" "/tmp/lgx-native-1"
+          "-import" "lgx.local/runtime/interop"
+          "-o" "/p/dist/app" "/p/main.lg" "/p/src/a.lg"]
+         (native/native-compile-argv argv-opts))))
+
+(deftest native-compile-argv-for-a-cross-target
+  (is (= ["env" "LG_READ_CLJ=1" "LG_SOURCE_PATHS=/p/src:/d/src"
+          "GOOS=linux" "GOARCH=arm64" "CGO_ENABLED=0"
+          "/rt/lg" "compile" "-module" "/tmp/lgx-native-1"
+          "-o" "/p/dist/app" "/p/main.lg" "/p/src/a.lg"]
+         (native/native-compile-argv (assoc argv-opts
+                                            :imports []
+                                            :target {:os "linux" :arch "arm64"})))))
+
+;; ---------------------------------------------------------------------------
+;; compile-module-supported?
+;; ---------------------------------------------------------------------------
+
+(deftest compile-module-supported-reads-lg-compile-help
+  (is (true? (native/compile-module-supported?
+               (str "usage: lg compile [-o <out>] [-work <dir> | -module <dir> "
+                    "[-import <pkg>]...]\n"
+                    "  -module <dir> build inside the Go module at <dir>\n"
+                    "  -import <pkg> with -module: blank-import the Go package\n"))))
+  (is (false? (native/compile-module-supported?
+                "usage: lg compile [-o <out>] [-work <dir>] <file.lg>...\n")))
+  (is (false? (native/compile-module-supported?
+                "flag provided but not defined: -h\nUsage of lg:\n"))))
+
+(deftest walk-lists-a-file-once-when-two-spellings-resolve-to-it
+  (let [files {"/p/main.lg" '(ns app.core (:require [foo-bar] [foo_bar]))
+               "/r/foo_bar.lg" '(ns foo-bar)}]
+    (is (= ["/p/main.lg" "/r/foo_bar.lg"]
+           (:files (walk ["/r"] "/p/main.lg" files))))))

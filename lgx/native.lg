@@ -116,9 +116,72 @@
                                  (when-let [q (resolve-lib roots file? l)]
                                    [l q]))
                                (ns-form-libs form))
-            fresh (vec (distinct (remove (fn [[_ q]] (contains? seen q))
-                                         next-entries)))]
+            fresh (second
+                    (reduce (fn [[seen-ps acc] [_ q :as e]]
+                              (if (contains? seen-ps q)
+                                [seen-ps acc]
+                                [(conj seen-ps q) (conj acc e)]))
+                            [seen []]
+                            next-entries))]
         (recur (into (vec (rest queue)) fresh)
                (into seen (map second fresh))
                files
                skipped)))))
+
+;; ---------------------------------------------------------------------------
+;; Entry checks
+;; ---------------------------------------------------------------------------
+
+(defn main-ns-error
+  "Pure. Why :main cannot be the entry of a native build, or nil. `form` is
+   its first form (nil when unreadable). Without an ns form, `lg compile`'s
+   bytecode keeps the top-level (-main) call, so the binary runs -main twice;
+   a namespace whose last segment is main becomes Go package main."
+  [main-rel form]
+  (cond
+    (not (and (seq? form) (= 'ns (first form))))
+    (str ":target :native needs " main-rel " to start with an ns form - "
+         "without one, the native binary runs -main twice")
+
+    (main-segment? (second form))
+    (str ":target :native cannot build namespace " (second form) ": a last "
+         "segment of main becomes Go package main - rename it")
+
+    :else nil))
+
+(defn native-build-arg-error
+  "Pure. `lg compile` takes none of lg's flags (it dispatches before flag
+   parsing), so there is nothing to forward to it."
+  [forward-args]
+  (when (seq forward-args)
+    (str "lgx build with :target :native takes no lg args (got "
+         (str/join " " forward-args) ")")))
+
+;; ---------------------------------------------------------------------------
+;; lg compile
+;; ---------------------------------------------------------------------------
+
+(defn native-compile-argv
+  "Pure. The env(1)-prefixed argv for one `lg compile -module` run. Search
+   paths go through LG_SOURCE_PATHS: `lg compile` dispatches on argv[1] before
+   flag parsing, so -source-paths cannot precede it. A cross target adds
+   GOOS/GOARCH and CGO_ENABLED=0, which `lg compile`'s go build inherits. All
+   flags come before the files."
+  [{:keys [lg module out files imports source-paths target]}]
+  (vec (concat ["env" "LG_READ_CLJ=1"
+                (str "LG_SOURCE_PATHS=" (str/join os/path-separator source-paths))]
+               (when target
+                 [(str "GOOS=" (:os target))
+                  (str "GOARCH=" (:arch target))
+                  "CGO_ENABLED=0"])
+               [lg "compile" "-module" module]
+               imports
+               ["-o" out]
+               files)))
+
+(defn compile-module-supported?
+  "Pure. Whether `lg compile -h` output lists -module and -import (let-go
+   main after 1.13.0, nooga/let-go#1016 and #1037)."
+  [help-text]
+  (boolean (and (str/includes? help-text "-module")
+                (str/includes? help-text "-import"))))
