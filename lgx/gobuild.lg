@@ -762,7 +762,8 @@
   "The platform the module behind a :target :wasm app is built for. A
    runtime built for it is never run: its src/ is the module `lg -w-module`
    builds in, with bindings lginterop generated under js/wasm."
-  {:os "js" :arch "wasm"})
+  {:os "js"
+   :arch "wasm"})
 
 (defn stage-wasm-module!
   "Copy the module behind the runtime binary `runtime-bin` (what
@@ -786,7 +787,8 @@
       (when-not (zero? (:exit r))
         (syscall/rm-rf dir)
         (throw (ex-info (str "staging the wasm module failed: " (:err r))
-                        {:src src :dir dir}))))
+                        {:src src
+                         :dir dir}))))
     dir))
 
 (defn ensure-runtime!
