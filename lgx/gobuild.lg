@@ -895,14 +895,52 @@
   (single-artifact-arg-error :lgb "a .lgb artifact is platform-independent"
                              cli-targets all? forward-args))
 
+(defn- w-module-arg?
+  "A forwarded -w-module or -import, in any of Go's flag spellings."
+  [arg]
+  (some (fn [flag]
+          (or (= arg (str "-" flag))
+              (= arg (str "--" flag))
+              (str/starts-with? arg (str "-" flag "="))
+              (str/starts-with? arg (str "--" flag "="))))
+        ["w-module" "import"]))
+
 (defn wasm-build-arg-error
   "Pure. Why this `lgx build` invocation cannot build a :target :wasm app, or
    nil when it can. `lg -w` always builds for js/wasm, so platform selection
-   has nothing to act on, and it never takes a bundle base."
+   has nothing to act on, and it never takes a bundle base. -w-module and
+   -import belong to lgx: it stages the module and derives the import list
+   from :deps, so a forwarded value would fight both."
   [cli-targets all? forward-args]
-  (single-artifact-arg-error :wasm
-                             "a browser WASM app is built for js/wasm only"
-                             cli-targets all? forward-args))
+  (or (single-artifact-arg-error :wasm
+                                 "a browser WASM app is built for js/wasm only"
+                                 cli-targets all? forward-args)
+      (when (some w-module-arg? forward-args)
+        "-w-module and -import are set by lgx from :deps for :target :wasm")))
+
+(defn w-module-supported?
+  "Pure. Whether `lg -h` output lists -w-module, the flag that lets `lg -w`
+   build inside a caller's Go module (let-go #1016, with -import from #1037).
+   The help text is the only reliable signal: :lg-version can be a tag, a
+   branch or a sha, so no version comparison can answer it."
+  [help-text]
+  (str/includes? (or help-text "") "-w-module"))
+
+(defn w-module-supported!?
+  "Run `lg -h` on `lg-path` and check its flags with w-module-supported?.
+   Go's flag package prints usage to stderr, so both streams are read."
+  [lg-path]
+  (let [r (os/sh lg-path "-h")]
+    (w-module-supported? (str (:out r) (:err r)))))
+
+(def wasm-w-module-error
+  "The error when a :target :wasm build has Go deps but the runtime's lg -w
+   cannot build in a caller module."
+  (str "error: :target :wasm with Go deps needs an lg whose -w supports "
+       "-w-module and -import (let-go after 1.13.0, nooga/let-go#1037), but "
+       "this runtime's lg does not\n"
+       "  set :lg-version to a let-go release that has them, or to a let-go "
+       "main sha\n"))
 
 (defn wasm-flag-args
   "Pure. The lg flags for the :wasm options map, in :shell, :payload,
