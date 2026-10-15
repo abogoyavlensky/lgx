@@ -4434,11 +4434,15 @@ pass "wasm --target: writes nothing"
 rm -rf "$proj_w2" "$home_w2"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 168: a :wasm build rejects Go deps before building anything"
+echo "==> Scenario 168: a :wasm build with Go deps under :installed fails before building anything"
+# Go deps reach a :wasm app only under :built (via lg -w-module); :installed
+# rejects them in apply-runtime!, as for every other command. Without go on
+# PATH the go check fires first instead, so the message is only asserted
+# when go is there.
 proj_w3="$(mktemp -d)"
 home_w3="$(mktemp -d)"
 cat > "$proj_w3/lgx.edn" <<'EOF'
-{:paths ["."] :main "main.lg" :lg-runtime :built :lg-version "1.13.0"
+{:paths ["."] :main "main.lg" :lg-runtime :installed
  :deps {modernc.org/sqlite {:go/version "v1.57.0"}}
  :targets {:bin {:target :wasm :out "dist/web"}}}
 EOF
@@ -4447,8 +4451,11 @@ set +e
 out="$(cd "$proj_w3" && LGX_HOME="$home_w3" "$LGX" build 2>&1)"; rc=$?
 set -e
 [[ $rc -ne 0 ]] || fail "wasm go deps: expected non-zero exit (got $rc)"
-assert_contains "$out" ":target :wasm cannot link Go deps" "wasm go deps: clear error"
-assert_contains "$out" "Go deps: modernc.org/sqlite" "wasm go deps: names the coord"
+if command -v go >/dev/null 2>&1; then
+    assert_contains "$out" "needs an lg built with the Go toolchain" \
+        "wasm go deps: :installed names the fix"
+    assert_contains "$out" "Go deps: modernc.org/sqlite" "wasm go deps: names the coord"
+fi
 assert_not_contains "$out" "Building custom lg runtime" "wasm go deps: no runtime is built"
 [[ ! -e "$proj_w3/dist" ]] || fail "wasm go deps: expected no dist/ to be created"
 [[ ! -e "$home_w3/runtimes" ]] || fail "wasm go deps: expected no runtime cache"
@@ -4510,6 +4517,25 @@ assert_contains "$out" ":target :wasm needs the Go toolchain" "wasm no go: clear
 [[ ! -e "$proj_w6/dist" ]] || fail "wasm no go: expected no dist/ to be created"
 pass "wasm no go: writes nothing"
 rm -rf "$proj_w6" "$home_w6" "$empty_path_w"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 172: a :wasm build rejects a forwarded -import"
+proj_w7="$(mktemp -d)"
+home_w7="$(mktemp -d)"
+cat > "$proj_w7/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:target :wasm :out "dist/web"}}}
+EOF
+echo '(println :hi)' > "$proj_w7/main.lg"
+set +e
+out="$(cd "$proj_w7" && LGX_HOME="$home_w7" "$LGX" build -import example.com/x 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "wasm -import: expected non-zero exit (got $rc)"
+assert_contains "$out" "-w-module and -import are set by lgx from :deps" \
+    "wasm -import: clear error"
+[[ ! -e "$proj_w7/dist" ]] || fail "wasm -import: expected no dist/ to be created"
+pass "wasm -import: writes nothing"
+rm -rf "$proj_w7" "$home_w7"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."
