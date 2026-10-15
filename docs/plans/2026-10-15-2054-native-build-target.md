@@ -295,7 +295,7 @@ Shared shapes:
 - Modify: `docs/ARCHITECTURE.md` (the build pipeline: a third target)
 - Modify: `docs/knowledge-base/lgx-go-runtimes.md` (native staging, `LG_SOURCE_PATHS`, the per-target runtime; update its `Verify against:` footer)
 
-- [ ] **Step 1: README.** Cover:
+- [x] **Step 1: README.** Cover:
   - the config example and requirements (`:built`, the pin, `go` on PATH);
   - what lowers (reachable `.lg` namespaces), and what does not (`.cljc`/`.clj`, embedded namespaces, top-level `require`), which still run;
   - the entry rules (`ns` form, `(-main ...)` not `apply`, no `main` last segment);
@@ -305,8 +305,8 @@ Shared shapes:
     - no fail-on-fallback (#660);
     - resources are not embedded;
     - runtime `require` searches only `LG_SOURCE_PATHS`.
-- [ ] **Step 2: ARCHITECTURE and knowledge base,** in the same words as the code.
-- [ ] **Step 3: Commit** `git commit -m "docs: :target :native"`
+- [x] **Step 2: ARCHITECTURE and knowledge base,** in the same words as the code.
+- [x] **Step 3: Commit** `git commit -m "docs: :target :native"`
 
 ### Task 9: Upstream issue and backlog
 

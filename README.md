@@ -92,7 +92,7 @@ lgx run
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
 | `lgx repl` | Start `lg`'s built-in REPL with the project's deps on the source path. Auto-applies the `:dev` and `:test` contexts. |
 | `lgx nrepl [--port N]` | Start a REPL with an nREPL server on a free OS-assigned port (or `N`). Writes `.nrepl-port`. Auto-applies the `:dev` and `:test` contexts. |
-| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). With `:target :lgb`, writes a portable `.lgb` bytecode file via `lg -c` instead; with `:target :wasm`, a browser web app via `lg -w`. |
+| `lgx build [args...]` | Bundle `:main` into `:targets/:bin/:out` in `lgx.edn` via `lg -b`. `--target <os>/<arch>[,...]` or `--all` cross-compiles (see below). With `:target :lgb`, writes a portable `.lgb` bytecode file via `lg -c` instead; with `:target :wasm`, a browser web app via `lg -w`; with `:target :native`, a native executable compiled to Go via `lg compile`. |
 | `lgx test [file] [--exclude <ns,...>]` | Run `*_test.lg` / `*_test.cljc` / `*_test.clj` files under the `:test` context's paths (`test/` by default). With `<file>`, run just that file. `--exclude` skips the named test namespaces (repeatable, comma-separated). |
 | `lgx clean <--cache...>` | Remove caches under `$LGX_HOME`: `--runtimes`, `--gitlibs`, `--templates`, or `--all`; `--dry-run` only reports. Prints bytes reclaimed. Never automatic. |
 | `lgx <task> [args...]` | Run a custom task defined under `:tasks` in `lgx.edn`, binding any declared positional `:args`. A task may carry a built-in's name, in which case it runs instead of that built-in. |
@@ -296,6 +296,53 @@ passed on the command line overrides the config.
   the old `main.wasm` behind.
 - One `lgx.edn` declares one artifact kind: contexts cannot override
   `:targets`.
+
+#### Native output (`:target :native`)
+
+Set `:target :native` to compile the program to Go and link a native
+executable, instead of bundling bytecode:
+
+```clojure
+{:main "main.lg"
+ :lg-runtime :built
+ :lg-version "d0108ba6"        ; a let-go main with `lg compile -module`
+ :targets {:bin {:target :native
+                 :out "dist/app_{{os}}_{{arch}}"
+                 :platforms [{:os "linux" :arch "amd64"}
+                             {:os "darwin" :arch "arm64"}]}}}
+```
+
+`lgx build` lowers `:main` and every `.lg` namespace it reaches through `ns`
+`:require`/`:use` (the project's and its let-go deps') to Go with
+`lg compile -module`, inside a temporary copy of the runtime's Go module, so
+`:go/*` deps link as they do for an executable. Code that does not lower,
+`.cljc`/`.clj` libs, embedded namespaces and namespaces loaded by a
+top-level `(require ...)` still run, as bytecode inside the same binary.
+`lgx build` makes the host binary; `--all` or `--target` cross-compiles, as
+for an executable.
+
+- Needs `:lg-runtime :built` and a let-go whose `lg compile` has `-module`
+  and `-import` (on let-go `main` after 1.13.0; pin `:lg-version` to a `main`
+  sha until a release carries them). `go` must be on PATH.
+- `:main` must be a `.lg` file starting with an `ns` form, and call its
+  entry as `(-main ...)`, optionally inside `(when-not *compiling-aot* ...)`.
+  Without an `ns` form, or with `(apply -main *command-line-args*)`, the
+  binary runs `-main` twice. A namespace whose last segment is `main`
+  (`app.main`) cannot be compiled: lgx rejects it for `:main` and leaves it
+  as bytecode elsewhere. Tracked in
+  [docs/issues/letgo-compile-entry-handling.md](docs/issues/letgo-compile-entry-handling.md).
+- A dep namespace that defines its own `-main` or `main` stays bytecode, so
+  it cannot become the program's entry.
+- No args are forwarded to `lg`; `-bundle-base` and the rest are rejected.
+- Caveats from let-go today:
+  - core functions still run as bytecode (nooga/let-go#1067), so compiling
+    speeds up your own code, not calls into core;
+  - a lowered caller does not see `with-redefs`/`alter-var-root` on a lowered
+    callee unless it is `^:redef` or `^:dynamic` (nooga/let-go#990);
+  - a function that does not lower only prints a `WARNING: not lowered`
+    line, and the build still succeeds (nooga/let-go#660);
+  - `require` at run time searches only `LG_SOURCE_PATHS`.
+- Resources are not embedded; the build warns when `:resource-paths` is set.
 
 ### `lgx test` details
 
