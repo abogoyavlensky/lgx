@@ -4677,5 +4677,105 @@ assert_contains "$out" "cannot build namespace app.main: a last segment of main 
 pass "native main segment: builds nothing"
 rm -rf "$proj_n4" "$home_n4"
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 178: a :native build lowers the app and a dep to Go"
+# The real path: the host runtime lowers every reachable .lg namespace with
+# `lg compile -module` in a staged copy of each target's runtime module. Gated
+# like 173 (network on a cold Go cache); needs a let-go with
+# `lg compile -module`: LGX_NATIVE_E2E_LG_VERSION, defaulting to a let-go main
+# sha until a release carries it. Correct output alone proves nothing (a
+# bytecode fallback prints the same), so the app prints its own fns: lowered
+# ones are <native-fn ...>.
+if [[ -n "${LGX_NATIVE_E2E:-}" ]] && command -v go >/dev/null 2>&1; then
+    root_n5="$(mktemp -d)"
+    home_n5="$(mktemp -d)"
+    proj_n5="$root_n5/proj"
+    mkdir -p "$root_n5/dep/src/mydep" "$proj_n5/src/myapp"
+    stage_before="$(ls -d "${TMPDIR:-/tmp}"/lgx-native-* 2>/dev/null | wc -l)"
+    case "$(go env GOARCH)" in
+        arm64) other_arch=amd64 ;;
+        *) other_arch=arm64 ;;
+    esac
+    host_os="$(go env GOOS)"
+    host_arch="$(go env GOARCH)"
+    echo '{:paths ["src"]}' > "$root_n5/dep/lgx.edn"
+    cat > "$root_n5/dep/src/mydep/core.lg" <<'EOF'
+(ns mydep.core (:require [clojure.string :as str]))
+(defn shout [s] (str (str/upper-case s) "!"))
+EOF
+    cat > "$proj_n5/lgx.edn" <<EOF
+{:paths ["src"]
+ :main "main.lg"
+ :lg-runtime :built
+ :lg-version "${LGX_NATIVE_E2E_LG_VERSION:-d0108ba6}"
+ :deps {mydep/mydep {:local/root "../dep"}
+        hash/crc32 {:go/interop "crc32"}}
+ :targets {:bin {:target :native
+                 :out "dist/app_{{os}}_{{arch}}"
+                 :platforms [{:os "$host_os" :arch "$host_arch"}
+                             {:os "linux" :arch "$other_arch"}]}}}
+EOF
+    cat > "$proj_n5/src/myapp/util.lg" <<'EOF'
+(ns myapp.util (:require [mydep.core :as d]))
+(defn greet [n] (d/shout (str "hi " n)))
+EOF
+    cat > "$proj_n5/main.lg" <<'EOF'
+(ns myapp.app (:require [myapp.util :as u] [mydep.core :as d] [crc32]))
+(defn -main [& args]
+  (println (u/greet "bob"))
+  (println (str u/greet))
+  (println (str d/shout))
+  (println "crc" (crc32/ChecksumIEEE (.getBytes "hello")))
+  (println "args" args))
+(-main)
+EOF
+    set +e
+    # LGX_LG is exported by this harness and rejected under :built.
+    out="$(cd "$proj_n5" && env -u LGX_LG LGX_HOME="$home_n5" "$LGX" build --all 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "native build: expected success (got $rc, output: $out)"
+    pass "native build: --all exits 0"
+    assert_contains "$out" "native entry: Main" "native build: lg compile found the entry"
+    host_bin="$proj_n5/dist/app_${host_os}_${host_arch}"
+    other_bin="$proj_n5/dist/app_linux_${other_arch}"
+    [[ -x "$host_bin" ]] || fail "native build: expected $host_bin"
+    [[ -f "$other_bin" ]] || fail "native build: expected $other_bin"
+    pass "native build: writes one binary per platform"
+    clean_n5="$(mktemp -d)"
+    rout="$(cd "$clean_n5" && "$host_bin" x 2>&1)"
+    assert_eq "$(grep -c 'HI BOB!' <<<"$rout")" "1" "native build: -main runs once"
+    assert_contains "$rout" "<native-fn greet" "native build: the app fn is lowered"
+    assert_contains "$rout" "<native-fn shout" "native build: the dep fn is lowered"
+    assert_contains "$rout" "crc 907060870" "native build: the app calls the Go dep"
+    assert_contains "$rout" "args (x)" "native build: command-line args reach -main"
+    assert_contains "$(go version -m "$other_bin")" "GOARCH=$other_arch" \
+        "native build: the cross binary targets linux/$other_arch"
+    if ls -d "$home_n5"/runtimes/*/src/lgprogram >/dev/null 2>&1; then
+        fail "native build: lgprogram/ landed in the runtime cache"
+    fi
+    pass "native build: the runtime cache is untouched"
+    stage_after="$(ls -d "${TMPDIR:-/tmp}"/lgx-native-* 2>/dev/null | wc -l)"
+    [[ "$stage_after" -le "$stage_before" ]] || fail "native build: staged module left behind"
+    pass "native build: the staged module is removed"
+    # A program lg compile cannot build: the failure is relayed with a hint,
+    # and the staged module is still removed.
+    cat > "$proj_n5/main.lg" <<'EOF'
+(ns myapp.app)
+(defn -main [& args] (no-such-fn args))
+(-main)
+EOF
+    set +e
+    out="$(cd "$proj_n5" && env -u LGX_LG LGX_HOME="$home_n5" "$LGX" build 2>&1)"; rc=$?
+    set -e
+    [[ $rc -ne 0 ]] || fail "native build failure: expected non-zero exit (got $rc)"
+    assert_contains "$out" "hint: lg compile failed" "native build failure: prints the hint"
+    stage_after="$(ls -d "${TMPDIR:-/tmp}"/lgx-native-* 2>/dev/null | wc -l)"
+    [[ "$stage_after" -le "$stage_before" ]] || fail "native build failure: staged module left behind"
+    pass "native build failure: the staged module is removed"
+    rm -rf "$root_n5" "$home_n5" "$clean_n5"
+else
+    skip "native build needs go and network (set LGX_NATIVE_E2E=1 to run)"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

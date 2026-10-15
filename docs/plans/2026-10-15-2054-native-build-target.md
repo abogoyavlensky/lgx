@@ -271,20 +271,22 @@ Shared shapes:
 **Files:**
 - Modify: `tests/e2e.sh`
 
-- [ ] **Step 1: Add one scenario,** skipped unless `LGX_NATIVE_E2E=1` and `go` is on PATH (copy scenario 173's gating and `env -u LGX_LG`). Fixture:
+- [x] **Step 1: Add one scenario,** skipped unless `LGX_NATIVE_E2E=1` and `go` is on PATH (copy scenario 173's gating and `env -u LGX_LG`). Fixture:
   - `dep/lgx.edn` and `dep/src/mydep/core.lg`, with `(defn shout [s] ...)`;
   - `proj/lgx.edn` with `:paths ["src"]`, the dep via `:local/root`, `hash/crc32 {:go/interop "crc32"}`, `:lg-version "${LGX_NATIVE_E2E_LG_VERSION:-d0108ba6}"`, `:out "dist/app_{{os}}_{{arch}}"`, and `:platforms` with the host plus one other (`linux/arm64`, or `linux/amd64` when the host is arm64);
   - `proj/src/myapp/util.lg` with `greet` calling `mydep.core/shout`;
   - `proj/main.lg` with `(ns myapp.app ...)`, a `-main` printing the greeting, `(str u/greet)`, `(str d/shout)`, a crc32 checksum and `*command-line-args*`, and a top-level `(-main)`.
-- [ ] **Step 2: Assert:**
+- [x] **Step 2: Assert:**
   - `lgx build --all` exits 0 (a plain `lgx build` makes only the host binary);
   - the host binary, run from a fresh `mktemp -d` with an arg, prints the greeting once (count the lines), `<native-fn greet`, `<native-fn shout`, the checksum and the arg;
   - `go version -m` on the other binary shows its `GOARCH`;
   - no `lgprogram` is under `$home/runtimes/*/src`;
   - no `lgx-native-*` dirs are left in `${TMPDIR:-/tmp}`;
   - a second build whose `-main` calls an unresolvable symbol exits non-zero, prints the `hint:` line, and also leaves no `lgx-native-*` dir behind.
-- [ ] **Step 3: Run** `LGX_NATIVE_E2E=1 bash tests/e2e.sh`. Expected: PASS. Also run without the variable, and confirm the scenario reports itself skipped.
-- [ ] **Step 4: Commit** `git commit -m "e2e: gated :target :native real build"`
+- [x] **Step 3: Run** `LGX_NATIVE_E2E=1 bash tests/e2e.sh`. Expected: PASS. Also run without the variable, and confirm the scenario reports itself skipped.
+- [x] **Step 4: Commit** `git commit -m "e2e: gated :target :native real build"`
+
+> Result: `LGX_NATIVE_E2E=1 bash tests/e2e.sh` passed all 577 assertions (13 in scenario 178, including the linux/arm64 cross binary); without the variable the scenario prints SKIP.
 
 ### Task 8: Docs
 
