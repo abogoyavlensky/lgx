@@ -222,7 +222,7 @@ Shared shapes:
 **Files:**
 - Modify: `lgx.lg` (dispatch ~931, a new fn next to `build-wasm!` ~837)
 
-- [ ] **Step 1: Implement** `build-native!` with `build-wasm!`'s signature, in this order:
+- [x] **Step 1: Implement** `build-native!` with `build-wasm!`'s signature, in this order:
   1. `:main` required, `native-build-arg-error forward`, `resolve-main-script!`, `go-available?` (reuse the wasm missing-go error style).
   2. `basis = overlay-basis project cfg with nil`, then `print-installs!`.
   3. `form = read-string (slurp abs-main)` inside `try`. A read error becomes the no-`ns` message's sibling, `:main could not be read: <msg>`. Then `main-ns-error`.
@@ -242,10 +242,13 @@ Shared shapes:
   9. `os/exit` with the code.
   - With `--verbose`, trace the argv the way `lg-invocation!` does.
   - On a non-zero `lg compile` exit, after the output, print: `hint: lg compile failed; the default executable target (omit :target) bundles the same program without lowering`.
-- [ ] **Step 2: Add the dispatch arm** `:native (build-native! ...)`.
-- [ ] **Step 3: Manual smoke test.** Recreate the scratch app from "Verified facts" (an app ns plus a `:local/root` dep). Use `:lg-runtime :built :lg-version "d0108ba6"`, build with `bin/lgx build`, and run `dist/app` from `/tmp`. Expected: `<native-fn` for the app and dep fns.
-- [ ] **Step 4: Run** `bin/lgx test`. Expected: PASS.
-- [ ] **Step 5: Commit** `git commit -m "build: :target :native lowers the app and its deps through lg compile"`
+- [x] **Step 2: Add the dispatch arm** `:native (build-native! ...)`.
+- [x] **Step 3: Manual smoke test.** Recreate the scratch app from "Verified facts" (an app ns plus a `:local/root` dep). Use `:lg-runtime :built :lg-version "d0108ba6"`, build with `bin/lgx build`, and run `dist/app` from `/tmp`. Expected: `<native-fn` for the app and dep fns.
+- [x] **Step 4: Run** `bin/lgx test`. Expected: PASS.
+- [x] **Step 5: Commit** `git commit -m "build: :target :native lowers the app and its deps through lg compile"`
+
+> Deviation: no separate `go-available?` check. `apply-runtime!` under `:built` (guaranteed by config) runs `gobuild/preflight!`, which already fails on a missing `go`. Target resolution and the `:out` collision check run before the basis resolves, as in the bundle path. The host header reads `Building <out> (native)...` (no os/arch for the host), and a cross target's reads `Building <out> (<os>/<arch>, native)...`.
+> Smoke test (Step 3): an app plus a `:local/root` dep plus `hash/crc32` interop, pinned to `d0108ba6`, built in 20 s. Run from an empty dir, it printed `<native-fn greet ...> <native-fn shout ...>`, the checksum and the args, and no `lgx-native-*` dir was left behind.
 
 ### Task 6: Hermetic e2e scenarios
 

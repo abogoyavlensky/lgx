@@ -187,3 +187,11 @@
                "/r/foo_bar.lg" '(ns foo-bar)}]
     (is (= ["/p/main.lg" "/r/foo_bar.lg"]
            (:files (walk ["/r"] "/p/main.lg" files))))))
+
+(deftest skipped-note-names-the-reason
+  (is (= "note: not lowering tool.main (last segment main)"
+         (native/skipped-note {:ns 'tool.main :path "/r/tool/main.lg"
+                               :reason :main-segment})))
+  (is (= (str "note: could not read the ns form of /r/bad.lg; its requires "
+              "are not followed")
+         (native/skipped-note {:ns 'bad :path "/r/bad.lg" :reason :unreadable}))))

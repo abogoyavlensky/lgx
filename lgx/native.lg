@@ -185,3 +185,24 @@
   [help-text]
   (boolean (and (str/includes? help-text "-module")
                 (str/includes? help-text "-import"))))
+
+(def compile-module-error
+  "The error when the pinned let-go's `lg compile` cannot build in a caller
+   module."
+  (str ":target :native needs an lg with `lg compile -module` and `-import` "
+       "(let-go main after 1.13.0, nooga/let-go#1037) - set :lg-version to a "
+       "let-go main sha that has it"))
+
+(def compile-failed-hint
+  "Printed after a failed `lg compile`, which may be the lowerer emitting Go
+   that does not build rather than a mistake in the program."
+  (str "hint: lg compile failed; the default executable target (omit "
+       ":target) bundles the same program without lowering"))
+
+(defn skipped-note
+  "Pure. The note for one :skipped entry of reachable-lg-files."
+  [{:keys [ns path reason]}]
+  (case reason
+    :main-segment (str "note: not lowering " ns " (last segment main)")
+    :unreadable (str "note: could not read the ns form of " path
+                     "; its requires are not followed")))
