@@ -1,5 +1,7 @@
 # `:target :native` Implementation Plan
 
+**Status: completed 2026-10-15 (unreleased).**
+
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let `lgx build` with `:targets {:bin {:target :native ...}}` lower the application's let-go code, and the let-go code of its dependencies, to Go and link a native executable through let-go's `lg compile -module`.
@@ -315,14 +317,14 @@ Shared shapes:
 - Modify: `docs/backlog/native-build-target.md`
 - Create: `docs/backlog/native-strict-fallbacks.md`, `docs/backlog/native-resources.md`, `docs/backlog/native-lowered-core.md`
 
-- [ ] **Step 1: Draft the upstream issue** for nooga/let-go, with the three repros from "Verified facts":
+- [x] **Step 1: Draft the upstream issue** for nooga/let-go, with the three repros from "Verified facts":
   - a file without `ns` runs `-main` twice;
   - `(apply -main *command-line-args*)` runs it twice;
   - a namespace with last segment `main` becomes `package main`.
   
   Build a prefilled link with /github-issue-link and record the draft in `docs/issues/`. When the user has filed it, put the number in the issue file, `docs/issues/README.md` and the README's `:target :native` caveats. Nothing else depends on it.
-- [ ] **Step 2: Commit** `git commit -m "Issues: lg compile entry handling"`
-- [ ] **Step 3: Backlog,** in its own commit:
+- [x] **Step 2: Commit** `git commit -m "Issues: lg compile entry handling"`
+- [x] **Step 3: Backlog,** in its own commit:
   - mark `native-build-target.md` done, saying where it landed;
   - add the three new entries (`**Status: open**`):
     - fail on unapproved fallbacks once #660 gives a report;
@@ -333,4 +335,22 @@ Shared shapes:
 
 ## Completion summary
 
-(Filled in after execution.)
+Shipped `:target :native` on branch `native-target`:
+- config accepts `:native` under `:built` only;
+- `lgx.native` walks the `.lg` namespace graph in let-go's resolver order and builds the `lg compile -module` argv;
+- `build-native!` stages each target's runtime module and lowers `:main` plus every reachable `.lg` namespace;
+- four hermetic e2e scenarios and one gated real build (`LGX_NATIVE_E2E=1`, 13 assertions);
+- README, ARCHITECTURE and knowledge-base sections, an upstream issue draft, and backlog entries.
+
+Final run: `make test` gives 898 unit tests and 564 e2e assertions, all passing. The gated run gives 577 e2e assertions, all passing. A manual smoke build of an app plus a `:local/root` dep plus `hash/crc32` printed `<native-fn ...>` for both the app and dep fns.
+
+Deviations and review fixups:
+- Codex found that a walked file could be listed twice when two lib spellings resolve to it. Fixed in Task 3's commit.
+- Codex found that a dep defining its own `-main` could become the program's entry, and that a non-`.lg` `:main` dropped out of the inputs. The walker now skips, but still traverses, entry-defining deps (`defines-entry?`), and `:main` must be `.lg`.
+- `compile-module-supported!?` lives in `lgx.gobuild`. The rename in Task 4 also updated ARCHITECTURE and the knowledge base.
+- No separate `go` check: `:built`'s `preflight!` covers it. Host header `Building <out> (native)...`.
+- Tasks 6-9 (tests and docs) got one combined codex review instead of four.
+- `lgx/native.lg` and one hunk in `lgx.lg` were cljfmt-ed. `make fmt-check` and `make lint` still fail on master's pre-existing files (`lgx.lg`, `lgx/test_runner.lg`, `lgx/gobuild.lg`, `lgx/config.lg`; two unused-binding warnings). This branch adds none.
+- The upstream issue (`docs/issues/letgo-compile-entry-handling.md`) is drafted, not filed.
+
+What the plan could have specified better: `lg compile`'s entry-selection rule (any input's `-main` wins). Knowing it would have put the entry-defining-dep case in the walker design from the start, instead of it surfacing in review.
