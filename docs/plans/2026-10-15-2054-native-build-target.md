@@ -207,13 +207,15 @@ Shared shapes:
 - Modify: `lgx.lg` (`build-wasm!` call sites)
 - Test: `test/lgx/gobuild_test.lg`
 
-- [ ] **Step 1: Rename with a parameter.**
+- [x] **Step 1: Rename with a parameter.**
   - `stage-wasm-module! runtime-bin` becomes `stage-runtime-module! runtime-bin prefix`, with the temp dir `lgx-<prefix>-<rand>`. `build-wasm!` passes `"wasm"`, so its behaviour is unchanged.
   - `wasm-import-args` becomes `module-import-args`, and its tests are renamed to match.
-- [ ] **Step 2: Add** `(compile-module-supported!? lg-path)`: `os/sh lg-path "compile" "-h"`, feeding `(str out err)` to `native/compile-module-supported?`. Check whether `lgx.native` can require `lgx.gobuild` without a cycle. If it cannot, put the probe in `lgx.lg`.
-- [ ] **Step 3: Run** `bin/lgx test`. Expected: all pass.
-- [ ] **Step 4: Run** `bash tests/e2e.sh` (or only the `:wasm` scenarios, if the script supports filtering). Expected: the wasm scenarios are unchanged.
-- [ ] **Step 5: Commit** `git commit -m "gobuild: generalize module staging and import args for native builds"`
+- [x] **Step 2: Add** `(compile-module-supported!? lg-path)`: `os/sh lg-path "compile" "-h"`, feeding `(str out err)` to `native/compile-module-supported?`. Check whether `lgx.native` can require `lgx.gobuild` without a cycle. If it cannot, put the probe in `lgx.lg`.
+- [x] **Step 3: Run** `bin/lgx test`. Expected: all pass.
+- [x] **Step 4: Run** `bash tests/e2e.sh` (or only the `:wasm` scenarios, if the script supports filtering). Expected: the wasm scenarios are unchanged.
+- [x] **Step 5: Commit** `git commit -m "gobuild: generalize module staging and import args for native builds"`
+
+> Deviation: `compile-module-supported!?` lives in `lgx.gobuild` (no cycle: `lgx.native` requires only `lgx.path` and `string`). The rename also updates `docs/ARCHITECTURE.md` and `docs/knowledge-base/lgx-go-runtimes.md`, which named the old functions.
 
 ### Task 5: `build-native!`
 

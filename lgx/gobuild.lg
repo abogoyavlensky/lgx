@@ -12,6 +12,7 @@
   (:require [hash]
             [lgx.config :as config]
             [lgx.home :as home]
+            [lgx.native :as native]
             [lgx.path :as path]
             [lgx.style :as style]
             [string :as str]))
@@ -426,8 +427,9 @@
   [go-pairs]
   (vec (sort (map (fn [[lib _]] (str lib)) (filter interop? go-pairs)))))
 
-(defn wasm-import-args
-  "Pure. The `-import` flags for `lg -w -w-module`: the interop package when
+(defn module-import-args
+  "Pure. The `-import` flags for `lg -w -w-module` and `lg compile -module`:
+   the interop package when
    any coord has bindings, then each link-only package — the same set the
    runtime's main.go blank-imports, so the app registers the same namespaces
    the host lg compiled the program against."
@@ -765,20 +767,20 @@
   {:os "js"
    :arch "wasm"})
 
-(defn stage-wasm-module!
+(defn stage-runtime-module!
   "Copy the module behind the runtime binary `runtime-bin` (what
-   ensure-runtime! returns, <hash>/lg) into a fresh temp dir and return the
-   dir. `lg -w-module` writes its lgprogram/ into the module it is given, and
-   the cached src/ is shared by every project with the same Go deps — so the
-   build never runs there. Only what the build reads is copied: go.mod,
-   go.sum, main.go and the interop bindings, not the lginterop-tool binary.
-   The replace targets in go.mod are absolute, so the copy resolves as the
-   original does. A failed copy removes the temp dir before throwing; on
-   success the caller owns it."
-  [runtime-bin]
+   ensure-runtime! returns, <hash>/lg) into a fresh temp dir named
+   lgx-<prefix>-<n> and return the dir. `lg -w-module` and `lg compile -module`
+   write their lgprogram/ into the module they are given, and the cached src/
+   is shared by every project with the same Go deps — so the build never runs
+   there. Only what the build reads is copied: go.mod, go.sum, main.go and the
+   interop bindings, not the lginterop-tool binary. The replace targets in
+   go.mod are absolute, so the copy resolves as the original does. A failed
+   copy removes the temp dir before throwing; on success the caller owns it."
+  [runtime-bin prefix]
   (let [src (path/join (path/parent runtime-bin) "src")
         dir (path/join (os/temp-dir)
-                       (str "lgx-wasm-" (rand-int 1000000000)))
+                       (str "lgx-" prefix "-" (rand-int 1000000000)))
         entries (filter #(file-exists? (path/join src %))
                         ["go.mod" "go.sum" "main.go" "interop"])]
     (mkdir dir)
@@ -786,7 +788,7 @@
                    (concat (map #(path/join src %) entries) [dir]))]
       (when-not (zero? (:exit r))
         (syscall/rm-rf dir)
-        (throw (ex-info (str "staging the wasm module failed: " (:err r))
+        (throw (ex-info (str "staging the " prefix " module failed: " (:err r))
                         {:src src
                          :dir dir}))))
     dir))
@@ -965,6 +967,14 @@
   [lg-path]
   (let [r (os/sh lg-path "-h")]
     (w-module-supported? (str (:out r) (:err r)))))
+
+(defn compile-module-supported!?
+  "Run `lg compile -h` on `lg-path` and check it lists -module and -import
+   (native/compile-module-supported?). Both streams are read: the usage text
+   goes to stderr."
+  [lg-path]
+  (let [r (os/sh lg-path "compile" "-h")]
+    (native/compile-module-supported? (str (:out r) (:err r)))))
 
 (def wasm-w-module-error
   "The error when a :target :wasm build has Go deps but the runtime's lg -w

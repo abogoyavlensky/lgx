@@ -402,13 +402,13 @@ Then it applies the runtime with `:fail` (which rejects Go coords under
 `:installed`). With Go coords it checks that the host runtime's `lg -h`
 lists `-w-module` (`gobuild/w-module-supported!?`), builds a second
 runtime for `gobuild/wasm-target` (js/wasm), and copies that runtime's
-module into a temp dir (`gobuild/stage-wasm-module!`). It warns when the
+module into a temp dir (`gobuild/stage-runtime-module!`). It warns when the
 basis has resource paths (nothing is embedded), and execs `lg
 -source-paths <X> -resource-paths <R> [wasm flags] [-w-module <staged>
 -import <pkg>...] [forwarded-args...] -w <abs-out> <abs-main>`, removing
 the staged module afterwards. The wasm flags come from
 `gobuild/wasm-flag-args`; they go first so a forwarded `-w-*` flag wins.
-The `-import` list is `gobuild/wasm-import-args`, the same packages the
+The `-import` list is `gobuild/module-import-args`, the same packages the
 runtime's `main.go` links. See
 [`lgx-go-runtimes.md`](knowledge-base/lgx-go-runtimes.md). Config load rejects `:platforms`,
 an `{{os}}`/`{{arch}}` placeholder, and a `:wasm` options map under any

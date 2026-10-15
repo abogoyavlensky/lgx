@@ -888,11 +888,12 @@
                              "browser WASM app - io/resource will not find "
                              "them in the browser\n")))
         (let [module (when (seq go-pairs)
-                       (gobuild/stage-wasm-module!
+                       (gobuild/stage-runtime-module!
                          (gobuild/ensure-runtime! go-pairs
                                                   (config/lg-version cfg)
                                                   gobuild/wasm-target
-                                                  verbose?)))
+                                                  verbose?)
+                         "wasm"))
               abs-out (ensure-out-dir! project out-rel)
               abs-main (path/join project main-script)
               ;; Config flags first: a forwarded -w-* flag comes later and
@@ -900,7 +901,7 @@
               args (vec (concat (gobuild/wasm-flag-args project wasm-opts)
                                 (when module
                                   (concat ["-w-module" module]
-                                          (gobuild/wasm-import-args go-pairs)))
+                                          (gobuild/module-import-args go-pairs)))
                                 forward
                                 ["-w" abs-out abs-main]))
               _ (write! *err* (str (style/header (str "Building " out-rel "..."))

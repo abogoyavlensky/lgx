@@ -189,9 +189,9 @@ darwin/arm64) builds.
   Its `lg` binary is never run; its `src/` is the module the app builds in.
   A dep that cannot compile for `js/wasm` fails here, under lgx's header.
 
-`stage-wasm-module!` copies that `src/` (`go.mod`, `go.sum`, `main.go`,
+`stage-runtime-module!` copies that `src/` (`go.mod`, `go.sum`, `main.go`,
 `interop/`) into a fresh `$TMPDIR/lgx-wasm-*` dir, and lgx runs
-`lg -w-module <copy>` there with `wasm-import-args`: the interop package
+`lg -w-module <copy>` there with `module-import-args`: the interop package
 plus every link-only package, the same set `render-main-go` blank-imports
 (both read `link-packages`). The copy is removed afterwards. lgx never
 builds in the cached `src/`: `lg -w-module` writes `lgprogram/` into the

@@ -765,7 +765,7 @@
     (is (= a b))))
 
 ;; ---------------------------------------------------------------------------
-;; link-packages / wasm-import-args
+;; link-packages / module-import-args
 ;; ---------------------------------------------------------------------------
 
 (deftest link-packages-are-external-coords-without-interop
@@ -778,17 +778,17 @@
   (is (= (gobuild/link-packages [sqlite shim])
          (gobuild/link-packages [shim sqlite]))))
 
-(deftest wasm-import-args-mirror-the-runtime-main
+(deftest module-import-args-mirror-the-runtime-main
   ;; The WASM app has to link what the runtime's main.go blank-imports: the
   ;; interop package when any coord has bindings, then each link-only coord.
-  (is (= [] (gobuild/wasm-import-args [])))
+  (is (= [] (gobuild/module-import-args [])))
   (is (= ["-import" "lgx.local/runtime/interop"]
-         (gobuild/wasm-import-args [sql])))
+         (gobuild/module-import-args [sql])))
   (is (= ["-import" "modernc.org/sqlite"]
-         (gobuild/wasm-import-args [sqlite])))
+         (gobuild/module-import-args [sqlite])))
   (is (= ["-import" "lgx.local/runtime/interop"
           "-import" "modernc.org/sqlite"]
-         (gobuild/wasm-import-args [sqlite sql]))))
+         (gobuild/module-import-args [sqlite sql]))))
 
 ;; ---------------------------------------------------------------------------
 ;; letgo-version-parts — what cli.Main reports
