@@ -381,6 +381,15 @@
   [s]
   (str "\"" (str/replace (str/replace (str s) "\\" "\\\\") "\"" "\\\"") "\""))
 
+(defn link-packages
+  "Pure. The link-only package paths, sorted: external coords without
+   :go/interop. These are what render-main-go blank-imports and what a WASM
+   app built with -w-module has to -import, so the two cannot drift."
+  [go-pairs]
+  (vec (sort (map (fn [[lib _]] (str lib))
+                  (filter #(and (external? %) (not (interop? %)))
+                          go-pairs)))))
+
 (defn render-main-go
   "Pure. The generated module's main.go: a binary that IS `lg`, with the
    declared packages linked in. `version` and `commit` fill cli.Main's two
@@ -392,9 +401,7 @@
    generated binding package imports the package itself, and blank-importing
    that binding package is what registers every namespace."
   [go-pairs version commit]
-  (let [links (sort (map (fn [[lib _]] (str lib))
-                         (filter #(and (external? %) (not (interop? %)))
-                                 go-pairs)))
+  (let [links (link-packages go-pairs)
         any-interop? (boolean (some interop? go-pairs))]
     (str "package main\n"
          "\n"
@@ -418,6 +425,16 @@
    generated files (and any regeneration) stay stable."
   [go-pairs]
   (vec (sort (map (fn [[lib _]] (str lib)) (filter interop? go-pairs)))))
+
+(defn wasm-import-args
+  "Pure. The `-import` flags for `lg -w -w-module`: the interop package when
+   any coord has bindings, then each link-only package — the same set the
+   runtime's main.go blank-imports, so the app registers the same namespaces
+   the host lg compiled the program against."
+  [go-pairs]
+  (vec (mapcat (fn [pkg] ["-import" pkg])
+               (concat (when (some interop? go-pairs) [interop-package])
+                       (link-packages go-pairs)))))
 
 (defn render-interop-doc-go
   "The interop package's placeholder, written before generation and left in
