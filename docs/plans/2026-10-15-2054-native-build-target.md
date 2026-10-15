@@ -248,6 +248,7 @@ Shared shapes:
 - [x] **Step 5: Commit** `git commit -m "build: :target :native lowers the app and its deps through lg compile"`
 
 > Deviation: no separate `go-available?` check. `apply-runtime!` under `:built` (guaranteed by config) runs `gobuild/preflight!`, which already fails on a missing `go`. Target resolution and the `:out` collision check run before the basis resolves, as in the bundle path. The host header reads `Building <out> (native)...` (no os/arch for the host), and a cross target's reads `Building <out> (<os>/<arch>, native)...`.
+> Review fixup: codex found that a reachable dep defining its own `-main` could become the program's entry (`lg compile` takes any input's `-main` over `:main`'s `main`), and that a non-`.lg` `:main` dropped out of the inputs. The walker now skips (but traverses) non-main files that define a top-level `-main`/`main` (`native/defines-entry?`, a column-0 text match), and `main-ns-error` rejects a non-`.lg` `:main`.
 > Smoke test (Step 3): an app plus a `:local/root` dep plus `hash/crc32` interop, pinned to `d0108ba6`, built in 20 s. Run from an empty dir, it printed `<native-fn greet ...> <native-fn shout ...>`, the checksum and the args, and no `lgx-native-*` dir was left behind.
 
 ### Task 6: Hermetic e2e scenarios

@@ -45,13 +45,18 @@
 ;; reachable-lg-files
 ;; ---------------------------------------------------------------------------
 
+(def ^:private ^:dynamic entries
+  "Paths the in-memory walk treats as defining their own entry."
+  #{})
+
 (defn- walk
   "Run reachable-lg-files over an in-memory {path form} map."
   [roots main files]
   (native/reachable-lg-files {:roots roots
                               :main main
                               :read-first-form (fn [p] (get files p))
-                              :file? (fn [p] (contains? files p))}))
+                              :file? (fn [p] (contains? files p))
+                              :entry? (fn [p] (contains? entries p))}))
 
 (deftest walk-follows-app-to-dep-across-roots
   (let [files {"/p/main.lg" '(ns app.core (:require [app.util :as u]))
@@ -195,3 +200,24 @@
   (is (= (str "note: could not read the ns form of /r/bad.lg; its requires "
               "are not followed")
          (native/skipped-note {:ns 'bad :path "/r/bad.lg" :reason :unreadable}))))
+
+(deftest walk-skips-a-dep-that-defines-an-entry-but-follows-it
+  (binding [entries #{"/r/tool/cli.lg" "/p/main.lg"}]
+    (let [files {"/p/main.lg" '(ns app.core (:require [tool.cli]))
+                 "/r/tool/cli.lg" '(ns tool.cli (:require [tool.util]))
+                 "/r/tool/util.lg" '(ns tool.util)}]
+      (is (= {:files ["/p/main.lg" "/r/tool/util.lg"]
+              :skipped [{:ns 'tool.cli :path "/r/tool/cli.lg" :reason :entry}]}
+             (walk ["/r"] "/p/main.lg" files))))))
+
+(deftest defines-entry-finds-top-level-main-defns
+  (is (true? (native/defines-entry? "(ns a)\n\n(defn -main [& args] 1)\n")))
+  (is (true? (native/defines-entry? "(ns a)\n(defn main [] 1)\n")))
+  (is (true? (native/defines-entry? "(ns a)\n(defn- ^:private main\n  [] 1)\n")))
+  (is (false? (native/defines-entry? "(ns a)\n  (defn -main [] 1)\n")))
+  (is (false? (native/defines-entry? "(ns a)\n(defn mainly [] 2)\n")))
+  (is (false? (native/defines-entry? "(ns a)\n(defn helper [] (main))\n"))))
+
+(deftest main-ns-error-needs-a-lg-main
+  (is (= ":target :native needs :main to be a .lg file (got app.clj)"
+         (native/main-ns-error "app.clj" '(ns app.core)))))

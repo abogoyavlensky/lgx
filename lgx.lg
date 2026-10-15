@@ -972,7 +972,9 @@
             (native/reachable-lg-files {:roots paths
                                         :main abs-main
                                         :read-first-form read-first-form
-                                        :file? file-exists?})]
+                                        :file? file-exists?
+                                        :entry? #(native/defines-entry?
+                                                   (slurp %))})]
         (print-installs! results)
         (doseq [s skipped]
           (write! *err* (str (native/skipped-note s) "\n")))

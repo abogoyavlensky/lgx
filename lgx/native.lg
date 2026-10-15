@@ -84,6 +84,14 @@
   [ns-sym]
   (= "main" (last (str/split (str ns-sym) "."))))
 
+(defn defines-entry?
+  "Pure. Whether source text defines a program entry the way `lg compile`
+   looks for one: a top-level (defn -main ...) or (defn main ...), written at
+   column 0. `lg compile` takes any input's -main over :main's main, so a
+   reachable dep that defines one must not be passed to it."
+  [text]
+  (boolean (re-find #"(?m)^\(defn-?\s+(?:\^\S+\s+)?-?main[\s\[(]" text)))
+
 (defn reachable-lg-files
   "Pure apart from the injected readers. Walk the namespace graph from `:main`
    breadth-first over `:roots`, following each file's ns :require/:use.
@@ -92,11 +100,14 @@
    middle of a chain still leads to the .lg files behind it. A namespace whose
    last segment is main is walked but not lowered. A file whose first form
    cannot be read (`:read-first-form` returns nil) is lowered, since lg may
-   read it fine, but its requires are not followed.
+   read it fine, but its requires are not followed. A file other than :main
+   for which `:entry?` is true defines its own -main or main, which
+   `lg compile` could pick as the program's entry, so it is walked but not
+   lowered.
 
    Returns {:files [abs-path ...] :skipped [{:ns :path :reason}]}, with :main
    first and every path once."
-  [{:keys [roots main read-first-form file?]}]
+  [{:keys [roots main read-first-form file? entry?]}]
   (loop [queue [[nil main]]
          seen #{main}
          files []
@@ -108,9 +119,13 @@
             lg? (str/ends-with? p ".lg")
             ns-sym (or lib (when (seq? form) (second form)))
             main-seg? (and lib (main-segment? lib))
-            files (if (and lg? (not main-seg?)) (conj files p) files)
+            entry-file? (and lib lg? (not main-seg?) (entry? p))
+            files (if (and lg? (not main-seg?) (not entry-file?))
+                    (conj files p)
+                    files)
             skipped (cond-> skipped
                       main-seg? (conj {:ns ns-sym :path p :reason :main-segment})
+                      entry-file? (conj {:ns ns-sym :path p :reason :entry})
                       (nil? form) (conj {:ns ns-sym :path p :reason :unreadable}))
             next-entries (keep (fn [l]
                                  (when-let [q (resolve-lib roots file? l)]
@@ -139,6 +154,9 @@
    a namespace whose last segment is main becomes Go package main."
   [main-rel form]
   (cond
+    (not (str/ends-with? main-rel ".lg"))
+    (str ":target :native needs :main to be a .lg file (got " main-rel ")")
+
     (not (and (seq? form) (= 'ns (first form))))
     (str ":target :native needs " main-rel " to start with an ns form - "
          "without one, the native binary runs -main twice")
@@ -204,5 +222,7 @@
   [{:keys [ns path reason]}]
   (case reason
     :main-segment (str "note: not lowering " ns " (last segment main)")
+    :entry (str "note: not lowering " ns " (it defines its own -main or "
+                "main, which lg compile could take as the program's entry)")
     :unreadable (str "note: could not read the ns form of " path
                      "; its requires are not followed")))
