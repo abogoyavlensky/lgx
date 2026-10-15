@@ -123,15 +123,17 @@ The upstream issue for the last two rows (Task 9) is referenced from the README 
 - Modify: `lgx/config.lg` (`bin-target-value-errors` ~785, root rules near `lg-runtime-errors` ~941)
 - Test: `test/lgx/config_test.lg`
 
-- [ ] **Step 1: Write failing tests.**
+- [x] **Step 1: Write failing tests.**
   - `{:main "m.lg" :lg-runtime :built :lg-version "abc123" :targets {:bin {:target :native :out "dist/app"}}}` loads.
   - The same with `:platforms` and `{{os}}`/`{{arch}}` in `:out` loads (`:native` stays out of `single-artifact-phrases`).
   - `:target :native` without `:lg-runtime` (so `:installed`) gives the `[:lg-runtime]` error from the table.
   - Change `load-rejects-an-unsupported-target` to use `:jar`, with the new "must be :lgb, :wasm or :native ..." message.
-- [ ] **Step 2: Run** `bin/lgx test test/lgx/config_test.lg`. Expected: the new tests fail.
-- [ ] **Step 3: Implement.** Add `:native` to the set and the message. Add a root `[:fn ...]` rule in the style of `lg-runtime-errors`, with the exact message.
-- [ ] **Step 4: Run** `bin/lgx test test/lgx/config_test.lg`. Expected: PASS.
-- [ ] **Step 5: Commit** `git commit -m "config: accept :target :native under :lg-runtime :built"`
+- [x] **Step 2: Run** `bin/lgx test test/lgx/config_test.lg`. Expected: the new tests fail.
+- [x] **Step 3: Implement.** Add `:native` to the set and the message. Add a root `[:fn ...]` rule in the style of `lg-runtime-errors`, with the exact message.
+- [x] **Step 4: Run** `bin/lgx test test/lgx/config_test.lg`. Expected: PASS.
+- [x] **Step 5: Commit** `git commit -m "config: accept :target :native under :lg-runtime :built"`
+
+> Review note: codex flagged that the config accepts `:native` before `cmd-build` dispatches it (falls through to the bundle path). Intermediate branch state only; Task 5 adds the dispatch.
 
 ### Task 2: Namespace walker
 
@@ -151,7 +153,7 @@ Shared shapes:
 ;    :skipped [{:ns sym :path abs-path :reason :main-segment|:unreadable}]}
 ```
 
-- [ ] **Step 1: Write failing tests** with an in-memory map of path → form:
+- [x] **Step 1: Write failing tests** with an in-memory map of path → form:
   - `ns-form-libs`: `[c.d :as d]`, a bare `h.i`, a prefix list `(e f [g :as gg])` → `e.f`, `e.g`, the same prefix list as a vector `[e f [g :as gg]]`, and `(:use j.k)`. A docstring and an attr map in the `ns` form are ignored. `:require-macros` and `:import` are ignored. A non-`ns` form gives `[]`.
   - `reachable-lg-files`:
     - follows app → dep across two roots;
@@ -164,10 +166,10 @@ Shared shapes:
     - a dep namespace `x.main` is left out of `:files` and appears in `:skipped`, but its own requires are still followed (a `.lg` it requires is lowered);
     - `:main` comes first.
   - The prefix-list rule: a vector or list whose second element is a keyword, or which has no second element, is a libspec. Otherwise the first symbol is a prefix and each later element (symbol, or libspec vector) is joined to it.
-- [ ] **Step 2: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: fail (no namespace).
-- [ ] **Step 3: Implement** `lgx.native` with these pure fns. `lib-candidates` follows the resolver's order exactly (see Key decisions); `reachable-lg-files` tries roots in order and candidates in order within each root.
-- [ ] **Step 4: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: PASS.
-- [ ] **Step 5: Commit** `git commit -m "native: walk the .lg namespace graph from :main"`
+- [x] **Step 2: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: fail (no namespace).
+- [x] **Step 3: Implement** `lgx.native` with these pure fns. `lib-candidates` follows the resolver's order exactly (see Key decisions); `reachable-lg-files` tries roots in order and candidates in order within each root.
+- [x] **Step 4: Run** `bin/lgx test test/lgx/native_test.lg`. Expected: PASS.
+- [x] **Step 5: Commit** `git commit -m "native: walk the .lg namespace graph from :main"`
 
 ### Task 3: Entry checks, argv builder, probe predicate
 

@@ -1,0 +1,124 @@
+;; lgx.native — the pure half of `:target :native`.
+;;
+;; `lg compile` lowers only the files it is given; anything else still runs, but
+;; from bytecode. So lgx walks the namespace graph from :main itself, the way
+;; let-go's resolver would find each file, and passes every reachable .lg file.
+;; Everything here is pure: the file system comes in as functions.
+(ns lgx.native
+  (:require [lgx.path :as path]
+            [string :as str]))
+
+;; ---------------------------------------------------------------------------
+;; Reading an ns form
+;; ---------------------------------------------------------------------------
+
+(defn- libspec?
+  "A vector or list is one libspec, not a prefix list, when nothing follows
+   its lib or the next element is an option keyword (`[c.d :as d]`)."
+  [x]
+  (let [more (rest x)]
+    (or (empty? more) (keyword? (first more)))))
+
+(defn- spec-libs
+  "The lib symbols one :require/:use entry names: a bare symbol, a libspec,
+   or a prefix list `(e f [g :as gg])`, whose later elements join the prefix."
+  [x]
+  (cond
+    (symbol? x) [x]
+
+    (and (sequential? x) (symbol? (first x)))
+    (if (libspec? x)
+      [(first x)]
+      (let [prefix (str (first x))]
+        (vec (keep (fn [e]
+                     (let [lib (cond (symbol? e) e
+                                     (and (sequential? e) (symbol? (first e))) (first e)
+                                     :else nil)]
+                       (when lib (symbol (str prefix "." lib)))))
+                   (rest x)))))
+
+    :else []))
+
+(defn ns-form-libs
+  "Pure. The lib symbols an (ns ...) form loads through :require and :use, in
+   source order. [] for anything that is not an ns form. Other clauses
+   (:import, :require-macros, :refer-clojure) load nothing lgx can lower."
+  [form]
+  (if (and (seq? form) (= 'ns (first form)))
+    (vec (mapcat (fn [clause]
+                   (if (and (seq? clause)
+                            (contains? #{:require :use} (first clause)))
+                     (mapcat spec-libs (rest clause))
+                     []))
+                 (rest form)))
+    []))
+
+;; ---------------------------------------------------------------------------
+;; Resolving a lib to a file
+;; ---------------------------------------------------------------------------
+
+(defn lib-candidates
+  "Pure. The relative paths let-go's resolver tries for `lib` under each root,
+   in its order (pkg/resolver/resolver.go): per extension .lg, .cljc, .clj, the
+   name as written, then with - turned into _."
+  [lib]
+  (let [hyphen (str/replace (str lib) "." "/")
+        underscore (str/replace hyphen "-" "_")]
+    (vec (for [ext [".lg" ".cljc" ".clj"]
+               p [hyphen underscore]]
+           (str p ext)))))
+
+(defn- resolve-lib
+  "The first existing file for `lib`: roots in order, candidates in order
+   within each root, as the resolver searches. nil when none exists."
+  [roots file? lib]
+  (first (for [root roots
+               c (lib-candidates lib)
+               :let [p (path/join root c)]
+               :when (file? p)]
+           p)))
+
+(defn- main-segment?
+  "A namespace whose last segment is main lowers to Go package main, which
+   cannot be imported, so the build fails."
+  [ns-sym]
+  (= "main" (last (str/split (str ns-sym) "."))))
+
+(defn reachable-lg-files
+  "Pure apart from the injected readers. Walk the namespace graph from `:main`
+   breadth-first over `:roots`, following each file's ns :require/:use.
+
+   Every resolved file is walked; only .lg files are lowered, so a .cljc in the
+   middle of a chain still leads to the .lg files behind it. A namespace whose
+   last segment is main is walked but not lowered. A file whose first form
+   cannot be read (`:read-first-form` returns nil) is lowered, since lg may
+   read it fine, but its requires are not followed.
+
+   Returns {:files [abs-path ...] :skipped [{:ns :path :reason}]}, with :main
+   first and every path once."
+  [{:keys [roots main read-first-form file?]}]
+  (loop [queue [[nil main]]
+         seen #{main}
+         files []
+         skipped []]
+    (if (empty? queue)
+      {:files files :skipped skipped}
+      (let [[lib p] (first queue)
+            form (read-first-form p)
+            lg? (str/ends-with? p ".lg")
+            ns-sym (or lib (when (seq? form) (second form)))
+            main-seg? (and lib (main-segment? lib))
+            files (if (and lg? (not main-seg?)) (conj files p) files)
+            skipped (cond-> skipped
+                      main-seg? (conj {:ns ns-sym :path p :reason :main-segment})
+                      (nil? form) (conj {:ns ns-sym :path p :reason :unreadable}))
+            next-entries (keep (fn [l]
+                                 (when-let [q (resolve-lib roots file? l)]
+                                   [l q]))
+                               (ns-form-libs form))
+            fresh (vec (distinct (remove (fn [[_ q]] (contains? seen q))
+                                         next-entries)))]
+        (recur (into (vec (rest queue)) fresh)
+               (into seen (map second fresh))
+               files
+               skipped)))))
