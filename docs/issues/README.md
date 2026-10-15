@@ -32,6 +32,12 @@ the ones that belong to lgx itself.
 | [letgo-reflection-warning-ignores-type-hints.md](./letgo-reflection-warning-ignores-type-hints.md) | The host reflection warning treats every local as unknown, so `(.length ^String s)` and a `(StringBuilder.)`-bound local warn where the JVM does not - 33 warnings inside HoneySQL | draft (change on `feat/reflection-warning-known-locals`) |
 | [letgo-wasm-extra-go-imports.md](./letgo-wasm-extra-go-imports.md) | `lg -w` builds in a temp module that requires only let-go, so a host's extra Go packages never reach the WASM app - blocks Go deps in lgx `:target :wasm` | filed (nooga/let-go#998) |
 | [letgo-wasm-embed-resources.md](./letgo-wasm-embed-resources.md) | `lg -w` does not embed `-resource-paths` the way `-b` does, so `io/resource` finds nothing in the browser | filed (nooga/let-go#999) |
+| [letgo-frame-pool-lock.md](./letgo-frame-pool-lock.md) | One global `framePoolMu` guards the VM frame pool, so parallel bytecode work runs slower than sequential (8 futures: 0.7x) and `http/serve` scales 1.4x on 5 cores | filed (nooga/let-go#1065) |
+| [letgo-json-write-direct.md](./letgo-json-write-direct.md) | `json/write-json` goes through `map[string]any` + `encoding/json`; a direct `vm.Value` encoder is ~4x faster | filed (nooga/let-go#1066) |
+| [letgo-compile-lowered-core.md](./letgo-compile-lowered-core.md) | `lg compile` output calls bytecode core (no `core_go_lowered` linked, `clojure.string` never lowered), so compiling barely speeds up core-heavy code | filed (nooga/let-go#1067) |
+| [letgo-string-escape.md](./letgo-string-escape.md) | `clojure.string/escape` ignores a fn `cmap` (Clojure allows one) and costs ~10 µs per short string, about 10x a native loop | filed (nooga/let-go#1068) |
+| [letgo-stringbuilder-str.md](./letgo-stringbuilder-str.md) | `(str sb)` on a `StringBuilder` returns `#<java.lang.StringBuilder>`, not its contents | filed (nooga/let-go#1069) |
+| [letgo-host-method-dispatch.md](./letgo-host-method-dispatch.md) | Lowered host method calls go through variadic `rt.CoreMethodInvoke` (one alloc, name switch), ~7x a direct call; ties to #1024 | filed (nooga/let-go#1070) |
 
 ## lgx's own
 
