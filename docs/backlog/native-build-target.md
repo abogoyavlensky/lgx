@@ -1,6 +1,6 @@
 # `lgx build` cannot compile application Lisp to native Go (`:target :native`)
 
-**Status: open**
+**Status: done** - shipped as `:target :native` (`docs/plans/2026-10-15-2054-native-build-target.md`) via the entry-frame route, `lg compile -module` in a staged runtime module. Strict fallbacks, resources and the lowered core are tracked in `native-strict-fallbacks.md`, `native-resources.md` and `native-lowered-core.md`.
 
 ## Problem
 
