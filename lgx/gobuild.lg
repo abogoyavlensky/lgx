@@ -758,6 +758,37 @@
      :live? (some? replace-path)
      :lg-version lg-version}))
 
+(def wasm-target
+  "The platform the module behind a :target :wasm app is built for. A
+   runtime built for it is never run: its src/ is the module `lg -w-module`
+   builds in, with bindings lginterop generated under js/wasm."
+  {:os "js" :arch "wasm"})
+
+(defn stage-wasm-module!
+  "Copy the module behind the runtime binary `runtime-bin` (what
+   ensure-runtime! returns, <hash>/lg) into a fresh temp dir and return the
+   dir. `lg -w-module` writes its lgprogram/ into the module it is given, and
+   the cached src/ is shared by every project with the same Go deps — so the
+   build never runs there. Only what the build reads is copied: go.mod,
+   go.sum, main.go and the interop bindings, not the lginterop-tool binary.
+   The replace targets in go.mod are absolute, so the copy resolves as the
+   original does. A failed copy removes the temp dir before throwing; on
+   success the caller owns it."
+  [runtime-bin]
+  (let [src (path/join (path/parent runtime-bin) "src")
+        dir (path/join (os/temp-dir)
+                       (str "lgx-wasm-" (rand-int 1000000000)))
+        entries (filter #(file-exists? (path/join src %))
+                        ["go.mod" "go.sum" "main.go" "interop"])]
+    (mkdir dir)
+    (let [r (apply os/sh "cp" "-R"
+                   (concat (map #(path/join src %) entries) [dir]))]
+      (when-not (zero? (:exit r))
+        (syscall/rm-rf dir)
+        (throw (ex-info (str "staging the wasm module failed: " (:err r))
+                        {:src src :dir dir}))))
+    dir))
+
 (defn ensure-runtime!
   "Build (or reuse) the custom `lg` that links this project's Go deps, and
    return its absolute path.
