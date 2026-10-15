@@ -113,7 +113,8 @@
          files []
          skipped []]
     (if (empty? queue)
-      {:files files :skipped skipped}
+      {:files files
+       :skipped skipped}
       (let [[lib p] (first queue)
             form (read-first-form p)
             lg? (str/ends-with? p ".lg")
@@ -124,9 +125,15 @@
                     (conj files p)
                     files)
             skipped (cond-> skipped
-                      main-seg? (conj {:ns ns-sym :path p :reason :main-segment})
-                      entry-file? (conj {:ns ns-sym :path p :reason :entry})
-                      (nil? form) (conj {:ns ns-sym :path p :reason :unreadable}))
+                      main-seg? (conj {:ns ns-sym
+                                       :path p
+                                       :reason :main-segment})
+                      entry-file? (conj {:ns ns-sym
+                                         :path p
+                                         :reason :entry})
+                      (nil? form) (conj {:ns ns-sym
+                                         :path p
+                                         :reason :unreadable}))
             next-entries (keep (fn [l]
                                  (when-let [q (resolve-lib roots file? l)]
                                    [l q]))
