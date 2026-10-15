@@ -1042,17 +1042,6 @@
        "  Go deps: " (go-dep-labels go-pairs go-origins) "\n"
        built-fix ", or drop the dep.\n"))
 
-(defn wasm-go-deps-error
-  "Pure. The error for Go coords in a :target :wasm build. `lg -w` builds its
-   own module that requires only let-go, so neither :installed nor :built can
-   get them into the app (docs/backlog/wasm-go-deps-and-resources.md)."
-  [go-pairs go-origins]
-  (str "error: :target :wasm cannot link Go deps - `lg -w` builds a Go module "
-       "that carries only let-go\n"
-       "  Go deps: " (go-dep-labels go-pairs go-origins) "\n"
-       "  drop the dep, or build an executable instead (tracked in lgx issue "
-       "#61).\n"))
-
 (def wasm-go-missing-error
   "The error when a :target :wasm build finds no `go` on PATH. Under
    :installed lgx otherwise never needs Go, but `lg -w` always does."

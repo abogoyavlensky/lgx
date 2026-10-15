@@ -638,20 +638,6 @@
          (gobuild/wasm-flag-args "/p" {:shell "web/shell.html"})))
   (is (= [] (gobuild/wasm-flag-args "/p" {:host-eval false}))))
 
-(deftest wasm-go-deps-error-names-origins
-  ;; Same coord labels and order as installed-go-deps-error.
-  (is (= (str "error: :target :wasm cannot link Go deps - `lg -w` builds a "
-              "Go module that carries only let-go\n"
-              "  Go deps: database/sql (via abogoyavlensky/letgo-sql), "
-              "modernc.org/sqlite\n"
-              "  drop the dep, or build an executable instead (tracked in "
-              "lgx issue #61).\n")
-         (gobuild/wasm-go-deps-error
-           [['modernc.org/sqlite {:go/version "v1.57.0"}]
-            ['database/sql {:go/interop "sql"}]]
-           {'database/sql 'abogoyavlensky/letgo-sql
-            'modernc.org/sqlite nil}))))
-
 (deftest wasm-go-missing-error-names-the-fix
   (is (= (str "error: :target :wasm needs the Go toolchain (`lg -w` compiles "
               "the app for js/wasm), but `go` is not on PATH.\n"
