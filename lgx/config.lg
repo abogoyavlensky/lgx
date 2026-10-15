@@ -783,13 +783,12 @@
             (recur (inc i) (assoc seen rendered label))))))))
 
 (defn- bin-target-value-errors
-  "The supported :target values are :lgb and :wasm; omitting it keeps the
-   standalone executable. Named in the message because a reader of #60 will
-   try :native."
+  "The supported :target values are :lgb, :wasm and :native; omitting it
+   keeps the standalone executable."
   [v]
-  (when-not (contains? #{:lgb :wasm} v)
-    (str "must be :lgb or :wasm (omit :target for a standalone executable), "
-         "got " (pr-str v))))
+  (when-not (contains? #{:lgb :wasm :native} v)
+    (str "must be :lgb, :wasm or :native (omit :target for a standalone "
+         "executable), got " (pr-str v))))
 
 (def ^:private single-artifact-phrases
   "Per :target, how the :platforms and :out placeholder errors describe the
@@ -942,12 +941,21 @@
   "Root-level cross-key rule between :lg-runtime and :lg-version. :built
    links let-go itself, so it has nothing to build without a pin; :installed
    (the default) checks the pin against `lg -v`, which only a released semver
-   can ever satisfy. Runs after the structural schema passed, so :lg-version
-   is a non-blank string or absent."
+   can ever satisfy. :target :native compiles Go against the let-go that
+   lowered it, so the compiler and the module must come from one pin, which
+   only :built guarantees. Runs after the structural schema passed, so
+   :lg-version is a non-blank string or absent."
   [cfg]
   (let [mode (or (:lg-runtime cfg) :installed)
         pin (:lg-version cfg)]
     (cond
+      (and (= :native (get-in cfg [:targets :bin :target]))
+           (not= mode :built))
+      [{:path [:lg-runtime]
+        :msg (str ":target :native needs :lg-runtime :built - the Go module "
+                  "that links the lowered code must use the same let-go as "
+                  "the compiler")}]
+
       (and (= mode :built) (nil? pin))
       [{:path [:lg-runtime]
         :msg (str ":built needs :lg-version - the built lg links let-go "

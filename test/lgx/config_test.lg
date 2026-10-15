@@ -516,16 +516,38 @@
     (is (= {:cfg cfg} (load-cfg cfg)))))
 
 (deftest load-rejects-an-unsupported-target
-  ;; Readers of #60 will try :native; name the values that work and the way
-  ;; to get an executable.
+  ;; Name the values that work and the way to get an executable.
   (is (= {:errors [{:path [:targets :bin :target]
-                    :msg (str "must be :lgb or :wasm (omit :target for a standalone "
-                              "executable), got :native")}]}
-         (load-cfg {:targets {:bin {:target :native :out "bin/app"}}})))
+                    :msg (str "must be :lgb, :wasm or :native (omit :target for "
+                              "a standalone executable), got :jar")}]}
+         (load-cfg {:targets {:bin {:target :jar :out "bin/app"}}})))
   (is (= {:errors [{:path [:targets :bin :target]
-                    :msg (str "must be :lgb or :wasm (omit :target for a standalone "
-                              "executable), got \"lgb\"")}]}
+                    :msg (str "must be :lgb, :wasm or :native (omit :target for "
+                              "a standalone executable), got \"lgb\"")}]}
          (load-cfg {:targets {:bin {:target "lgb" :out "dist/app.lgb"}}}))))
+
+(deftest load-accepts-target-native-under-built
+  (let [cfg {:main "m.lg"
+             :lg-runtime :built
+             :lg-version "abc123"
+             :targets {:bin {:target :native :out "dist/app"}}}]
+    (is (= {:cfg cfg} (load-cfg cfg))))
+  (let [cfg {:main "m.lg"
+             :lg-runtime :built
+             :lg-version "abc123"
+             :targets {:bin {:target :native
+                             :out "dist/app_{{os}}_{{arch}}"
+                             :platforms [{:os "linux" :arch "amd64"}
+                                         {:os "darwin" :arch "arm64"}]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-target-native-under-installed
+  (is (= {:errors [{:path [:lg-runtime]
+                    :msg (str ":target :native needs :lg-runtime :built - the Go "
+                              "module that links the lowered code must use the "
+                              "same let-go as the compiler")}]}
+         (load-cfg {:main "m.lg"
+                    :targets {:bin {:target :native :out "dist/app"}}}))))
 
 (deftest load-rejects-platforms-for-an-lgb-target
   (is (= {:errors [{:path [:targets :bin :platforms]
