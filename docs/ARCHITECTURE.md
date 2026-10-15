@@ -392,20 +392,25 @@ basis with resource paths prints a warning first. `:platforms`, or an
 point. `build-wasm!` checks, in order, before anything is built:
 
 - `:main` and that the script exists;
-- `--target`, `--all` and a forwarded `-bundle-base` (any spelling),
-  with `gobuild/wasm-build-arg-error`;
+- `--target`, `--all`, and a forwarded `-bundle-base`, `-w-module` or
+  `-import` (any spelling), with `gobuild/wasm-build-arg-error`;
 - that a string `:wasm :shell` template exists;
-- the resolved basis has no Go coords (`gobuild/wasm-go-deps-error`):
-  `lg -w` builds its own js/wasm module that requires only let-go, so
-  neither runtime mode can get them into the app;
 - `go` is on PATH (`lg -w` always runs `go build`, even under
   `:installed`).
 
-Then it applies the runtime with `:fail`, warns when the basis has
-resource paths (nothing is embedded), and execs `lg -source-paths <X>
--resource-paths <R> [wasm flags] [forwarded-args...] -w <abs-out>
-<abs-main>`. The wasm flags come from `gobuild/wasm-flag-args`; they go
-first so a forwarded `-w-*` flag wins. Config load rejects `:platforms`,
+Then it applies the runtime with `:fail` (which rejects Go coords under
+`:installed`). With Go coords it checks that the host runtime's `lg -h`
+lists `-w-module` (`gobuild/w-module-supported!?`), builds a second
+runtime for `gobuild/wasm-target` (js/wasm), and copies that runtime's
+module into a temp dir (`gobuild/stage-wasm-module!`). It warns when the
+basis has resource paths (nothing is embedded), and execs `lg
+-source-paths <X> -resource-paths <R> [wasm flags] [-w-module <staged>
+-import <pkg>...] [forwarded-args...] -w <abs-out> <abs-main>`, removing
+the staged module afterwards. The wasm flags come from
+`gobuild/wasm-flag-args`; they go first so a forwarded `-w-*` flag wins.
+The `-import` list is `gobuild/wasm-import-args`, the same packages the
+runtime's `main.go` links. See
+[`lgx-go-runtimes.md`](knowledge-base/lgx-go-runtimes.md). Config load rejects `:platforms`,
 an `{{os}}`/`{{arch}}` placeholder, and a `:wasm` options map under any
 other target.
 
