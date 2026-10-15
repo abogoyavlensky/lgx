@@ -2,7 +2,7 @@
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** filed as [nooga/let-go#998](https://github.com/nooga/let-go/issues/998)
+**Status:** resolved upstream on let-go `main` by [#1016](https://github.com/nooga/let-go/pull/1016) (`-w-module`) and [#1037](https://github.com/nooga/let-go/pull/1037) (`-import`), unreleased after v1.13.0. lgx uses them for `:target :wasm` with Go deps (`docs/plans/2026-10-15-1550-wasm-go-deps.md`). Filed as [nooga/let-go#998](https://github.com/nooga/let-go/issues/998).
 
 Found while adding `:target :wasm` to `lgx build` (lgx #61), on let-go main
 `4e769212` and lg 1.13.0.

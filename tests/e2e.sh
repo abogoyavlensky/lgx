@@ -4434,11 +4434,15 @@ pass "wasm --target: writes nothing"
 rm -rf "$proj_w2" "$home_w2"
 
 # ---------------------------------------------------------------------------
-echo "==> Scenario 168: a :wasm build rejects Go deps before building anything"
+echo "==> Scenario 168: a :wasm build with Go deps under :installed fails before building anything"
+# Go deps reach a :wasm app only under :built (via lg -w-module); :installed
+# rejects them in apply-runtime!, as for every other command. Without go on
+# PATH the go check fires first instead, so the message is only asserted
+# when go is there.
 proj_w3="$(mktemp -d)"
 home_w3="$(mktemp -d)"
 cat > "$proj_w3/lgx.edn" <<'EOF'
-{:paths ["."] :main "main.lg" :lg-runtime :built :lg-version "1.13.0"
+{:paths ["."] :main "main.lg" :lg-runtime :installed
  :deps {modernc.org/sqlite {:go/version "v1.57.0"}}
  :targets {:bin {:target :wasm :out "dist/web"}}}
 EOF
@@ -4447,8 +4451,11 @@ set +e
 out="$(cd "$proj_w3" && LGX_HOME="$home_w3" "$LGX" build 2>&1)"; rc=$?
 set -e
 [[ $rc -ne 0 ]] || fail "wasm go deps: expected non-zero exit (got $rc)"
-assert_contains "$out" ":target :wasm cannot link Go deps" "wasm go deps: clear error"
-assert_contains "$out" "Go deps: modernc.org/sqlite" "wasm go deps: names the coord"
+if command -v go >/dev/null 2>&1; then
+    assert_contains "$out" "needs an lg built with the Go toolchain" \
+        "wasm go deps: :installed names the fix"
+    assert_contains "$out" "Go deps: modernc.org/sqlite" "wasm go deps: names the coord"
+fi
 assert_not_contains "$out" "Building custom lg runtime" "wasm go deps: no runtime is built"
 [[ ! -e "$proj_w3/dist" ]] || fail "wasm go deps: expected no dist/ to be created"
 [[ ! -e "$home_w3/runtimes" ]] || fail "wasm go deps: expected no runtime cache"
@@ -4510,6 +4517,91 @@ assert_contains "$out" ":target :wasm needs the Go toolchain" "wasm no go: clear
 [[ ! -e "$proj_w6/dist" ]] || fail "wasm no go: expected no dist/ to be created"
 pass "wasm no go: writes nothing"
 rm -rf "$proj_w6" "$home_w6" "$empty_path_w"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 172: a :wasm build rejects a forwarded -import"
+proj_w7="$(mktemp -d)"
+home_w7="$(mktemp -d)"
+cat > "$proj_w7/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :targets {:bin {:target :wasm :out "dist/web"}}}
+EOF
+echo '(println :hi)' > "$proj_w7/main.lg"
+set +e
+out="$(cd "$proj_w7" && LGX_HOME="$home_w7" "$LGX" build -import example.com/x 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "wasm -import: expected non-zero exit (got $rc)"
+assert_contains "$out" "-w-module and -import are set by lgx from :deps" \
+    "wasm -import: clear error"
+[[ ! -e "$proj_w7/dist" ]] || fail "wasm -import: expected no dist/ to be created"
+pass "wasm -import: writes nothing"
+rm -rf "$proj_w7" "$home_w7"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 173: a :wasm build links a Go interop dep via lg -w-module"
+# The real Go-deps path: a host runtime and a js/wasm runtime are built, the
+# js/wasm module is staged in a temp dir and handed to lg -w-module. Gated
+# like 166 (network on a cold Go cache), and needs a let-go with -w-module:
+# LGX_WASM_E2E_LG_VERSION, defaulting to a let-go main sha until a release
+# carries it (LGX_LETGO_REPLACE also works). The app is run under node with
+# Go's wasm_exec.js; the generated main writes *out* through the _lgOutput
+# global, which the driver defines (as let-go's own caller_module_test does).
+if [[ -n "${LGX_WASM_E2E:-}" ]] && command -v go >/dev/null 2>&1 \
+    && command -v node >/dev/null 2>&1; then
+    proj_w8="$(mktemp -d)"
+    home_w8="$(mktemp -d)"
+    stage_before="$(ls -d "${TMPDIR:-/tmp}"/lgx-wasm-* 2>/dev/null | wc -l)"
+    cat > "$proj_w8/lgx.edn" <<EOF
+{:main "main.lg"
+ :lg-runtime :built
+ :lg-version "${LGX_WASM_E2E_LG_VERSION:-1fb38034}"
+ :deps {hash/crc32 {:go/interop "crc32"}}
+ :targets {:bin {:target :wasm
+                 :out "dist/web"
+                 :wasm {:shell :none :payload :external}}}}
+EOF
+    cat > "$proj_w8/main.lg" <<'EOF'
+(ns main (:require [crc32]))
+(println "crc" (crc32/ChecksumIEEE (.getBytes "hello")))
+EOF
+    cat > "$proj_w8/run.js" <<'EOF'
+const fs = require("fs");
+// Node 18 has no global Web Crypto, which wasm_exec.js requires.
+globalThis.crypto ??= require("crypto").webcrypto;
+require(process.argv[2]);
+globalThis._lgOutput = (s) => process.stdout.write(s);
+const go = new Go();
+WebAssembly.instantiate(fs.readFileSync(process.argv[3]), go.importObject)
+  .then((r) => go.run(r.instance))
+  .catch((e) => { console.error(e); process.exit(1); });
+EOF
+    set +e
+    # LGX_LG is exported by this harness and rejected under :built.
+    out="$(cd "$proj_w8" && env -u LGX_LG LGX_HOME="$home_w8" "$LGX" build 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "wasm go dep: expected success (got $rc, output: $out)"
+    pass "wasm go dep: exits 0"
+    assert_contains "$out" "Building custom lg runtime for js/wasm" \
+        "wasm go dep: builds the js/wasm runtime"
+    [[ -f "$proj_w8/dist/web/main.wasm" ]] || fail "wasm go dep: expected dist/web/main.wasm"
+    pass "wasm go dep: writes main.wasm"
+    if ls -d "$home_w8"/runtimes/*/src/lgprogram >/dev/null 2>&1; then
+        fail "wasm go dep: lgprogram/ landed in the runtime cache"
+    fi
+    pass "wasm go dep: the runtime cache is untouched"
+    stage_after="$(ls -d "${TMPDIR:-/tmp}"/lgx-wasm-* 2>/dev/null | wc -l)"
+    [[ "$stage_after" -le "$stage_before" ]] || fail "wasm go dep: staged module left behind"
+    pass "wasm go dep: the staged module is removed"
+    set +e
+    wout="$(node "$proj_w8/run.js" "$(go env GOROOT)/lib/wasm/wasm_exec.js" \
+        "$proj_w8/dist/web/main.wasm" 2>&1)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "wasm go dep: node run failed (got $rc, output: $wout)"
+    assert_contains "$wout" "crc 907060870" "wasm go dep: the app calls the Go dep"
+    rm -rf "$proj_w8" "$home_w8"
+else
+    skip "wasm Go-dep build needs go, node and network (set LGX_WASM_E2E=1 to run)"
+fi
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."

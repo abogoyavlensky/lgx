@@ -177,6 +177,34 @@ rebuilds plus four bundles; a pinned `:lg-version` re-run is four
 Every unix-family target verified so far (linux/amd64, linux/arm64,
 darwin/arm64) builds.
 
+## `:target :wasm` with Go deps
+
+`lg -w` compiles the program on the host, then `go build`s it for
+`js/wasm`. With Go coords, `build-wasm!` (`lgx.lg`) uses two runtimes:
+
+- **Host runtime** (`apply-runtime!`): compiles the program, because
+  compiling resolves the Go namespaces.
+- **js/wasm runtime** (`ensure-runtime!` with `gobuild/wasm-target`): the
+  usual cross-build, so lginterop scans under `js/wasm` and `CGO_ENABLED=0`.
+  Its `lg` binary is never run; its `src/` is the module the app builds in.
+  A dep that cannot compile for `js/wasm` fails here, under lgx's header.
+
+`stage-wasm-module!` copies that `src/` (`go.mod`, `go.sum`, `main.go`,
+`interop/`) into a fresh `$TMPDIR/lgx-wasm-*` dir, and lgx runs
+`lg -w-module <copy>` there with `wasm-import-args`: the interop package
+plus every link-only package, the same set `render-main-go` blank-imports
+(both read `link-packages`). The copy is removed afterwards. lgx never
+builds in the cached `src/`: `lg -w-module` writes `lgprogram/` into the
+module it gets, and `src/` is shared by every project with the same deps.
+The copy resolves like the original because every `replace` target lgx
+writes is absolute.
+
+`-w-module` arrived on let-go `main` after 1.13.0 (#1016, #1037), and a
+pin can be a tag, branch or sha, so lgx probes the host runtime's `lg -h`
+for `-w-module` (`w-module-supported!?`) before building the js/wasm
+runtime. `lg -w-module` builds with `-mod=readonly`, and the go.sum lgx's
+tidy produces is complete for it.
+
 ## Gotchas
 
 **A dependency's own `go.mod` replaces are ignored.** Go honours
@@ -326,7 +354,7 @@ To force a cold rebuild, delete the leaf
 > cross-key rules, `:go/*` coord validation, `:platforms`, `expand-out`),
 > [`lgx/clean.lg`](../../lgx/clean.lg) (`lgx clean`),
 > [`lgx.lg`](../../lgx.lg) (`ensure-all!` partition, `apply-runtime!`,
-> `cmd-build`).
+> `cmd-build`, `build-wasm!`).
 >
 > **In [nooga/let-go](https://github.com/nooga/let-go):**
 > [`pkg/cli/cli.go`](https://github.com/nooga/let-go/blob/main/pkg/cli/cli.go)
@@ -335,4 +363,6 @@ To force a cold rebuild, delete the leaf
 > (flags, `defaultAlias`),
 > [`pkg/vm/value.go`](https://github.com/nooga/let-go/blob/main/pkg/vm/value.go)
 > (`BoxValue`, `ToLetGo`),
-> [`docs/guide/custom-lg.md`](https://github.com/nooga/let-go/blob/main/docs/guide/custom-lg.md).
+> [`docs/guide/custom-lg.md`](https://github.com/nooga/let-go/blob/main/docs/guide/custom-lg.md),
+> [`pkg/cli/module.go`](https://github.com/nooga/let-go/blob/main/pkg/cli/module.go)
+> (`-w-module`, `-import`).

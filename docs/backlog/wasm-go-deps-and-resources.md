@@ -1,4 +1,4 @@
-# `:target :wasm` cannot carry project Go deps or resources
+# `:target :wasm` cannot carry resources (Go deps done)
 
 **Status: open**
 
@@ -13,18 +13,13 @@ warns that resources are not embedded. The rest needs let-go changes.
 
 Checked on lg 1.13.0 and let-go main `4e769212` (2026-10-01).
 
-## Go deps
+## Go deps (done)
 
-`buildWasm` (let-go `pkg/cli/wasm.go`) writes a throwaway Go module in a
-temp dir. Its `go.mod` requires only let-go, and its generated `main.go`
-(`pkg/rt/wasm/rendermain.go`) imports only let-go runtime packages. lgx's
-generated module, with the project's `:go/*` requires and lginterop
-bindings, has no way in. The host would compile the program, but the app
-would fail in the browser on the missing Go namespace, so lgx rejects Go
-deps for `:target :wasm`.
-
-Few Go deps compile for `js/wasm` anyway: anything with cgo (sqlite,
-duckdb) is out. So the real need may be narrow.
+Done in `docs/plans/2026-10-15-1550-wasm-go-deps.md`. let-go `main` gained
+`lg -w -w-module <dir> -import <pkg>` (#1016, #1037, after 1.13.0), and
+`:target :wasm` now links Go deps under `:lg-runtime :built` through a
+js/wasm runtime's module, staged in a temp dir. It needs a let-go pin that
+has `-w-module`; a dep must compile for `js/wasm` without cgo.
 
 Upstream: nooga/let-go#998 ([`docs/issues/letgo-wasm-extra-go-imports.md`](../issues/letgo-wasm-extra-go-imports.md)).
 

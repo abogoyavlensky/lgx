@@ -838,12 +838,22 @@
   "`lgx build` for :target :wasm: a browser web directory via `lg -w`.
    Always exits.
 
-   `lg -w` compiles the program on the host as `-b` does, then builds its own
-   throwaway Go module for js/wasm that requires only let-go. So Go coords
-   cannot reach the app and are rejected before any runtime is built, and Go
-   must be on PATH even under :installed. -resource-paths still reaches the
-   host compile, but nothing is embedded, so a project with resources hears
-   about it. See docs/backlog/wasm-go-deps-and-resources.md."
+   `lg -w` compiles the program on the host as `-b` does, then builds it for
+   js/wasm with `go build`, so Go must be on PATH even under :installed.
+   Without Go coords it scaffolds its own module that requires only let-go.
+
+   With Go coords (:built only; apply-runtime! rejects them under
+   :installed) two runtimes are in play. The host runtime compiles the
+   program, since compiling resolves the Go namespaces. A second runtime,
+   built for js/wasm, supplies the module: its bindings were generated under
+   js/wasm. That module is staged into a temp dir and handed to `lg -w` as
+   -w-module, with -import for every package the runtime's main.go links,
+   and the temp dir is removed afterwards. The host lg must support
+   -w-module (let-go after 1.13.0), checked before the js/wasm build.
+
+   -resource-paths still reaches the host compile, but nothing is embedded,
+   so a project with resources hears about it. See
+   docs/backlog/wasm-go-deps-and-resources.md."
   [project cfg targets all? forward verbose? with]
   (let [main-script (config/main cfg)
         out-rel (:out (:bin (config/targets cfg)))
@@ -864,27 +874,44 @@
            :as basis}
           (overlay-basis project cfg with nil)]
       (print-installs! results)
-      (when (seq (:go-coords basis))
-        (write! *err* (gobuild/wasm-go-deps-error (:go-coords basis)
-                                                  (:go-origins basis)))
-        (os/exit 1))
       (when-not (gobuild/go-available?)
         (write! *err* gobuild/wasm-go-missing-error)
         (os/exit 1))
-      (apply-runtime! cfg basis :fail verbose?)
-      (when (seq resource-paths)
-        (write! *err* (str "warning: :resource-paths are not embedded in a "
-                           "browser WASM app - io/resource will not find "
-                           "them in the browser\n")))
-      (let [abs-out (ensure-out-dir! project out-rel)
-            abs-main (path/join project main-script)
-            ;; Config flags first: a forwarded -w-* flag comes later and
-            ;; wins, since Go's flag package keeps the last value.
-            args (vec (concat (gobuild/wasm-flag-args project wasm-opts)
-                              forward
-                              ["-w" abs-out abs-main]))]
-        (write! *err* (str (style/header (str "Building " out-rel "...")) "\n"))
-        (let [exit (runner/invoke-lg! paths resource-paths args verbose?)]
+      (let [go-pairs (:go-coords basis)
+            host (apply-runtime! cfg basis :fail verbose?)]
+        (when (and (seq go-pairs)
+                   (not (gobuild/w-module-supported!? host)))
+          (write! *err* gobuild/wasm-w-module-error)
+          (os/exit 1))
+        (when (seq resource-paths)
+          (write! *err* (str "warning: :resource-paths are not embedded in a "
+                             "browser WASM app - io/resource will not find "
+                             "them in the browser\n")))
+        (let [module (when (seq go-pairs)
+                       (gobuild/stage-wasm-module!
+                         (gobuild/ensure-runtime! go-pairs
+                                                  (config/lg-version cfg)
+                                                  gobuild/wasm-target
+                                                  verbose?)))
+              abs-out (ensure-out-dir! project out-rel)
+              abs-main (path/join project main-script)
+              ;; Config flags first: a forwarded -w-* flag comes later and
+              ;; wins, since Go's flag package keeps the last value.
+              args (vec (concat (gobuild/wasm-flag-args project wasm-opts)
+                                (when module
+                                  (concat ["-w-module" module]
+                                          (gobuild/wasm-import-args go-pairs)))
+                                forward
+                                ["-w" abs-out abs-main]))
+              _ (write! *err* (str (style/header (str "Building " out-rel "..."))
+                                   "\n"))
+              ;; Exit only after the finally: os/exit would skip it and
+              ;; leave the staged module behind.
+              exit (try
+                     (runner/invoke-lg! paths resource-paths args verbose?)
+                     (finally
+                       (when module
+                         (syscall/rm-rf module))))]
           (when-not (zero? exit)
             (os/exit exit))
           (println "built" abs-out)

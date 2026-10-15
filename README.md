@@ -282,10 +282,16 @@ passed on the command line overrides the config.
 - `:platforms`, `{{os}}`/`{{arch}}` in `:out`, `--target`, `--all` and
   `-bundle-base` do not apply and are rejected. A `:wasm` map without
   `:target :wasm` is rejected too.
-- Go deps (`:go/*`, direct or transitive) are an error: `lg -w` builds its
-  own Go module that carries only let-go. Resources are not embedded; the
-  build warns when `:resource-paths` is set. Both are tracked in
-  [#61](https://github.com/abogoyavlensky/lgx/issues/61).
+- Go deps (`:go/*`, direct or transitive) need `:lg-runtime :built` and a
+  let-go whose `lg -w` has `-w-module` and `-import` (on let-go `main` after
+  1.13.0; pin `:lg-version` to a release that has them, or to a `main`
+  sha). lgx then builds a second runtime for `js/wasm` and links its
+  module into the app, so every Go dep must compile for `js/wasm` without
+  cgo. `-w-module` and `-import` are set by lgx and cannot be passed on
+  the command line.
+- Resources are not embedded; the build warns when `:resource-paths` is
+  set. Tracked in [#61](https://github.com/abogoyavlensky/lgx/issues/61)
+  and nooga/let-go#999.
 - lgx does not clean `:out`. Switching from `:external` to `:inline` leaves
   the old `main.wasm` behind.
 - One `lgx.edn` declares one artifact kind: contexts cannot override

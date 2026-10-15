@@ -591,6 +591,37 @@
   (is (= wasm-base-error
          (gobuild/wasm-build-arg-error [] false ["-bundle-base=/x/lg"]))))
 
+(def ^:private wasm-module-arg-error
+  "-w-module and -import are set by lgx from :deps for :target :wasm")
+
+(deftest wasm-build-arg-error-rejects-w-module-and-import
+  ;; lgx stages the module and derives the import list itself; a forwarded
+  ;; value would point lg at a different module or a partial import list.
+  (doseq [args [["-w-module" "/m"] ["--w-module" "/m"] ["-w-module=/m"]
+                ["--w-module=/m"] ["-import" "x/y"] ["--import" "x/y"]
+                ["-import=x/y"] ["--import=x/y"]]]
+    (is (= wasm-module-arg-error
+           (gobuild/wasm-build-arg-error [] false args))
+        (pr-str args)))
+  (is (nil? (gobuild/wasm-build-arg-error [] false ["-w-modules"])))
+  (is (nil? (gobuild/wasm-build-arg-error [] false ["-imports"]))))
+
+(deftest w-module-supported-reads-lg-help
+  (is (true? (gobuild/w-module-supported?
+               (str "  -w string\n    \tbuild a WASM web app\n"
+                    "  -w-module string\n    \tfor -w: build inside...\n"))))
+  (is (false? (gobuild/w-module-supported?
+                (str "  -w string\n    \tbuild a WASM web app\n"
+                     "  -w-shell string\n    \thtml shell\n"))))
+  (is (false? (gobuild/w-module-supported? ""))))
+
+(deftest wasm-w-module-error-names-the-fix
+  (let [msg gobuild/wasm-w-module-error]
+    (is (str/includes? msg ":target :wasm"))
+    (is (str/includes? msg "-w-module"))
+    (is (str/includes? msg "nooga/let-go#1037"))
+    (is (str/includes? msg ":lg-version"))))
+
 (deftest wasm-build-arg-error-reports-platforms-first
   (is (= wasm-platform-error
          (gobuild/wasm-build-arg-error [] true ["-bundle-base" "/x/lg"]))))
@@ -606,20 +637,6 @@
   (is (= ["-w-shell" "/p/web/shell.html"]
          (gobuild/wasm-flag-args "/p" {:shell "web/shell.html"})))
   (is (= [] (gobuild/wasm-flag-args "/p" {:host-eval false}))))
-
-(deftest wasm-go-deps-error-names-origins
-  ;; Same coord labels and order as installed-go-deps-error.
-  (is (= (str "error: :target :wasm cannot link Go deps - `lg -w` builds a "
-              "Go module that carries only let-go\n"
-              "  Go deps: database/sql (via abogoyavlensky/letgo-sql), "
-              "modernc.org/sqlite\n"
-              "  drop the dep, or build an executable instead (tracked in "
-              "lgx issue #61).\n")
-         (gobuild/wasm-go-deps-error
-           [['modernc.org/sqlite {:go/version "v1.57.0"}]
-            ['database/sql {:go/interop "sql"}]]
-           {'database/sql 'abogoyavlensky/letgo-sql
-            'modernc.org/sqlite nil}))))
 
 (deftest wasm-go-missing-error-names-the-fix
   (is (= (str "error: :target :wasm needs the Go toolchain (`lg -w` compiles "
@@ -746,6 +763,32 @@
   (let [a (gobuild/render-main-go [sqlite shim] "1.11.1" "")
         b (gobuild/render-main-go [shim sqlite] "1.11.1" "")]
     (is (= a b))))
+
+;; ---------------------------------------------------------------------------
+;; link-packages / wasm-import-args
+;; ---------------------------------------------------------------------------
+
+(deftest link-packages-are-external-coords-without-interop
+  (is (= [] (gobuild/link-packages [])))
+  (is (= [] (gobuild/link-packages [sql])))
+  (is (= ["modernc.org/sqlite"] (gobuild/link-packages [sql sqlite])))
+  (is (= ["modernc.org/sqlite"]
+         (gobuild/link-packages [['modernc.org/sqlite {:go/version "v1.38.0"}]
+                                 ['hash/crc32 {:go/interop "crc32"}]])))
+  (is (= (gobuild/link-packages [sqlite shim])
+         (gobuild/link-packages [shim sqlite]))))
+
+(deftest wasm-import-args-mirror-the-runtime-main
+  ;; The WASM app has to link what the runtime's main.go blank-imports: the
+  ;; interop package when any coord has bindings, then each link-only coord.
+  (is (= [] (gobuild/wasm-import-args [])))
+  (is (= ["-import" "lgx.local/runtime/interop"]
+         (gobuild/wasm-import-args [sql])))
+  (is (= ["-import" "modernc.org/sqlite"]
+         (gobuild/wasm-import-args [sqlite])))
+  (is (= ["-import" "lgx.local/runtime/interop"
+          "-import" "modernc.org/sqlite"]
+         (gobuild/wasm-import-args [sqlite sql]))))
 
 ;; ---------------------------------------------------------------------------
 ;; letgo-version-parts — what cli.Main reports

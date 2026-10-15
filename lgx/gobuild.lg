@@ -381,6 +381,15 @@
   [s]
   (str "\"" (str/replace (str/replace (str s) "\\" "\\\\") "\"" "\\\"") "\""))
 
+(defn link-packages
+  "Pure. The link-only package paths, sorted: external coords without
+   :go/interop. These are what render-main-go blank-imports and what a WASM
+   app built with -w-module has to -import, so the two cannot drift."
+  [go-pairs]
+  (vec (sort (map (fn [[lib _]] (str lib))
+                  (filter #(and (external? %) (not (interop? %)))
+                          go-pairs)))))
+
 (defn render-main-go
   "Pure. The generated module's main.go: a binary that IS `lg`, with the
    declared packages linked in. `version` and `commit` fill cli.Main's two
@@ -392,9 +401,7 @@
    generated binding package imports the package itself, and blank-importing
    that binding package is what registers every namespace."
   [go-pairs version commit]
-  (let [links (sort (map (fn [[lib _]] (str lib))
-                         (filter #(and (external? %) (not (interop? %)))
-                                 go-pairs)))
+  (let [links (link-packages go-pairs)
         any-interop? (boolean (some interop? go-pairs))]
     (str "package main\n"
          "\n"
@@ -418,6 +425,16 @@
    generated files (and any regeneration) stay stable."
   [go-pairs]
   (vec (sort (map (fn [[lib _]] (str lib)) (filter interop? go-pairs)))))
+
+(defn wasm-import-args
+  "Pure. The `-import` flags for `lg -w -w-module`: the interop package when
+   any coord has bindings, then each link-only package — the same set the
+   runtime's main.go blank-imports, so the app registers the same namespaces
+   the host lg compiled the program against."
+  [go-pairs]
+  (vec (mapcat (fn [pkg] ["-import" pkg])
+               (concat (when (some interop? go-pairs) [interop-package])
+                       (link-packages go-pairs)))))
 
 (defn render-interop-doc-go
   "The interop package's placeholder, written before generation and left in
@@ -741,6 +758,39 @@
      :live? (some? replace-path)
      :lg-version lg-version}))
 
+(def wasm-target
+  "The platform the module behind a :target :wasm app is built for. A
+   runtime built for it is never run: its src/ is the module `lg -w-module`
+   builds in, with bindings lginterop generated under js/wasm."
+  {:os "js"
+   :arch "wasm"})
+
+(defn stage-wasm-module!
+  "Copy the module behind the runtime binary `runtime-bin` (what
+   ensure-runtime! returns, <hash>/lg) into a fresh temp dir and return the
+   dir. `lg -w-module` writes its lgprogram/ into the module it is given, and
+   the cached src/ is shared by every project with the same Go deps — so the
+   build never runs there. Only what the build reads is copied: go.mod,
+   go.sum, main.go and the interop bindings, not the lginterop-tool binary.
+   The replace targets in go.mod are absolute, so the copy resolves as the
+   original does. A failed copy removes the temp dir before throwing; on
+   success the caller owns it."
+  [runtime-bin]
+  (let [src (path/join (path/parent runtime-bin) "src")
+        dir (path/join (os/temp-dir)
+                       (str "lgx-wasm-" (rand-int 1000000000)))
+        entries (filter #(file-exists? (path/join src %))
+                        ["go.mod" "go.sum" "main.go" "interop"])]
+    (mkdir dir)
+    (let [r (apply os/sh "cp" "-R"
+                   (concat (map #(path/join src %) entries) [dir]))]
+      (when-not (zero? (:exit r))
+        (syscall/rm-rf dir)
+        (throw (ex-info (str "staging the wasm module failed: " (:err r))
+                        {:src src
+                         :dir dir}))))
+    dir))
+
 (defn ensure-runtime!
   "Build (or reuse) the custom `lg` that links this project's Go deps, and
    return its absolute path.
@@ -878,14 +928,52 @@
   (single-artifact-arg-error :lgb "a .lgb artifact is platform-independent"
                              cli-targets all? forward-args))
 
+(defn- w-module-arg?
+  "A forwarded -w-module or -import, in any of Go's flag spellings."
+  [arg]
+  (some (fn [flag]
+          (or (= arg (str "-" flag))
+              (= arg (str "--" flag))
+              (str/starts-with? arg (str "-" flag "="))
+              (str/starts-with? arg (str "--" flag "="))))
+        ["w-module" "import"]))
+
 (defn wasm-build-arg-error
   "Pure. Why this `lgx build` invocation cannot build a :target :wasm app, or
    nil when it can. `lg -w` always builds for js/wasm, so platform selection
-   has nothing to act on, and it never takes a bundle base."
+   has nothing to act on, and it never takes a bundle base. -w-module and
+   -import belong to lgx: it stages the module and derives the import list
+   from :deps, so a forwarded value would fight both."
   [cli-targets all? forward-args]
-  (single-artifact-arg-error :wasm
-                             "a browser WASM app is built for js/wasm only"
-                             cli-targets all? forward-args))
+  (or (single-artifact-arg-error :wasm
+                                 "a browser WASM app is built for js/wasm only"
+                                 cli-targets all? forward-args)
+      (when (some w-module-arg? forward-args)
+        "-w-module and -import are set by lgx from :deps for :target :wasm")))
+
+(defn w-module-supported?
+  "Pure. Whether `lg -h` output lists -w-module, the flag that lets `lg -w`
+   build inside a caller's Go module (let-go #1016, with -import from #1037).
+   The help text is the only reliable signal: :lg-version can be a tag, a
+   branch or a sha, so no version comparison can answer it."
+  [help-text]
+  (str/includes? (or help-text "") "-w-module"))
+
+(defn w-module-supported!?
+  "Run `lg -h` on `lg-path` and check its flags with w-module-supported?.
+   Go's flag package prints usage to stderr, so both streams are read."
+  [lg-path]
+  (let [r (os/sh lg-path "-h")]
+    (w-module-supported? (str (:out r) (:err r)))))
+
+(def wasm-w-module-error
+  "The error when a :target :wasm build has Go deps but the runtime's lg -w
+   cannot build in a caller module."
+  (str "error: :target :wasm with Go deps needs an lg whose -w supports "
+       "-w-module and -import (let-go after 1.13.0, nooga/let-go#1037), but "
+       "this runtime's lg does not\n"
+       "  set :lg-version to a let-go release that has them, or to a let-go "
+       "main sha\n"))
 
 (defn wasm-flag-args
   "Pure. The lg flags for the :wasm options map, in :shell, :payload,
@@ -955,17 +1043,6 @@
        (mode-phrase explicit?) "\n"
        "  Go deps: " (go-dep-labels go-pairs go-origins) "\n"
        built-fix ", or drop the dep.\n"))
-
-(defn wasm-go-deps-error
-  "Pure. The error for Go coords in a :target :wasm build. `lg -w` builds its
-   own module that requires only let-go, so neither :installed nor :built can
-   get them into the app (docs/backlog/wasm-go-deps-and-resources.md)."
-  [go-pairs go-origins]
-  (str "error: :target :wasm cannot link Go deps - `lg -w` builds a Go module "
-       "that carries only let-go\n"
-       "  Go deps: " (go-dep-labels go-pairs go-origins) "\n"
-       "  drop the dep, or build an executable instead (tracked in lgx issue "
-       "#61).\n"))
 
 (def wasm-go-missing-error
   "The error when a :target :wasm build finds no `go` on PATH. Under
