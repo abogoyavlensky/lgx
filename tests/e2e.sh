@@ -4566,6 +4566,8 @@ EOF
 EOF
     cat > "$proj_w8/run.js" <<'EOF'
 const fs = require("fs");
+// Node 18 has no global Web Crypto, which wasm_exec.js requires.
+globalThis.crypto ??= require("crypto").webcrypto;
 require(process.argv[2]);
 globalThis._lgOutput = (s) => process.stdout.write(s);
 const go = new Go();
