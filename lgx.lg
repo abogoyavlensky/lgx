@@ -6,6 +6,7 @@
             [lgx.completion :as completion]
             [lgx.config :as config]
             [lgx.gobuild :as gobuild]
+            [lgx.native :as native]
             [lgx.new :as new]
             [lgx.path :as path]
             [lgx.registry :as registry]
@@ -888,11 +889,12 @@
                              "browser WASM app - io/resource will not find "
                              "them in the browser\n")))
         (let [module (when (seq go-pairs)
-                       (gobuild/stage-wasm-module!
+                       (gobuild/stage-runtime-module!
                          (gobuild/ensure-runtime! go-pairs
                                                   (config/lg-version cfg)
                                                   gobuild/wasm-target
-                                                  verbose?)))
+                                                  verbose?)
+                         "wasm"))
               abs-out (ensure-out-dir! project out-rel)
               abs-main (path/join project main-script)
               ;; Config flags first: a forwarded -w-* flag comes later and
@@ -900,7 +902,7 @@
               args (vec (concat (gobuild/wasm-flag-args project wasm-opts)
                                 (when module
                                   (concat ["-w-module" module]
-                                          (gobuild/wasm-import-args go-pairs)))
+                                          (gobuild/module-import-args go-pairs)))
                                 forward
                                 ["-w" abs-out abs-main]))
               _ (write! *err* (str (style/header (str "Building " out-rel "..."))
@@ -917,6 +919,113 @@
           (println "built" abs-out)
           (os/exit 0))))))
 
+;; The first form of a .lg file, or nil when it cannot be read. Only the ns
+;; form matters to the native walker, and read-string reads one form.
+(defn- read-first-form [p]
+  (try
+    (read-string (slurp p))
+    (catch _ nil)))
+
+(defn- build-native!
+  "`lgx build` for :target :native: lower :main and every .lg namespace it
+   reaches to Go and link an executable per target with `lg compile -module`.
+   Always exits.
+
+   :lg-runtime :built is guaranteed by config load, so the host runtime's lg
+   is the compiler and every runtime module carries the same let-go. Per
+   target, the module of that target's runtime (bindings generated for it) is
+   staged into a temp dir, `lg compile` runs there with the target's
+   GOOS/GOARCH, and the temp dir is removed afterwards. Search paths reach it
+   through LG_SOURCE_PATHS (see native/native-compile-argv). Resource paths
+   are not embedded."
+  [project cfg targets all? forward verbose? with]
+  (let [main-script (config/main cfg)
+        bin (:bin (config/targets cfg))]
+    (when (nil? main-script)
+      (write! *err* build-main-required)
+      (os/exit 1))
+    (resolve-main-script! project main-script)
+    (when-let [err (native/native-build-arg-error forward)]
+      (write! *err* (str "lgx: " err "\n"))
+      (os/exit 1))
+    (let [resolved (gobuild/resolve-build-targets targets all?
+                                                  (config/platforms cfg))
+          _ (when (:error resolved)
+              (write! *err* (str "lgx: " (:error resolved) "\n"))
+              (os/exit 1))
+          target-list (:targets resolved)
+          abs-main (path/join project main-script)]
+      (when-let [dup (gobuild/duplicate-target-out (:out bin) target-list)]
+        (write! *err*
+                (str "lgx: more than one target renders :out to " (pr-str dup)
+                     " - the artifacts would overwrite each other; add an "
+                     "{{os}} or {{arch}} placeholder to :out\n"))
+        (os/exit 1))
+      (when-let [err (native/main-ns-error main-script
+                                           (read-first-form abs-main))]
+        (write! *err* (str "lgx: " err "\n"))
+        (os/exit 1))
+      (let [{:keys [results paths resource-paths]
+             :as basis}
+            (overlay-basis project cfg with nil)
+            go-pairs (:go-coords basis)
+            {:keys [files skipped]}
+            (native/reachable-lg-files {:roots paths
+                                        :main abs-main
+                                        :read-first-form read-first-form
+                                        :file? file-exists?
+                                        :entry? #(native/defines-entry?
+                                                   (slurp %))})]
+        (print-installs! results)
+        (doseq [s skipped]
+          (write! *err* (str (native/skipped-note s) "\n")))
+        (when (seq resource-paths)
+          (write! *err* (str "warning: :resource-paths are not embedded in a "
+                             "native executable - io/resource will not find "
+                             "them unless the app sets its own path\n")))
+        (let [host (apply-runtime! cfg basis :fail verbose?)]
+          (when-not (gobuild/compile-module-supported!? host)
+            (write! *err* (str "lgx: " native/compile-module-error "\n"))
+            (os/exit 1))
+          (doseq [target target-list]
+            (let [out-rel (gobuild/target-out (:out bin) target)
+                  abs-out (ensure-out-dir! project out-rel)
+                  runtime (if target
+                            (gobuild/ensure-runtime! go-pairs
+                                                     (config/lg-version cfg)
+                                                     target verbose?)
+                            host)
+                  label (str "Building " out-rel " ("
+                             (if target
+                               (str (:os target) "/" (:arch target) ", ")
+                               "")
+                             "native)...")
+                  _ (write! *err* (str (style/header label) "\n"))
+                  module (gobuild/stage-runtime-module! runtime "native")
+                  argv (native/native-compile-argv
+                         {:lg host
+                          :module module
+                          :out abs-out
+                          :files files
+                          :imports (gobuild/module-import-args go-pairs)
+                          :source-paths paths
+                          :target target})
+                  _ (when verbose?
+                      (write! *err* (str "+ " (str/join " " argv) "\n")))
+                  ;; Exit only after the finally: os/exit would skip it and
+                  ;; leave the staged module behind.
+                  r (try
+                      (apply os/sh argv)
+                      (finally
+                        (syscall/rm-rf module)))]
+              (runner/replay-output! r)
+              (when-not (zero? (:exit r))
+                (write! *err* (str native/compile-failed-hint "\n"))
+                (os/exit (:exit r)))))
+          (when (> (count target-list) 1)
+            (println (str "built " (count target-list) " targets")))
+          (os/exit 0))))))
+
 (defn- cmd-build [forward-args verbose? with]
   (let [{:keys [targets all? forward]}
         (try
@@ -931,6 +1040,7 @@
         _ (case (config/bin-target cfg)
             :lgb (build-lgb! project cfg targets all? forward verbose? with)
             :wasm (build-wasm! project cfg targets all? forward verbose? with)
+            :native (build-native! project cfg targets all? forward verbose? with)
             nil)
         resolved (gobuild/resolve-build-targets targets all?
                                                 (config/platforms cfg))

@@ -1,0 +1,235 @@
+;; lgx.native — the pure half of `:target :native`.
+;;
+;; `lg compile` lowers only the files it is given; anything else still runs, but
+;; from bytecode. So lgx walks the namespace graph from :main itself, the way
+;; let-go's resolver would find each file, and passes every reachable .lg file.
+;; Everything here is pure: the file system comes in as functions.
+(ns lgx.native
+  (:require [lgx.path :as path]
+            [string :as str]))
+
+;; ---------------------------------------------------------------------------
+;; Reading an ns form
+;; ---------------------------------------------------------------------------
+
+(defn- libspec?
+  "A vector or list is one libspec, not a prefix list, when nothing follows
+   its lib or the next element is an option keyword (`[c.d :as d]`)."
+  [x]
+  (let [more (rest x)]
+    (or (empty? more) (keyword? (first more)))))
+
+(defn- spec-libs
+  "The lib symbols one :require/:use entry names: a bare symbol, a libspec,
+   or a prefix list `(e f [g :as gg])`, whose later elements join the prefix."
+  [x]
+  (cond
+    (symbol? x) [x]
+
+    (and (sequential? x) (symbol? (first x)))
+    (if (libspec? x)
+      [(first x)]
+      (let [prefix (str (first x))]
+        (vec (keep (fn [e]
+                     (let [lib (cond (symbol? e) e
+                                     (and (sequential? e) (symbol? (first e))) (first e)
+                                     :else nil)]
+                       (when lib (symbol (str prefix "." lib)))))
+                   (rest x)))))
+
+    :else []))
+
+(defn ns-form-libs
+  "Pure. The lib symbols an (ns ...) form loads through :require and :use, in
+   source order. [] for anything that is not an ns form. Other clauses
+   (:import, :require-macros, :refer-clojure) load nothing lgx can lower."
+  [form]
+  (if (and (seq? form) (= 'ns (first form)))
+    (vec (mapcat (fn [clause]
+                   (if (and (seq? clause)
+                            (contains? #{:require :use} (first clause)))
+                     (mapcat spec-libs (rest clause))
+                     []))
+                 (rest form)))
+    []))
+
+;; ---------------------------------------------------------------------------
+;; Resolving a lib to a file
+;; ---------------------------------------------------------------------------
+
+(defn lib-candidates
+  "Pure. The relative paths let-go's resolver tries for `lib` under each root,
+   in its order (pkg/resolver/resolver.go): per extension .lg, .cljc, .clj, the
+   name as written, then with - turned into _."
+  [lib]
+  (let [hyphen (str/replace (str lib) "." "/")
+        underscore (str/replace hyphen "-" "_")]
+    (vec (for [ext [".lg" ".cljc" ".clj"]
+               p [hyphen underscore]]
+           (str p ext)))))
+
+(defn- resolve-lib
+  "The first existing file for `lib`: roots in order, candidates in order
+   within each root, as the resolver searches. nil when none exists."
+  [roots file? lib]
+  (first (for [root roots
+               c (lib-candidates lib)
+               :let [p (path/join root c)]
+               :when (file? p)]
+           p)))
+
+(defn- main-segment?
+  "A namespace whose last segment is main lowers to Go package main, which
+   cannot be imported, so the build fails."
+  [ns-sym]
+  (= "main" (last (str/split (str ns-sym) "."))))
+
+(defn defines-entry?
+  "Pure. Whether source text defines a program entry the way `lg compile`
+   looks for one: a top-level (defn -main ...) or (defn main ...), written at
+   column 0. `lg compile` takes any input's -main over :main's main, so a
+   reachable dep that defines one must not be passed to it."
+  [text]
+  (boolean (re-find #"(?m)^\(defn-?\s+(?:\^\S+\s+)?-?main[\s\[(]" text)))
+
+(defn reachable-lg-files
+  "Pure apart from the injected readers. Walk the namespace graph from `:main`
+   breadth-first over `:roots`, following each file's ns :require/:use.
+
+   Every resolved file is walked; only .lg files are lowered, so a .cljc in the
+   middle of a chain still leads to the .lg files behind it. A namespace whose
+   last segment is main is walked but not lowered. A file whose first form
+   cannot be read (`:read-first-form` returns nil) is lowered, since lg may
+   read it fine, but its requires are not followed. A file other than :main
+   for which `:entry?` is true defines its own -main or main, which
+   `lg compile` could pick as the program's entry, so it is walked but not
+   lowered.
+
+   Returns {:files [abs-path ...] :skipped [{:ns :path :reason}]}, with :main
+   first and every path once."
+  [{:keys [roots main read-first-form file? entry?]}]
+  (loop [queue [[nil main]]
+         seen #{main}
+         files []
+         skipped []]
+    (if (empty? queue)
+      {:files files
+       :skipped skipped}
+      (let [[lib p] (first queue)
+            form (read-first-form p)
+            lg? (str/ends-with? p ".lg")
+            ns-sym (or lib (when (seq? form) (second form)))
+            main-seg? (and lib (main-segment? lib))
+            entry-file? (and lib lg? (not main-seg?) (entry? p))
+            files (if (and lg? (not main-seg?) (not entry-file?))
+                    (conj files p)
+                    files)
+            skipped (cond-> skipped
+                      main-seg? (conj {:ns ns-sym
+                                       :path p
+                                       :reason :main-segment})
+                      entry-file? (conj {:ns ns-sym
+                                         :path p
+                                         :reason :entry})
+                      (nil? form) (conj {:ns ns-sym
+                                         :path p
+                                         :reason :unreadable}))
+            next-entries (keep (fn [l]
+                                 (when-let [q (resolve-lib roots file? l)]
+                                   [l q]))
+                               (ns-form-libs form))
+            fresh (second
+                    (reduce (fn [[seen-ps acc] [_ q :as e]]
+                              (if (contains? seen-ps q)
+                                [seen-ps acc]
+                                [(conj seen-ps q) (conj acc e)]))
+                            [seen []]
+                            next-entries))]
+        (recur (into (vec (rest queue)) fresh)
+               (into seen (map second fresh))
+               files
+               skipped)))))
+
+;; ---------------------------------------------------------------------------
+;; Entry checks
+;; ---------------------------------------------------------------------------
+
+(defn main-ns-error
+  "Pure. Why :main cannot be the entry of a native build, or nil. `form` is
+   its first form (nil when unreadable). Without an ns form, `lg compile`'s
+   bytecode keeps the top-level (-main) call, so the binary runs -main twice;
+   a namespace whose last segment is main becomes Go package main."
+  [main-rel form]
+  (cond
+    (not (str/ends-with? main-rel ".lg"))
+    (str ":target :native needs :main to be a .lg file (got " main-rel ")")
+
+    (not (and (seq? form) (= 'ns (first form))))
+    (str ":target :native needs " main-rel " to start with an ns form - "
+         "without one, the native binary runs -main twice")
+
+    (main-segment? (second form))
+    (str ":target :native cannot build namespace " (second form) ": a last "
+         "segment of main becomes Go package main - rename it")
+
+    :else nil))
+
+(defn native-build-arg-error
+  "Pure. `lg compile` takes none of lg's flags (it dispatches before flag
+   parsing), so there is nothing to forward to it."
+  [forward-args]
+  (when (seq forward-args)
+    (str "lgx build with :target :native takes no lg args (got "
+         (str/join " " forward-args) ")")))
+
+;; ---------------------------------------------------------------------------
+;; lg compile
+;; ---------------------------------------------------------------------------
+
+(defn native-compile-argv
+  "Pure. The env(1)-prefixed argv for one `lg compile -module` run. Search
+   paths go through LG_SOURCE_PATHS: `lg compile` dispatches on argv[1] before
+   flag parsing, so -source-paths cannot precede it. A cross target adds
+   GOOS/GOARCH and CGO_ENABLED=0, which `lg compile`'s go build inherits. All
+   flags come before the files."
+  [{:keys [lg module out files imports source-paths target]}]
+  (vec (concat ["env" "LG_READ_CLJ=1"
+                (str "LG_SOURCE_PATHS=" (str/join os/path-separator source-paths))]
+               (when target
+                 [(str "GOOS=" (:os target))
+                  (str "GOARCH=" (:arch target))
+                  "CGO_ENABLED=0"])
+               [lg "compile" "-module" module]
+               imports
+               ["-o" out]
+               files)))
+
+(defn compile-module-supported?
+  "Pure. Whether `lg compile -h` output lists -module and -import (let-go
+   main after 1.13.0, nooga/let-go#1016 and #1037)."
+  [help-text]
+  (boolean (and (str/includes? help-text "-module")
+                (str/includes? help-text "-import"))))
+
+(def compile-module-error
+  "The error when the pinned let-go's `lg compile` cannot build in a caller
+   module."
+  (str ":target :native needs an lg with `lg compile -module` and `-import` "
+       "(let-go main after 1.13.0, nooga/let-go#1037) - set :lg-version to a "
+       "let-go main sha that has it"))
+
+(def compile-failed-hint
+  "Printed after a failed `lg compile`, which may be the lowerer emitting Go
+   that does not build rather than a mistake in the program."
+  (str "hint: lg compile failed; the default executable target (omit "
+       ":target) bundles the same program without lowering"))
+
+(defn skipped-note
+  "Pure. The note for one :skipped entry of reachable-lg-files."
+  [{:keys [ns path reason]}]
+  (case reason
+    :main-segment (str "note: not lowering " ns " (last segment main)")
+    :entry (str "note: not lowering " ns " (it defines its own -main or "
+                "main, which lg compile could take as the program's entry)")
+    :unreadable (str "note: could not read the ns form of " path
+                     "; its requires are not followed")))

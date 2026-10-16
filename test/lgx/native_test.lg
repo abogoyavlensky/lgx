@@ -1,0 +1,223 @@
+;; Unit tests for lgx.native — the pure half of `:target :native`: walking the
+;; namespace graph from :main, the entry checks, the `lg compile` argv, and the
+;; capability probe's predicate. The real build is covered by tests/e2e.sh.
+;; Run with: lgx test  (from project root)
+
+(ns lgx.native-test
+  (:require [lgx.native :as native]
+            [clojure.test :refer [deftest is]]))
+
+;; ---------------------------------------------------------------------------
+;; ns-form-libs
+;; ---------------------------------------------------------------------------
+
+(deftest ns-form-libs-reads-require-and-use
+  (is (= '[c.d h.i e.f e.g j.k]
+         (native/ns-form-libs
+           '(ns a.b "doc" {:x 1}
+              (:require [c.d :as d] h.i (e f [g :as gg]))
+              (:use j.k))))))
+
+(deftest ns-form-libs-reads-a-vector-prefix-list
+  (is (= '[e.f e.g x.y]
+         (native/ns-form-libs '(ns a (:require [e f [g :as gg]] [x.y]))))))
+
+(deftest ns-form-libs-ignores-other-clauses
+  (is (= '[c.d]
+         (native/ns-form-libs '(ns a
+                                 (:require-macros [m.n])
+                                 (:import [java.util Date])
+                                 (:require [c.d :refer [x]]))))))
+
+(deftest ns-form-libs-is-empty-for-a-non-ns-form
+  (is (= [] (native/ns-form-libs '(println "hi"))))
+  (is (= [] (native/ns-form-libs nil))))
+
+;; ---------------------------------------------------------------------------
+;; lib-candidates
+;; ---------------------------------------------------------------------------
+
+(deftest lib-candidates-follow-the-resolver-order
+  (is (= ["a/b-c.lg" "a/b_c.lg" "a/b-c.cljc" "a/b_c.cljc" "a/b-c.clj" "a/b_c.clj"]
+         (native/lib-candidates 'a.b-c))))
+
+;; ---------------------------------------------------------------------------
+;; reachable-lg-files
+;; ---------------------------------------------------------------------------
+
+(def ^:private ^:dynamic entries
+  "Paths the in-memory walk treats as defining their own entry."
+  #{})
+
+(defn- walk
+  "Run reachable-lg-files over an in-memory {path form} map."
+  [roots main files]
+  (native/reachable-lg-files {:roots roots
+                              :main main
+                              :read-first-form (fn [p] (get files p))
+                              :file? (fn [p] (contains? files p))
+                              :entry? (fn [p] (contains? entries p))}))
+
+(deftest walk-follows-app-to-dep-across-roots
+  (let [files {"/p/main.lg" '(ns app.core (:require [app.util :as u]))
+               "/p/src/app/util.lg" '(ns app.util (:require [dep.core]))
+               "/d/src/dep/core.lg" '(ns dep.core (:require [clojure.string :as str]))}]
+    (is (= {:files ["/p/main.lg" "/p/src/app/util.lg" "/d/src/dep/core.lg"]
+            :skipped []}
+           (walk ["/p/src" "/d/src"] "/p/main.lg" files)))))
+
+(deftest walk-first-root-wins-even-for-cljc
+  (let [files {"/p/main.lg" '(ns app.core (:require [x.y]))
+               "/r1/x/y.cljc" '(ns x.y)
+               "/r2/x/y.lg" '(ns x.y)}]
+    (is (= ["/p/main.lg"]
+           (:files (walk ["/r1" "/r2"] "/p/main.lg" files))))))
+
+(deftest walk-prefers-hyphen-then-lg-within-a-root
+  (let [files {"/p/main.lg" '(ns app.core (:require [a.b-c] [d.e]))
+               "/r/a/b-c.lg" '(ns a.b-c)
+               "/r/a/b_c.lg" '(ns a.b-c)
+               "/r/d/e.lg" '(ns d.e)
+               "/r/d/e.cljc" '(ns d.e)}]
+    (is (= ["/p/main.lg" "/r/a/b-c.lg" "/r/d/e.lg"]
+           (:files (walk ["/r"] "/p/main.lg" files))))))
+
+(deftest walk-traverses-cljc-but-lowers-only-lg
+  (let [files {"/p/main.lg" '(ns app.core (:require [bridge]))
+               "/r/bridge.cljc" '(ns bridge (:require [dep.core]))
+               "/r/dep/core.lg" '(ns dep.core)}]
+    (is (= ["/p/main.lg" "/r/dep/core.lg"]
+           (:files (walk ["/r"] "/p/main.lg" files))))))
+
+(deftest walk-terminates-on-a-cycle
+  (let [files {"/p/main.lg" '(ns app.core (:require [a]))
+               "/r/a.lg" '(ns a (:require [b]))
+               "/r/b.lg" '(ns b (:require [a] [app.core]))}]
+    (is (= ["/p/main.lg" "/r/a.lg" "/r/b.lg"]
+           (:files (walk ["/r"] "/p/main.lg" files))))))
+
+(deftest walk-skips-a-main-segment-but-follows-its-requires
+  (let [files {"/p/main.lg" '(ns app.core (:require [tool.main]))
+               "/r/tool/main.lg" '(ns tool.main (:require [tool.util]))
+               "/r/tool/util.lg" '(ns tool.util)}]
+    (is (= {:files ["/p/main.lg" "/r/tool/util.lg"]
+            :skipped [{:ns 'tool.main
+                       :path "/r/tool/main.lg"
+                       :reason :main-segment}]}
+           (walk ["/r"] "/p/main.lg" files)))))
+
+(deftest walk-records-an-unreadable-file
+  (let [files {"/p/main.lg" '(ns app.core (:require [bad]))
+               "/r/bad.lg" nil}]
+    (is (= {:files ["/p/main.lg" "/r/bad.lg"]
+            :skipped [{:ns 'bad :path "/r/bad.lg" :reason :unreadable}]}
+           (walk ["/r"] "/p/main.lg" files)))))
+
+;; ---------------------------------------------------------------------------
+;; main-ns-error
+;; ---------------------------------------------------------------------------
+
+(deftest main-ns-error-accepts-an-ns-form
+  (is (nil? (native/main-ns-error "main.lg" '(ns myapp.app (:require [x]))))))
+
+(deftest main-ns-error-needs-an-ns-form
+  (let [msg (str ":target :native needs main.lg to start with an ns form - "
+                 "without one, the native binary runs -main twice")]
+    (is (= msg (native/main-ns-error "main.lg" '(defn -main []))))
+    (is (= msg (native/main-ns-error "main.lg" nil)))))
+
+(deftest main-ns-error-rejects-a-main-segment
+  (is (= (str ":target :native cannot build namespace myapp.main: a last "
+              "segment of main becomes Go package main - rename it")
+         (native/main-ns-error "main.lg" '(ns myapp.main))))
+  (is (= (str ":target :native cannot build namespace main: a last "
+              "segment of main becomes Go package main - rename it")
+         (native/main-ns-error "main.lg" '(ns main)))))
+
+;; ---------------------------------------------------------------------------
+;; native-build-arg-error
+;; ---------------------------------------------------------------------------
+
+(deftest native-build-arg-error-takes-no-forwarded-args
+  (is (nil? (native/native-build-arg-error [])))
+  (is (= "lgx build with :target :native takes no lg args (got -bundle-base x)"
+         (native/native-build-arg-error ["-bundle-base" "x"]))))
+
+;; ---------------------------------------------------------------------------
+;; native-compile-argv
+;; ---------------------------------------------------------------------------
+
+(def ^:private argv-opts
+  {:lg "/rt/lg"
+   :module "/tmp/lgx-native-1"
+   :out "/p/dist/app"
+   :files ["/p/main.lg" "/p/src/a.lg"]
+   :imports ["-import" "lgx.local/runtime/interop"]
+   :source-paths ["/p/src" "/d/src"]
+   :target nil})
+
+(deftest native-compile-argv-for-the-host
+  (is (= ["env" "LG_READ_CLJ=1" "LG_SOURCE_PATHS=/p/src:/d/src"
+          "/rt/lg" "compile" "-module" "/tmp/lgx-native-1"
+          "-import" "lgx.local/runtime/interop"
+          "-o" "/p/dist/app" "/p/main.lg" "/p/src/a.lg"]
+         (native/native-compile-argv argv-opts))))
+
+(deftest native-compile-argv-for-a-cross-target
+  (is (= ["env" "LG_READ_CLJ=1" "LG_SOURCE_PATHS=/p/src:/d/src"
+          "GOOS=linux" "GOARCH=arm64" "CGO_ENABLED=0"
+          "/rt/lg" "compile" "-module" "/tmp/lgx-native-1"
+          "-o" "/p/dist/app" "/p/main.lg" "/p/src/a.lg"]
+         (native/native-compile-argv (assoc argv-opts
+                                            :imports []
+                                            :target {:os "linux" :arch "arm64"})))))
+
+;; ---------------------------------------------------------------------------
+;; compile-module-supported?
+;; ---------------------------------------------------------------------------
+
+(deftest compile-module-supported-reads-lg-compile-help
+  (is (true? (native/compile-module-supported?
+               (str "usage: lg compile [-o <out>] [-work <dir> | -module <dir> "
+                    "[-import <pkg>]...]\n"
+                    "  -module <dir> build inside the Go module at <dir>\n"
+                    "  -import <pkg> with -module: blank-import the Go package\n"))))
+  (is (false? (native/compile-module-supported?
+                "usage: lg compile [-o <out>] [-work <dir>] <file.lg>...\n")))
+  (is (false? (native/compile-module-supported?
+                "flag provided but not defined: -h\nUsage of lg:\n"))))
+
+(deftest walk-lists-a-file-once-when-two-spellings-resolve-to-it
+  (let [files {"/p/main.lg" '(ns app.core (:require [foo-bar] [foo_bar]))
+               "/r/foo_bar.lg" '(ns foo-bar)}]
+    (is (= ["/p/main.lg" "/r/foo_bar.lg"]
+           (:files (walk ["/r"] "/p/main.lg" files))))))
+
+(deftest skipped-note-names-the-reason
+  (is (= "note: not lowering tool.main (last segment main)"
+         (native/skipped-note {:ns 'tool.main :path "/r/tool/main.lg"
+                               :reason :main-segment})))
+  (is (= (str "note: could not read the ns form of /r/bad.lg; its requires "
+              "are not followed")
+         (native/skipped-note {:ns 'bad :path "/r/bad.lg" :reason :unreadable}))))
+
+(deftest walk-skips-a-dep-that-defines-an-entry-but-follows-it
+  (binding [entries #{"/r/tool/cli.lg" "/p/main.lg"}]
+    (let [files {"/p/main.lg" '(ns app.core (:require [tool.cli]))
+                 "/r/tool/cli.lg" '(ns tool.cli (:require [tool.util]))
+                 "/r/tool/util.lg" '(ns tool.util)}]
+      (is (= {:files ["/p/main.lg" "/r/tool/util.lg"]
+              :skipped [{:ns 'tool.cli :path "/r/tool/cli.lg" :reason :entry}]}
+             (walk ["/r"] "/p/main.lg" files))))))
+
+(deftest defines-entry-finds-top-level-main-defns
+  (is (true? (native/defines-entry? "(ns a)\n\n(defn -main [& args] 1)\n")))
+  (is (true? (native/defines-entry? "(ns a)\n(defn main [] 1)\n")))
+  (is (true? (native/defines-entry? "(ns a)\n(defn- ^:private main\n  [] 1)\n")))
+  (is (false? (native/defines-entry? "(ns a)\n  (defn -main [] 1)\n")))
+  (is (false? (native/defines-entry? "(ns a)\n(defn mainly [] 2)\n")))
+  (is (false? (native/defines-entry? "(ns a)\n(defn helper [] (main))\n"))))
+
+(deftest main-ns-error-needs-a-lg-main
+  (is (= ":target :native needs :main to be a .lg file (got app.clj)"
+         (native/main-ns-error "app.clj" '(ns app.core)))))

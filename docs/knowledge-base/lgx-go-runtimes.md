@@ -189,9 +189,9 @@ darwin/arm64) builds.
   Its `lg` binary is never run; its `src/` is the module the app builds in.
   A dep that cannot compile for `js/wasm` fails here, under lgx's header.
 
-`stage-wasm-module!` copies that `src/` (`go.mod`, `go.sum`, `main.go`,
+`stage-runtime-module!` copies that `src/` (`go.mod`, `go.sum`, `main.go`,
 `interop/`) into a fresh `$TMPDIR/lgx-wasm-*` dir, and lgx runs
-`lg -w-module <copy>` there with `wasm-import-args`: the interop package
+`lg -w-module <copy>` there with `module-import-args`: the interop package
 plus every link-only package, the same set `render-main-go` blank-imports
 (both read `link-packages`). The copy is removed afterwards. lgx never
 builds in the cached `src/`: `lg -w-module` writes `lgprogram/` into the
@@ -204,6 +204,31 @@ pin can be a tag, branch or sha, so lgx probes the host runtime's `lg -h`
 for `-w-module` (`w-module-supported!?`) before building the js/wasm
 runtime. `lg -w-module` builds with `-mod=readonly`, and the go.sum lgx's
 tidy produces is complete for it.
+
+## `:target :native`
+
+`build-native!` (`lgx.lg`) compiles the program with `lg compile -module`
+in a staged copy of a runtime's module. It is the `:wasm` staging with a
+per-target loop:
+
+- **Host runtime** (`apply-runtime!`): runs `lg compile`. Its let-go is the
+  pin, and so is every runtime module's, so the generated Go always builds
+  against the let-go that produced it. That is why `:native` requires
+  `:built` (checked at config load).
+- **Target runtime**: the host runtime for a host build;
+  `ensure-runtime!` with the target for a cross target, so bindings were
+  generated under that target. `stage-runtime-module!` copies its `src/`
+  to `$TMPDIR/lgx-native-*`, and the copy is removed afterwards.
+- `lg compile` takes no lg flags (it dispatches on `os.Args[1]` before
+  flag parsing), so search paths travel in `LG_SOURCE_PATHS`, and a cross
+  target's `GOOS`/`GOARCH`/`CGO_ENABLED=0` in the env of the `lg compile`
+  process, whose `go build` inherits them. The `-import` list is
+  `module-import-args`, as for `:wasm`.
+- `lg compile` lowers only the files it is given, so lgx passes every `.lg`
+  file reachable from `:main` (`native/reachable-lg-files`). It probes
+  `lg compile -h` for `-module` and `-import` first
+  (`compile-module-supported!?`); both arrived on let-go `main` after
+  1.13.0.
 
 ## Gotchas
 
@@ -354,7 +379,9 @@ To force a cold rebuild, delete the leaf
 > cross-key rules, `:go/*` coord validation, `:platforms`, `expand-out`),
 > [`lgx/clean.lg`](../../lgx/clean.lg) (`lgx clean`),
 > [`lgx.lg`](../../lgx.lg) (`ensure-all!` partition, `apply-runtime!`,
-> `cmd-build`, `build-wasm!`).
+> `cmd-build`, `build-wasm!`, `build-native!`),
+> [`lgx/native.lg`](../../lgx/native.lg) (the namespace walk, the
+> `lg compile` argv).
 >
 > **In [nooga/let-go](https://github.com/nooga/let-go):**
 > [`pkg/cli/cli.go`](https://github.com/nooga/let-go/blob/main/pkg/cli/cli.go)
@@ -365,4 +392,6 @@ To force a cold rebuild, delete the leaf
 > (`BoxValue`, `ToLetGo`),
 > [`docs/guide/custom-lg.md`](https://github.com/nooga/let-go/blob/main/docs/guide/custom-lg.md),
 > [`pkg/cli/module.go`](https://github.com/nooga/let-go/blob/main/pkg/cli/module.go)
-> (`-w-module`, `-import`).
+> (`-w-module`, `-import`),
+> [`pkg/rt/core/lg/commands/compile.lg`](https://github.com/nooga/let-go/blob/main/pkg/rt/core/lg/commands/compile.lg)
+> (`lg compile` flags).

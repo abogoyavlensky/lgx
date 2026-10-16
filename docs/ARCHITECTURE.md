@@ -37,6 +37,7 @@ lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:pat
 lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/gobuild.lg      everything :go/* — partitioning go coords out of resolution, the runtime cache key, rendering the generated Go module, and driving go get / go mod tidy / lginterop / go build
+lgx/native.lg       pure half of :target :native — walk the .lg namespace graph from :main the way let-go's resolver finds files, entry checks, the `lg compile -module` argv
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths; exec a child with inherited stdio
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks; the cycle guard's stack encoding
@@ -402,17 +403,47 @@ Then it applies the runtime with `:fail` (which rejects Go coords under
 `:installed`). With Go coords it checks that the host runtime's `lg -h`
 lists `-w-module` (`gobuild/w-module-supported!?`), builds a second
 runtime for `gobuild/wasm-target` (js/wasm), and copies that runtime's
-module into a temp dir (`gobuild/stage-wasm-module!`). It warns when the
+module into a temp dir (`gobuild/stage-runtime-module!`). It warns when the
 basis has resource paths (nothing is embedded), and execs `lg
 -source-paths <X> -resource-paths <R> [wasm flags] [-w-module <staged>
 -import <pkg>...] [forwarded-args...] -w <abs-out> <abs-main>`, removing
 the staged module afterwards. The wasm flags come from
 `gobuild/wasm-flag-args`; they go first so a forwarded `-w-*` flag wins.
-The `-import` list is `gobuild/wasm-import-args`, the same packages the
+The `-import` list is `gobuild/module-import-args`, the same packages the
 runtime's `main.go` links. See
 [`lgx-go-runtimes.md`](knowledge-base/lgx-go-runtimes.md). Config load rejects `:platforms`,
 an `{{os}}`/`{{arch}}` placeholder, and a `:wasm` options map under any
 other target.
+
+**`:target :native`.** `cmd-build` hands off to `build-native!` at the
+same point. Config load already guarantees `:lg-runtime :built`
+(`lg-runtime-errors`), so the compiler and every runtime module share one
+let-go. Before anything is built, `build-native!` checks:
+
+- `:main` and that the script exists;
+- no forwarded args (`native/native-build-arg-error`): `lg compile`
+  dispatches before lg's flag parsing, so nothing can be forwarded to it;
+- the targets (`resolve-build-targets`, as the executable path) and `:out`
+  collisions;
+- `:main` itself (`native/main-ns-error`): a `.lg` file whose first form is
+  an `ns` form, and whose namespace's last segment is not `main`.
+
+Then it resolves the basis and walks the namespace graph from `:main`
+(`native/reachable-lg-files`): roots are the basis `:paths`, each lib is
+resolved in let-go's resolver order, every resolved file is followed, and
+only `.lg` files are kept. A namespace with last segment `main`, or a file
+other than `:main` that defines its own top-level `-main`/`main`
+(`native/defines-entry?`), is followed but not kept; each prints a note. It
+warns about resource paths, applies the runtime with `:fail`, and probes
+the host runtime's `lg compile -h` for `-module` and `-import`
+(`gobuild/compile-module-supported!?`). Per target it takes the target's
+runtime (`ensure-runtime!`, or the host runtime for a host build), stages
+its module (`gobuild/stage-runtime-module!` with prefix `native`), and runs
+`env LG_READ_CLJ=1 LG_SOURCE_PATHS=<paths> [GOOS= GOARCH= CGO_ENABLED=0]
+<host lg> compile -module <staged> -import <pkg>... -o <abs-out> <files>`
+(`native/native-compile-argv`), removing the staged module afterwards.
+Search paths go through `LG_SOURCE_PATHS` because `-source-paths` cannot
+precede the `compile` word.
 
 `resolve-build-targets` rejects `js/wasm` on the executable path: `lg -b`
 on a js/wasm runtime writes a bare module with no page or loader.
