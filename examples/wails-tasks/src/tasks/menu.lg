@@ -1,0 +1,53 @@
+(ns tasks.menu
+  (:require [tasks.state :as state]
+            [tasks.transfer :as transfer]
+            [wails.core :as w]))
+
+;; The application menu, as data. Every :on-click is a var, so redefining
+;; export! or import! takes effect on the next click; after editing `spec`,
+;; (install!) rebuilds the menu bar in place.
+
+(def ^:private json-filter [["JSON" "*.json"]])
+
+(defn- reporting
+  "Run f; show an error dialog instead of letting a failure vanish into
+   stderr, which is where an unawaited menu click's exception goes."
+  [what f]
+  (try
+    (f)
+    (catch e
+      (w/message! @state/app* :error (str what " failed") (ex-message e)))))
+
+(defn export! []
+  (reporting "Export"
+    (fn []
+      (when-let [path (w/save-file @state/app* {:title "Export tasks"
+                                                :filename "tasks.json"
+                                                :filters json-filter})]
+        (spit path (transfer/export-json @state/conn*))))))
+
+(defn import! []
+  (reporting "Import"
+    (fn []
+      (when-let [path (w/open-file @state/app* {:title "Import tasks"
+                                                :filters json-filter})]
+        (let [n (transfer/import-json! @state/conn* (slurp path))]
+          ;; The frontend re-reads its list on this event.
+          (w/emit! @state/app* "tasks-changed" {:added n})
+          (w/message! @state/app* :info "Import"
+                      (str "Added " n (if (= 1 n) " task." " tasks."))))))))
+
+(defn spec []
+  [{:role :app-menu}
+   {:label "File"
+    :items [{:label "Export…" :accelerator "CmdOrCtrl+E" :on-click #'export!}
+            {:label "Import…" :accelerator "CmdOrCtrl+I" :on-click #'import!}
+            {:separator true}
+            {:role :quit}]}
+   {:role :edit-menu}
+   {:role :window-menu}])
+
+(defn install!
+  "Install (or rebuild) the application menu."
+  []
+  (w/set-menu! @state/app* (spec)))

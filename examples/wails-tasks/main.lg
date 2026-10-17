@@ -1,0 +1,38 @@
+;; A task manager: the UI is HTML in a Wails v3 window, everything behind
+;; it is let-go - handlers, sqlite storage, the menu, import and export.
+(ns main
+  (:require [sqlite.core :as sqlite]
+            [tasks.api :as api]
+            [tasks.dev :as dev]
+            [tasks.menu :as menu]
+            [tasks.migrations :as migrations]
+            [tasks.state :as state]
+            [wails.core :as w]))
+
+(defn- db-path []
+  (or (os/getenv "TASKS_DB")
+      (str (w/data-dir "lgx-tasks") "/tasks.db")))
+
+(defn -main []
+  (let [conn (sqlite/open (db-path))]
+    (migrations/migrate! conn)
+    (reset! state/conn* conn))
+  (api/register!)
+  (let [app (w/new-app {:name "Tasks"
+                        :description "A task manager in let-go on Wails v3"
+                        :assets "public"
+                        :quit-on-last-window-closed true
+                        :on-shutdown #(some-> @state/conn* sqlite/close!)})
+        win (w/new-window app {:title "Tasks" :width 900 :height 650
+                               :min-width 480 :min-height 400})]
+    (reset! state/app* app)
+    (reset! state/win* win)
+    (menu/install!)
+    (dev/start!)
+    ;; Blocks on the event loop; must run on the main thread.
+    (w/run! app)))
+
+;; lg -b runs top-level forms at compile time, so without this guard
+;; `lgx build` would open the database and start the event loop while
+;; bundling.
+(when-not *compiling-aot* (-main))
