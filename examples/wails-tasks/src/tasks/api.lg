@@ -1,0 +1,54 @@
+(ns tasks.api
+  (:require [string :as str]
+            [tasks.db :as db]
+            [tasks.state :as state]
+            [wails.core :as w]))
+
+;; What the frontend calls, one fn per call, each taking the plain values
+;; JavaScript sends. They read the connection from tasks.state, so they
+;; work against whatever conn is live.
+
+(defn- conn []
+  (or @state/conn* (throw (ex-info "the database is not open" {}))))
+
+(defn- title! [s]
+  (let [t (str/trim (str s))]
+    (when (str/blank? t)
+      (throw (ex-info "a task needs a title" {})))
+    t))
+
+(defn list-tasks [] (db/list-tasks (conn)))
+
+(defn add-task [title] (db/add-task! (conn) (title! title)))
+
+(defn update-task
+  "changes is the JS object {title?, notes?}; keys arrive as strings."
+  [id changes]
+  (let [c (cond-> {}
+            (contains? changes "title") (assoc :title (title! (get changes "title")))
+            (contains? changes "notes") (assoc :notes (str (get changes "notes"))))]
+    (or (db/update-task! (conn) id c)
+        (throw (ex-info (str "no task " id) {:id id})))))
+
+(defn toggle-task [id]
+  (or (db/toggle-task! (conn) id)
+      (throw (ex-info (str "no task " id) {:id id}))))
+
+(defn delete-task [id] (db/delete-task! (conn) id))
+
+(defn clear-done [] (db/clear-done! (conn)))
+
+;; Registered by var, not by fn value: wails.core re-reads a var on every
+;; call, so redefining any of these from the nREPL changes what the next
+;; frontend call runs, with no restart and no re-registration.
+(def handlers
+  {"list-tasks" #'list-tasks
+   "add-task" #'add-task
+   "update-task" #'update-task
+   "toggle-task" #'toggle-task
+   "delete-task" #'delete-task
+   "clear-done" #'clear-done})
+
+(defn register! []
+  (doseq [[name v] handlers]
+    (w/handler! name v)))

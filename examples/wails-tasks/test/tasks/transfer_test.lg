@@ -1,0 +1,31 @@
+(ns tasks.transfer-test
+  (:require [tasks.db :as db]
+            [tasks.db-test :refer [with-conn]]
+            [tasks.transfer :as transfer]
+            [clojure.test :refer [deftest is]]))
+
+(defn- reason-of [f]
+  (try (f) nil (catch e (:reason (ex-data e)))))
+
+(deftest export-then-import-round-trips
+  (let [doc (with-conn
+              (fn [conn]
+                (db/add-task! conn "a" "notes a" false)
+                (db/add-task! conn "b" "" true)
+                (transfer/export-json conn)))]
+    (with-conn
+      (fn [conn]
+        (is (= 2 (transfer/import-json! conn doc)))
+        (is (= [["a" "notes a" false] ["b" "" true]]
+               (mapv (juxt :title :notes :done) (db/list-tasks conn))))))))
+
+(deftest import-rejects-a-bad-document-and-inserts-nothing
+  (with-conn
+    (fn [conn]
+      (is (= :bad-version (reason-of #(transfer/import-json! conn "{\"version\":2,\"tasks\":[]}"))))
+      (is (= :bad-shape (reason-of #(transfer/import-json! conn "{\"version\":1}"))))
+      (is (= :bad-json (reason-of #(transfer/import-json! conn "not json"))))
+      (is (= :bad-shape
+             (reason-of #(transfer/import-json!
+                          conn "{\"version\":1,\"tasks\":[{\"title\":\"ok\"},{\"title\":\"\"}]}"))))
+      (is (= [] (db/list-tasks conn))))))
