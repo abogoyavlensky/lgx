@@ -1028,3 +1028,37 @@
   (os/setenv "LGX_LG" "")
   (os/setenv "LGX_LG_AUTO" "")
   (is (not (gobuild/user-set-lg?))))
+
+;; ---------------------------------------------------------------------------
+;; Build tags
+;; ---------------------------------------------------------------------------
+
+(deftest runtime-hash-without-tags-is-unchanged
+  ;; Existing cache entries keep their keys: no tags hashes as before.
+  (is (= (gobuild/runtime-hash [sqlite] "1.11.1")
+         (gobuild/runtime-hash [sqlite] "1.11.1" nil [])))
+  (is (= (gobuild/runtime-hash [sqlite] "1.11.1" {:os "linux" :arch "arm64"})
+         (gobuild/runtime-hash [sqlite] "1.11.1" {:os "linux" :arch "arm64"} []))))
+
+(deftest runtime-hash-changes-with-tags
+  (is (not= (gobuild/runtime-hash [sqlite] "1.11.1")
+            (gobuild/runtime-hash [sqlite] "1.11.1" nil ["production"]))))
+
+(deftest runtime-hash-ignores-tag-order-and-repeats
+  (is (= (gobuild/runtime-hash [sqlite] "1.11.1" nil ["b" "a"])
+         (gobuild/runtime-hash [sqlite] "1.11.1" nil ["a" "b" "a"]))))
+
+(deftest effective-tags-merge-goflags
+  (is (= ["production" "server" "x"]
+         (gobuild/effective-tags ["production"] "-mod=mod -tags=server,x")))
+  (is (= ["a" "b"] (gobuild/effective-tags ["b" "a"] "--tags=a")))
+  (is (= ["a"] (gobuild/effective-tags ["a"] nil)))
+  (is (= ["a"] (gobuild/effective-tags ["a"] "")))
+  ;; No config tags: lgx passes no -tags, so GOFLAGS applies as it always did.
+  (is (= [] (gobuild/effective-tags [] "-tags=server"))))
+
+(deftest go-build-args-carry-tags-only-when-there-are-some
+  (is (= ["-C" "/d" "build" "-o" "/d/lg" "."]
+         (gobuild/go-build-args "/d" "/d/lg" [])))
+  (is (= ["-C" "/d" "build" "-tags" "a,b" "-o" "/d/lg" "."]
+         (gobuild/go-build-args "/d" "/d/lg" ["a" "b"]))))
