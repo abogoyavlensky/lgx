@@ -1,10 +1,26 @@
 (ns tasks.db
   (:require [honey.sql :as sql]
-            [sqlite.core :as sqlite]))
+            [integrant.core :as ig]
+            [sqlite.core :as sqlite]
+            [tasks.migrations :as migrations]))
 
-;; The task queries: HoneySQL data formatted into the [sql & params] vector
-;; sqlite.core runs. sqlite has no boolean type, so `done` is stored as 0/1
-;; and every row leaves here with it as true/false.
+;; The database component, and the task queries: HoneySQL data formatted
+;; into the [sql & params] vector sqlite.core runs. sqlite has no boolean
+;; type, so `done` is stored as 0/1 and every row leaves here with it as
+;; true/false.
+
+;; A sqlite connection with the schema migrated up to date.
+(defmethod ig/init-key ::conn [_ {:keys [path]}]
+  (let [conn (sqlite/open path)]
+    (try
+      (migrations/migrate! conn)
+      conn
+      (catch e
+        (sqlite/close! conn)
+        (throw e)))))
+
+(defmethod ig/halt-key! ::conn [_ conn]
+  (sqlite/close! conn))
 
 (def ^:private columns [:id :title :notes :done :created_at])
 

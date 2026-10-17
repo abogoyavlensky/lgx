@@ -35,6 +35,17 @@
          :git/tag "sqlite-v0.2.0"
          :deps/root "sqlite"}
 
+        ;; integrant wires the database, the handlers, the window, the
+        ;; menu and the dev loop together. It depends on
+        ;; weavejester/dependency; lgx does not read a plain Clojure lib's
+        ;; deps.edn transitively yet, so both are listed.
+        dev.weavejester/dependency
+        {:git/url "https://github.com/weavejester/dependency"
+         :git/tag "1.0.1"}
+        dev.weavejester/integrant
+        {:git/url "https://github.com/weavejester/integrant"
+         :git/tag "1.0.1"}
+
         ;; SQL as data: (sql/format {...}) -> [sql & params].
         com.github.seancorfield/honeysql
         {:git/url "https://github.com/seancorfield/honeysql"

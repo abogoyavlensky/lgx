@@ -1,0 +1,37 @@
+(ns tasks.system-test
+  (:require [integrant.core :as ig]
+            [tasks.db :as db]
+            [tasks.system :as system]
+            [clojure.test :refer [deftest is]]))
+
+;; The wiring, without a window: integrant starts only the keys asked for
+;; and what they depend on, so the database and the handlers come up on
+;; their own. TASKS_DB points the config at a throwaway file, so the tests
+;; never touch the real database or its directory.
+
+(defn- with-config [f]
+  (let [path (str "/tmp/lgx-wails-tasks-" (rand-int 100000000) ".db")
+        saved (os/getenv "TASKS_DB")]
+    (try
+      (os/setenv "TASKS_DB" path)
+      (f (system/config))
+      (finally
+        (os/setenv "TASKS_DB" saved)
+        (os/sh "rm" "-f" path)))))
+
+(deftest the-config-names-every-component
+  (with-config
+    (fn [config]
+      (is (= #{:tasks.db/conn :tasks.api/handlers :tasks.app/app
+               :tasks.app/window :tasks.menu/menu :tasks.dev/loop}
+             (set (keys config)))))))
+
+(deftest the-handlers-start-over-a-migrated-db
+  (with-config
+    (fn [config]
+      (let [sys (ig/init config [:tasks.api/handlers])]
+        (try
+          (is (= #{:tasks.db/conn :tasks.api/handlers} (set (keys sys))))
+          (is (contains? (:tasks.api/handlers sys) "add-task"))
+          (is (= [] (db/list-tasks (:tasks.db/conn sys))))
+          (finally (ig/halt! sys)))))))

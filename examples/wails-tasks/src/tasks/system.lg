@@ -1,0 +1,72 @@
+(ns tasks.system
+  (:require [integrant.core :as ig]
+            [string :as str]
+            [tasks.api]
+            [tasks.app]
+            [tasks.db]
+            [tasks.dev]
+            [tasks.menu]
+            [wails.core :as w]))
+
+;; One config map describes the app; integrant starts the components in
+;; dependency order (the database, the handlers over it, the app, its
+;; window and menu, the dev loop) and halts them in reverse when the app
+;; ends: the nREPL goes first, the connection last.
+;;
+;; The running system is the one piece of live state, kept in a defonce
+;; so reloading this namespace from the nREPL keeps it:
+;;
+;;   (keys @tasks.system/system*)
+;;   (tasks.db/list-tasks (:tasks.db/conn @tasks.system/system*))
+
+(defonce system* (atom nil))
+
+;; Delivered once the last started system has halted. Starts delivered, so
+;; stop! with nothing running returns at once.
+(defonce ^:private halted* (atom (doto (promise) (deliver true))))
+
+;; os/getenv returns "" for an unset variable, and "" is truthy, so a plain
+;; (or (os/getenv ...) default) never reaches the default.
+(defn- db-path []
+  (let [env (os/getenv "TASKS_DB")]
+    (if (str/blank? env)
+      (str (w/data-dir "lgx-tasks") "/tasks.db")
+      env)))
+
+(declare stop!)
+
+(defn config []
+  {:tasks.db/conn {:path (db-path)}
+   :tasks.api/handlers {:db (ig/ref :tasks.db/conn)}
+   :tasks.app/app {:name "Tasks"
+                   :description "A task manager in let-go on Wails v3"
+                   :assets "public"
+                   :quit-on-last-window-closed true
+                   :on-shutdown (fn [] (stop!))}
+   :tasks.app/window {:app (ig/ref :tasks.app/app)
+                      :title "Tasks" :width 900 :height 650
+                      :min-width 480 :min-height 400}
+   :tasks.menu/menu {:app (ig/ref :tasks.app/app)
+                     :db (ig/ref :tasks.db/conn)}
+   :tasks.dev/loop {:window (ig/ref :tasks.app/window)}})
+
+(defn start!
+  "Start the system and return it. Throws if one is already running."
+  ([] (start! (config)))
+  ([config]
+   (when @system*
+     (throw (ex-info "The system is already running." {})))
+   (reset! halted* (promise))
+   (reset! system* (ig/init config))))
+
+(defn stop!
+  "Halt the running system, and return once it has halted. The two places
+   that call it at exit (main.lg and the app's :on-shutdown) can race: one
+   halts, the other waits for it, so the process cannot end mid-halt."
+  []
+  (let [halted @halted*
+        [system _] (swap-vals! system* (constantly nil))]
+    (if system
+      (try (ig/halt! system) (finally (deliver halted true)))
+      (deref halted 10000 nil))
+    nil))

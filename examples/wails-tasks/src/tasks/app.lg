@@ -1,0 +1,15 @@
+(ns tasks.app
+  (:require [integrant.core :as ig]
+            [wails.core :as w]))
+
+;; The Wails application and its main window. Neither has a halt-key!:
+;; the system halts from the app's :on-shutdown, while Wails is already
+;; tearing both down, and the process ends right after.
+
+;; opts go to w/new-app as they are (:name, :assets, :on-shutdown, ...).
+(defmethod ig/init-key ::app [_ opts]
+  (w/new-app opts))
+
+;; :app is the application; the rest goes to w/new-window.
+(defmethod ig/init-key ::window [_ {:keys [app] :as opts}]
+  (w/new-window app (dissoc opts :app)))

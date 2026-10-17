@@ -1,43 +1,22 @@
 ;; A task manager: the UI is HTML in a Wails v3 window, everything behind
 ;; it is let-go - handlers, sqlite storage, the menu, import and export.
+;; integrant wires the parts together (src/tasks/system.lg).
 (ns main
-  (:require [sqlite.core :as sqlite]
-            [string :as str]
-            [tasks.api :as api]
-            [tasks.dev :as dev]
-            [tasks.menu :as menu]
-            [tasks.migrations :as migrations]
-            [tasks.state :as state]
+  (:require [tasks.system :as system]
             [wails.core :as w]))
 
-;; os/getenv returns "" for an unset variable, and "" is truthy, so a plain
-;; (or (os/getenv ...) default) never reaches the default.
-(defn- db-path []
-  (let [env (os/getenv "TASKS_DB")]
-    (if (str/blank? env)
-      (str (w/data-dir "lgx-tasks") "/tasks.db")
-      env)))
-
 (defn -main []
-  (let [conn (sqlite/open (db-path))]
-    (migrations/migrate! conn)
-    (reset! state/conn* conn))
-  (api/register!)
-  (let [app (w/new-app {:name "Tasks"
-                        :description "A task manager in let-go on Wails v3"
-                        :assets "public"
-                        :quit-on-last-window-closed true
-                        :on-shutdown (fn []
-                                       (dev/stop!)
-                                       (some-> @state/conn* sqlite/close!))})
-        win (w/new-window app {:title "Tasks" :width 900 :height 650
-                               :min-width 480 :min-height 400})]
-    (reset! state/app* app)
-    (reset! state/win* win)
-    (menu/install!)
-    (dev/start!)
-    ;; Blocks on the event loop; must run on the main thread.
-    (w/run! app)))
+  (let [system (system/start!)]
+    ;; Blocks on the event loop; must run on the main thread, which is why
+    ;; it is here and not in a component.
+    (try
+      (w/run! (:tasks.app/app system))
+      ;; The system halts at exit from two places, and stop! makes the
+      ;; second a no-op. Here, once w/run! returns; that is the only one
+      ;; in server mode, which stops serving and returns before Wails' own
+      ;; shutdown hooks finish. And in the app's :on-shutdown, for a
+      ;; platform that exits the process without returning from w/run!.
+      (finally (system/stop!)))))
 
 ;; lg -b runs top-level forms at compile time, so without this guard
 ;; `lgx build` would open the database and start the event loop while

@@ -13,14 +13,21 @@
                     (on-clicks (:items item))))
           items))
 
-(deftest the-spec-is-data
-  (is (vector? (menu/spec))))
+(def ^:private env {:app :the-app :db :the-db})
 
-(deftest every-on-click-is-a-var
-  (let [clicks (on-clicks (menu/spec))]
+(deftest the-spec-is-data
+  (is (vector? (menu/spec env))))
+
+;; A click runs the current export!/import! with the menu's env, so a
+;; redefinition reaches it with no rebuild.
+(deftest every-on-click-is-hot
+  (let [clicks (on-clicks (menu/spec env))]
     (is (= 2 (count clicks)))
-    (is (every? var? clicks))))
+    (with-redefs [menu/export! (fn [e] [:export e])
+                  menu/import! (fn [e] [:import e])]
+      (is (= #{[:export env] [:import env]}
+             (set (map #(%) clicks)))))))
 
 (deftest wails-accepts-the-spec
   @app
-  (is (true? (w/check-menu (menu/spec)))))
+  (is (true? (w/check-menu (menu/spec env)))))

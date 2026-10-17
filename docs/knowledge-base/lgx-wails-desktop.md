@@ -155,6 +155,21 @@ the old menu, so rebuilding from the REPL would leak items and the
 callbacks they hold; the shim destroys the replaced menu. Building one
 also needs the application to exist (some roles reach Wails' global app).
 
+**`:on-shutdown` alone does not see you out.** In server mode, `Quit`
+and Ctrl-C stop the HTTP server first, so `w/run!` returns and the
+process can exit before Wails' shutdown hooks finish. A native Linux
+quit runs the hooks and then returns from `w/run!`. On macOS, Cocoa
+usually ends the process from inside the event loop, so `w/run!` may
+never return. Clean up in both places, a `finally` around `w/run!` and
+`:on-shutdown`, and make the cleanup idempotent. The second caller also
+has to *wait* for the first, or `-main` returns mid-cleanup:
+`tasks.system/stop!` in wails-tasks does this with a promise. Server mode
+was traced; the macOS path is read from the source, not run.
+
+**One app per process.** `application.New` returns the existing global
+app if there is one, and a second `Run` errors. A halt-and-init reset of
+the whole app, the integrant reloaded workflow, cannot happen in-process.
+
 **A `:go/local` module path needs a dot in its first segment**, or lgx
 classifies it as stdlib and rejects the coord: `module lgxwails/shim`
 gives ":go/local do not apply ... is a standard-library package". See
@@ -250,6 +265,9 @@ be unique per in-flight call.
 > `v3/pkg/application/services.go` (`NewService[T]`),
 > `v3/pkg/application/bindings.go` (name-based dispatch),
 > `v3/pkg/application/init_desktop.go` (`LockOSThread`),
+> `v3/pkg/application/application.go` (`New` returns the global app, `Run`
+> refuses a second run, `cleanup` runs the shutdown hooks),
+> `v3/pkg/application/application_server.go` (`run`, `destroy`),
 > `v3/pkg/application/messageprocessor_call.go` (the call protocol).
 >
 > **In [letgo-packages](https://github.com/abogoyavlensky/letgo-packages):**
