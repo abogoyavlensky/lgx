@@ -1073,4 +1073,6 @@
   (is (= "-tags=a" (gobuild/goflags-with-tags nil ["a"])))
   (is (= "'-ldflags=-s -w' -tags=a"
          (gobuild/goflags-with-tags "'-ldflags=-s -w'" ["a"])))
+  (is (= "\"-ldflags=-X 'main.name=Jane Doe'\" -tags=a"
+         (gobuild/goflags-with-tags "\"-ldflags=-X 'main.name=Jane Doe'\"" ["a"])))
   (is (= "-mod=mod" (gobuild/goflags-with-tags "-mod=mod" []))))

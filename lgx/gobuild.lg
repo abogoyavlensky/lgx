@@ -205,12 +205,19 @@
   "GOFLAGS with its -tags= fields replaced by one carrying `tags`, for a Go
    build lgx does not run itself (`lg compile -module`, `lg -w`): those read
    build settings only from the environment. A field holding whitespace is
-   re-quoted. Empty `tags` returns `goflags` untouched."
+   re-quoted with whichever quote it does not contain. Empty `tags` returns
+   `goflags` untouched."
   [goflags tags]
   (if (empty? tags)
     goflags
     (str/join " "
-              (concat (map (fn [f] (if (re-find #"\s" f) (str "'" f "'") f))
+              (concat (map (fn [f]
+                             ;; Go's quoting has no escapes; a field that
+                             ;; parsed out of GOFLAGS lacks one quote char.
+                             (cond
+                               (not (re-find #"\s" f)) f
+                               (str/includes? f "'") (str "\"" f "\"")
+                               :else (str "'" f "'")))
                            (remove #(re-matches #"^--?tags=.*$" %)
                                    (goflags-fields goflags)))
                       [(str "-tags=" (str/join "," tags))]))))
