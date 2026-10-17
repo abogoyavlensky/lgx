@@ -1,5 +1,6 @@
 (ns tasks.dev
   (:require [nrepl.core :as nrepl]
+            [string :as str]
             [tasks.state :as state]
             [wails.core :as w]))
 
@@ -7,8 +8,14 @@
 ;; binary does not): an nREPL inside the app, and a window reload whenever
 ;; a frontend file changes.
 
+(defn dev?
+  "True under `lgx run`. os/getenv returns \"\" (truthy) for an unset
+   variable, so the check has to be for a non-blank value."
+  []
+  (not (str/blank? (os/getenv "LGX_RUN"))))
+
 (defn start! []
-  (when (os/getenv "LGX_RUN")
+  (when (dev?)
     ;; Port 0 picks a free one; editors find it in .nrepl-port.
     (nrepl/start!)
     (w/watch-assets! @state/win* "resources/public")

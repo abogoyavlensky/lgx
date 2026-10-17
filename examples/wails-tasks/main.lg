@@ -2,6 +2,7 @@
 ;; it is let-go - handlers, sqlite storage, the menu, import and export.
 (ns main
   (:require [sqlite.core :as sqlite]
+            [string :as str]
             [tasks.api :as api]
             [tasks.dev :as dev]
             [tasks.menu :as menu]
@@ -9,9 +10,13 @@
             [tasks.state :as state]
             [wails.core :as w]))
 
+;; os/getenv returns "" for an unset variable, and "" is truthy, so a plain
+;; (or (os/getenv ...) default) never reaches the default.
 (defn- db-path []
-  (or (os/getenv "TASKS_DB")
-      (str (w/data-dir "lgx-tasks") "/tasks.db")))
+  (let [env (os/getenv "TASKS_DB")]
+    (if (str/blank? env)
+      (str (w/data-dir "lgx-tasks") "/tasks.db")
+      env)))
 
 (defn -main []
   (let [conn (sqlite/open (db-path))]
