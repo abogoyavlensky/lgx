@@ -173,14 +173,22 @@
                                 (sort (map coord-line go-pairs))))]
      (hex64 (hash/xxh3-64-str body)))))
 
-(defn- goflags-tags
-  "The tags a GOFLAGS value sets: its -tags=/--tags= entries, comma-split.
-   GOFLAGS is a space-separated list of -flag=value entries."
+(defn- goflags-fields
+  "GOFLAGS split the way `go` splits it (cmd/internal/quoted): fields
+   separated by any whitespace, each optionally wrapped whole in single or
+   double quotes, which may then hold whitespace of their own."
   [goflags]
-  (mapcat (fn [entry]
-            (when-let [[_ v] (re-matches #"^--?tags=(.*)$" entry)]
-              (remove str/blank? (str/split v ","))))
-          (remove str/blank? (str/split (str/trim (or goflags "")) " "))))
+  (map (fn [[_ dq sq bare]] (or dq sq bare))
+       (re-seq #"\"([^\"]*)\"|'([^']*)'|(\S+)" (or goflags ""))))
+
+(defn- goflags-tags
+  "The tags a GOFLAGS value sets: its -tags=/--tags= fields, split on commas
+   (or spaces, the legacy separator `go` still accepts)."
+  [goflags]
+  (mapcat (fn [field]
+            (when-let [[_ v] (re-matches #"^--?tags=(.*)$" field)]
+              (remove str/blank? (str/split v #"[,\s]+"))))
+          (goflags-fields goflags)))
 
 (defn effective-tags
   "The -tags lgx passes to `go build`: the configured tags plus any GOFLAGS

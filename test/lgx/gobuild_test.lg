@@ -1054,6 +1054,10 @@
   (is (= ["a" "b"] (gobuild/effective-tags ["b" "a"] "--tags=a")))
   (is (= ["a"] (gobuild/effective-tags ["a"] nil)))
   (is (= ["a"] (gobuild/effective-tags ["a"] "")))
+  ;; Go's own GOFLAGS rules: any whitespace separates, quotes wrap a field.
+  (is (= ["a" "server"] (gobuild/effective-tags ["a"] "'-tags=server'")))
+  (is (= ["a" "server"] (gobuild/effective-tags ["a"] "-tags=server\t-mod=mod")))
+  (is (= ["a" "x" "y"] (gobuild/effective-tags ["a"] "\"-tags=x y\" -v")))
   ;; No config tags: lgx passes no -tags, so GOFLAGS applies as it always did.
   (is (= [] (gobuild/effective-tags [] "-tags=server"))))
 
