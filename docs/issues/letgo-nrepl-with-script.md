@@ -1,22 +1,24 @@
-# Issue: `lg -n script.lg` starts the nREPL only after the script returns
+# Issue: `lg -n script.lg` never starts the nREPL server
 
 **Repo:** [nooga/let-go](https://github.com/nooga/let-go)
 
-**Status:** draft, not filed. Worked around with the letgo-packages
+**Status:** filed ([nooga/let-go#1075](https://github.com/nooga/let-go/issues/1075)). Worked around with the letgo-packages
 [`nrepl`](https://github.com/abogoyavlensky/letgo-packages/tree/master/nrepl)
 package, which builds the server inside the program.
 
 ## Summary
 
-`lg -n` serves nREPL, and given a script it runs the script first and
-starts the server afterwards (`pkg/cli/cli.go`: `nreplServe` sits in the
-`if !ranSomething || runREPL` branch, after the files ran). A program that
+`lg -n` serves nREPL, but given a script it starts the server only when
+`-r` is also passed, and then only after the script has returned
+(`pkg/cli/cli.go`: `nreplServe` sits in the `if !ranSomething || runREPL`
+branch, after the script ran). A program that
 never returns - a GUI event loop, an `http/serve` process, any long-running
 service - therefore never gets a server, which is exactly where a REPL into
 the live program is most useful.
 
 ```sh
-lg -n -p 7888 app.lg     # app.lg blocks in (w/run! app): no nREPL, ever
+lg -n -p 7888 app.lg      # no server at all
+lg -n -r -p 7888 app.lg   # server after app.lg returns; (w/run! app) never does
 ```
 
 ## Proposed change
