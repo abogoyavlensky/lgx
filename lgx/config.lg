@@ -969,7 +969,8 @@
    (the default) checks the pin against `lg -v`, which only a released semver
    can ever satisfy. :target :native compiles Go against the let-go that
    lowered it, so the compiler and the module must come from one pin, which
-   only :built guarantees. Runs after the structural schema passed, so
+   only :built guarantees, and :go/build-tags reach only a runtime lgx
+   builds. Runs after the structural schema passed, so
    :lg-version is a non-blank string or absent."
   [cfg]
   (let [mode (or (:lg-runtime cfg) :installed)
@@ -981,6 +982,14 @@
         :msg (str ":target :native needs :lg-runtime :built - the Go module "
                   "that links the lowered code must use the same let-go as "
                   "the compiler")}]
+
+      (and (not= mode :built)
+           (or (contains? cfg :go/build-tags)
+               (contains? (get-in cfg [:targets :bin]) :go/build-tags)))
+      [{:path [:lg-runtime]
+        :msg (str ":go/build-tags needs :lg-runtime :built - tags reach only "
+                  "a runtime lgx builds with the Go toolchain; the installed "
+                  "lg is used as is")}]
 
       (and (= mode :built) (nil? pin))
       [{:path [:lg-runtime]

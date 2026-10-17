@@ -4777,5 +4777,97 @@ else
     skip "native build needs go and network (set LGX_NATIVE_E2E=1 to run)"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 179: :go/build-tags reach go build"
+# A :go/local shim whose files are chosen by build tags reports which tags the
+# runtime was built with, so each check proves the tags reached `go build`,
+# not just that lgx printed them. Gated like 178: it builds real runtimes.
+if [[ -n "${LGX_BUILD_TAGS_E2E:-}" ]] && command -v go >/dev/null 2>&1; then
+    root_bt="$(mktemp -d)"
+    home_bt="$(mktemp -d)"
+    proj_bt="$root_bt/proj"
+    mkdir -p "$proj_bt/shim"
+    cat > "$proj_bt/shim/go.mod" <<'EOF'
+module example.com/tagprobe
+
+go 1.26
+
+require github.com/nooga/let-go v0.0.0
+EOF
+    cat > "$proj_bt/shim/probe.go" <<'EOF'
+package tagprobe
+
+import (
+	"github.com/nooga/let-go/pkg/rt"
+	"github.com/nooga/let-go/pkg/vm"
+)
+
+func init() {
+	ns := vm.NewNamespace("tagprobe")
+	ns.Def("Tag", vm.MustBox(tag))
+	ns.Def("Extra", vm.MustBox(extra))
+	rt.RegisterNS(ns)
+}
+EOF
+    printf '//go:build lgxprobe\n\npackage tagprobe\n\nconst tag = "on"\n' > "$proj_bt/shim/tag_on.go"
+    printf '//go:build !lgxprobe\n\npackage tagprobe\n\nconst tag = "off"\n' > "$proj_bt/shim/tag_off.go"
+    printf '//go:build lgxextra\n\npackage tagprobe\n\nconst extra = "on"\n' > "$proj_bt/shim/extra_on.go"
+    printf '//go:build !lgxextra\n\npackage tagprobe\n\nconst extra = "off"\n' > "$proj_bt/shim/extra_off.go"
+    printf '(ns main (:require [tagprobe]))\n(println "tag" tagprobe/Tag "extra" tagprobe/Extra)\n' \
+        > "$proj_bt/main.lg"
+    write_bt_edn() {
+        cat > "$proj_bt/lgx.edn" <<EOF
+{:paths ["."]
+ :main "main.lg"
+ :lg-runtime :built
+ :lg-version "1.13.0"
+ $1
+ :deps {example.com/tagprobe {:go/local "shim"}}
+ :targets {:bin {:out "bin/app" $2}}}
+EOF
+    }
+    run_bt() { (cd "$proj_bt" && env -u LGX_LG LGX_HOME="$home_bt" "$@" 2>&1); }
+
+    # (a) Tags on the bin target reach the shipped binary only.
+    write_bt_edn "" ':go/build-tags ["lgxprobe"]'
+    set +e
+    out="$(run_bt "$LGX" run)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "bin build tags: lgx run failed (got $rc, output: $out)"
+    assert_contains "$out" "tag off extra off" "bin build tags: lgx run builds without them"
+    set +e
+    out="$(run_bt "$LGX" build)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "bin build tags: lgx build failed (got $rc, output: $out)"
+    assert_contains "$(cd "$root_bt" && "$proj_bt/bin/app" 2>&1)" "tag on extra off" \
+        "bin build tags: the built binary carries them"
+
+    # (b) Top-level tags reach run and every cross base.
+    write_bt_edn ':go/build-tags ["lgxprobe"]' ""
+    set +e
+    out="$(run_bt "$LGX" run)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "top-level build tags: lgx run failed (got $rc, output: $out)"
+    assert_contains "$out" "tag on extra off" "top-level build tags: lgx run carries them"
+    set +e
+    out="$(run_bt "$LGX" build --target linux/arm64)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "top-level build tags: cross build failed (got $rc, output: $out)"
+    assert_contains "$(go version -m "$proj_bt/bin/app")" "-tags=lgxprobe" \
+        "top-level build tags: the cross base is built with them"
+
+    # (c) GOFLAGS tags are merged with the configured ones, not replaced.
+    write_bt_edn "" ':go/build-tags ["lgxprobe"]'
+    set +e
+    out="$(run_bt env GOFLAGS=-tags=lgxextra "$LGX" build)"; rc=$?
+    set -e
+    [[ $rc -eq 0 ]] || fail "GOFLAGS build tags: lgx build failed (got $rc, output: $out)"
+    assert_contains "$(cd "$root_bt" && "$proj_bt/bin/app" 2>&1)" "tag on extra on" \
+        "GOFLAGS build tags: merged with :go/build-tags"
+    rm -rf "$root_bt" "$home_bt"
+else
+    skip "build tags need go and network (set LGX_BUILD_TAGS_E2E=1 to run)"
+fi
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
