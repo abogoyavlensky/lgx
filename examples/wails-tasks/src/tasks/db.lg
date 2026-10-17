@@ -1,0 +1,66 @@
+(ns tasks.db
+  (:require [honey.sql :as sql]
+            [sqlite.core :as sqlite]))
+
+;; The task queries: HoneySQL data formatted into the [sql & params] vector
+;; sqlite.core runs. sqlite has no boolean type, so `done` is stored as 0/1
+;; and every row leaves here with it as true/false.
+
+(def ^:private columns [:id :title :notes :done :created_at])
+
+(defn- row [r]
+  (when r
+    (update (select-keys r columns) :done #(= 1 %))))
+
+(defn- one! [conn q]
+  (row (sqlite/execute-one! conn (sql/format q))))
+
+(defn list-tasks
+  "Every task, oldest first."
+  [conn]
+  (mapv row (sqlite/query conn (sql/format {:select columns
+                                            :from [:tasks]
+                                            :order-by [:id]}))))
+
+(defn add-task!
+  "Insert a task and return it."
+  ([conn title] (add-task! conn title "" false))
+  ([conn title notes done?]
+   ;; RETURNING makes sql.core read the row back instead of a count.
+   (one! conn {:insert-into :tasks
+               :values [{:title title :notes notes :done (if done? 1 0)}]
+               :returning columns})))
+
+(defn update-task!
+  "Change a task's :title and/or :notes. Returns the task, or nil if there
+   is no task with that id."
+  [conn id changes]
+  (let [changes (select-keys changes [:title :notes])]
+    (if (empty? changes)
+      (one! conn {:select columns :from [:tasks] :where [:= :id id]})
+      (one! conn {:update :tasks
+                  :set changes
+                  :where [:= :id id]
+                  :returning columns}))))
+
+(defn toggle-task!
+  "Flip a task's done flag. Returns the task, or nil if there is none."
+  [conn id]
+  (one! conn {:update :tasks
+              :set {:done [:- 1 :done]}
+              :where [:= :id id]
+              :returning columns}))
+
+(defn delete-task!
+  "Delete a task. True if one was deleted."
+  [conn id]
+  (pos? (:sql/update-count
+          (sqlite/execute-one! conn (sql/format {:delete-from :tasks
+                                                 :where [:= :id id]})))))
+
+(defn clear-done!
+  "Delete every done task. Returns how many were deleted."
+  [conn]
+  (:sql/update-count
+    (sqlite/execute-one! conn (sql/format {:delete-from :tasks
+                                           :where [:= :done 1]}))))

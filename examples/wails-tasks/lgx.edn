@@ -1,0 +1,47 @@
+{:paths ["src"]
+ ;; resources/public is the frontend. `lgx run` serves it from disk (edits
+ ;; show on reload); `lgx build` embeds it in the binary.
+ :resource-paths ["resources"]
+ :main "main.lg"
+
+ ;; Wails and the sqlite driver are Go packages, so this project runs on an
+ ;; lg that lgx builds with the Go toolchain. let-go 1.13.0 is the first
+ ;; release with the :go/* interop.
+ :lg-runtime :built
+ :lg-version "1.13.0"
+
+ ;; `production` drops Wails' devtools and dev asset server from the shipped
+ ;; binary only: it is added to the runtime `lgx build` bundles onto, while
+ ;; `lgx run` keeps the dev build.
+ :targets {:bin {:out "bin/tasks"
+                 :go/build-tags ["production"]}}
+
+ :deps {;; The desktop shell: a Wails v3 window whose handlers are let-go fns.
+        abogoyavlensky/letgo-wails
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/tag "wails-v0.2.0"
+         :deps/root "wails"}
+
+        ;; An nREPL inside the running app, started only under `lgx run`.
+        abogoyavlensky/letgo-nrepl
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/tag "nrepl-v0.1.0"
+         :deps/root "nrepl"}
+
+        ;; sqlite over Go's database/sql; brings the sql layer and the
+        ;; modernc.org/sqlite driver in transitively.
+        abogoyavlensky/letgo-sqlite
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/tag "sqlite-v0.2.0"
+         :deps/root "sqlite"}
+
+        ;; SQL as data: (sql/format {...}) -> [sql & params].
+        com.github.seancorfield/honeysql
+        {:git/url "https://github.com/seancorfield/honeysql"
+         :git/tag "v2.7.1479"}
+
+        ;; Migrations: a ragtime DataStore over the sql layer.
+        abogoyavlensky/letgo-ragtime
+        {:git/url "https://github.com/abogoyavlensky/letgo-packages"
+         :git/tag "ragtime-v0.2.0"
+         :deps/root "ragtime"}}}
