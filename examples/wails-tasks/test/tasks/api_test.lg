@@ -32,7 +32,7 @@
   (with-state
     (fn []
       (is (str/includes? (message-of #(api/add-task "   ")) "title"))
-      (is (str/includes? (message-of #(api/toggle-task 999)) "no task 999"))
+      (is (str/includes? (message-of #(api/toggle-task 999)) "No task 999"))
       (is (false? (api/delete-task 999))))))
 
 (deftest handlers-need-an-open-db

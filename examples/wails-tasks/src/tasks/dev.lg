@@ -20,3 +20,8 @@
     (nrepl/start!)
     (w/watch-assets! @state/win* "resources/public")
     (println "dev: reloading the window when resources/public changes")))
+
+(defn stop!
+  "Stop the dev nREPL, which removes .nrepl-port. A no-op outside dev."
+  []
+  (nrepl/stop!))

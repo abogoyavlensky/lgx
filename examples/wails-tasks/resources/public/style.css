@@ -1,0 +1,302 @@
+/* Tasks: graphite and ink. One accent, the system font, and one motion -
+   the line drawn through a task as it is checked off. */
+
+:root {
+  --paper: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #1d2430;
+  --muted: #687180;
+  --line: #dfe2e7;
+  --accent: #2f5bd3;
+  --accent-soft: #e6ecfb;
+  --danger: #b8402c;
+  --danger-soft: #fbeae6;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Ubuntu,
+    Cantarell, "Noto Sans", sans-serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1b1d21;
+    --surface: #23262b;
+    --ink: #e4e7ec;
+    --muted: #9ba2ad;
+    --line: #33373e;
+    --accent: #86a3ff;
+    --accent-soft: #2a3350;
+    --danger: #ff8f7a;
+    --danger-soft: #3a2723;
+  }
+}
+
+* { box-sizing: border-box; }
+[x-cloak] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
+  /* A desktop window: text is not selectable chrome by default. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input, textarea { user-select: text; -webkit-user-select: text; }
+
+button, input, textarea { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+}
+
+/* Heading: the open count sits on the title's baseline, quieter. */
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.open-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.add-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 15px;
+}
+
+.add-input::placeholder { color: var(--muted); }
+
+.add-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.error p { flex: 1; margin: 0; }
+
+.error-close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 20px 0 6px;
+}
+
+/* Filters: a segmented control, as a native toolbar would have. */
+.filters {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--line);
+}
+
+.filter {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.filter[aria-selected="true"] {
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+}
+
+.filter-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.clear,
+.ghost {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+
+.clear:hover, .ghost:hover { color: var(--ink); background: var(--line); }
+.ghost.danger:hover { color: var(--danger); background: var(--danger-soft); }
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task { border-bottom: 1px solid var(--line); }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 6px 2px;
+}
+
+/* Row actions stay out of the way until the row is pointed at or focused. */
+.row .ghost { opacity: 0; }
+.row:hover .ghost,
+.row:focus-within .ghost,
+.is-open .row .ghost { opacity: 1; }
+
+.check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.check svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+
+.is-done .check { border-color: var(--accent); background: var(--accent); }
+.is-done .check svg { opacity: 1; }
+
+.title {
+  /* Sized to its text, so the strike ends where the words do; the margin
+     pushes the row's actions to the right edge. */
+  flex: 0 1 auto;
+  margin-right: auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  cursor: default;
+  /* The strike is a background line, so it can be drawn left to right. */
+  background-image: linear-gradient(var(--muted), var(--muted));
+  background-repeat: no-repeat;
+  background-position: 0 55%;
+  background-size: 0 1.5px;
+  transition: background-size 220ms ease-out;
+}
+
+.is-done .title {
+  color: var(--muted);
+  background-size: 100% 1.5px;
+}
+
+.title-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  margin: -4px -7px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.title-input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.has-notes {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notes { padding: 0 2px 12px 30px; }
+
+.notes textarea {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.notes textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.empty {
+  margin: 28px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .app { padding: 18px 14px 28px; }
+  .bar { flex-wrap: wrap; }
+  .row .ghost { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title { transition: none; }
+}

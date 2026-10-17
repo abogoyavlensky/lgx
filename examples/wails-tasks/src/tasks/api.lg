@@ -9,12 +9,12 @@
 ;; work against whatever conn is live.
 
 (defn- conn []
-  (or @state/conn* (throw (ex-info "the database is not open" {}))))
+  (or @state/conn* (throw (ex-info "The database is not open." {}))))
 
 (defn- title! [s]
   (let [t (str/trim (str s))]
     (when (str/blank? t)
-      (throw (ex-info "a task needs a title" {})))
+      (throw (ex-info "A task needs a title." {})))
     t))
 
 (defn list-tasks [] (db/list-tasks (conn)))
@@ -28,11 +28,11 @@
             (contains? changes "title") (assoc :title (title! (get changes "title")))
             (contains? changes "notes") (assoc :notes (str (get changes "notes"))))]
     (or (db/update-task! (conn) id c)
-        (throw (ex-info (str "no task " id) {:id id})))))
+        (throw (ex-info (str "No task " id ".") {:id id})))))
 
 (defn toggle-task [id]
   (or (db/toggle-task! (conn) id)
-      (throw (ex-info (str "no task " id) {:id id}))))
+      (throw (ex-info (str "No task " id ".") {:id id}))))
 
 (defn delete-task [id] (db/delete-task! (conn) id))
 

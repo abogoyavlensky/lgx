@@ -27,7 +27,9 @@
                         :description "A task manager in let-go on Wails v3"
                         :assets "public"
                         :quit-on-last-window-closed true
-                        :on-shutdown #(some-> @state/conn* sqlite/close!)})
+                        :on-shutdown (fn []
+                                       (dev/stop!)
+                                       (some-> @state/conn* sqlite/close!))})
         win (w/new-window app {:title "Tasks" :width 900 :height 650
                                :min-width 480 :min-height 400})]
     (reset! state/app* app)
