@@ -25,9 +25,13 @@ cd "$HERE"
 rm -f .nrepl-port
 # Server mode: no window, an HTTP server instead. Both vars are needed (a
 # few Wails packages gate on `linux && cgo` without a `!server` guard).
+# `set -m` runs the background job in its own process group (setsid is not
+# on macOS), so cleanup can stop lgx and the lg it starts together.
+set -m
 CGO_ENABLED=0 GOFLAGS=-tags=server WAILS_SERVER_PORT="$port" TASKS_DB="$db" \
-    setsid "$LGX" run >"$log" 2>&1 &
+    "$LGX" run >"$log" 2>&1 &
 pid=$!
+set +m
 cleanup() {
     kill -- -"$pid" 2>/dev/null || true
     rm -rf "$(dirname "$db")" "$log" .nrepl-port
