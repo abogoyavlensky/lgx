@@ -144,22 +144,90 @@
           (bit-and (bit-shift-right n 32) 0xffffffff)
           (bit-and n 0xffffffff)))
 
+(defn- canonical-tags
+  "Sorted, de-duplicated build tags: the order a project lists them in, or a
+   repeat, does not make a different binary."
+  [tags]
+  (vec (sort (distinct tags))))
+
 (defn runtime-hash
   "Hex xxh3-64 of the let-go ref crossed with the sorted canonical coord lines.
    `lg-ref` is either a bare :lg-version or a letgo-ref result. `target` is a
    {:os :arch} platform for a cross-build, or nil for native — nil adds
    nothing to the hashed body, so native builds keep the cache entries they
-   had before targets existed."
-  ([go-pairs lg-ref] (runtime-hash go-pairs lg-ref nil))
-  ([go-pairs lg-ref target]
-   (let [body (str/join "\n"
+   had before targets existed. `tags` are the configured Go build tags; none
+   likewise add nothing, so a project without :go/build-tags keeps its key."
+  ([go-pairs lg-ref] (runtime-hash go-pairs lg-ref nil []))
+  ([go-pairs lg-ref target] (runtime-hash go-pairs lg-ref target []))
+  ([go-pairs lg-ref target tags]
+   (let [tags (canonical-tags tags)
+         body (str/join "\n"
                         (concat [(str "letgo|" lg-ref)]
                                 (if target
                                   [(str "target|" (:os target) "/"
                                         (:arch target))]
                                   [])
+                                (if (seq tags)
+                                  [(str "tags|" (str/join "," tags))]
+                                  [])
                                 (sort (map coord-line go-pairs))))]
      (hex64 (hash/xxh3-64-str body)))))
+
+(defn- goflags-fields
+  "GOFLAGS split the way `go` splits it (cmd/internal/quoted): fields
+   separated by any whitespace, each optionally wrapped whole in single or
+   double quotes, which may then hold whitespace of their own."
+  [goflags]
+  (map (fn [[_ dq sq bare]] (or dq sq bare))
+       (re-seq #"\"([^\"]*)\"|'([^']*)'|(\S+)" (or goflags ""))))
+
+(defn- goflags-tags
+  "The tags a GOFLAGS value sets: its -tags=/--tags= fields, split on commas
+   (or spaces, the legacy separator `go` still accepts)."
+  [goflags]
+  (mapcat (fn [field]
+            (when-let [[_ v] (re-matches #"^--?tags=(.*)$" field)]
+              (remove str/blank? (str/split v #"[,\s]+"))))
+          (goflags-fields goflags)))
+
+(defn effective-tags
+  "The -tags lgx passes to `go build`: the configured tags plus any GOFLAGS
+   sets, sorted and de-duplicated. An explicit -tags replaces the GOFLAGS
+   one rather than adding to it, so lgx folds GOFLAGS' in to keep both
+   working. No configured tags means no -tags at all, and GOFLAGS applies
+   on its own, as it always has."
+  [tags goflags]
+  (if (seq tags)
+    (canonical-tags (concat tags (goflags-tags goflags)))
+    []))
+
+(defn goflags-with-tags
+  "GOFLAGS with its -tags= fields replaced by one carrying `tags`, for a Go
+   build lgx does not run itself (`lg compile -module`, `lg -w`): those read
+   build settings only from the environment. A field holding whitespace is
+   re-quoted with whichever quote it does not contain. Empty `tags` returns
+   `goflags` untouched."
+  [goflags tags]
+  (if (empty? tags)
+    goflags
+    (str/join " "
+              (concat (map (fn [f]
+                             ;; Go's quoting has no escapes; a field that
+                             ;; parsed out of GOFLAGS lacks one quote char.
+                             (cond
+                               (not (re-find #"\s" f)) f
+                               (str/includes? f "'") (str "\"" f "\"")
+                               :else (str "'" f "'")))
+                           (remove #(re-matches #"^--?tags=.*$" %)
+                                   (goflags-fields goflags)))
+                      [(str "-tags=" (str/join "," tags))]))))
+
+(defn go-build-args
+  "The `go build` argument vector for the runtime module in `dir`."
+  [dir out tags]
+  (vec (concat ["-C" dir "build"]
+               (when (seq tags) ["-tags" (str/join "," tags)])
+               ["-o" out "."])))
 
 ;; The hash names a :go/local directory by path, never by content: its files
 ;; are in the *stamp* instead, kept next to the built binary. The stamp decides
@@ -709,7 +777,7 @@
           (die! (str "lginterop failed (exited " (:exit r) ")")))
         r))))
 
-(defn- build-runtime! [dir out go-pairs lg-version replace-path target
+(defn- build-runtime! [dir out go-pairs lg-version replace-path target tags
                        verbose?]
   ;; let-go's own `go get` runs with the coord ones, before tidy: the rendered
   ;; go.mod carries no require for it in the pinned case.
@@ -728,7 +796,8 @@
   ;; go get and tidy run host-side (module resolution is platform-independent);
   ;; lginterop scans under the target env above; the final build is where
   ;; GOOS/GOARCH select the output format.
-  (go! (target-env-args target) ["-C" dir "build" "-o" out "."]
+  (go! (target-env-args target)
+       (go-build-args dir out (effective-tags tags (os/getenv "GOFLAGS")))
        "go build" verbose?))
 
 (defn runtime-paths
@@ -745,20 +814,22 @@
    that must not touch the network (lgx info) checks mutable-letgo-ref? first
    and skips this for such a pin. Under a replace the key is the checkout
    path, so the pin is never resolved and this stays pure."
-  [go-pairs lg-version target verbose?]
-  (let [replace-path (letgo-replace-path)
-        lg-version (if (and (nil? replace-path)
-                            (mutable-letgo-ref? lg-version))
-                     (resolve-letgo-version! lg-version verbose?)
-                     lg-version)
-        ref (letgo-ref lg-version replace-path)
-        dir (path/join (runtimes-dir) (runtime-hash go-pairs ref target))]
-    {:dir dir
-     :src (path/join dir "src")
-     :out (path/join dir "lg")
-     :stamp (path/join dir "local.stamp")
-     :live? (some? replace-path)
-     :lg-version lg-version}))
+  ([go-pairs lg-version target verbose?]
+   (runtime-paths go-pairs lg-version target [] verbose?))
+  ([go-pairs lg-version target tags verbose?]
+   (let [replace-path (letgo-replace-path)
+         lg-version (if (and (nil? replace-path)
+                             (mutable-letgo-ref? lg-version))
+                      (resolve-letgo-version! lg-version verbose?)
+                      lg-version)
+         ref (letgo-ref lg-version replace-path)
+         dir (path/join (runtimes-dir) (runtime-hash go-pairs ref target tags))]
+     {:dir dir
+      :src (path/join dir "src")
+      :out (path/join dir "lg")
+      :stamp (path/join dir "local.stamp")
+      :live? (some? replace-path)
+      :lg-version lg-version})))
 
 (def wasm-target
   "The platform the module behind a :target :wasm app is built for. A
@@ -809,10 +880,15 @@
 
    `target` is a {:os :arch} platform for a cross-build — it joins the hash
    (one cached binary per platform) and sets GOOS/GOARCH/CGO_ENABLED=0 on the
-   final `go build`. nil means native."
+   final `go build`. nil means native.
+
+   `tags` are the configured Go build tags (:go/build-tags). They join the
+   hash and reach `go build` as -tags, merged with any GOFLAGS sets."
   ([go-pairs lg-version verbose?]
-   (ensure-runtime! go-pairs lg-version nil verbose?))
+   (ensure-runtime! go-pairs lg-version nil [] verbose?))
   ([go-pairs lg-version target verbose?]
+   (ensure-runtime! go-pairs lg-version target [] verbose?))
+  ([go-pairs lg-version target tags verbose?]
    (let [replace-path (letgo-replace-path)
          ;; Read up front: the :go/local module paths are both rendered and
          ;; reserved against :go/replace, and the merge has to settle before
@@ -828,7 +904,7 @@
          _ (when-let [errs (seq (merged-replace-errors merged))]
              (die! (str/join "\nerror: " errs)))
          {:keys [src out stamp live? lg-version]}
-         (runtime-paths go-pairs lg-version target verbose?)
+         (runtime-paths go-pairs lg-version target tags verbose?)
          want (try (runtime-stamp go-pairs)
                    (catch e (die! (ex-message e))))]
      (if (and (file-exists? out)
@@ -854,7 +930,7 @@
                         ver com)
          ;; -o is resolved relative to the -C directory, so out has to be
          ;; absolute here (it always is: runtimes-dir hangs off $LGX_HOME).
-         (build-runtime! src out go-pairs lg-version replace-path target
+         (build-runtime! src out go-pairs lg-version replace-path target tags
                          verbose?)
          (when want
            (spit stamp want))

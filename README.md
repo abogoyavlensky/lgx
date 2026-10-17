@@ -586,6 +586,24 @@ onto its coord instead, in the `<module>@<version>` form
 Go coord, and two coords replacing one module with different targets is an
 error.
 
+**Build tags.** `:go/build-tags` passes Go build tags to the runtime build,
+for libraries whose behaviour is selected by them (Wails wants `production`
+for a release build and `server` to run headless):
+
+```clojure
+{:lg-runtime :built
+ :go/build-tags ["server"]                         ; every runtime lgx builds
+ :targets {:bin {:out "bin/app"
+                 :go/build-tags ["production"]}}}  ; added for lgx build only
+```
+
+The top-level key applies to `run`, `test`, `repl` and every build. The one
+under `:targets :bin` is added only to the runtime `lgx build` bundles your
+app onto, so the shipped binary carries it while `lgx run` does not; it is
+rejected with `:target :lgb`, `:wasm` or `:native`, which bundle onto no
+such runtime. Tags already in `GOFLAGS` are merged in rather than dropped,
+and each tag set gets its own cached runtime. Tags need `:lg-runtime :built`.
+
 `:lg-version` pins the let-go the runtime is built from. Version conflicts
 across the tree are left to Go's own MVS - lgx writes what it resolved and
 `go mod tidy` settles the rest.

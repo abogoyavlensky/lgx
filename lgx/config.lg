@@ -827,6 +827,15 @@
       {:path [:wasm]
        :msg "applies only to :target :wasm"}
 
+      ;; The tags reach the shipped binary as the -bundle-base runtime of
+      ;; `lg -b`; the other targets build no such base.
+      (and (contains? bin :go/build-tags) target)
+      {:path [:go/build-tags]
+       :msg (str "does not apply to :target " target " - only the "
+                 "standalone executable bundles onto a runtime lgx builds, "
+                 "so the tags would not reach it; use top-level "
+                 ":go/build-tags")}
+
       :else nil)))
 
 (defn- wasm-shell-errors
@@ -849,6 +858,22 @@
    [:payload {:optional true} [:enum :inline :external]]
    [:host-eval {:optional true} [:fn boolean-errors]]])
 
+(defn- build-tag-errors
+  "One Go build tag. Go's own rule is letters, digits, _ and .; the leading
+   char check also keeps a tag from reading as a `go build` flag."
+  [v]
+  (when-not (and (string? v) (re-matches #"^[A-Za-z0-9_.]+$" v))
+    (str "must be a Go build tag (letters, digits, _ and .), got "
+         (pr-str v))))
+
+(defn- build-tags-dup-errors [tags]
+  (let [dups (->> (frequencies tags) (filter #(> (val %) 1)) (map key) sort)]
+    (when (seq dups)
+      (str "duplicate build tags: " (str/join ", " dups)))))
+
+(def ^:private build-tags-schema
+  [:and [:vector [:fn build-tag-errors]] [:fn build-tags-dup-errors]])
+
 (def ^:private targets-schema
   [:map {:closed true}
    [:bin {:optional true}
@@ -858,7 +883,8 @@
       [:platforms {:optional true}
        [:and [:vector platform-schema] [:fn platform-dup-errors]]]
       [:target {:optional true} [:fn bin-target-value-errors]]
-      [:wasm {:optional true} wasm-opts-schema]]
+      [:wasm {:optional true} wasm-opts-schema]
+      [:go/build-tags {:optional true} build-tags-schema]]
      [:fn bin-target-errors]
      [:fn bin-out-collision-errors]]]])
 
@@ -943,7 +969,8 @@
    (the default) checks the pin against `lg -v`, which only a released semver
    can ever satisfy. :target :native compiles Go against the let-go that
    lowered it, so the compiler and the module must come from one pin, which
-   only :built guarantees. Runs after the structural schema passed, so
+   only :built guarantees, and :go/build-tags reach only a runtime lgx
+   builds. Runs after the structural schema passed, so
    :lg-version is a non-blank string or absent."
   [cfg]
   (let [mode (or (:lg-runtime cfg) :installed)
@@ -955,6 +982,14 @@
         :msg (str ":target :native needs :lg-runtime :built - the Go module "
                   "that links the lowered code must use the same let-go as "
                   "the compiler")}]
+
+      (and (not= mode :built)
+           (or (contains? cfg :go/build-tags)
+               (contains? (get-in cfg [:targets :bin]) :go/build-tags)))
+      [{:path [:lg-runtime]
+        :msg (str ":go/build-tags needs :lg-runtime :built - tags reach only "
+                  "a runtime lgx builds with the Go toolchain; the installed "
+                  "lg is used as is")}]
 
       (and (= mode :built) (nil? pin))
       [{:path [:lg-runtime]
@@ -978,6 +1013,7 @@
     [:main {:optional true} rel-path-schema]
     [:lg-version {:optional true} [:fn non-blank-string-errors]]
     [:lg-runtime {:optional true} [:enum :installed :built]]
+    [:go/build-tags {:optional true} build-tags-schema]
     [:targets {:optional true} targets-schema]
     [:contexts {:optional true} [:map-of :keyword context-schema]]
     [:tasks {:optional true}
@@ -1472,6 +1508,18 @@
    default standalone executable."
   [cfg]
   (:target (:bin (targets cfg))))
+
+(defn go-build-tags
+  "The top-level :go/build-tags vector, applied to every runtime lgx builds
+   for the project, or [] if absent."
+  [cfg]
+  (or (:go/build-tags cfg) []))
+
+(defn bin-go-build-tags
+  "The :go/build-tags under :targets :bin - added, for `lgx build` only, to
+   the runtime the standalone executable is bundled onto - or [] if absent."
+  [cfg]
+  (or (:go/build-tags (:bin (targets cfg))) []))
 
 (defn bin-wasm
   "Return the :wasm options map under :targets :bin, or {} if absent."

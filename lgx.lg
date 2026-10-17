@@ -497,6 +497,7 @@
           (os/exit 1))
         (gobuild/preflight!)
         (let [path (gobuild/ensure-runtime! go-pairs (config/lg-version cfg)
+                                            nil (config/go-build-tags cfg)
                                             verbose?)]
           (gobuild/select-runtime! path)
           (when verbose?
@@ -835,6 +836,23 @@
           (println "built" abs-out)
           (os/exit 0))))))
 
+;; `lg compile -module` and `lg -w` run their own `go build`, which takes build
+;; settings only from the environment - the -tags lgx gives the runtime build
+;; never reaches it. So for that one subprocess GOFLAGS carries the tags,
+;; merged as for a runtime, and is restored after: a later ensure-runtime!
+;; stamps GOFLAGS and must see the user's own value.
+(defn- with-build-tags-in-goflags [tags f]
+  (let [goflags (os/getenv "GOFLAGS")
+        tags (gobuild/effective-tags tags goflags)]
+    (if (empty? tags)
+      (f)
+      (do
+        (os/setenv "GOFLAGS" (gobuild/goflags-with-tags goflags tags))
+        (try
+          (f)
+          (finally
+            (os/setenv "GOFLAGS" (or goflags ""))))))))
+
 (defn- build-wasm!
   "`lgx build` for :target :wasm: a browser web directory via `lg -w`.
    Always exits.
@@ -893,6 +911,7 @@
                          (gobuild/ensure-runtime! go-pairs
                                                   (config/lg-version cfg)
                                                   gobuild/wasm-target
+                                                  (config/go-build-tags cfg)
                                                   verbose?)
                          "wasm"))
               abs-out (ensure-out-dir! project out-rel)
@@ -910,7 +929,9 @@
               ;; Exit only after the finally: os/exit would skip it and
               ;; leave the staged module behind.
               exit (try
-                     (runner/invoke-lg! paths resource-paths args verbose?)
+                     (with-build-tags-in-goflags
+                       (config/go-build-tags cfg)
+                       #(runner/invoke-lg! paths resource-paths args verbose?))
                      (finally
                        (when module
                          (syscall/rm-rf module))))]
@@ -993,7 +1014,9 @@
                   runtime (if target
                             (gobuild/ensure-runtime! go-pairs
                                                      (config/lg-version cfg)
-                                                     target verbose?)
+                                                     target
+                                                     (config/go-build-tags cfg)
+                                                     verbose?)
                             host)
                   label (str "Building " out-rel " ("
                              (if target
@@ -1015,7 +1038,9 @@
                   ;; Exit only after the finally: os/exit would skip it and
                   ;; leave the staged module behind.
                   r (try
-                      (apply os/sh argv)
+                      (with-build-tags-in-goflags
+                        (config/go-build-tags cfg)
+                        #(apply os/sh argv))
                       (finally
                         (syscall/rm-rf module)))]
               (runner/replay-output! r)
@@ -1098,7 +1123,8 @@
       ;; :installed, the PATH lg.
       (print-installs! results)
       (let [runtime (apply-runtime! cfg basis :fail verbose?)
-            abs-main (path/join project main-script)]
+            abs-main (path/join project main-script)
+            bin-tags (config/bin-go-build-tags cfg)]
         (doseq [target target-list]
           (let [out-rel (gobuild/target-out (:out bin) target)
                 abs-out (ensure-out-dir! project out-rel)
@@ -1106,13 +1132,19 @@
                 ;; bundle base, so a cross target needs a target-platform
                 ;; runtime as -bundle-base — built under :built even with no
                 ;; Go deps (the empty coord set renders a stock module).
-                ;; Native keeps the host runtime (or none). A user-supplied
-                ;; -bundle-base wins and skips the build outright.
+                ;; Native keeps the host runtime (or none) unless the bin
+                ;; target adds :go/build-tags: the shipped binary is a copy of
+                ;; the base, so the tags have to be in the base, while the
+                ;; host runtime that runs `lg -b` keeps the project's own.
+                ;; A user-supplied -bundle-base wins and skips the build
+                ;; outright.
                 base (cond
                        user-base? nil
-                       target (gobuild/ensure-runtime!
-                                go-pairs (config/lg-version cfg) target
-                                verbose?)
+                       (or target (seq bin-tags))
+                       (gobuild/ensure-runtime!
+                         go-pairs (config/lg-version cfg) target
+                         (vec (concat (config/go-build-tags cfg) bin-tags))
+                         verbose?)
                        :else runtime)
                 args (vec (concat (gobuild/inject-bundle-base forward base)
                                   ["-b" abs-out abs-main]))
@@ -1510,7 +1542,9 @@
               (let [out (when (or replace-path
                                   (not (gobuild/mutable-letgo-ref? pin)))
                           (:out (gobuild/runtime-paths (:go-coords basis) pin
-                                                       nil verbose?)))
+                                                       nil
+                                                       (config/go-build-tags cfg)
+                                                       verbose?)))
                     built? (boolean (and out (file-exists? out)))]
                 {:runtime-out out
                  :runtime-built? built?

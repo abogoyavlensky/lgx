@@ -2,7 +2,9 @@
 
 **Repo:** this one (lgx)
 
-**Status:** draft. Worked around with the `GOFLAGS` environment variable.
+**Status:** resolved on the `go-build-tags` branch: `:go/build-tags`, top
+level and under `:targets :bin` (see the README's "Build tags"). Kept for
+the lginterop note at the end, which still holds.
 
 ## Summary
 

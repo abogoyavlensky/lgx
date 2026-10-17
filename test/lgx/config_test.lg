@@ -174,7 +174,7 @@
   (is (= {:errors [{:path []
                     :msg (str "unknown key :extra (allowed: :deps, :paths, "
                               ":resource-paths, :main, :lg-version, :lg-runtime, "
-                              ":targets, "
+                              ":go/build-tags, :targets, "
                               ":contexts, :tasks)")}]}
          (load-cfg {:deps {} :extra 1}))))
 
@@ -354,7 +354,7 @@
 
 (deftest load-rejects-unknown-bin-key
   (is (= {:errors [{:path [:targets :bin]
-                    :msg "unknown key :foo (allowed: :out, :platforms, :target, :wasm)"}]}
+                    :msg "unknown key :foo (allowed: :out, :platforms, :target, :wasm, :go/build-tags)"}]}
          (load-cfg {:targets {:bin {:out "bin/app" :foo 1}}}))))
 
 (deftest load-rejects-bad-out
@@ -2192,3 +2192,58 @@
                           dir {:git/url "u" :deps/root "pkg"}))
                :root
                :other))))))
+
+;; ---------------------------------------------------------------------------
+;; :go/build-tags
+;; ---------------------------------------------------------------------------
+
+(def ^:private built {:lg-runtime :built :lg-version "1.13.0"})
+
+(deftest load-accepts-build-tags
+  (let [cfg {:lg-runtime :built :lg-version "1.13.0"
+             :go/build-tags ["server" "my_tag.v2"]
+             :targets {:bin {:out "bin/app" :go/build-tags ["production"]}}}]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(deftest load-rejects-bad-build-tags
+  (let [path [:go/build-tags]
+        err (fn [v] (:errors (load-cfg (assoc built :go/build-tags v))))]
+    (is (= [{:path path :msg "duplicate build tags: server"}]
+           (err ["server" "server"])))
+    (is (= [{:path (conj path 0)
+             :msg (str "must be a Go build tag (letters, digits, _ and .), "
+                       "got \"-x\"")}]
+           (err ["-x"])))
+    (is (= [{:path (conj path 0)
+             :msg (str "must be a Go build tag (letters, digits, _ and .), "
+                       "got \"\"")}]
+           (err [""])))
+    (is (= 1 (count (err "server"))))))
+
+(deftest load-rejects-target-build-tags-off-the-default-target
+  (doseq [[target out] [[:lgb "dist/app.lgb"] [:wasm "dist/web"]
+                        [:native "bin/app"]]]
+    (is (= {:errors [{:path [:targets :bin :go/build-tags]
+                      :msg (str "does not apply to :target " target
+                                " - only the standalone executable bundles "
+                                "onto a runtime lgx builds, so the tags would "
+                                "not reach it; use top-level :go/build-tags")}]}
+           (load-cfg (assoc built :targets {:bin {:target target :out out
+                                                   :go/build-tags ["production"]}}))))))
+
+(deftest load-rejects-build-tags-under-installed
+  (let [err {:path [:lg-runtime]
+             :msg (str ":go/build-tags needs :lg-runtime :built - tags reach "
+                       "only a runtime lgx builds with the Go toolchain; the "
+                       "installed lg is used as is")}]
+    (is (= {:errors [err]} (load-cfg {:go/build-tags ["server"]})))
+    (is (= {:errors [err]}
+           (load-cfg {:lg-runtime :installed
+                      :targets {:bin {:out "b" :go/build-tags ["production"]}}})))))
+
+(deftest build-tag-accessors-default-to-empty
+  (is (= [] (config/go-build-tags {})))
+  (is (= [] (config/bin-go-build-tags {})))
+  (is (= ["a"] (config/go-build-tags {:go/build-tags ["a"]})))
+  (is (= ["b"] (config/bin-go-build-tags
+                 {:targets {:bin {:out "x" :go/build-tags ["b"]}}}))))
