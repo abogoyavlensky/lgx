@@ -38,6 +38,7 @@ the ones that belong to lgx itself.
 | [letgo-string-escape.md](./letgo-string-escape.md) | `clojure.string/escape` ignores a fn `cmap` (Clojure allows one) and costs ~10 µs per short string, about 10x a native loop | filed (nooga/let-go#1068) |
 | [letgo-stringbuilder-str.md](./letgo-stringbuilder-str.md) | `(str sb)` on a `StringBuilder` returns `#<java.lang.StringBuilder>`, not its contents | filed (nooga/let-go#1069) |
 | [letgo-host-method-dispatch.md](./letgo-host-method-dispatch.md) | Lowered host method calls go through variadic `rt.CoreMethodInvoke` (one alloc, name switch), ~7x a direct call; ties to #1024 | filed (nooga/let-go#1070) |
+| [letgo-nrepl-with-script.md](./letgo-nrepl-with-script.md) | `lg -n script.lg` starts the nREPL only after the script returns, so a long-running program (a GUI, a server) never gets one | draft, worked around by the letgo-packages `nrepl` package |
 | [letgo-compile-entry-handling.md](./letgo-compile-entry-handling.md) | `lg compile` runs `-main` twice for an entry file without `ns` or with `(apply -main ...)`, and a `*.main` namespace becomes Go `package main` | draft |
 
 ## lgx's own
