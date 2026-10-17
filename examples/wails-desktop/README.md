@@ -21,10 +21,10 @@ await call("greet", "world");   // => "Hello, world!"
 
 ## Prerequisites
 
-Wails is a `:go/*` dep, so it needs a let-go carrying the interop work:
-`lgx.edn` pins `:lg-version "1.13.0"`, the first release with it - no let-go
-checkout required. See
-[`docs/knowledge-base/lgx-go-wrappers.md`](../../docs/knowledge-base/lgx-go-wrappers.md).
+Wails is a `:go/*` dep, so lgx builds the `lg` this runs on: `lgx.edn`
+sets `:lg-runtime :built` and pins `:lg-version "1.13.0"`, the first
+let-go release with the interop work. You need the Go toolchain, and no
+let-go checkout.
 
 ## Running it
 
@@ -37,24 +37,17 @@ toolchain:
 | macOS | Xcode command line tools |
 | Windows | not supported — let-go does not build for `GOOS=windows` yet |
 
-Confirmed working on macOS (Wails v3.0.0-beta.16). The Linux GTK path
-should work but has not been run.
+The native window was confirmed on macOS with Wails v3.0.0-beta.16; this
+version (wails-v0.2.0, Wails beta.30) has been run in server mode only.
+The Linux GTK path has not been run.
 
 ```sh
-export LGX_LETGO_REPLACE=/abs/path/to/let-go   # see Prerequisites
 lgx run                     # first run builds the custom runtime
-lgx build && ./bin/app      # or a single binary
+lgx build && ./bin/app      # or a single binary, frontend embedded
 ```
 
-Give `LGX_LETGO_REPLACE` an absolute path. It resolves against the current
-directory, and you run these from inside this one, so `../let-go` means
-`examples/let-go` and fails with a wall of `go mod tidy` output about a
-missing replacement directory.
-
 The first build takes a few minutes on macOS (the Objective-C compile of
-Wails' Cocoa layer) and is cached afterwards. Run from this directory
-either way — `assets-dir` is resolved against the process working
-directory.
+Wails' Cocoa layer) and is cached afterwards.
 
 Without the platform webview headers you can still exercise everything but
 the window, using Wails' cgo-free server mode — an HTTP server and your
@@ -72,9 +65,12 @@ Both env vars are needed: a few of Wails' internal packages gate on
 - `main.lg` — the whole app. Note `(when-not *compiling-aot* (-main))`:
   `lg -b` runs top-level forms at compile time, so without it `lgx build`
   would start the event loop while bundling.
-- `frontend/index.html` — the three-line `Call.ByName` helper that reaches
-  a handler. There is no generated bindings module, because there are no
-  Go methods to generate from.
+- `resources/public/index.html` — the three-line `Call.ByName` helper that
+  reaches a handler. There is no generated bindings module, because there
+  are no Go methods to generate from.
+
+For a fuller app on the same package - menus, dialogs, sqlite, and an
+nREPL inside the running window - see [`../wails-tasks`](../wails-tasks).
 
 See [`docs/knowledge-base/lgx-wails-desktop.md`](../../docs/knowledge-base/lgx-wails-desktop.md)
 for how the pieces fit and what the limits are, and

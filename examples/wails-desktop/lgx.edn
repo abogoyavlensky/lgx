@@ -1,4 +1,6 @@
 {:paths []
+ ;; resources/public is the frontend; lgx build embeds it in the binary.
+ :resource-paths ["resources"]
  :main "main.lg"
  :lg-version "1.13.0"
  :lg-runtime :built
@@ -6,5 +8,5 @@
 
  :deps {abogoyavlensky/letgo-wails
         {:git/url "https://github.com/abogoyavlensky/letgo-packages"
-         :git/tag "wails-v0.1.0"
+         :git/tag "wails-v0.2.0"
          :deps/root "wails"}}}
