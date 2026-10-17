@@ -1066,3 +1066,11 @@
          (gobuild/go-build-args "/d" "/d/lg" [])))
   (is (= ["-C" "/d" "build" "-tags" "a,b" "-o" "/d/lg" "."]
          (gobuild/go-build-args "/d" "/d/lg" ["a" "b"]))))
+
+(deftest goflags-with-tags-replaces-the-tags-field
+  (is (= "-mod=mod -tags=a,server"
+         (gobuild/goflags-with-tags "-mod=mod -tags=server" ["a" "server"])))
+  (is (= "-tags=a" (gobuild/goflags-with-tags nil ["a"])))
+  (is (= "'-ldflags=-s -w' -tags=a"
+         (gobuild/goflags-with-tags "'-ldflags=-s -w'" ["a"])))
+  (is (= "-mod=mod" (gobuild/goflags-with-tags "-mod=mod" []))))

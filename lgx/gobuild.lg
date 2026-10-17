@@ -201,6 +201,20 @@
     (canonical-tags (concat tags (goflags-tags goflags)))
     []))
 
+(defn goflags-with-tags
+  "GOFLAGS with its -tags= fields replaced by one carrying `tags`, for a Go
+   build lgx does not run itself (`lg compile -module`, `lg -w`): those read
+   build settings only from the environment. A field holding whitespace is
+   re-quoted. Empty `tags` returns `goflags` untouched."
+  [goflags tags]
+  (if (empty? tags)
+    goflags
+    (str/join " "
+              (concat (map (fn [f] (if (re-find #"\s" f) (str "'" f "'") f))
+                           (remove #(re-matches #"^--?tags=.*$" %)
+                                   (goflags-fields goflags)))
+                      [(str "-tags=" (str/join "," tags))]))))
+
 (defn go-build-args
   "The `go build` argument vector for the runtime module in `dir`."
   [dir out tags]

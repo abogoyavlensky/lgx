@@ -836,6 +836,23 @@
           (println "built" abs-out)
           (os/exit 0))))))
 
+;; `lg compile -module` and `lg -w` run their own `go build`, which takes build
+;; settings only from the environment - the -tags lgx gives the runtime build
+;; never reaches it. So for that one subprocess GOFLAGS carries the tags,
+;; merged as for a runtime, and is restored after: a later ensure-runtime!
+;; stamps GOFLAGS and must see the user's own value.
+(defn- with-build-tags-in-goflags [tags f]
+  (let [goflags (os/getenv "GOFLAGS")
+        tags (gobuild/effective-tags tags goflags)]
+    (if (empty? tags)
+      (f)
+      (do
+        (os/setenv "GOFLAGS" (gobuild/goflags-with-tags goflags tags))
+        (try
+          (f)
+          (finally
+            (os/setenv "GOFLAGS" (or goflags ""))))))))
+
 (defn- build-wasm!
   "`lgx build` for :target :wasm: a browser web directory via `lg -w`.
    Always exits.
@@ -912,7 +929,9 @@
               ;; Exit only after the finally: os/exit would skip it and
               ;; leave the staged module behind.
               exit (try
-                     (runner/invoke-lg! paths resource-paths args verbose?)
+                     (with-build-tags-in-goflags
+                       (config/go-build-tags cfg)
+                       #(runner/invoke-lg! paths resource-paths args verbose?))
                      (finally
                        (when module
                          (syscall/rm-rf module))))]
@@ -1019,7 +1038,9 @@
                   ;; Exit only after the finally: os/exit would skip it and
                   ;; leave the staged module behind.
                   r (try
-                      (apply os/sh argv)
+                      (with-build-tags-in-goflags
+                        (config/go-build-tags cfg)
+                        #(apply os/sh argv))
                       (finally
                         (syscall/rm-rf module)))]
               (runner/replay-output! r)

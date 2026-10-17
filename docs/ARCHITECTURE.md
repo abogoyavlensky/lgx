@@ -365,6 +365,10 @@ one, each cross base, the `:wasm` and `:native` modules); the key under
 `:targets :bin` is added only to the `-bundle-base` runtime, so a native
 build with bin tags builds one extra runtime (top-level ∪ bin tags) as its
 base while the host runtime that executes `lg -b` keeps the top-level set.
+`lg compile -module` (`:native`) and `lg -w` (`:wasm`) run a `go build` of
+their own that reads build settings only from the environment, so for that
+one subprocess lgx sets `GOFLAGS` to carry the tags
+(`gobuild/goflags-with-tags`) and restores it afterwards.
 
 So a four-platform release under `:built` builds five runtimes: one
 host plus four targets. A user `-bundle-base` replaces only the target
