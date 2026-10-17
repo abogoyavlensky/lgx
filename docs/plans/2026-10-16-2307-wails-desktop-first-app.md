@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status: completed 2026-10-17 (unreleased; Task 22 and the release asks are the user's).**
+**Status: completed and released 2026-10-17 (Task 22, the native checklist, is the user's).**
 
 **Goal:** Build a first real let-go desktop app (a task manager on Wails v3) and fill the gaps it exposes: a broader `wails` shim, a new `nrepl` package that serves an nREPL from inside a running program, and `:go/build-tags` in lgx. Then correct the knowledge base.
 
@@ -281,7 +281,7 @@ Work in `/home/agent/Projects/letgo-packages` on a branch `nrepl-package` off a 
 
 - [x] **Step 1:** README: what it is, `{:git/tag "nrepl-v0.1.0" :deps/root "nrepl"}`, a gated-start example, loopback-only, one server per process, and the upstream draft it substitutes for.
 - [x] **Step 2:** Commit: `nrepl: README`
-- [ ] **Step 3: ASK THE USER** before pushing the branch, opening a PR, and (after merge) tagging `nrepl-v0.1.0`. Link the PR with `link_pull_request`.
+- [x] **Step 3: ASK THE USER** before pushing the branch, opening a PR, and (after merge) tagging `nrepl-v0.1.0`. Link the PR with `link_pull_request`.
 
 > Deviation: the release asks for Tasks 4, 12, 16 and 24 are batched into one confirmation at the end, so local work is not blocked waiting on pushes. `wails-0.2` is stacked on `nrepl-package` (both touch the root README).
 
@@ -399,7 +399,7 @@ Same repo, branch `wails-0.2` off master. If Part 1 has merged, start from it.
 - [x] **Step 2:** Update `wails/README.md`: the full API from the Design, the menu spec, the reload-by-var convention, resource assets, and the server-mode test command. Update the root README's "In-tree shims" so wails follows the livekit model.
 - [x] **Step 3:** Rerun `CGO_ENABLED=0 GOFLAGS=-tags=server lgx test` and the Task 5 curl. Expected: PASS and the greeting.
 - [x] **Step 4:** Commit: `wails: example and README for v0.2.0`
-- [ ] **Step 5: ASK THE USER** before pushing, opening the PR, and (after merge) tagging `wails-v0.2.0`. Link the PR.
+- [x] **Step 5: ASK THE USER** before pushing, opening the PR, and (after merge) tagging `wails-v0.2.0`. Link the PR.
 
 > Deviation: Task 11 codex fixups: the asset watcher compares an fnv fingerprint of the tree, not the newest mtime (a file with a future timestamp masked every other edit), and the data-dir test isolates the config dir (on macOS it read the real one). Driving the UI in Task 20 found two more shim bugs, fixed on this branch: `ToGo` turned `[]` into `[null]` and an empty list into `{}` (an empty seq yields one nil; `isMap` now checks Associative), and a rejected call showed the raw error chain, so `handlerError` walks `GetCause` to the handler's own `ex-message`.
 
@@ -463,7 +463,7 @@ This repo, branch `go-build-tags` off master. Read `lgx/gobuild.lg` (`runtime-ha
 
 - [x] **Step 1:** Document both keys, the union rule, the rejected targets, and that `GOFLAGS` still works. Set the issue to `**Status:** resolved in <branch/PR>` and keep its lginterop note.
 - [x] **Step 2:** Commit: `docs: :go/build-tags`
-- [ ] **Step 3: ASK THE USER** before pushing and opening the PR. Link it.
+- [x] **Step 3: ASK THE USER** before pushing and opening the PR. Link it.
 
 > Deviation: Task 14 parses `GOFLAGS` with go's quoting rules (`-tags='a b'`, `"-tags=a,b"`) and re-quotes a merged field with the quote it lacks. Tags need `:lg-runtime :built`; without it they are a config error. The e2e checks are Scenario 179, gated on `LGX_BUILD_TAGS_E2E=1` since they build runtimes. Codex found the `:native` and `:wasm` targets built without the tags; they now get them through a `GOFLAGS` override around the subprocess (checked with a tag-gated probe shim: off before the fix, on after).
 
@@ -562,9 +562,9 @@ This repo, branch `wails-tasks-example` (stacked on `go-build-tags` if that has 
 - [x] **Step 2:** Run: `bash smoke.sh`. Expected: `smoke: ok`.
 - [x] **Step 3: Write the README.** Cover what the app is, prerequisites (copy the table from wails-desktop), `lgx run` and the dev loop (nREPL, load buffer, `tasks.menu/install!`, asset save → reload), `lgx build` (production tags, embedded assets), packaging pointers (`wails3` commands via `:tasks`, not wired), server mode, and `smoke.sh`.
 - [x] **Step 4:** Commit: `examples(wails-tasks): smoke script and README`
-- [ ] **Step 5:** Once `wails-v0.2.0` and `nrepl-v0.1.0` are tagged (Tasks 4 and 12), discard the local `lgx.edn` edit (`git checkout -- examples/wails-tasks/lgx.edn`) and re-run `lgx test` and `smoke.sh` against the tags. Expected: PASS and `smoke: ok`. If the tags are not out yet, stop here and tell the user; the committed tree is already correct.
+- [x] **Step 5:** Once `wails-v0.2.0` and `nrepl-v0.1.0` are tagged (Tasks 4 and 12), discard the local `lgx.edn` edit (`git checkout -- examples/wails-tasks/lgx.edn`) and re-run `lgx test` and `smoke.sh` against the tags. Expected: PASS and `smoke: ok`. If the tags are not out yet, stop here and tell the user; the committed tree is already correct.
 
-> Deviation: `smoke.sh` runs the app under `set -m` rather than `setsid`, which macOS lacks, so cleanup kills the process group. Step 5 waits for the tags.
+> Deviation: `smoke.sh` runs the app under `set -m` rather than `setsid`, which macOS lacks, so cleanup kills the process group. Step 5 passed against the published tags.
 
 ### Task 22: Native checklist (user, macOS)
 
@@ -616,7 +616,7 @@ This repo, on the `wails-tasks-example` branch.
 - [x] **Step 1: Write the issue draft.** Follow `docs/issues/README.md`'s format: the problem (`cli.go:689` order), the proposed change (start the nREPL before running files when `-n` is given with files), and that the `nrepl` package retires once it lands. Status: draft, not filed. Commit: `Issues: draft lg -n with a script`
 - [x] **Step 2:** **Use /backlog** to add `rss-reader-app.md` (the second app; needs an XML parser, either `encoding/xml` via `:go/interop` or a shim, and a background poller with notifications). Commit: `Backlog: RSS reader as the second Wails app`
 - [x] **Step 3:** **Use /backlog** to add `wails-linux-gtk-unverified.md` (the GTK4/WebKitGTK path has never run; the dev packages are needed). Commit: `Backlog: verify Wails on Linux GTK`
-- [ ] **Step 4: ASK THE USER** before pushing and opening the PR (stacked on `go-build-tags` if that is unmerged). Link every PR in the stack.
+- [x] **Step 4: ASK THE USER** before pushing and opening the PR (stacked on `go-build-tags` if that is unmerged). Link every PR in the stack.
 
 > Deviation: the RSS entry points at a shim (possibly over gofeed) rather than `encoding/xml` through `:go/interop`, which cannot carry tagged-struct decoding or `xml.Token` interfaces. Commit titles: `Backlog: an RSS reader as the second Wails app`, `Backlog: verify the Wails native window on Linux`.
 
@@ -633,7 +633,8 @@ Final runs: lgx `make test` with `LGX_BUILD_TAGS_E2E=1`, 909 unit tests and 569 
 
 Not done here:
 - Task 22, the native window on macOS, is the user's checklist. Nothing native was verified: this machine has no GTK and no sudo. Linux GTK is in the backlog.
-- Task 21 step 5 and the release asks (Tasks 4, 12, 16, 24) wait for the user: pushing, PRs, and the `nrepl-v0.1.0` and `wails-v0.2.0` tags. Until the tags exist, both examples fail to resolve on a fresh checkout. Tag before merging the lgx stack.
+
+Released: letgo-packages #7 and #8, tagged `nrepl-v0.1.0` and `wails-v0.2.0`; lgx #67 and #68. Against the tags (Task 21 step 5), the example's `lgx test` (16 tests) and `smoke.sh` passed, and `examples/wails-desktop` served and answered `greet` in server mode. No lgx release yet carries `:go/build-tags` (0.5.0 does not), so the example needs an lgx built from master until one does.
 
 What the plan could have specified better:
 - **`os/getenv` returns `""` for an unset variable.** `let-go-gotchas.md` already says so. Pointing at it from the dev-loop step would have avoided a plan that, followed literally, shipped an nREPL in the production binary.
