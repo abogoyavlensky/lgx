@@ -1,9 +1,0 @@
-(ns tasks.state)
-
-;; The live state, each in a defonce so reloading any namespace - an editor
-;; load-file over the nREPL - keeps the running app's connection and
-;; window instead of resetting them to nil.
-
-(defonce conn* (atom nil))   ; the sqlite connection
-(defonce app* (atom nil))    ; the Wails application
-(defonce win* (atom nil))    ; the main window

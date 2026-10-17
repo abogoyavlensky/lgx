@@ -64,11 +64,17 @@ value captured earlier keeps the old code:
   `:on-click #'export!` in a menu spec. A `*vm.Var` implements `vm.Fn` and
   `Var.Invoke` reads the root on every call (`pkg/vm/var.go`), so the
   wails shim needs no special case.
-- **Keep state in `defonce`.** The connection, the app and the window in
-  `defonce` atoms survive a reload of their namespace.
+- **Keep state in `defonce`.** Live state in a `defonce` atom survives a
+  reload of its namespace. With integrant that is one atom holding the
+  whole system (`tasks.system/system*` in wails-tasks), and components get
+  their dependencies as arguments. A handler that needs the connection is
+  registered as `(partial #'add-task conn)`: the partial keeps the var,
+  so it stays hot.
 - **Data is reloadable too.** A Wails menu spec is data: edit it, call
   `set-menu!` again, and the menu bar is rebuilt.
-- **What `-main` built needs a restart.** The app and its windows.
+- **What `-main` built needs a restart.** The app and its windows. A
+  Wails app cannot be halted and started again in one process, so the
+  integrant reset cycle (halt, reload, init) does not apply to it.
 
 ### Why redefining under load is safe
 

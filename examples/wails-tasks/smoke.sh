@@ -64,7 +64,7 @@ call add-task '["smoke"]' >/dev/null || fail "add-task failed"
 # Redefine a handler in the running app. It is registered by var, so the
 # next call runs the new definition.
 python3 "$NREPL_CLIENT" "$(cat .nrepl-port)" \
-    "(alter-var-root #'tasks.api/list-tasks (constantly (fn [] [{:title \"redefined\"}])))" \
+    "(alter-var-root #'tasks.api/list-tasks (constantly (fn [_conn] [{:title \"redefined\"}])))" \
     >/dev/null || fail "the nREPL eval failed"
 [[ "$(call list-tasks '[]')" == *'"title":"redefined"'* ]] || fail "the redefinition did not take effect"
 

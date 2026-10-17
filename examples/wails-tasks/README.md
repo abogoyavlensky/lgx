@@ -44,19 +44,43 @@ lgx run
 - **An nREPL inside the app.** It prints its port and writes
   `.nrepl-port`, so your editor connects to the running app, not a fresh
   process.
-- **Redefine and go.** The handlers are registered as vars
+- **Redefine and go.** The handlers are registered through their vars
   (`src/tasks/api.lg`), so editing `add-task` and loading the buffer
   changes what the next click runs. The same holds for the menu's
   `export!` and `import!`.
 - **Rebuild the menu.** Edit `tasks.menu/spec`, then evaluate
-  `(tasks.menu/install!)`.
+  `(tasks.menu/install! (:tasks.menu/menu @tasks.system/system*))`.
 - **Edit the frontend.** Saving anything under `resources/public` reloads
   the window.
-- **State survives reloads.** The connection, app and window live in
-  `defonce` atoms (`src/tasks/state.lg`), so reloading a namespace keeps
-  them.
+- **Reach the live system.** integrant builds the app from one config
+  map (`src/tasks/system.lg`), and the running system sits in
+  `tasks.system/system*`, a `defonce`, so reloading a namespace keeps it:
 
-Only `main.lg`, which builds the app and the window, needs a restart.
+  ```clojure
+  (keys @tasks.system/system*)
+  (tasks.db/list-tasks (:tasks.db/conn @tasks.system/system*))
+  ```
+
+Changing the config or a component's `init-key` needs a restart: the
+Wails app and its window cannot be rebuilt inside a running process.
+
+## How it fits together
+
+`tasks.system/config` names six components, and integrant starts them in
+dependency order:
+
+| Key | Is | Depends on |
+|---|---|---|
+| `:tasks.db/conn` | the sqlite connection, migrated | |
+| `:tasks.api/handlers` | the frontend's handlers, registered over the connection | the connection |
+| `:tasks.app/app` | the Wails application | |
+| `:tasks.app/window` | the main window | the app |
+| `:tasks.menu/menu` | the application menu | the app, the connection |
+| `:tasks.dev/loop` | the nREPL and the asset watcher (`lgx run` only) | the window |
+
+`main.lg` starts the system and blocks in `w/run!`, which has to run on
+the main thread and so is not a component. Quitting halts the system in
+reverse order, which stops the nREPL and closes the connection.
 
 ## Build it
 
@@ -98,14 +122,15 @@ package's tests; point `NREPL_CLIENT` at it if your checkout is elsewhere.
 
 | Path | What it does |
 |---|---|
-| `main.lg` | builds the app and the window, opens the database, starts the dev loop |
+| `main.lg` | starts the system, runs the event loop, halts the system at exit |
+| `src/tasks/system.lg` | the integrant config, and the running system |
 | `src/tasks/api.lg` | the handlers the frontend calls, registered by var |
-| `src/tasks/db.lg` | the sqlite queries (HoneySQL) |
+| `src/tasks/app.lg` | the Wails app and window components |
+| `src/tasks/db.lg` | the connection component and the sqlite queries (HoneySQL) |
 | `src/tasks/migrations.lg` | the schema history (ragtime) |
 | `src/tasks/transfer.lg` | JSON export and import |
 | `src/tasks/menu.lg` | the application menu, as data |
 | `src/tasks/dev.lg` | the nREPL and the asset watcher, under `lgx run` only |
-| `src/tasks/state.lg` | the live connection, app and window |
 | `resources/public/` | the frontend: `index.html`, `app.js`, `style.css` |
 
 ## Verified on

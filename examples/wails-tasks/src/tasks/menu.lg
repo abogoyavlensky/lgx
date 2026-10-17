@@ -1,53 +1,62 @@
 (ns tasks.menu
-  (:require [tasks.state :as state]
+  (:require [integrant.core :as ig]
             [tasks.transfer :as transfer]
             [wails.core :as w]))
 
-;; The application menu, as data. Every :on-click is a var, so redefining
-;; export! or import! takes effect on the next click; after editing `spec`,
-;; (install!) rebuilds the menu bar in place.
+;; The application menu, as data. The menu component's value, {:app :db},
+;; is what the click handlers and `spec` take. Every :on-click goes through
+;; a var, so redefining export! or import! takes effect on the next click;
+;; after editing `spec`, (install! env) rebuilds the menu bar in place:
+;;
+;;   (tasks.menu/install! (:tasks.menu/menu @tasks.system/system*))
 
 (def ^:private json-filter [["JSON" "*.json"]])
 
 (defn- reporting
   "Run f; show an error dialog instead of letting a failure vanish into
    stderr, which is where an unawaited menu click's exception goes."
-  [what f]
+  [app what f]
   (try
     (f)
     (catch e
-      (w/message! @state/app* :error (str what " failed") (ex-message e)))))
+      (w/message! app :error (str what " failed") (ex-message e)))))
 
-(defn export! []
-  (reporting "Export"
+(defn export! [{:keys [app db]}]
+  (reporting app "Export"
     (fn []
-      (when-let [path (w/save-file @state/app* {:title "Export tasks"
-                                                :filename "tasks.json"
-                                                :filters json-filter})]
-        (spit path (transfer/export-json @state/conn*))))))
+      (when-let [path (w/save-file app {:title "Export tasks"
+                                        :filename "tasks.json"
+                                        :filters json-filter})]
+        (spit path (transfer/export-json db))))))
 
-(defn import! []
-  (reporting "Import"
+(defn import! [{:keys [app db]}]
+  (reporting app "Import"
     (fn []
-      (when-let [path (w/open-file @state/app* {:title "Import tasks"
-                                                :filters json-filter})]
-        (let [n (transfer/import-json! @state/conn* (slurp path))]
+      (when-let [path (w/open-file app {:title "Import tasks"
+                                        :filters json-filter})]
+        (let [n (transfer/import-json! db (slurp path))]
           ;; The frontend re-reads its list on this event.
-          (w/emit! @state/app* "tasks-changed" {:added n})
-          (w/message! @state/app* :info "Import"
+          (w/emit! app "tasks-changed" {:added n})
+          (w/message! app :info "Import"
                       (str "Added " n (if (= 1 n) " task." " tasks."))))))))
 
-(defn spec []
+(defn spec [env]
   [{:role :app-menu}
    {:label "File"
-    :items [{:label "Export…" :accelerator "CmdOrCtrl+E" :on-click #'export!}
-            {:label "Import…" :accelerator "CmdOrCtrl+I" :on-click #'import!}
+    :items [{:label "Export…" :accelerator "CmdOrCtrl+E"
+             :on-click (partial #'export! env)}
+            {:label "Import…" :accelerator "CmdOrCtrl+I"
+             :on-click (partial #'import! env)}
             {:separator true}
             {:role :quit}]}
    {:role :edit-menu}
    {:role :window-menu}])
 
 (defn install!
-  "Install (or rebuild) the application menu."
-  []
-  (w/set-menu! @state/app* (spec)))
+  "Install (or rebuild) the application menu. Returns env."
+  [{:keys [app] :as env}]
+  (w/set-menu! app (spec env))
+  env)
+
+(defmethod ig/init-key ::menu [_ env]
+  (install! env))

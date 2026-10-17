@@ -1,15 +1,12 @@
 (ns tasks.api
-  (:require [string :as str]
+  (:require [integrant.core :as ig]
+            [string :as str]
             [tasks.db :as db]
-            [tasks.state :as state]
             [wails.core :as w]))
 
-;; What the frontend calls, one fn per call, each taking the plain values
-;; JavaScript sends. They read the connection from tasks.state, so they
-;; work against whatever conn is live.
-
-(defn- conn []
-  (or @state/conn* (throw (ex-info "The database is not open." {}))))
+;; What the frontend calls, one fn per call. Each takes the connection
+;; first, then the plain values JavaScript sends; the handlers component
+;; below supplies the connection.
 
 (defn- title! [s]
   (let [t (str/trim (str s))]
@@ -17,28 +14,28 @@
       (throw (ex-info "A task needs a title." {})))
     t))
 
-(defn list-tasks [] (db/list-tasks (conn)))
+(defn list-tasks [conn] (db/list-tasks conn))
 
-(defn add-task [title] (db/add-task! (conn) (title! title)))
+(defn add-task [conn title] (db/add-task! conn (title! title)))
 
 (defn update-task
   "changes is the JS object {title?, notes?}; keys arrive as strings."
-  [id changes]
+  [conn id changes]
   (let [c (cond-> {}
             (contains? changes "title") (assoc :title (title! (get changes "title")))
             (contains? changes "notes") (assoc :notes (str (get changes "notes"))))]
-    (or (db/update-task! (conn) id c)
+    (or (db/update-task! conn id c)
         (throw (ex-info (str "No task " id ".") {:id id})))))
 
-(defn toggle-task [id]
-  (or (db/toggle-task! (conn) id)
+(defn toggle-task [conn id]
+  (or (db/toggle-task! conn id)
       (throw (ex-info (str "No task " id ".") {:id id}))))
 
-(defn delete-task [id] (db/delete-task! (conn) id))
+(defn delete-task [conn id] (db/delete-task! conn id))
 
-(defn clear-done [] (db/clear-done! (conn)))
+(defn clear-done [conn] (db/clear-done! conn))
 
-;; Registered by var, not by fn value: wails.core re-reads a var on every
+;; By var, not by fn value: a var reads its current definition on every
 ;; call, so redefining any of these from the nREPL changes what the next
 ;; frontend call runs, with no restart and no re-registration.
 (def handlers
@@ -49,6 +46,10 @@
    "delete-task" #'delete-task
    "clear-done" #'clear-done})
 
-(defn register! []
+;; Registers every handler over the connection. (partial #'f db) keeps the
+;; var, so it stays hot. Wails has no way to unregister; a halted system
+;; leaves the handlers in place, and the process ends right after anyway.
+(defmethod ig/init-key ::handlers [_ {:keys [db]}]
   (doseq [[name v] handlers]
-    (w/handler! name v)))
+    (w/handler! name (partial v db)))
+  (set (keys handlers)))
