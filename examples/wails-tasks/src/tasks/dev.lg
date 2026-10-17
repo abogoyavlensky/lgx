@@ -1,0 +1,27 @@
+(ns tasks.dev
+  (:require [nrepl.core :as nrepl]
+            [string :as str]
+            [tasks.state :as state]
+            [wails.core :as w]))
+
+;; The dev loop, on only under `lgx run` (which sets LGX_RUN; a built
+;; binary does not): an nREPL inside the app, and a window reload whenever
+;; a frontend file changes.
+
+(defn dev?
+  "True under `lgx run`. os/getenv returns \"\" (truthy) for an unset
+   variable, so the check has to be for a non-blank value."
+  []
+  (not (str/blank? (os/getenv "LGX_RUN"))))
+
+(defn start! []
+  (when (dev?)
+    ;; Port 0 picks a free one; editors find it in .nrepl-port.
+    (nrepl/start!)
+    (w/watch-assets! @state/win* "resources/public")
+    (println "dev: reloading the window when resources/public changes")))
+
+(defn stop!
+  "Stop the dev nREPL, which removes .nrepl-port. A no-op outside dev."
+  []
+  (nrepl/stop!))

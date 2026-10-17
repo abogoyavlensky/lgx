@@ -1,11 +1,13 @@
 # Desktop apps: Wails v3 under lgx
 
 [Wails v3](https://v3.wails.io) pairs a Go backend with a webview
-frontend. Running it under let-go works, and
-[`examples/wails-desktop/`](../../examples/wails-desktop) is the worked
-example. This note records how the pieces fit, what was actually
-verified, and where the edges are — the things that are not obvious from
-either project's docs.
+frontend. Running it under let-go works.
+[`examples/wails-tasks/`](../../examples/wails-tasks) is a real app (a task
+manager with menus, dialogs, sqlite and an nREPL in the running window);
+[`examples/wails-desktop/`](../../examples/wails-desktop) is the minimal
+one. This note records how the pieces fit, what was actually verified, and
+where the edges are — the things that are not obvious from either
+project's docs.
 
 ## What was verified
 
@@ -23,6 +25,13 @@ values crossing both ways, errors propagating, custom assets served, and
 GTK4/WebKitGTK, so it ran in Wails' cgo-free `-tags server` mode — an HTTP
 server and a browser instead of a webview.
 
+**wails-v0.2.0 on Wails beta.30, server mode only** (2026-10-17,
+linux/amd64): the package's 33 tests, which run the real app with `run!`
+on a future, and `examples/wails-tasks` driven in headless Chromium plus
+its `smoke.sh`. The native side of what 0.2.0 added - menus, dialogs,
+window controls, the asset watcher, embedded assets in a Finder-launched
+`.app` - has not been run on a desktop yet.
+
 **Still untested: the Linux GTK4/WebKitGTK window.** macOS covers the
 "desktop app" claim, and the two platform layers share everything above
 them, but the GTK path has not been run. Say so rather than generalising
@@ -30,10 +39,12 @@ from macOS.
 
 ## The shape that works
 
-All the Go lives in one hand-written shim, published as the
+All the Go lives in one hand-written shim, in-tree in the
 [`wails`](https://github.com/abogoyavlensky/letgo-packages/tree/master/wails)
-package in letgo-packages. A project depends on that package and writes
-only let-go.
+package in letgo-packages (`{:go/local "shim"}`, released with the package
+tag alone from wails-v0.2.0). A project depends on that package and writes
+only let-go: options maps with keyword keys, handlers and menu clicks as
+let-go fns (vars, to make them hot), the menu as data.
 
 ```
 frontend (JS)  --Call.ByName-->  Wails message processor
@@ -83,12 +94,41 @@ possible — build on the machine you ship for. And Windows, the one
 platform that would cross-build cleanly, is blocked by let-go itself
 (see [`issues/windows-build-unix-only-term.md`](../issues/windows-build-unix-only-term.md)).
 
-**Build tags have no config key.** Wails wants `-tags production` for
-release builds and `-tags server` for headless. lgx has no `:go/build-tags`
-(see [`issues/lgx-no-go-build-tags.md`](../issues/lgx-no-go-build-tags.md));
-`GOFLAGS=-tags=...` in the environment reaches `go build` and works. Note
-that `lginterop`'s own `-build-tags` flag does *not* help: it only emits a
-`//go:build` line into the generated file and has no effect on the scan.
+**Build tags.** Wails wants `-tags production` for release builds (no
+devtools, no dev asset server) and `-tags server` for headless. Put
+`production` under `:targets {:bin {:go/build-tags [...]}}` so only the
+shipped binary gets it while `lgx run` keeps the dev build. `server` needs
+`CGO_ENABLED=0` as well (below), so it stays in the environment:
+`CGO_ENABLED=0 GOFLAGS=-tags=server`; lgx merges `GOFLAGS` tags with the
+configured ones. `lginterop`'s own `-build-tags` flag does *not* help: it
+only emits a `//go:build` line into the generated file.
+
+**Serve the frontend from resources, not a directory.** `:assets-dir` is
+relative to the working directory, and a macOS `.app` started from Finder
+runs in `/`, so its window comes up blank. `(w/new-app {:assets "public"})`
+serves the resource prefix through `rt.GetResourceProvider()`: from disk
+under `lgx run`, from the archive `lgx build` embeds in the binary. Wails'
+native response writers answer 501 when a handler never writes a header,
+so the shim commits the 200 before copying (an empty file would otherwise
+fail on a desktop and pass in server mode).
+
+**JSON has one number type.** Call arguments and event data arrive as
+JSON decoded into Go, so an id of 3 is the float64 3.0. The shim raises
+whole numbers to ints (`FromJSON`), and `null` to nil, which
+`vm.ToLetGo` cannot box at all.
+
+**An empty collection's seq is not nil.** It yields one nil element, so a
+naive walk turns `[]` into `[null]`; check `RawCount` first. The same
+trap makes an empty vector look like `[nil]` to a menu-spec walker.
+
+**A lone `error` return does not throw.** A shim fn returning only
+`error` hands it to let-go as a value; `(value, error)` throws. Every shim
+fn that can fail returns a pair.
+
+**A handler's exception reaches Go wrapped.** The VM links errors through
+`GetCause`, not `Unwrap`, so `errors.As` does not find the thrown
+`*vm.ExInfo`; the shim walks the chain so the frontend gets the
+`ex-message`, not "ExecutionError: calling f caused by ...".
 
 **Maps do not cross the boundary.** `[]any` does, since
 `fix/vm-boxing-symmetry`, but a let-go map handed to a Go
@@ -109,6 +149,12 @@ This is the general
 [bundling gotcha](./let-go-gotchas.md), but a GUI framework makes it
 loud.
 
+**Menus: destroy what you replace.** Wails registers every menu item in a
+process-global map until it is destroyed, and `Menu.Set` does not destroy
+the old menu, so rebuilding from the REPL would leak items and the
+callbacks they hold; the shim destroys the replaced menu. Building one
+also needs the application to exist (some roles reach Wails' global app).
+
 **A `:go/local` module path needs a dot in its first segment**, or lgx
 classifies it as stdlib and rejects the coord: `module lgxwails/shim`
 gives ":go/local do not apply ... is a standard-library package". See
@@ -126,10 +172,15 @@ The one rule: call it from the entry fn, not from a spawned thread.
 its own goroutines, and the shim invokes let-go fns from them. That is the
 same thing `pkg/rt/http.go` already does for `http/serve` handlers.
 
-**The dev loop.** A running app can reload its handlers from disk with no
-restart, which `wails3 dev` cannot do — a Go backend has to rebuild and
-relaunch. See [`lgx-live-reload.md`](./lgx-live-reload.md) for the watcher
-and for why an nREPL cannot attach to a running app yet.
+**The main thread, from elsewhere.** Wails' window methods move their
+platform calls onto the main thread themselves (`InvokeSync` inside), so
+calling them from a handler or an nREPL eval is safe; `on-main!` wraps
+`application.InvokeSync` for anything else.
+
+**The dev loop.** An nREPL inside the running app (the `nrepl` package)
+redefines handlers with no restart, which `wails3 dev` cannot do — a Go
+backend has to rebuild and relaunch. See
+[`lgx-live-reload.md`](./lgx-live-reload.md).
 
 Build times, measured on linux/amd64 with warm Go caches: about 0.3s
 when only `.lg` files changed, about 1.4s after a Go edit to the shim (a
@@ -144,21 +195,16 @@ through `:tasks`.
 
 ## Reproducing the verification
 
-Wails is a `:go/*` dep, so the project needs `:lg-runtime :built` and a
-let-go carrying the merged interop work - pin `:lg-version` to a main
-sha, see [`lgx-go-wrappers.md`](./lgx-go-wrappers.md). Then:
+Wails is a `:go/*` dep, so the project needs `:lg-runtime :built` and
+let-go 1.13.0 or newer (the examples pin it). Then:
 
 ```bash
 cd examples/wails-desktop
-LGX_LETGO_REPLACE=/abs/path/to/let-go lgx run
+lgx run
 ```
 
 Native needs Xcode command line tools on macOS, or GTK4 + WebKitGTK 6.0
-dev packages on Linux. Give `LGX_LETGO_REPLACE` an **absolute** path: it
-is resolved against the current directory, and the command is run from
-inside `examples/wails-desktop`, so a relative path aimed at a sibling of
-the repo silently becomes `examples/<name>` and surfaces as a wall of
-`go mod tidy` output about a missing replacement directory.
+dev packages on Linux.
 
 On macOS the first build takes a few minutes — the Objective-C compile of
 Wails' Cocoa layer — and is cached afterwards.
@@ -166,8 +212,7 @@ Wails' Cocoa layer — and is cached afterwards.
 Without the platform headers, in server mode:
 
 ```bash
-CGO_ENABLED=0 GOFLAGS=-tags=server \
-  LGX_LETGO_REPLACE=/path/to/let-go lgx run
+CGO_ENABLED=0 GOFLAGS=-tags=server lgx run
 ```
 
 Both env vars are needed: several of Wails' internal packages gate on
@@ -191,20 +236,21 @@ be unique per in-flight call.
 ---
 
 > **Verify against (in this repo):**
-> [`lgx/gobuild.lg`](../../lgx/gobuild.lg) (cgo settings, build steps),
-> [`lgx/config.lg`](../../lgx/config.lg) (`:go/*` coord validation),
-> [`examples/wails-desktop/`](../../examples/wails-desktop).
+> [`lgx/gobuild.lg`](../../lgx/gobuild.lg) (cgo settings, build steps, build tags),
+> [`lgx/config.lg`](../../lgx/config.lg) (`:go/*` coord validation, `:go/build-tags`),
+> [`examples/wails-desktop/`](../../examples/wails-desktop),
+> [`examples/wails-tasks/`](../../examples/wails-tasks).
 >
 > **In [nooga/let-go](https://github.com/nooga/let-go):**
 > `cmd/lginterop/lginterop.lg` (`generic?`, `opaque-structs?`),
 > `pkg/vm/value.go` (`BoxValue`, `ToLetGo`),
 > `pkg/rt/http.go` (invoking a let-go fn from a Go goroutine).
 >
-> **In [wailsapp/wails](https://github.com/wailsapp/wails) (v3.0.0-beta.16):**
+> **In [wailsapp/wails](https://github.com/wailsapp/wails) (v3.0.0-beta.30):**
 > `v3/pkg/application/services.go` (`NewService[T]`),
 > `v3/pkg/application/bindings.go` (name-based dispatch),
 > `v3/pkg/application/init_desktop.go` (`LockOSThread`),
 > `v3/pkg/application/messageprocessor_call.go` (the call protocol).
 >
 > **In [letgo-packages](https://github.com/abogoyavlensky/letgo-packages):**
-> `wails/shim/shim.go`, `wails/src/wails/core.lg`.
+> `wails/shim/*.go` (one concern per file), `wails/src/wails/core.lg`.

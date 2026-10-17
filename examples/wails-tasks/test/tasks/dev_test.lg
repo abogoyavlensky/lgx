@@ -1,0 +1,14 @@
+(ns tasks.dev-test
+  (:require [tasks.dev :as dev]
+            [clojure.test :refer [deftest is]]))
+
+;; The dev loop (an nREPL, the asset watcher) must stay off in a built
+;; binary, where LGX_RUN is unset - and an unset variable reads as "".
+(deftest dev-only-under-lgx-run
+  (let [saved (os/getenv "LGX_RUN")]
+    (try
+      (os/setenv "LGX_RUN" "")
+      (is (false? (dev/dev?)))
+      (os/setenv "LGX_RUN" "1")
+      (is (true? (dev/dev?)))
+      (finally (os/setenv "LGX_RUN" saved)))))

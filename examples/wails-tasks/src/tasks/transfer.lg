@@ -1,0 +1,62 @@
+(ns tasks.transfer
+  (:require [json :as json]
+            [string :as str]
+            [sqlite.core :as sqlite]
+            [tasks.db :as db]))
+
+;; Export and import as JSON:
+;;
+;;   {"version": 1, "tasks": [{"title": "...", "notes": "...", "done": false}]}
+;;
+;; Import checks the whole document before inserting anything, and inserts
+;; in one transaction, so a bad file changes nothing.
+
+(def ^:private version 1)
+
+(defn export-json
+  "Every task as an export document (a JSON string)."
+  [conn]
+  (json/write-json {:version version
+                    :tasks (mapv #(select-keys % [:title :notes :done])
+                                 (db/list-tasks conn))}))
+
+(defn- bad [reason msg data]
+  (throw (ex-info msg (assoc data :reason reason))))
+
+(defn- task-of
+  "Validate one exported task; i is its index, for the message."
+  [i t]
+  (when-not (map? t)
+    (bad :bad-shape (str "task " i " is not an object") {:index i}))
+  (let [{:keys [title notes done]} t]
+    (when-not (and (string? title) (not (str/blank? title)))
+      (bad :bad-shape (str "task " i " needs a non-empty title") {:index i}))
+    (when-not (or (nil? notes) (string? notes))
+      (bad :bad-shape (str "task " i ": notes must be a string") {:index i}))
+    (when-not (or (nil? done) (boolean? done))
+      (bad :bad-shape (str "task " i ": done must be true or false") {:index i}))
+    {:title (str/trim title) :notes (or notes "") :done (true? done)}))
+
+(defn parse
+  "The tasks in an export document, validated. Throws ex-info with :reason
+   :bad-json, :bad-version or :bad-shape."
+  [s]
+  (let [doc (try (json/read-json s {:keywords? true})
+                 (catch e (bad :bad-json "not a JSON document" {})))]
+    (when-not (map? doc)
+      (bad :bad-shape "an export is a JSON object" {}))
+    (when-not (= version (:version doc))
+      (bad :bad-version (str "unsupported export version " (pr-str (:version doc)))
+           {:version (:version doc)}))
+    (when-not (sequential? (:tasks doc))
+      (bad :bad-shape "an export needs a \"tasks\" array" {}))
+    (vec (map-indexed task-of (:tasks doc)))))
+
+(defn import-json!
+  "Append the tasks of an export document. Returns how many were added."
+  [conn s]
+  (let [tasks (parse s)]
+    (sqlite/with-transaction [tx conn]
+      (doseq [{:keys [title notes done]} tasks]
+        (db/add-task! tx title notes done)))
+    (count tasks)))

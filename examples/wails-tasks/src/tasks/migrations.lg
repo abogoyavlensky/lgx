@@ -1,0 +1,28 @@
+(ns tasks.migrations
+  (:require [honey.sql :as sql]
+            [ragtime.letgo :as rt]))
+
+;; The schema history, as HoneySQL data run through ragtime (the
+;; letgo-packages ragtime package supplies the DataStore over the sql layer).
+
+(defn- migration [id up down]
+  (rt/sql-migration {:id id
+                     :up (mapv sql/format up)
+                     :down (mapv sql/format down)}))
+
+(def migrations
+  [(migration "001-create-tasks"
+              [{:create-table :tasks
+                :with-columns [[:id :integer [:primary-key]]
+                               [:title :text [:not nil]]
+                               [:notes :text [:not nil] [:default ""]]
+                               [:done :integer [:not nil] [:default 0]]
+                               [:created_at :text [:not nil]
+                                [:default [:raw "(datetime('now'))"]]]]}]
+              [{:drop-table :tasks}])])
+
+(defn migrate!
+  "Apply every migration not yet applied, in order."
+  [conn]
+  (rt/migrate {:datastore (rt/sql-database conn)
+               :migrations migrations}))

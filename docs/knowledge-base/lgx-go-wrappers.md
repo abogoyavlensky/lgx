@@ -155,6 +155,29 @@ cd letgo-packages/sqlite/example && lgx run    # and sql, ragtime: lgx test
 cd lgx && bash tests/run.sh                    # 314 e2e assertions
 ```
 
+## Writing a shim: let-go facts to know
+
+Learned on the wails shim; each one fails quietly.
+
+- **A lone `error` return does not throw.** A Go fn registered with
+  `vm.MustBox` that returns only `error` hands it to let-go as a value.
+  Return `(value, error)` and let-go throws the error.
+- **The VM's error chain uses `GetCause`, not `Unwrap`.** `errors.As` on
+  the error from `fn.Invoke` does not find the thrown `*vm.ExInfo`; walk
+  `GetCause()` to the `*vm.ThrownError` and read its `Value`.
+- **An empty collection's seq is not nil.** It yields one nil element, so
+  a `for s := c.Seq(); s != nil; s = s.Next()` walk sees `[nil]` for `[]`.
+  Check `vm.Counted.RawCount()` first.
+- **A string satisfies `vm.Lookup`.** To tell a map from other values,
+  check that its seq yields `vm.MapEntry` (and, when empty, that it is
+  `vm.Associative` but not `vm.Indexed`).
+- **JSON numbers are float64.** Values decoded from JSON need whole
+  numbers raised to `vm.Int` and `nil` mapped to `vm.NIL` before they
+  reach let-go; `vm.ToLetGo(nil)` fails.
+- **A `*vm.Var` is a `vm.Fn`.** Taking `vm.Fn` for a callback accepts a
+  var too, and `Var.Invoke` reads the root on every call, which is what
+  makes the callback redefinable from a REPL.
+
 ## If wrapping turns up a let-go gap
 
 It will - both existing wrappers did, and both produced upstream PRs. Build

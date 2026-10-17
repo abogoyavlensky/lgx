@@ -1,0 +1,42 @@
+(ns tasks.api-test
+  (:require [tasks.api :as api]
+            [tasks.db-test :refer [with-conn]]
+            [tasks.state :as state]
+            [string :as str]
+            [clojure.test :refer [deftest is]]))
+
+;; The handlers as plain fns over a throwaway db: what the frontend calls,
+;; minus the bridge (wails' own tests cover that).
+
+(defn- with-state [f]
+  (with-conn
+    (fn [conn]
+      (reset! state/conn* conn)
+      (try (f) (finally (reset! state/conn* nil))))))
+
+(defn- message-of [f]
+  (try (f) nil (catch e (ex-message e))))
+
+(deftest handlers-round-trip
+  (with-state
+    (fn []
+      (let [{:keys [id]} (api/add-task "  buy milk ")]
+        (is (= "buy milk" (:title (first (api/list-tasks)))))
+        (is (= "oat milk" (:title (api/update-task id {"title" "oat milk"}))))
+        (is (= "2l" (:notes (api/update-task id {"notes" "2l"}))))
+        (is (true? (:done (api/toggle-task id))))
+        (is (= 1 (api/clear-done)))
+        (is (= [] (api/list-tasks)))))))
+
+(deftest handlers-reject-bad-input
+  (with-state
+    (fn []
+      (is (str/includes? (message-of #(api/add-task "   ")) "title"))
+      (is (str/includes? (message-of #(api/toggle-task 999)) "No task 999"))
+      (is (false? (api/delete-task 999))))))
+
+(deftest handlers-need-an-open-db
+  (is (str/includes? (message-of #(api/list-tasks)) "not open")))
+
+(deftest every-handler-is-a-var
+  (is (every? var? (vals api/handlers))))

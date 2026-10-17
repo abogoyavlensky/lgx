@@ -10,13 +10,15 @@
   {:runtime "let-go" :ui "wails v3" :items ["a" "b" "c"] :count 3})
 
 (defn -main []
-  (w/handler! "greet" greet)
-  (w/handler! "stats" stats)
+  ;; Registered as vars, so redefining greet or stats (from an nREPL, say)
+  ;; changes what the next frontend call runs.
+  (w/handler! "greet" #'greet)
+  (w/handler! "stats" #'stats)
 
-  (let [app (w/new-app {"name" "lgx-wails-desktop"
-                        "description" "let-go driving a Wails v3 app"
-                        "assets-dir" "frontend"})]
-    (w/new-window app {"title" "let-go x Wails" "width" 800 "height" 600})
+  (let [app (w/new-app {:name "lgx-wails-desktop"
+                        :description "let-go driving a Wails v3 app"
+                        :assets "public"})]
+    (w/new-window app {:title "let-go x Wails" :width 800 :height 600})
     (println "starting the wails event loop; ^C to stop")
     (w/run! app)))
 

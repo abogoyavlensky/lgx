@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Tasks</title>
+  <link rel="stylesheet" href="/style.css">
+  <!-- app.js registers the component on alpine:init, so it loads first.
+       Module and deferred scripts run in document order. -->
+  <script type="module" src="/app.js"></script>
+  <script defer src="/alpine.min.js"></script>
+</head>
+<body>
+  <main class="app" x-data="tasks" x-cloak>
+    <header class="head">
+      <h1>Tasks</h1>
+      <p class="open-count" x-text="openLabel()"></p>
+    </header>
+
+    <form class="add" @submit.prevent="add()">
+      <label class="visually-hidden" for="new-title">New task</label>
+      <input id="new-title" class="add-input" type="text" autocomplete="off"
+             placeholder="Add a task and press Enter"
+             x-model="draft" x-ref="draft" autofocus>
+    </form>
+
+    <div class="error" role="alert" x-show="error" x-transition.opacity>
+      <p x-text="error"></p>
+      <button type="button" class="error-close" @click="error = ''"
+              aria-label="Dismiss">Dismiss</button>
+    </div>
+
+    <nav class="bar" aria-label="Filter tasks">
+      <div class="filters" role="tablist">
+        <template x-for="f in filters" :key="f.id">
+          <button type="button" role="tab" class="filter"
+                  :aria-selected="filter === f.id"
+                  @click="filter = f.id">
+            <span x-text="f.label"></span>
+            <span class="filter-count" x-text="count(f.id)"></span>
+          </button>
+        </template>
+      </div>
+      <button type="button" class="clear" @click="clearDone()"
+              x-show="count('done') > 0">Clear completed</button>
+    </nav>
+
+    <ul class="list" x-show="visible().length > 0">
+      <template x-for="t in visible()" :key="t.id">
+        <li class="task" :class="{ 'is-done': t.done, 'is-open': expanded === t.id }">
+          <div class="row">
+            <button type="button" class="check" role="checkbox"
+                    :aria-checked="t.done" @click="toggle(t)"
+                    :aria-label="(t.done ? 'Mark not done: ' : 'Mark done: ') + t.title">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>
+            </button>
+
+            <template x-if="editing !== t.id">
+              <span class="title" @dblclick="startEdit(t)" x-text="t.title"
+                    title="Double-click to rename"></span>
+            </template>
+            <template x-if="editing === t.id">
+              <input class="title-input" type="text" x-model="editTitle"
+                     x-init="$nextTick(() => { $el.focus(); $el.select() })"
+                     @keydown.enter.prevent="saveEdit(t)"
+                     @keydown.escape.prevent="editing = null"
+                     @blur="editing === t.id && saveEdit(t)"
+                     aria-label="Task title">
+            </template>
+
+            <span class="has-notes" x-show="t.notes && expanded !== t.id"
+                  aria-label="Has notes">notes</span>
+            <button type="button" class="ghost" @click="toggleNotes(t)"
+                    :aria-expanded="expanded === t.id"
+                    x-text="expanded === t.id ? 'Close' : 'Notes'"></button>
+            <button type="button" class="ghost danger" @click="remove(t)"
+                    :aria-label="'Delete ' + t.title">Delete</button>
+          </div>
+
+          <div class="notes" x-show="expanded === t.id">
+            <textarea rows="4" placeholder="Notes" x-model="notesDraft"
+                      @blur="saveNotes(t)"
+                      @keydown.meta.enter="$el.blur()"
+                      @keydown.ctrl.enter="$el.blur()"
+                      aria-label="Notes"></textarea>
+          </div>
+        </li>
+      </template>
+    </ul>
+
+    <p class="empty" x-show="loaded && visible().length === 0" x-text="emptyText()"></p>
+  </main>
+</body>
+</html>

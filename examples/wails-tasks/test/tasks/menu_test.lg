@@ -1,0 +1,26 @@
+(ns tasks.menu-test
+  (:require [tasks.menu :as menu]
+            [wails.core :as w]
+            [clojure.test :refer [deftest is]]))
+
+;; check-menu builds the spec with Wails, which needs the application to
+;; exist; nothing is run or shown.
+(defonce ^:private app (delay (w/new-app {:name "tasks-test"})))
+
+(defn- on-clicks [items]
+  (mapcat (fn [item]
+            (concat (when (contains? item :on-click) [(:on-click item)])
+                    (on-clicks (:items item))))
+          items))
+
+(deftest the-spec-is-data
+  (is (vector? (menu/spec))))
+
+(deftest every-on-click-is-a-var
+  (let [clicks (on-clicks (menu/spec))]
+    (is (= 2 (count clicks)))
+    (is (every? var? clicks))))
+
+(deftest wails-accepts-the-spec
+  @app
+  (is (true? (w/check-menu (menu/spec)))))

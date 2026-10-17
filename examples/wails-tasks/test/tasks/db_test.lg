@@ -1,0 +1,67 @@
+(ns tasks.db-test
+  (:require [tasks.db :as db]
+            [tasks.migrations :as migrations]
+            [clojure.test :refer [deftest is]]
+            [sqlite.core :as sqlite]))
+
+;; The queries against a throwaway, migrated sqlite file.
+
+(defn with-conn [f]
+  (let [path (str "/tmp/lgx-wails-tasks-" (rand-int 100000000) ".db")
+        conn (sqlite/open path)]
+    (try
+      (migrations/migrate! conn)
+      (f conn)
+      (finally
+        (sqlite/close! conn)
+        (os/sh "rm" "-f" path)))))
+
+(deftest add-then-list
+  (with-conn
+    (fn [conn]
+      (let [t (db/add-task! conn "write docs")]
+        (is (= "write docs" (:title t)))
+        (is (= "" (:notes t)))
+        (is (false? (:done t)))
+        (is (string? (:created_at t)))
+        (is (= [(:id t)] (mapv :id (db/list-tasks conn))))))))
+
+(deftest update-changes-title-and-notes
+  (with-conn
+    (fn [conn]
+      (let [{:keys [id]} (db/add-task! conn "draft")]
+        (is (= {:title "final" :notes "n"}
+               (select-keys (db/update-task! conn id {:title "final" :notes "n"})
+                            [:title :notes])))
+        (is (= "final" (:title (db/update-task! conn id {:notes "only notes"}))))
+        (is (nil? (db/update-task! conn 9999 {:title "x"})))))))
+
+(deftest toggle-flips-done
+  (with-conn
+    (fn [conn]
+      (let [{:keys [id]} (db/add-task! conn "t")]
+        (is (true? (:done (db/toggle-task! conn id))))
+        (is (false? (:done (db/toggle-task! conn id))))))))
+
+(deftest clear-done-deletes-only-done
+  (with-conn
+    (fn [conn]
+      (let [a (db/add-task! conn "a")
+            b (db/add-task! conn "b")]
+        (db/toggle-task! conn (:id a))
+        (is (= 1 (db/clear-done! conn)))
+        (is (= [(:id b)] (mapv :id (db/list-tasks conn))))))))
+
+(deftest delete-reports-whether-it-deleted
+  (with-conn
+    (fn [conn]
+      (let [{:keys [id]} (db/add-task! conn "t")]
+        (is (true? (db/delete-task! conn id)))
+        (is (false? (db/delete-task! conn id)))))))
+
+(deftest list-is-newest-last
+  (with-conn
+    (fn [conn]
+      (db/add-task! conn "first")
+      (db/add-task! conn "second")
+      (is (= ["first" "second"] (mapv :title (db/list-tasks conn)))))))
