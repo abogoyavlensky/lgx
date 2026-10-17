@@ -191,8 +191,10 @@ note these, none of which are obvious:
   stacks do not.
 - **Mobile targets are not supported** and fail confusingly - see
   [`../issues/lgx-mobile-targets-buildmode.md`](../issues/lgx-mobile-targets-buildmode.md).
-- **No `:go/build-tags`.** Use the `GOFLAGS` environment variable
-  ([`../issues/lgx-no-go-build-tags.md`](../issues/lgx-no-go-build-tags.md)).
+- **Build tags are the app's call.** `:go/build-tags` is a top-level key,
+  and lgx ignores a dep's top-level keys, so a wrapper cannot set tags for
+  its consumers; document the tags it needs instead. Its own `lgx.edn` may
+  set them for its tests.
 - **Ship the shim in-tree; one tag per release.** A package with a Go shim
   keeps it under `<pkg>/shim/` and declares it `{:go/local "shim"}` in its
   `lgx.edn`, so the `<pkg>-vX.Y.Z` tag a consumer puts in `:git/tag` carries

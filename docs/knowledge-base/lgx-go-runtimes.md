@@ -74,7 +74,11 @@ so they still get separate runtimes.
 `runtime-stamp` is the `locals-stamp` of every `:go/local` coord (one
 line per coord, sorted by lib), followed by `GOFLAGS=` and
 `CGO_ENABLED=` lines. Both variables change what `go build` produces
-(`GOFLAGS` is how build tags get in today) without touching the hash.
+without touching the hash (`GOFLAGS` can carry `-tags`). Configured
+`:go/build-tags` are in the hash instead, as a `tags|` line, and reach
+`go build` as an explicit `-tags` that folds in any `GOFLAGS` tags
+(`gobuild/effective-tags`), because Go lets an explicit `-tags` replace
+the environment's.
 `local-stamp` walks the directory in sorted order and hashes each file's
 relative path and contents with xxh3. `go.mod` and `go.sum` count; a
 directory named `.git` is skipped. Symlinks are followed, since
@@ -278,9 +282,8 @@ work first; see
 `//go:build` line into the generated file. The scan selects files by
 `GOOS`/`GOARCH`/`CGO_ENABLED` read from the environment at process start
 and honours no tags, so a package whose API is tag-selected cannot be
-scanned correctly. lgx has no way to pass build tags to the build either
-(`GOFLAGS` is the workaround; see
-[`../issues/lgx-no-go-build-tags.md`](../issues/lgx-no-go-build-tags.md)).
+scanned correctly. `:go/build-tags` reaches the final `go build` but not
+the scan, for the same reason.
 
 **`-opaque-structs` is not optional.** Without it `lginterop` flattens
 struct types into field-only Records, and every method call fails with

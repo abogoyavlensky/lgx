@@ -357,8 +357,14 @@ top-level forms), while `-bundle-base` becomes the shipped binary:
 |---|---|---|
 | `:installed`, native | PATH `lg` | none (base = itself) |
 | `:installed`, cross | error, unless the user forwards `-bundle-base` | the user's |
-| `:built`, native | host runtime | same host runtime |
+| `:built`, native | host runtime | same host runtime, or a tagged one when `:targets :bin` sets `:go/build-tags` |
 | `:built`, cross | host runtime | generated target runtime |
+
+`:go/build-tags` at the top level joins every runtime lgx builds (the host
+one, each cross base, the `:wasm` and `:native` modules); the key under
+`:targets :bin` is added only to the `-bundle-base` runtime, so a native
+build with bin tags builds one extra runtime (top-level ∪ bin tags) as its
+base while the host runtime that executes `lg -b` keeps the top-level set.
 
 So a four-platform release under `:built` builds five runtimes: one
 host plus four targets. A user `-bundle-base` replaces only the target
@@ -1026,11 +1032,16 @@ inferring a mode:
   binary so `runner.lg` picks it up unchanged. Returns the path. With
   `:go/local` coords, a cached binary is reused only while its
   `local.stamp` (a hash of those directories' files, plus `GOFLAGS` and
-  `CGO_ENABLED`) matches what is on disk now; see
+  `CGO_ENABLED`) matches what is on disk now. `:go/build-tags` join the
+  cache hash (`runtime-hash`, as a `tags|` line only when there are some,
+  so untagged projects keep their keys) and reach `go build` as `-tags`,
+  merged with any `-tags=` in `GOFLAGS` (`gobuild/effective-tags`): an
+  explicit `-tags` would otherwise replace the environment's; see
   [`lgx-go-runtimes.md`](knowledge-base/lgx-go-runtimes.md).
 
 Config load already guarantees the pin shape per mode
-(`config/lg-runtime-errors`): `:built` requires `:lg-version`, and
+(`config/lg-runtime-errors`): `:built` requires `:lg-version`,
+`:go/build-tags` requires `:built`, and
 `:installed` accepts only a released semver, since a sha or branch can
 never match `lg -v`. `check-lg-version!` does not run under `:built` -
 the runtime is built from the pin by construction, and the check would
