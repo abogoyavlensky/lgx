@@ -1043,10 +1043,6 @@
                       (filter #(native/project-file? scope (:path %))
                               (:skipped walked))
                       (:skipped walked))
-            resources (native/collect-resources
-                        (assoc resource-fs
-                               :roots resource-paths
-                               :exclude #{}))
             bin-tags (config/bin-go-build-tags cfg)
             tags (vec (concat (config/go-build-tags cfg) bin-tags))]
         (print-installs! results)
@@ -1062,10 +1058,14 @@
             (let [out-rel (gobuild/target-out (:out bin) target)
                   abs-out (ensure-out-dir! project out-rel)
                   ;; As `lg -b` never embeds its own output: a binary left
-                  ;; inside a resource path by an earlier build stays out.
+                  ;; inside a resource path by an earlier build stays out,
+                  ;; and a later root's file of the same name still counts.
                   out-real (when (file-exists? abs-out)
                              (canonical-or-nil abs-out))
-                  entries (vec (remove #(= out-real (:src %)) resources))
+                  entries (native/collect-resources
+                            (assoc resource-fs
+                                   :roots resource-paths
+                                   :exclude (if out-real #{out-real} #{})))
                   runtime (if (or target (seq bin-tags))
                             (gobuild/ensure-runtime! go-pairs
                                                      (config/lg-version cfg)
