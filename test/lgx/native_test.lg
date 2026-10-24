@@ -221,3 +221,55 @@
 (deftest main-ns-error-needs-a-lg-main
   (is (= ":target :native needs :main to be a .lg file (got app.clj)"
          (native/main-ns-error "app.clj" '(ns app.core)))))
+
+;; ---------------------------------------------------------------------------
+;; project-files
+;; ---------------------------------------------------------------------------
+
+(defn- keep-project [files project-roots dependency-roots]
+  (native/project-files {:files files
+                         :main "/p/src/app.lg"
+                         :project-roots project-roots
+                         :dependency-roots dependency-roots}))
+
+(deftest project-files-keeps-main-outside-every-root
+  (is (= {:files ["/p/src/app.lg"] :dependency-count 0}
+         (keep-project ["/p/src/app.lg"] ["/elsewhere"] []))))
+
+(deftest project-files-drops-dependency-files
+  (is (= {:files ["/p/src/app.lg" "/p/src/a/b.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/deps/x/src/x.lg" "/p/src/a/b.lg"]
+                       ["/p/src"] ["/deps/x/src"]))))
+
+(deftest project-files-needs-a-separator-after-the-root
+  (is (= {:files ["/p/src/app.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/p/src-extra/a.lg"]
+                       ["/p/src"] ["/p/src-extra"])))
+  ;; Under no root at all: not the project's.
+  (is (= {:files ["/p/src/app.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/p/src-extra/a.lg"] ["/p/src"] []))))
+
+(deftest project-files-picks-the-longest-root
+  (is (= {:files ["/p/src/app.lg" "/p/a.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/p/vendor/lib/src/l.lg" "/p/a.lg"]
+                       ["/p"] ["/p/vendor/lib/src"]))))
+
+(deftest project-files-counts-a-shared-root-as-project
+  (is (= {:files ["/p/src/app.lg" "/p/shared/s.lg"] :dependency-count 0}
+         (keep-project ["/p/src/app.lg" "/p/shared/s.lg"]
+                       ["/p/src" "/p/shared"] ["/p/shared"]))))
+
+(deftest project-files-preserves-order
+  (is (= ["/p/src/app.lg" "/p/src/z.lg" "/p/src/a.lg"]
+         (:files (keep-project ["/p/src/app.lg" "/d/1.lg" "/p/src/z.lg"
+                                "/d/2.lg" "/p/src/a.lg"]
+                               ["/p/src"] ["/d"])))))
+
+(deftest dependency-note-counts-namespaces
+  (is (nil? (native/dependency-note 0)))
+  (is (= (str "note: 1 dependency namespace runs as bytecode (set "
+              ":native {:lower :all} to lower it)")
+         (native/dependency-note 1)))
+  (is (= (str "note: 12 dependency namespaces run as bytecode (set "
+              ":native {:lower :all} to lower them)")
+         (native/dependency-note 12))))
