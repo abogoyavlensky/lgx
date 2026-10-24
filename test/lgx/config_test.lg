@@ -354,7 +354,7 @@
 
 (deftest load-rejects-unknown-bin-key
   (is (= {:errors [{:path [:targets :bin]
-                    :msg "unknown key :foo (allowed: :out, :platforms, :target, :wasm, :go/build-tags)"}]}
+                    :msg "unknown key :foo (allowed: :out, :platforms, :target, :wasm, :native, :go/build-tags)"}]}
          (load-cfg {:targets {:bin {:out "bin/app" :foo 1}}}))))
 
 (deftest load-rejects-bad-out
@@ -540,6 +540,45 @@
                              :platforms [{:os "linux" :arch "amd64"}
                                          {:os "darwin" :arch "arm64"}]}}}]
     (is (= {:cfg cfg} (load-cfg cfg)))))
+
+(def ^:private native-cfg
+  {:main "m.lg"
+   :lg-runtime :built
+   :lg-version "abc123"
+   :targets {:bin {:target :native :out "dist/app"}}})
+
+(deftest load-accepts-native-options
+  (doseq [opts [{} {:lower :project} {:lower :all}]]
+    (let [cfg (assoc-in native-cfg [:targets :bin :native] opts)]
+      (is (= {:cfg cfg} (load-cfg cfg))))))
+
+(deftest load-rejects-a-bad-native-lower
+  (is (= {:errors [{:path [:targets :bin :native :lower]
+                    :msg "must be one of: :project, :all, got :deps"}]}
+         (load-cfg (assoc-in native-cfg [:targets :bin :native]
+                             {:lower :deps})))))
+
+(deftest load-rejects-an-unknown-native-option
+  (is (= {:errors [{:path [:targets :bin :native]
+                    :msg "unknown key :only (allowed: :lower)"}]}
+         (load-cfg (assoc-in native-cfg [:targets :bin :native]
+                             {:only ["a"]})))))
+
+(deftest load-rejects-native-options-without-target-native
+  (let [err {:path [:targets :bin :native]
+             :msg "applies only to :target :native"}]
+    (doseq [bin [{:out "bin/app"}
+                 {:target :lgb :out "dist/app.lgb"}
+                 {:target :wasm :out "dist/web"}]]
+      (is (= {:errors [err]}
+             (load-cfg {:targets {:bin (assoc bin :native {:lower :all})}}))))))
+
+(deftest bin-native-accessor
+  (is (= {:lower :all}
+         (config/bin-native (assoc-in native-cfg [:targets :bin :native]
+                                      {:lower :all}))))
+  (is (= {} (config/bin-native native-cfg)))
+  (is (= {} (config/bin-native {}))))
 
 (deftest load-rejects-target-native-under-installed
   (is (= {:errors [{:path [:lg-runtime]
@@ -2221,15 +2260,20 @@
     (is (= 1 (count (err "server"))))))
 
 (deftest load-rejects-target-build-tags-off-the-default-target
-  (doseq [[target out] [[:lgb "dist/app.lgb"] [:wasm "dist/web"]
-                        [:native "bin/app"]]]
+  (doseq [[target out] [[:lgb "dist/app.lgb"] [:wasm "dist/web"]]]
     (is (= {:errors [{:path [:targets :bin :go/build-tags]
                       :msg (str "does not apply to :target " target
-                                " - only the standalone executable bundles "
-                                "onto a runtime lgx builds, so the tags would "
-                                "not reach it; use top-level :go/build-tags")}]}
+                                " - only the standalone executable and "
+                                ":target :native build onto a runtime lgx "
+                                "builds, so the tags would not reach it; use "
+                                "top-level :go/build-tags")}]}
            (load-cfg (assoc built :targets {:bin {:target target :out out
                                                    :go/build-tags ["production"]}}))))))
+
+(deftest load-accepts-target-build-tags-for-native
+  (let [cfg (assoc built :targets {:bin {:target :native :out "bin/app"
+                                         :go/build-tags ["production"]}})]
+    (is (= {:cfg cfg} (load-cfg cfg)))))
 
 (deftest load-rejects-build-tags-under-installed
   (let [err {:path [:lg-runtime]

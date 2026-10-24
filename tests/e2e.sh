@@ -4869,5 +4869,27 @@ else
     skip "build tags need go and network (set LGX_BUILD_TAGS_E2E=1 to run)"
 fi
 
+# ---------------------------------------------------------------------------
+echo "==> Scenario 180: :native options need :target :native"
+proj_n9="$(mktemp -d)"
+home_n9="$(mktemp -d)"
+cat > "$proj_n9/lgx.edn" <<'EOF'
+{:main "main.lg"
+ :lg-runtime :built
+ :lg-version "d0108ba6"
+ :targets {:bin {:target :lgb :out "dist/app.lgb" :native {:lower :all}}}}
+EOF
+printf '(ns app.core)\n(defn -main [& _] (println :hi))\n(-main)\n' > "$proj_n9/main.lg"
+set +e
+out="$(cd "$proj_n9" && env -u LGX_LG LGX_HOME="$home_n9" "$LGX" build 2>&1)"; rc=$?
+set -e
+[[ $rc -ne 0 ]] || fail "native opts off native: expected non-zero exit (got $rc)"
+assert_contains "$out" "applies only to :target :native" \
+    "native opts off native: config error"
+[[ ! -e "$proj_n9/dist" ]] || fail "native opts off native: expected no dist/"
+[[ ! -e "$home_n9/runtimes" ]] || fail "native opts off native: a runtime was built"
+pass "native opts off native: writes nothing"
+rm -rf "$proj_n9" "$home_n9"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."

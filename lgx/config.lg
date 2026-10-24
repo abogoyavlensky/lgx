@@ -804,7 +804,7 @@
   "Cross-key rule over the :bin map. :target :lgb and :wasm each build one
    artifact, so :platforms and an {{os}}/{{arch}} placeholder in :out (which
    nothing would expand) are both mistakes, and the :wasm options map is a
-   mistake under any other target. Runs before the :out collision check so a
+   mistake under any other target, as is the :native options map. Runs before the :out collision check so a
    single-artifact config with platforms hears about :platforms first."
   [bin]
   (let [target (:target bin)
@@ -827,14 +827,19 @@
       {:path [:wasm]
        :msg "applies only to :target :wasm"}
 
+      (and (contains? bin :native) (not= :native target))
+      {:path [:native]
+       :msg "applies only to :target :native"}
+
       ;; The tags reach the shipped binary as the -bundle-base runtime of
-      ;; `lg -b`; the other targets build no such base.
-      (and (contains? bin :go/build-tags) target)
+      ;; `lg -b`, or as the module `lg compile -module` links for :native;
+      ;; :lgb and :wasm build on no such runtime.
+      (and (contains? bin :go/build-tags) (contains? #{:lgb :wasm} target))
       {:path [:go/build-tags]
        :msg (str "does not apply to :target " target " - only the "
-                 "standalone executable bundles onto a runtime lgx builds, "
-                 "so the tags would not reach it; use top-level "
-                 ":go/build-tags")}
+                 "standalone executable and :target :native build onto a "
+                 "runtime lgx builds, so the tags would not reach it; use "
+                 "top-level :go/build-tags")}
 
       :else nil)))
 
@@ -857,6 +862,10 @@
    [:shell {:optional true} [:fn wasm-shell-errors]]
    [:payload {:optional true} [:enum :inline :external]]
    [:host-eval {:optional true} [:fn boolean-errors]]])
+
+(def ^:private native-opts-schema
+  [:map {:closed true}
+   [:lower {:optional true} [:enum :project :all]]])
 
 (defn- build-tag-errors
   "One Go build tag. Go's own rule is letters, digits, _ and .; the leading
@@ -884,6 +893,7 @@
        [:and [:vector platform-schema] [:fn platform-dup-errors]]]
       [:target {:optional true} [:fn bin-target-value-errors]]
       [:wasm {:optional true} wasm-opts-schema]
+      [:native {:optional true} native-opts-schema]
       [:go/build-tags {:optional true} build-tags-schema]]
      [:fn bin-target-errors]
      [:fn bin-out-collision-errors]]]])
@@ -1504,8 +1514,8 @@
   (or (:platforms (:bin (targets cfg))) []))
 
 (defn bin-target
-  "Return the :target under :targets :bin (:lgb or :wasm), or nil for the
-   default standalone executable."
+  "Return the :target under :targets :bin (:lgb, :wasm or :native), or nil
+   for the default standalone executable."
   [cfg]
   (:target (:bin (targets cfg))))
 
@@ -1517,7 +1527,8 @@
 
 (defn bin-go-build-tags
   "The :go/build-tags under :targets :bin - added, for `lgx build` only, to
-   the runtime the standalone executable is bundled onto - or [] if absent."
+   the runtime the standalone executable is bundled onto, or whose module a
+   :target :native build links - or [] if absent."
   [cfg]
   (or (:go/build-tags (:bin (targets cfg))) []))
 
@@ -1525,3 +1536,8 @@
   "Return the :wasm options map under :targets :bin, or {} if absent."
   [cfg]
   (or (:wasm (:bin (targets cfg))) {}))
+
+(defn bin-native
+  "Return the :native options map under :targets :bin, or {} if absent."
+  [cfg]
+  (or (:native (:bin (targets cfg))) {}))
