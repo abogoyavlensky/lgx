@@ -260,6 +260,19 @@
                 {:seen #{} :out []}
                 roots)))
 
+(defn resource-collision
+  "Pure. A pair [file dir-entry] of collected rels that one directory tree
+   cannot hold - a file `foo` from one root and `foo/bar.txt` from another -
+   or nil. A bundle keys them apart; the staged go:embed tree cannot."
+  [entries]
+  (let [rels (set (map :rel entries))]
+    (first (for [{:keys [rel]} entries
+                 :let [parts (str/split rel "/")]
+                 i (range 1 (count parts))
+                 :let [ancestor (str/join "/" (take i parts))]
+                 :when (contains? rels ancestor)]
+             [ancestor rel]))))
+
 (def resource-import
   "The package a native build -imports to install the embedded resources.
    lgx.gobuild requires this ns, so this cannot be derived from

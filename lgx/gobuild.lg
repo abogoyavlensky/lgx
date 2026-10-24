@@ -870,9 +870,16 @@
    byte to lgxresources/files/<rel>, and resources.go beside them. Copies,
    not links, because go:embed does not follow symlinks; cp also follows a
    symlinked source. Returns true when it staged anything, false (writing
-   nothing) for no entries. A failed copy throws; the caller removes the
-   module."
+   nothing) for no entries. A file that is also another entry's directory
+   (native/resource-collision) or a failed copy throws; the caller removes
+   the module."
   [module entries]
+  (when-let [[file entry] (native/resource-collision entries)]
+    (throw (ex-info (str "resource " file " is a file in one resource path "
+                         "and a directory in another (" entry ") - a native "
+                         "build cannot embed both")
+                    {:file file
+                     :entry entry})))
   (if (empty? entries)
     false
     (let [pkg (path/join module "lgxresources")]

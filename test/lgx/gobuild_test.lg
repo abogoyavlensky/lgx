@@ -1129,3 +1129,15 @@
       (is (= [] (vec (os/ls module))))
       (finally
         (rm-rf! module)))))
+
+(deftest stage-native-resources-rejects-a-file-dir-collision
+  (let [module (str (os/temp-dir) "/lgx-res-clash-" (rand-int 100000000))]
+    (try
+      (mkdir module)
+      (is (thrown? Exception
+                   (gobuild/stage-native-resources!
+                     module [{:rel "foo" :src "/nonexistent/foo"}
+                             {:rel "foo/bar.txt" :src "/nonexistent/bar"}])))
+      (is (= [] (vec (os/ls module))))
+      (finally
+        (rm-rf! module)))))

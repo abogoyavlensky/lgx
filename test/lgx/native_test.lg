@@ -366,6 +366,14 @@
                    "/r/pipe" :fifo}
                   {"/r/dangling" "/r/nope"}))))
 
+(deftest resource-collision-finds-a-file-that-is-also-a-dir
+  (is (nil? (native/resource-collision [{:rel "a/b.txt"} {:rel "a/c.txt"}
+                                        {:rel "ab"}])))
+  (is (= ["foo" "foo/bar/x.txt"]
+         (native/resource-collision [{:rel "foo/bar/x.txt"} {:rel "foo"}])))
+  (is (= ["foo/bar" "foo/bar/x.txt"]
+         (native/resource-collision [{:rel "foo/bar"} {:rel "foo/bar/x.txt"}]))))
+
 (deftest resource-import-is-the-staged-package
   (is (= "lgx.local/runtime/lgxresources" native/resource-import)))
 
