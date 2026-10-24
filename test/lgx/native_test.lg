@@ -249,6 +249,10 @@
   (is (= {:files ["/p/src/app.lg"] :dependency-count 1}
          (keep-project ["/p/src/app.lg" "/p/src-extra/a.lg"] ["/p/src"] []))))
 
+(deftest project-files-handles-the-file-system-root
+  (is (= {:files ["/p/src/app.lg" "/lib.lg"] :dependency-count 0}
+         (keep-project ["/p/src/app.lg" "/lib.lg"] ["/"] []))))
+
 (deftest project-files-picks-the-longest-root
   (is (= {:files ["/p/src/app.lg" "/p/a.lg"] :dependency-count 1}
          (keep-project ["/p/src/app.lg" "/p/vendor/lib/src/l.lg" "/p/a.lg"]

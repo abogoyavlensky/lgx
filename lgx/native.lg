@@ -156,9 +156,12 @@
 
 (defn- under-root?
   "Whether `p` is inside `root`: a prefix plus a separator, so /p/src-extra
-   is not under /p/src."
+   is not under /p/src. A root that already ends in one (the file-system
+   root /) takes no second."
   [root p]
-  (str/starts-with? p (str root os/file-separator)))
+  (str/starts-with? p (if (str/ends-with? root os/file-separator)
+                        root
+                        (str root os/file-separator))))
 
 (defn- owning-root
   "The longest root containing `p`, as [root project?], or nil. On a tie the
