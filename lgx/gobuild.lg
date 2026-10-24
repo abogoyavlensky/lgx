@@ -864,6 +864,30 @@
                          :dir dir}))))
     dir))
 
+(defn stage-native-resources!
+  "Write the collected resource `entries` (native/collect-resources) into the
+   staged `module` as the lgxresources package: each file copied byte for
+   byte to lgxresources/files/<rel>, and resources.go beside them. Copies,
+   not links, because go:embed does not follow symlinks; cp also follows a
+   symlinked source. Returns true when it staged anything, false (writing
+   nothing) for no entries. A failed copy throws; the caller removes the
+   module."
+  [module entries]
+  (if (empty? entries)
+    false
+    (let [pkg (path/join module "lgxresources")]
+      (doseq [{:keys [rel src]} entries]
+        (let [dst (path/join pkg "files" rel)]
+          (mkdir (path/parent dst))
+          (let [r (os/sh "cp" src dst)]
+            (when-not (zero? (:exit r))
+              (throw (ex-info (str "staging resource " rel " failed: "
+                                   (str/trim (:err r)))
+                              {:src src
+                               :dst dst}))))))
+      (spit (path/join pkg "resources.go") native/resource-go-source)
+      true)))
+
 (defn ensure-runtime!
   "Build (or reuse) the custom `lg` that links this project's Go deps, and
    return its absolute path.

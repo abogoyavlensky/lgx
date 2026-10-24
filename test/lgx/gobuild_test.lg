@@ -6,6 +6,7 @@
 
 (ns lgx.gobuild-test
   (:require [lgx.gobuild :as gobuild]
+            [lgx.native :as native]
             [string :as str]
             [clojure.test :refer [deftest is]]))
 
@@ -1076,3 +1077,55 @@
   (is (= "\"-ldflags=-X 'main.name=Jane Doe'\" -tags=a"
          (gobuild/goflags-with-tags "\"-ldflags=-X 'main.name=Jane Doe'\"" ["a"])))
   (is (= "-mod=mod" (gobuild/goflags-with-tags "-mod=mod" []))))
+
+;; ---------------------------------------------------------------------------
+;; stage-native-resources!
+;; ---------------------------------------------------------------------------
+
+(defn- real-canonical [p]
+  (try (os/canonical-path p) (catch _ nil)))
+
+(defn- collect-real [roots]
+  (native/collect-resources {:roots roots
+                             :exclude #{}
+                             :ls os/ls
+                             :stat os/stat
+                             :canonical real-canonical
+                             :regular? #(zero? (:exit (os/sh "test" "-f" %)))}))
+
+(deftest resource-import-is-under-the-runtime-module
+  (is (= native/resource-import (str gobuild/runtime-module "/lgxresources"))))
+
+(deftest stage-native-resources-copies-bytes-and-writes-the-package
+  (let [n (rand-int 100000000)
+        root (str (os/temp-dir) "/lgx-res-root-" n)
+        module (str (os/temp-dir) "/lgx-res-module-" n)]
+    (try
+      (mkdir (str root "/public/assets"))
+      (mkdir module)
+      (spit (str root "/public/index.html") "<h1>hi</h1>\n")
+      (spit (str root "/public/assets/app.js") "console.log(1)\n")
+      (os/sh "sh" "-c" (str "printf '\\000\\377\\200\\n' > " root "/blob.bin"))
+      (let [entries (collect-real [root])]
+        (is (= ["blob.bin" "public/assets/app.js" "public/index.html"]
+               (mapv :rel entries)))
+        (is (true? (gobuild/stage-native-resources! module entries)))
+        (is (= native/resource-go-source
+               (slurp (str module "/lgxresources/resources.go"))))
+        (is (= 4 (:size (os/stat (str module "/lgxresources/files/blob.bin")))))
+        (doseq [{:keys [rel src]} entries]
+          (is (zero? (:exit (os/sh "cmp" src
+                                   (str module "/lgxresources/files/" rel))))
+              rel)))
+      (finally
+        (rm-rf! root)
+        (rm-rf! module)))))
+
+(deftest stage-native-resources-does-nothing-without-entries
+  (let [module (str (os/temp-dir) "/lgx-res-empty-" (rand-int 100000000))]
+    (try
+      (mkdir module)
+      (is (false? (gobuild/stage-native-resources! module [])))
+      (is (= [] (vec (os/ls module))))
+      (finally
+        (rm-rf! module)))))
