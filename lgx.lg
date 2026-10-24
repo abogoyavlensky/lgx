@@ -607,7 +607,9 @@
    task's :extra-paths); `raw-resource-paths` is the project-relative resource
    root list. Source paths include resolved dep dirs; resource paths are
    project-only (deps never contribute resource roots). `optional-paths` is the
-   set of raw paths that resolve without a missing-entry warning."
+   set of raw paths that resolve without a missing-entry warning.
+   :project-paths is the project's own part of :paths (`raw-paths` joined onto
+   the project, as :paths has them); the rest of :paths came from deps."
   [project coords raw-paths raw-resource-paths optional-paths]
   (let [{:keys [installs go-coords go-origins]
          :as result}
@@ -623,6 +625,7 @@
      :go-coords go-coords
      :go-origins go-origins
      :paths paths
+     :project-paths own-paths
      :resource-paths resource-paths}))
 
 (defn- dedup-keep-first
@@ -947,18 +950,47 @@
     (read-string (slurp p))
     (catch _ nil)))
 
+;; The real file system for native/collect-resources. os/canonical-path throws
+;; on a dangling symlink, where the collector wants nil; `test -f` follows
+;; symlinks and is false for a FIFO, device or socket, which os/stat cannot
+;; tell apart from a regular file.
+(defn- canonical-or-nil [p]
+  (try
+    (os/canonical-path p)
+    (catch _ nil)))
+
+(def ^:private resource-fs
+  {:ls os/ls
+   :stat os/stat
+   :canonical canonical-or-nil
+   :regular? #(zero? (:exit (os/sh "test" "-f" %)))})
+
 (defn- build-native!
-  "`lgx build` for :target :native: lower :main and every .lg namespace it
-   reaches to Go and link an executable per target with `lg compile -module`.
-   Always exits.
+  "`lgx build` for :target :native: lower :main and the project's own .lg
+   namespaces it reaches to Go and link an executable per target with
+   `lg compile -module`. Always exits.
+
+   The walk covers every reachable namespace; by default
+   (:native {:lower :project}) only :main and files under the project's own
+   source paths are passed to `lg compile`, and dependency namespaces run as
+   bytecode inside the binary: lowering a dep's syntax-quoted macro together
+   with its namespace breaks the caller's expansion (nooga/let-go#1098).
+   {:lower :all} passes every reachable file.
 
    :lg-runtime :built is guaranteed by config load, so the host runtime's lg
    is the compiler and every runtime module carries the same let-go. Per
-   target, the module of that target's runtime (bindings generated for it) is
-   staged into a temp dir, `lg compile` runs there with the target's
-   GOOS/GOARCH, and the temp dir is removed afterwards. Search paths reach it
-   through LG_SOURCE_PATHS (see native/native-compile-argv). Resource paths
-   are not embedded."
+   target, the module of that target's runtime is staged into a temp dir:
+   the host runtime, or - for a cross target or bin-level :go/build-tags - a
+   runtime built for that target under top-level plus bin tags, so its
+   bindings match the binary's build. `lg compile` runs there with the
+   target's GOOS/GOARCH and the same tags in GOFLAGS, and the temp dir is
+   removed afterwards. Search paths reach it through LG_SOURCE_PATHS (see
+   native/native-compile-argv).
+
+   :resource-paths are collected as `lg -b` collects them, minus the target's
+   own output, and staged into the module as the lgxresources package, which
+   `lg compile -import`s so its init() installs them for io/resource
+   (nooga/let-go#1099 tracks an upstream way)."
   [project cfg targets all? forward verbose? with]
   (let [main-script (config/main cfg)
         bin (:bin (config/targets cfg))]
@@ -986,24 +1018,42 @@
                                            (read-first-form abs-main))]
         (write! *err* (str "lgx: " err "\n"))
         (os/exit 1))
-      (let [{:keys [results paths resource-paths]
+      (let [{:keys [results paths project-paths resource-paths]
              :as basis}
             (overlay-basis project cfg with nil)
             go-pairs (:go-coords basis)
-            {:keys [files skipped]}
-            (native/reachable-lg-files {:roots paths
-                                        :main abs-main
-                                        :read-first-form read-first-form
-                                        :file? file-exists?
-                                        :entry? #(native/defines-entry?
-                                                   (slurp %))})]
+            walked (native/reachable-lg-files {:roots paths
+                                               :main abs-main
+                                               :read-first-form read-first-form
+                                               :file? file-exists?
+                                               :entry? #(native/defines-entry?
+                                                          (slurp %))})
+            project-only? (= :project (:lower (config/bin-native cfg) :project))
+            own (set project-paths)
+            scope {:main abs-main
+                   :project-roots project-paths
+                   :dependency-roots (vec (remove own paths))}
+            {:keys [files dependency-count]}
+            (if project-only?
+              (native/project-files (assoc scope :files (:files walked)))
+              {:files (:files walked)
+               :dependency-count 0})
+            ;; A note about a file that would not be lowered anyway is noise.
+            skipped (if project-only?
+                      (filter #(native/project-file? scope (:path %))
+                              (:skipped walked))
+                      (:skipped walked))
+            resources (native/collect-resources
+                        (assoc resource-fs
+                               :roots resource-paths
+                               :exclude #{}))
+            bin-tags (config/bin-go-build-tags cfg)
+            tags (vec (concat (config/go-build-tags cfg) bin-tags))]
         (print-installs! results)
         (doseq [s skipped]
           (write! *err* (str (native/skipped-note s) "\n")))
-        (when (seq resource-paths)
-          (write! *err* (str "warning: :resource-paths are not embedded in a "
-                             "native executable - io/resource will not find "
-                             "them unless the app sets its own path\n")))
+        (when-let [note (native/dependency-note dependency-count)]
+          (write! *err* (str note "\n")))
         (let [host (apply-runtime! cfg basis :fail verbose?)]
           (when-not (gobuild/compile-module-supported!? host)
             (write! *err* (str "lgx: " native/compile-module-error "\n"))
@@ -1011,11 +1061,16 @@
           (doseq [target target-list]
             (let [out-rel (gobuild/target-out (:out bin) target)
                   abs-out (ensure-out-dir! project out-rel)
-                  runtime (if target
+                  ;; As `lg -b` never embeds its own output: a binary left
+                  ;; inside a resource path by an earlier build stays out.
+                  out-real (when (file-exists? abs-out)
+                             (canonical-or-nil abs-out))
+                  entries (vec (remove #(= out-real (:src %)) resources))
+                  runtime (if (or target (seq bin-tags))
                             (gobuild/ensure-runtime! go-pairs
                                                      (config/lg-version cfg)
                                                      target
-                                                     (config/go-build-tags cfg)
+                                                     tags
                                                      verbose?)
                             host)
                   label (str "Building " out-rel " ("
@@ -1025,28 +1080,39 @@
                              "native)...")
                   _ (write! *err* (str (style/header label) "\n"))
                   module (gobuild/stage-runtime-module! runtime "native")
-                  argv (native/native-compile-argv
-                         {:lg host
-                          :module module
-                          :out abs-out
-                          :files files
-                          :imports (gobuild/module-import-args go-pairs)
-                          :source-paths paths
-                          :target target})
-                  _ (when verbose?
-                      (write! *err* (str "+ " (str/join " " argv) "\n")))
                   ;; Exit only after the finally: os/exit would skip it and
                   ;; leave the staged module behind.
-                  r (try
-                      (with-build-tags-in-goflags
-                        (config/go-build-tags cfg)
-                        #(apply os/sh argv))
-                      (finally
-                        (syscall/rm-rf module)))]
-              (runner/replay-output! r)
-              (when-not (zero? (:exit r))
-                (write! *err* (str native/compile-failed-hint "\n"))
-                (os/exit (:exit r)))))
+                  result (try
+                           (let [staged? (gobuild/stage-native-resources!
+                                           module entries)
+                                 argv (native/native-compile-argv
+                                        {:lg host
+                                         :module module
+                                         :out abs-out
+                                         :files files
+                                         :imports (cond-> (vec (gobuild/module-import-args
+                                                                 go-pairs))
+                                                    staged? (into ["-import"
+                                                                   native/resource-import]))
+                                         :source-paths paths
+                                         :target target})]
+                             (when verbose?
+                               (write! *err* (str "+ " (str/join " " argv) "\n")))
+                             {:compiled (with-build-tags-in-goflags
+                                          tags
+                                          #(apply os/sh argv))})
+                           (catch e
+                                  {:error (ex-message e)})
+                           (finally
+                             (syscall/rm-rf module)))]
+              (when-let [err (:error result)]
+                (write! *err* (str "lgx: " err "\n"))
+                (os/exit 1))
+              (let [r (:compiled result)]
+                (runner/replay-output! r)
+                (when-not (zero? (:exit r))
+                  (write! *err* (str native/compile-failed-hint "\n"))
+                  (os/exit (:exit r))))))
           (when (> (count target-list) 1)
             (println (str "built " (count target-list) " targets")))
           (os/exit 0))))))
