@@ -41,6 +41,8 @@ the ones that belong to lgx itself.
 | [letgo-host-method-dispatch.md](./letgo-host-method-dispatch.md) | Lowered host method calls go through variadic `rt.CoreMethodInvoke` (one alloc, name switch), ~7x a direct call; ties to #1024 | filed (nooga/let-go#1070) |
 | [letgo-nrepl-with-script.md](./letgo-nrepl-with-script.md) | `lg -n script.lg` starts the nREPL only after the script returns, so a long-running program (a GUI, a server) never gets one | draft, worked around by the letgo-packages `nrepl` package |
 | [letgo-compile-entry-handling.md](./letgo-compile-entry-handling.md) | `lg compile` runs `-main` twice for an entry file without `ns` or with `(apply -main ...)`, and a `*.main` namespace becomes Go `package main` | draft |
+| [letgo-compile-macro-lowered-ns.md](./letgo-compile-macro-lowered-ns.md) | `lg compile` given a syntax-quoted macro's namespace and its caller fails with `Can't resolve ... in this context`, so lgx lowers only project namespaces by default | filed (nooga/let-go#1098) |
+| [letgo-compile-embed-resources.md](./letgo-compile-embed-resources.md) | `lg compile` does not embed `-resource-paths`, so `io/resource` finds nothing in a native binary | filed (nooga/let-go#1099), worked around in lgx (`lgxresources`) |
 
 ## lgx's own
 

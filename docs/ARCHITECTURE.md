@@ -37,7 +37,7 @@ lgx/spec.lg         minimal schema-as-data validation engine: validate -> [{:pat
 lgx/args.lg         pure task-arg helpers: bind CLI values against a task's :args, render the usage line/signature, shell-quote, substitute :arg/<name> placeholders into step vectors, expand {{name}} templates in step strings
 lgx/cache.lg        gitlibs cache layout, fetch via git
 lgx/gobuild.lg      everything :go/* — partitioning go coords out of resolution, the runtime cache key, rendering the generated Go module, and driving go get / go mod tidy / lginterop / go build
-lgx/native.lg       pure half of :target :native — walk the .lg namespace graph from :main the way let-go's resolver finds files, entry checks, the `lg compile -module` argv
+lgx/native.lg       pure half of :target :native — walk the .lg namespace graph from :main the way let-go's resolver finds files, keep the project's own files (lowering scope), entry checks, collect :resource-paths as `lg -b` does and the lgxresources Go source, the `lg compile -module` argv
 lgx/path.lg         portable filesystem path helpers (join, parent)
 lgx/runner.lg       locate lg, invoke with -source-paths / -resource-paths; exec a child with inherited stdio
 lgx/tasks.lg        execute project tasks declared in lgx.edn :tasks; the cycle guard's stack encoding
@@ -365,6 +365,10 @@ one, each cross base, the `:wasm` and `:native` modules); the key under
 `:targets :bin` is added only to the `-bundle-base` runtime, so a native
 build with bin tags builds one extra runtime (top-level ∪ bin tags) as its
 base while the host runtime that executes `lg -b` keeps the top-level set.
+`:target :native` follows the same rule: with bin tags (or a cross target)
+the module it stages comes from a top-level ∪ bin runtime, while the host
+runtime that runs `lg compile` keeps the top-level set. `:lgb` and `:wasm`
+reject bin tags at config load.
 `lg compile -module` (`:native`) and `lg -w` (`:wasm`) run a `go build` of
 their own that reads build settings only from the environment, so for that
 one subprocess lgx sets `GOFLAGS` to carry the tags
@@ -443,17 +447,40 @@ Then it resolves the basis and walks the namespace graph from `:main`
 resolved in let-go's resolver order, every resolved file is followed, and
 only `.lg` files are kept. A namespace with last segment `main`, or a file
 other than `:main` that defines its own top-level `-main`/`main`
-(`native/defines-entry?`), is followed but not kept; each prints a note. It
-warns about resource paths, applies the runtime with `:fail`, and probes
-the host runtime's `lg compile -h` for `-module` and `-import`
-(`gobuild/compile-module-supported!?`). Per target it takes the target's
-runtime (`ensure-runtime!`, or the host runtime for a host build), stages
-its module (`gobuild/stage-runtime-module!` with prefix `native`), and runs
+(`native/defines-entry?`), is followed but not kept. With
+`:native {:lower :project}` (the default, `config/bin-native`) the walked
+files then go through `native/project-files`. It keeps `:main` and every
+file whose longest containing root is one of the basis `:project-paths`
+(the project's own `:paths` plus applied `:extra-paths`, absolutized as
+`:paths` are). The remaining `:paths` are dependency roots; on a tie the
+project wins. Dependency namespaces stay bytecode because lowering a
+syntax-quoted macro's namespace together with its caller breaks the
+expansion (nooga/let-go#1098). `native/dependency-note` reports how many
+were left, and skip notes print only for files that would have been
+lowered. `{:lower :all}` keeps every walked file.
+
+It applies the runtime with `:fail` and probes the host runtime's
+`lg compile -h` for `-module` and `-import`
+(`gobuild/compile-module-supported!?`). Per target it takes the runtime
+whose module it stages (`ensure-runtime!` with top-level ∪ bin tags for a
+cross target or when bin tags are set, else the host runtime) and stages
+the module (`gobuild/stage-runtime-module!` with prefix `native`).
+`native/collect-resources` then gathers `:resource-paths` as
+`bundle.CollectResources` does, minus the target's existing output. Inside
+the `try` whose `finally` removes the staged module,
+`gobuild/stage-native-resources!` copies them byte for byte to
+`<module>/lgxresources/files/` beside a generated `resources.go`
+(`native/resource-go-source`), whose `init()` installs them with
+`rt.SetResourceProvider(rt.NewEmbeddedResourceProvider ...)`. When anything
+was staged, `-import lgx.local/runtime/lgxresources` (`native/resource-import`)
+joins the imports, and it runs
 `env LG_READ_CLJ=1 LG_SOURCE_PATHS=<paths> [GOOS= GOARCH= CGO_ENABLED=0]
 <host lg> compile -module <staged> -import <pkg>... -o <abs-out> <files>`
-(`native/native-compile-argv`), removing the staged module afterwards.
-Search paths go through `LG_SOURCE_PATHS` because `-source-paths` cannot
-precede the `compile` word.
+(`native/native-compile-argv`) with the combined tags in `GOFLAGS`. A
+staging error prints `lgx: ...` and exits 1 after the cleanup. This bridges
+nooga/let-go#1099 (`lg compile` installs no resource provider). Search
+paths go through `LG_SOURCE_PATHS` because `-source-paths` cannot precede
+the `compile` word.
 
 `resolve-build-targets` rejects `js/wasm` on the executable path: `lg -b`
 on a js/wasm runtime writes a bare module with no page or loader.
