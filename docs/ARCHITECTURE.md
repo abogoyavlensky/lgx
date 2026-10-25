@@ -365,10 +365,12 @@ one, each cross base, the `:wasm` and `:native` modules); the key under
 `:targets :bin` is added only to the `-bundle-base` runtime, so a native
 build with bin tags builds one extra runtime (top-level ∪ bin tags) as its
 base while the host runtime that executes `lg -b` keeps the top-level set.
-`:target :native` follows the same rule: with bin tags (or a cross target)
-the module it stages comes from a top-level ∪ bin runtime, while the host
-runtime that runs `lg compile` keeps the top-level set. `:lgb` and `:wasm`
-reject bin tags at config load.
+`:target :native` differs: `lg compile` resolves the program's Go
+namespaces in the lg that runs it, so with bin tags that lg is a host
+runtime built under top-level ∪ bin tags. For a host build that runtime's
+module is also the one staged, and a cross target stages a target runtime
+under the same tags. Compiler and module then see the same Go APIs.
+`:lgb` and `:wasm` reject bin tags at config load.
 `lg compile -module` (`:native`) and `lg -w` (`:wasm`) run a `go build` of
 their own that reads build settings only from the environment, so for that
 one subprocess lgx sets `GOFLAGS` to carry the tags
@@ -459,11 +461,13 @@ expansion (nooga/let-go#1098). `native/dependency-note` reports how many
 were left, and skip notes print only for files that would have been
 lowered. `{:lower :all}` keeps every walked file.
 
-It applies the runtime with `:fail` and probes the host runtime's
+It applies the runtime with `:fail` and probes the compiler's
 `lg compile -h` for `-module` and `-import`
-(`gobuild/compile-module-supported!?`). Per target it takes the runtime
-whose module it stages (`ensure-runtime!` with top-level ∪ bin tags for a
-cross target or when bin tags are set, else the host runtime) and stages
+(`gobuild/compile-module-supported!?`). The compiler is
+the host runtime, or with bin tags a host runtime built under top-level ∪
+bin tags. Per target it takes the runtime whose module it stages (the
+compiler for a host build, `ensure-runtime!` under the same tags for a
+cross target) and stages
 the module (`gobuild/stage-runtime-module!` with prefix `native`).
 `native/collect-resources` then gathers `:resource-paths` as
 `bundle.CollectResources` does, minus the target's existing output. Inside

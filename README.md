@@ -615,8 +615,8 @@ under `:targets :bin` is added only to the runtime `lgx build` bundles your
 app onto (or, with `:target :native`, to the module it links), so the
 shipped binary carries it while `lgx run` does not; it is rejected with
 `:target :lgb` or `:wasm`, which build on no such runtime. Under `:native`
-the bin tags do not reach the host runtime that runs `lg compile`, so that
-runtime must build without them. Tags already in `GOFLAGS` are merged in rather than dropped,
+the `lg` that runs `lg compile` is also built with them, so a Go namespace
+or function that only a bin tag defines still compiles. Tags already in `GOFLAGS` are merged in rather than dropped,
 and each tag set gets its own cached runtime. Tags need `:lg-runtime :built`.
 
 `:lg-version` pins the let-go the runtime is built from. Version conflicts

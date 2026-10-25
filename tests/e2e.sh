@@ -4730,6 +4730,24 @@ func init() {
 EOF
     printf '//go:build lgxprobe\n\npackage tagprobe\n\nconst tag = "on"\n' > "$proj_n5/shim/tag_on.go"
     printf '//go:build !lgxprobe\n\npackage tagprobe\n\nconst tag = "off"\n' > "$proj_n5/shim/tag_off.go"
+    # A namespace that exists only under the bin tag: `lg compile` resolves it
+    # in the lg that runs it, so that lg must be built with the tag too.
+    cat > "$proj_n5/shim/tagonly_on.go" <<'EOF'
+//go:build lgxprobe
+
+package tagprobe
+
+import (
+	"github.com/nooga/let-go/pkg/rt"
+	"github.com/nooga/let-go/pkg/vm"
+)
+
+func init() {
+	ns := vm.NewNamespace("tagonly")
+	ns.Def("Hello", vm.MustBox("tagged api"))
+	rt.RegisterNS(ns)
+}
+EOF
     printf 'hello' > "$proj_n5/resources/greeting.txt"
     printf '\000\377\200\n' > "$proj_n5/resources/blob.bin"
     # $1: extra keys for :targets :bin.
@@ -4757,7 +4775,7 @@ EOF
 (defn greet [n] (d/shout (str "hi " n)))
 EOF
     cat > "$proj_n5/main.lg" <<'EOF'
-(ns myapp.app (:require [myapp.util :as u] [mydep.core :as d] [crc32] [tagprobe] [io]))
+(ns myapp.app (:require [myapp.util :as u] [mydep.core :as d] [crc32] [tagprobe] [tagonly] [io]))
 (defn blob-bytes []
   (let [b (io/buffer)]
     (io/copy (io/reader (io/resource "blob.bin")) b)
@@ -4770,6 +4788,7 @@ EOF
   (println "greeting" (io/slurp (io/resource "greeting.txt")))
   (println "blob" (blob-bytes))
   (println "tag" tagprobe/Tag)
+  (println tagonly/Hello)
   (println "args" args))
 (-main)
 EOF
@@ -4799,6 +4818,7 @@ EOF
     assert_contains "$rout" "greeting hello" "native build: a text resource is embedded"
     assert_contains "$rout" "blob 0 255 128 10" "native build: a binary resource is embedded byte for byte"
     assert_contains "$rout" "tag on" "native build: bin-level build tags reach the binary"
+    assert_contains "$rout" "tagged api" "native build: a Go namespace only the bin tags define compiles"
     assert_contains "$rout" "args (x)" "native build: command-line args reach -main"
     assert_contains "$(go version -m "$other_bin")" "GOARCH=$other_arch" \
         "native build: the cross binary targets linux/$other_arch"

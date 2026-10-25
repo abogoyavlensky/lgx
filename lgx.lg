@@ -978,11 +978,13 @@
    {:lower :all} passes every reachable file.
 
    :lg-runtime :built is guaranteed by config load, so the host runtime's lg
-   is the compiler and every runtime module carries the same let-go. Per
-   target, the module of that target's runtime is staged into a temp dir:
-   the host runtime, or - for a cross target or bin-level :go/build-tags - a
-   runtime built for that target under top-level plus bin tags, so its
-   bindings match the binary's build. `lg compile` runs there with the
+   is the compiler and every runtime module carries the same let-go. With
+   bin-level :go/build-tags the compiler is instead a host runtime built
+   under top-level plus bin tags, since `lg compile` resolves the program's
+   Go namespaces in the lg that runs it. Per target, the module of that
+   target's runtime is staged into a temp dir: the compiler's own for a host
+   build, or a runtime built for the cross target under the same tags, so
+   its bindings match the binary's build. `lg compile` runs there with the
    target's GOOS/GOARCH and the same tags in GOFLAGS, and the temp dir is
    removed afterwards. Search paths reach it through LG_SOURCE_PATHS (see
    native/native-compile-argv).
@@ -1050,8 +1052,19 @@
           (write! *err* (str (native/skipped-note s) "\n")))
         (when-let [note (native/dependency-note dependency-count)]
           (write! *err* (str note "\n")))
-        (let [host (apply-runtime! cfg basis :fail verbose?)]
-          (when-not (gobuild/compile-module-supported!? host)
+        (let [host (apply-runtime! cfg basis :fail verbose?)
+              ;; `lg compile` loads the program's Go namespaces in the lg
+              ;; that runs it, so with bin tags that lg is a host runtime
+              ;; built under them too: it then sees the same Go APIs as the
+              ;; module the lowered code builds against.
+              compiler (if (seq bin-tags)
+                         (gobuild/ensure-runtime! go-pairs
+                                                  (config/lg-version cfg)
+                                                  nil
+                                                  tags
+                                                  verbose?)
+                         host)]
+          (when-not (gobuild/compile-module-supported!? compiler)
             (write! *err* (str "lgx: " native/compile-module-error "\n"))
             (os/exit 1))
           (doseq [target target-list]
@@ -1066,13 +1079,13 @@
                             (assoc resource-fs
                                    :roots resource-paths
                                    :exclude (if out-real #{out-real} #{})))
-                  runtime (if (or target (seq bin-tags))
+                  runtime (if target
                             (gobuild/ensure-runtime! go-pairs
                                                      (config/lg-version cfg)
                                                      target
                                                      tags
                                                      verbose?)
-                            host)
+                            compiler)
                   label (str "Building " out-rel " ("
                              (if target
                                (str (:os target) "/" (:arch target) ", ")
@@ -1086,7 +1099,7 @@
                            (let [staged? (gobuild/stage-native-resources!
                                            module entries)
                                  argv (native/native-compile-argv
-                                        {:lg host
+                                        {:lg compiler
                                          :module module
                                          :out abs-out
                                          :files files
