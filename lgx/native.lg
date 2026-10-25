@@ -151,6 +151,177 @@
                skipped)))))
 
 ;; ---------------------------------------------------------------------------
+;; Lowering scope
+;; ---------------------------------------------------------------------------
+
+(defn- under-root?
+  "Whether `p` is inside `root`: a prefix plus a separator, so /p/src-extra
+   is not under /p/src. A root that already ends in one (the file-system
+   root /) takes no second."
+  [root p]
+  (str/starts-with? p (if (str/ends-with? root os/file-separator)
+                        root
+                        (str root os/file-separator))))
+
+(defn- owning-root
+  "The longest root containing `p`, as [root project?], or nil. On a tie the
+   project root wins: the project declared it."
+  [project-roots dependency-roots p]
+  (->> (concat (map #(vector % true) project-roots)
+               (map #(vector % false) dependency-roots))
+       (filter #(under-root? (first %) p))
+       (sort-by (fn [[root project?]]
+                  [(- (count root)) (if project? 0 1)]))
+       first))
+
+(defn project-file?
+  "Pure. Whether the walker's file `p` belongs to the project and so is
+   lowered by default: :main itself, or a file whose longest containing root
+   is a project root. A file under no root is not the project's."
+  [{:keys [main project-roots dependency-roots]} p]
+  (or (= p main)
+      (boolean (second (owning-root project-roots dependency-roots p)))))
+
+(defn project-files
+  "Pure. Keep :main and the project's own files out of `:files` (see
+   project-file?), in order. Returns {:files kept :dependency-count n}, n
+   being how many were dropped."
+  [{:keys [files] :as scope}]
+  (let [kept (filterv #(project-file? scope %) files)]
+    {:files kept
+     :dependency-count (- (count files) (count kept))}))
+
+(defn dependency-note
+  "Pure. The note for `n` dependency namespaces left on bytecode, or nil."
+  [n]
+  (cond
+    (zero? n) nil
+    (= 1 n) (str "note: 1 dependency namespace runs as bytecode (set "
+                 ":native {:lower :all} to lower it)")
+    :else (str "note: " n " dependency namespaces run as bytecode (set "
+               ":native {:lower :all} to lower them)")))
+
+;; ---------------------------------------------------------------------------
+;; Resources
+;; ---------------------------------------------------------------------------
+
+(defn- within-root?
+  "Whether the canonical path `p` is the canonical `root` or inside it."
+  [root p]
+  (or (= p root) (under-root? root p)))
+
+(defn- collect-dir
+  "Collect the regular files under the canonical dir `dir` into `acc`
+   ({:seen #{rel} :out [entry]}), keyed by `prefix` + name. Mirrors
+   bundle.collectResourceDir: entries are followed only when they resolve
+   inside `root`, and `ancestors` holds the canonical dirs on the current
+   descent, so a symlink back to one is a cycle and is skipped."
+  [{:keys [ls stat canonical regular? exclude] :as fs} root dir prefix
+   ancestors acc]
+  (if (contains? ancestors dir)
+    acc
+    (reduce (fn [acc name]
+              (let [rel (if (= "" prefix) name (str prefix "/" name))
+                    real (canonical (path/join dir name))
+                    st (when (and real (within-root? root real)) (stat real))]
+                (cond
+                  (nil? st) acc
+                  (:dir? st) (collect-dir fs root real rel (conj ancestors dir)
+                                          acc)
+                  (not (regular? real)) acc
+                  (contains? exclude real) acc
+                  (contains? (:seen acc) rel) acc
+                  :else (-> acc
+                            (update :seen conj rel)
+                            (update :out conj {:rel rel :src real})))))
+            acc
+            (sort (ls dir)))))
+
+(defn collect-resources
+  "Pure apart from the injected file system. The files under `:roots` that
+   `lg -b` would embed (bundle.CollectResources): roots in order, the first
+   root to define a relative path wins, symlinks are followed only when they
+   resolve inside their root, a symlink cycle is skipped, and so are
+   non-regular files and the canonical paths in `:exclude`. A missing root
+   or one that is not a directory is skipped.
+
+   `:canonical` resolves a path's symlinks to an absolute path, or nil when
+   it dangles; `:stat` returns {:dir? ...} following symlinks, or nil;
+   `:ls` lists a dir's entry names; `:regular?` holds for a regular file.
+
+   Returns [{:rel \"public/index.html\" :src canonical-path} ...]: rel is
+   slash-separated, entries are sorted within each dir."
+  [{:keys [roots canonical stat] :as fs}]
+  (:out (reduce (fn [acc root]
+                  (let [real (canonical root)]
+                    (if (and real (:dir? (stat real)))
+                      (collect-dir fs real real "" #{} acc)
+                      acc)))
+                {:seen #{} :out []}
+                roots)))
+
+(defn resource-collision
+  "Pure. A pair [file dir-entry] of collected rels that one directory tree
+   cannot hold - a file `foo` from one root and `foo/bar.txt` from another -
+   or nil. A bundle keys them apart; the staged go:embed tree cannot."
+  [entries]
+  (let [rels (set (map :rel entries))]
+    (first (for [{:keys [rel]} entries
+                 :let [parts (str/split rel "/")]
+                 i (range 1 (count parts))
+                 :let [ancestor (str/join "/" (take i parts))]
+                 :when (contains? rels ancestor)]
+             [ancestor rel]))))
+
+(def resource-import
+  "The package a native build -imports to install the embedded resources.
+   lgx.gobuild requires this ns, so this cannot be derived from
+   gobuild/runtime-module; gobuild's tests assert the two agree."
+  "lgx.local/runtime/lgxresources")
+
+(def resource-go-source
+  "The Go file staged as <module>/lgxresources/resources.go. Its init() runs
+   before the program and installs the files embedded beside it as let-go's
+   io/resource provider, through the same constructor `lg -b` uses, so name
+   handling matches a bundle."
+  "// Code generated by lgx. DO NOT EDIT.
+
+// Package lgxresources installs the project's :resource-paths as let-go's
+// io/resource provider before the program runs.
+package lgxresources
+
+import (
+\t\"embed\"
+\t\"io/fs\"
+\t\"strings\"
+
+\t\"github.com/nooga/let-go/pkg/rt\"
+)
+
+//go:embed all:files
+var embedded embed.FS
+
+func init() {
+\tfiles := map[string][]byte{}
+\terr := fs.WalkDir(embedded, \"files\", func(p string, d fs.DirEntry, err error) error {
+\t\tif err != nil || d.IsDir() {
+\t\t\treturn err
+\t\t}
+\t\tb, err := embedded.ReadFile(p)
+\t\tif err != nil {
+\t\t\treturn err
+\t\t}
+\t\tfiles[strings.TrimPrefix(p, \"files/\")] = b
+\t\treturn nil
+\t})
+\tif err != nil {
+\t\tpanic(\"lgxresources: \" + err.Error())
+\t}
+\trt.SetResourceProvider(rt.NewEmbeddedResourceProvider(files))
+}
+")
+
+;; ---------------------------------------------------------------------------
 ;; Entry checks
 ;; ---------------------------------------------------------------------------
 

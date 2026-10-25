@@ -5,6 +5,7 @@
 
 (ns lgx.native-test
   (:require [lgx.native :as native]
+            [string :as str]
             [clojure.test :refer [deftest is]]))
 
 ;; ---------------------------------------------------------------------------
@@ -221,3 +222,165 @@
 (deftest main-ns-error-needs-a-lg-main
   (is (= ":target :native needs :main to be a .lg file (got app.clj)"
          (native/main-ns-error "app.clj" '(ns app.core)))))
+
+;; ---------------------------------------------------------------------------
+;; project-files
+;; ---------------------------------------------------------------------------
+
+(defn- keep-project [files project-roots dependency-roots]
+  (native/project-files {:files files
+                         :main "/p/src/app.lg"
+                         :project-roots project-roots
+                         :dependency-roots dependency-roots}))
+
+(deftest project-files-keeps-main-outside-every-root
+  (is (= {:files ["/p/src/app.lg"] :dependency-count 0}
+         (keep-project ["/p/src/app.lg"] ["/elsewhere"] []))))
+
+(deftest project-files-drops-dependency-files
+  (is (= {:files ["/p/src/app.lg" "/p/src/a/b.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/deps/x/src/x.lg" "/p/src/a/b.lg"]
+                       ["/p/src"] ["/deps/x/src"]))))
+
+(deftest project-files-needs-a-separator-after-the-root
+  (is (= {:files ["/p/src/app.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/p/src-extra/a.lg"]
+                       ["/p/src"] ["/p/src-extra"])))
+  ;; Under no root at all: not the project's.
+  (is (= {:files ["/p/src/app.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/p/src-extra/a.lg"] ["/p/src"] []))))
+
+(deftest project-files-handles-the-file-system-root
+  (is (= {:files ["/p/src/app.lg" "/lib.lg"] :dependency-count 0}
+         (keep-project ["/p/src/app.lg" "/lib.lg"] ["/"] []))))
+
+(deftest project-files-picks-the-longest-root
+  (is (= {:files ["/p/src/app.lg" "/p/a.lg"] :dependency-count 1}
+         (keep-project ["/p/src/app.lg" "/p/vendor/lib/src/l.lg" "/p/a.lg"]
+                       ["/p"] ["/p/vendor/lib/src"]))))
+
+(deftest project-files-counts-a-shared-root-as-project
+  (is (= {:files ["/p/src/app.lg" "/p/shared/s.lg"] :dependency-count 0}
+         (keep-project ["/p/src/app.lg" "/p/shared/s.lg"]
+                       ["/p/src" "/p/shared"] ["/p/shared"]))))
+
+(deftest project-files-preserves-order
+  (is (= ["/p/src/app.lg" "/p/src/z.lg" "/p/src/a.lg"]
+         (:files (keep-project ["/p/src/app.lg" "/d/1.lg" "/p/src/z.lg"
+                                "/d/2.lg" "/p/src/a.lg"]
+                               ["/p/src"] ["/d"])))))
+
+(deftest dependency-note-counts-namespaces
+  (is (nil? (native/dependency-note 0)))
+  (is (= (str "note: 1 dependency namespace runs as bytecode (set "
+              ":native {:lower :all} to lower it)")
+         (native/dependency-note 1)))
+  (is (= (str "note: 12 dependency namespaces run as bytecode (set "
+              ":native {:lower :all} to lower them)")
+         (native/dependency-note 12))))
+
+;; ---------------------------------------------------------------------------
+;; collect-resources
+;; ---------------------------------------------------------------------------
+
+;; A fake file system. `nodes` maps canonical paths to :dir, :file or :fifo;
+;; `links` maps a symlink's path to the canonical path it resolves to (a target
+;; missing from `nodes` makes it dangling). The collector only ever names an
+;; entry as <canonical dir>/<name>, so that is all canonical has to resolve.
+(defn- fake-fs [nodes links]
+  (let [canonical (fn [p]
+                    (if (contains? links p)
+                      (let [t (get links p)]
+                        (when (contains? nodes t) t))
+                      (when (contains? nodes p) p)))
+        parent (fn [p] (subs p 0 (str/last-index-of p "/")))
+        base (fn [p] (subs p (inc (str/last-index-of p "/"))))]
+    {:canonical canonical
+     :ls (fn [dir]
+           (vec (for [p (concat (keys nodes) (keys links))
+                      :when (= dir (parent p))]
+                  (base p))))
+     :stat (fn [p]
+             (when-let [c (canonical p)]
+               {:dir? (= :dir (get nodes c))}))
+     :regular? (fn [p] (= :file (get nodes (canonical p))))}))
+
+(defn- collect [roots exclude nodes links]
+  (native/collect-resources (merge {:roots roots :exclude exclude}
+                                   (fake-fs nodes links))))
+
+(deftest collect-resources-walks-nested-dirs
+  (is (= [{:rel "a.txt" :src "/r/a.txt"}
+          {:rel "public/assets/app.js" :src "/r/public/assets/app.js"}
+          {:rel "public/index.html" :src "/r/public/index.html"}]
+         (collect ["/r"] #{}
+                  {"/r" :dir "/r/a.txt" :file "/r/public" :dir
+                   "/r/public/index.html" :file "/r/public/assets" :dir
+                   "/r/public/assets/app.js" :file}
+                  {}))))
+
+(deftest collect-resources-first-root-wins
+  (is (= [{:rel "x.txt" :src "/r1/x.txt"}
+          {:rel "y.txt" :src "/r2/y.txt"}]
+         (collect ["/r1" "/r2"] #{}
+                  {"/r1" :dir "/r1/x.txt" :file
+                   "/r2" :dir "/r2/x.txt" :file "/r2/y.txt" :file}
+                  {}))))
+
+(deftest collect-resources-follows-in-root-symlinks
+  (is (= [{:rel "alias.txt" :src "/r/real/f.txt"}
+          {:rel "dir-alias/f.txt" :src "/r/real/f.txt"}
+          {:rel "real/f.txt" :src "/r/real/f.txt"}]
+         (collect ["/r"] #{}
+                  {"/r" :dir "/r/real" :dir "/r/real/f.txt" :file}
+                  {"/r/alias.txt" "/r/real/f.txt"
+                   "/r/dir-alias" "/r/real"}))))
+
+(deftest collect-resources-skips-symlinks-escaping-the-root
+  (is (= [{:rel "in.txt" :src "/r/in.txt"}]
+         (collect ["/r"] #{}
+                  {"/r" :dir "/r/in.txt" :file "/etc" :dir "/etc/passwd" :file}
+                  {"/r/passwd" "/etc/passwd" "/r/etc" "/etc"}))))
+
+(deftest collect-resources-terminates-on-a-cycle
+  (is (= [{:rel "sub/f.txt" :src "/r/sub/f.txt"}]
+         (collect ["/r"] #{}
+                  {"/r" :dir "/r/sub" :dir "/r/sub/f.txt" :file}
+                  {"/r/sub/up" "/r"}))))
+
+(deftest collect-resources-skips-missing-and-file-roots
+  (is (= [{:rel "a.txt" :src "/r/a.txt"}]
+         (collect ["/missing" "/file.txt" "/r"] #{}
+                  {"/file.txt" :file "/r" :dir "/r/a.txt" :file}
+                  {}))))
+
+(deftest collect-resources-follows-a-symlinked-root
+  (is (= [{:rel "a.txt" :src "/real/a.txt"}]
+         (collect ["/r"] #{} {"/real" :dir "/real/a.txt" :file}
+                  {"/r" "/real"}))))
+
+(deftest collect-resources-skips-excluded-dangling-and-irregular-files
+  (is (= [{:rel "keep.txt" :src "/r/keep.txt"}]
+         (collect ["/r"] #{"/r/out-bin"}
+                  {"/r" :dir "/r/keep.txt" :file "/r/out-bin" :file
+                   "/r/pipe" :fifo}
+                  {"/r/dangling" "/r/nope"}))))
+
+(deftest resource-collision-finds-a-file-that-is-also-a-dir
+  (is (nil? (native/resource-collision [{:rel "a/b.txt"} {:rel "a/c.txt"}
+                                        {:rel "ab"}])))
+  (is (= ["foo" "foo/bar/x.txt"]
+         (native/resource-collision [{:rel "foo/bar/x.txt"} {:rel "foo"}])))
+  (is (= ["foo/bar" "foo/bar/x.txt"]
+         (native/resource-collision [{:rel "foo/bar"} {:rel "foo/bar/x.txt"}]))))
+
+(deftest resource-import-is-the-staged-package
+  (is (= "lgx.local/runtime/lgxresources" native/resource-import)))
+
+(deftest resource-go-source-installs-the-provider
+  (let [src native/resource-go-source]
+    (is (str/starts-with? src "// Code generated by lgx. DO NOT EDIT.\n"))
+    (is (str/includes? src "package lgxresources\n"))
+    (is (str/includes? src "//go:embed all:files\n"))
+    (is (str/includes? src "rt.SetResourceProvider(rt.NewEmbeddedResourceProvider(files))"))
+    (is (str/includes? src "\tfiles[strings.TrimPrefix(p, \"files/\")] = b\n"))))

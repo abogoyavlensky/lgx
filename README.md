@@ -312,14 +312,24 @@ executable, instead of bundling bytecode:
                              {:os "darwin" :arch "arm64"}]}}}
 ```
 
-`lgx build` lowers `:main` and every `.lg` namespace it reaches through `ns`
-`:require`/`:use` (the project's and its let-go deps') to Go with
+`lgx build` lowers `:main` and the project's own `.lg` namespaces it reaches
+through `ns` `:require`/`:use` (those under `:paths`) to Go with
 `lg compile -module`, inside a temporary copy of the runtime's Go module, so
-`:go/*` deps link as they do for an executable. Code that does not lower,
-`.cljc`/`.clj` libs, embedded namespaces and namespaces loaded by a
-top-level `(require ...)` still run, as bytecode inside the same binary.
-`lgx build` makes the host binary; `--all` or `--target` cross-compiles, as
-for an executable.
+`:go/*` deps link as they do for an executable. Dependency namespaces run as
+bytecode inside the same binary, and a note says how many. To lower them too,
+set `:native {:lower :all}` under `:targets :bin` (the default is
+`{:lower :project}`). Code that does not lower, `.cljc`/`.clj` libs, embedded
+namespaces and namespaces loaded by a top-level `(require ...)` also run as
+bytecode. `lgx build` makes the host binary; `--all` or `--target`
+cross-compiles, as for an executable.
+
+The files under `:resource-paths` are embedded in the binary, collected as
+`lg -b` collects them, and `io/resource` reads them at run time from any
+directory. A resource name `go:embed` cannot carry (one containing `"`, `*`,
+`<`, `>`, `?`, `` ` ``, `'`, `|`, `:` or `\`) fails the build with Go's
+error, and so does a name that is a file in one resource path and a
+directory in another. `:go/build-tags` under `:targets :bin` reaches the
+binary, as for an executable.
 
 - Needs `:lg-runtime :built` and a let-go whose `lg compile` has `-module`
   and `-import` (on let-go `main` after 1.13.0; pin `:lg-version` to a `main`
@@ -341,8 +351,11 @@ for an executable.
     callee unless it is `^:redef` or `^:dynamic` (nooga/let-go#990);
   - a function that does not lower only prints a `WARNING: not lowered`
     line, and the build still succeeds (nooga/let-go#660);
-  - `require` at run time searches only `LG_SOURCE_PATHS`.
-- Resources are not embedded; the build warns when `:resource-paths` is set.
+  - `require` at run time searches only `LG_SOURCE_PATHS`;
+  - lowering a namespace together with the caller of its syntax-quoted
+    macros breaks the expansion (`Can't resolve ... in this context`,
+    nooga/let-go#1098). That is why dependencies are not lowered by default:
+    `:lower :all` works only for deps that lower cleanly.
 
 ### `lgx test` details
 
@@ -599,9 +612,11 @@ for a release build and `server` to run headless):
 
 The top-level key applies to `run`, `test`, `repl` and every build. The one
 under `:targets :bin` is added only to the runtime `lgx build` bundles your
-app onto, so the shipped binary carries it while `lgx run` does not; it is
-rejected with `:target :lgb`, `:wasm` or `:native`, which bundle onto no
-such runtime. Tags already in `GOFLAGS` are merged in rather than dropped,
+app onto (or, with `:target :native`, to the module it links), so the
+shipped binary carries it while `lgx run` does not; it is rejected with
+`:target :lgb` or `:wasm`, which build on no such runtime. Under `:native`
+the `lg` that runs `lg compile` is also built with them, so a Go namespace
+or function that only a bin tag defines still compiles. Tags already in `GOFLAGS` are merged in rather than dropped,
 and each tag set gets its own cached runtime. Tags need `:lg-runtime :built`.
 
 `:lg-version` pins the let-go the runtime is built from. Version conflicts
