@@ -38,9 +38,10 @@
 ;;     first and then whitespace-split into argv.
 ;; The echoed step line shows the substituted command.
 ;;
-;; :sh and :run children run through os/sh, which buffers stdout/stderr until
-;; the child exits; their output is replayed after the step. A :task child is
-;; the exception — it inherits the parent's stdio, so its output streams live.
+;; Every step kind runs through runner/exec-interactive!, so the child inherits
+;; the parent's stdio: output streams live and a prompt can read the terminal's
+;; stdin. (exec-lg-interactive! is no use for :run — it exits the process, and a
+;; task has to go on to its next step.)
 ;; --------------------------------------------------------------------------
 
 ;; --------------------------------------------------------------------------
@@ -116,10 +117,7 @@
     (write! *err* (str "\n" (style/step-line cmd) "\n"))
     (when verbose?
       (write! *err* (str "+ sh -c " cmd "\n")))
-    (let [r (os/sh "sh" "-c" cmd)]
-      (when (seq (:out r)) (write! *out* (:out r)))
-      (when (seq (:err r)) (write! *err* (:err r)))
-      (:exit r))))
+    (runner/exec-interactive! "sh" ["-c" cmd])))
 
 (defn- run-run-step! [value bindings lib-paths resource-paths verbose?]
   ;; A `:run` step is "invoked like `lgx run`", so it carries the same
@@ -133,9 +131,11 @@
       ;; Like `lgx run`, drop the app-level `--` separator so it doesn't reach
       ;; lg / *command-line-args*. A `:run` step never injects :main — it
       ;; forwards an explicit argv (a bare `lg` runner).
-      (let [exit (runner/invoke-lg! lib-paths resource-paths
-                                    (runner/drop-arg-separator (as-arg-vec value))
-                                    verbose?)]
+      (let [[bin args] (runner/lg-invocation! lib-paths resource-paths
+                                              (runner/drop-arg-separator
+                                                (as-arg-vec value))
+                                              verbose?)
+            exit (runner/exec-interactive! bin args)]
         (os/setenv "LGX_RUN" (or prev ""))
         exit))))
 

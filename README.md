@@ -657,8 +657,9 @@ Tasks replace ad-hoc Makefile/Taskfile recipes. A task is a step or a vector of
 steps; each step is `:sh` (shell), `:run` (an explicit argv to `lg` with the
 project basis), or `:task` (another task, or a built-in). A `:run` step names
 its own script - it never substitutes `:main` - but, like `lgx run`, drops the
-first `--`. The first non-zero exit stops the chain; output is buffered and
-replayed after each step. A single-step `:do` may be a step map instead of a
+first `--`. The first non-zero exit stops the chain. Every step streams its
+output live and reads the terminal's stdin, so a step can run a dev server or
+prompt for input. A single-step `:do` may be a step map instead of a
 vector.
 
 Run a task with `lgx <name>`; `lgx help` lists the project's tasks. Names are

@@ -147,7 +147,7 @@
   (when (seq (:out r)) (write! *out* (:out r)))
   (when (seq (:err r)) (write! *err* (:err r))))
 
-(defn- lg-invocation!
+(defn lg-invocation!
   "Prepare an lg invocation: set the env vars lgx exports to the child,
    assemble the argv via lg-args, and (when `verbose?`) write the resolved
    `+ lg <version> (<path>)` line, the env trace, and the `+ <bin> <args>`
