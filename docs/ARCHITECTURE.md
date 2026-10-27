@@ -256,10 +256,13 @@ redirections keep a shared offset); see
 [`issues/exec-star-std-stream-pipes.md`](issues/exec-star-std-stream-pipes.md).
 (Bare `lgx run` without
 `:main` now errors and points at `lgx repl`, rather than opening a REPL
-itself.) `lgx test`, `lgx build`, and task `:run` steps still use the
-captured `os/sh` path (`runner/run-lg!`/`invoke-lg!`): `test` must
-inspect lg's output to strip its harness marker, and the others keep
-buffered-and-replayed output. (History: the inherited-stdio runner was
+itself.) Task `:sh` and `:run` steps go through `exec-interactive!` too
+(a `:run` step via `runner/lg-invocation!`, not `exec-lg-interactive!`,
+which exits the process and a task has to reach its next step). `lgx test`
+and `lgx build` still use the captured `os/sh` path
+(`runner/run-lg!`/`invoke-lg!`): `test` must inspect lg's output to strip
+its harness marker, and `build` keeps buffered-and-replayed output.
+(History: the inherited-stdio runner was
 tracked in [`issues/inherit-stdio-runner.md`](issues/inherit-stdio-runner.md),
 resolved upstream by `os/exec*`.)
 
@@ -672,8 +675,8 @@ form to a one-item vector before execution walks it. Each step is one
 of:
 
 - `{:sh <string-or-vector>}` — joined with spaces and run via
-  `sh -c <cmd>`. Captured stdout/stderr is replayed after the child
-  exits.
+  `sh -c <cmd>` through `runner/exec-interactive!`: the child inherits
+  stdio, so output streams live and it can read stdin.
 - `{:run <string-or-vector>}` — forwards an explicit argv to `lg` with
   the project's resolved `-source-paths` and `-resource-paths`. String
   forms are whitespace-split into argv. Unlike `cmd-run` it never

@@ -4991,5 +4991,71 @@ assert_contains "$out" "applies only to :target :native" \
 pass "native opts off native: writes nothing"
 rm -rf "$proj_n9" "$home_n9"
 
+# ---------------------------------------------------------------------------
+# Task :sh / :run steps stream their output live and read the terminal's stdin
+# (they used to be captured by os/sh and replayed after the child exited).
+
+# assert_streams <task> <label>: run the task in $proj_s with stdout going to a
+# file. The task prints `first`, waits ~5 s, then prints `second`. `first` must
+# show up while the child is still waiting; `second` must not yet; both must be
+# there after it exits.
+assert_streams() {
+    local task="$1" label="$2" log i
+    log="$(mktemp)"
+    (cd "$proj_s" && LGX_HOME="$home_s" "$LGX" "$task" >"$log" 2>/dev/null) &
+    local pid=$!
+    for i in $(seq 1 35); do
+        grep -q first "$log" && break
+        sleep 0.1
+    done
+    assert_contains "$(cat "$log")" "first" "$label: first line arrives while the child runs"
+    assert_not_contains "$(cat "$log")" "second" "$label: second line is not there yet"
+    kill -0 "$pid" 2>/dev/null || fail "$label: lgx exited before the child finished"
+    wait "$pid"
+    assert_contains "$(cat "$log")" "second" "$label: second line arrives at the end"
+    rm -f "$log"
+}
+
+echo "==> Scenario 181: :sh and :run task steps stream their output"
+proj_s="$(mktemp -d)"
+home_s="$(mktemp -d)"
+cat > "$proj_s/lgx.edn" <<'EOF'
+{:tasks
+ {sh-stream  {:do [{:sh "echo first; sleep 5; echo second"}]}
+  run-stream {:do [{:run "s.lg"}]}}}
+EOF
+printf '(println "first")\n(sleep 5000)\n(println "second")\n' > "$proj_s/s.lg"
+assert_streams sh-stream ":sh stream"
+assert_streams run-stream ":run stream"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 182: :sh and :run task steps read stdin"
+cat > "$proj_s/lgx.edn" <<'EOF'
+{:tasks
+ {sh-read  {:do [{:sh "read x; echo got $x"}]}
+  run-read {:do [{:run "r.lg"}]}}}
+EOF
+printf '(println "got" (read-line))\n' > "$proj_s/r.lg"
+out="$(cd "$proj_s" && echo hi | LGX_HOME="$home_s" "$LGX" sh-read 2>/dev/null)"
+assert_eq "$out" "got hi" ":sh step reads the task's stdin"
+out="$(cd "$proj_s" && echo hi | LGX_HOME="$home_s" "$LGX" run-read 2>/dev/null)"
+assert_eq "$out" "got hi" ":run step reads the task's stdin"
+
+# ---------------------------------------------------------------------------
+echo "==> Scenario 183: a :run step exits non-zero and stops the chain"
+cat > "$proj_s/lgx.edn" <<'EOF'
+{:tasks
+ {run-fail {:do [{:run "e.lg"} {:sh "echo after"}]}}}
+EOF
+printf '(println "before")\n(os/exit 5)\n' > "$proj_s/e.lg"
+set +e
+out="$(cd "$proj_s" && LGX_HOME="$home_s" "$LGX" run-fail 2>/dev/null)"; rc=$?
+set -e
+[[ $rc -eq 5 ]] || fail ":run fail: expected exit 5, got $rc"
+pass ":run step: exit code propagates"
+assert_contains "$out" "before" ":run fail: the step's output streamed"
+assert_not_contains "$out" "after" ":run fail: later step did not run"
+rm -rf "$proj_s" "$home_s"
+
 echo
 echo "All $PASS_COUNT e2e assertions passed."
