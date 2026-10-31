@@ -259,14 +259,23 @@
 (def ^:private template-repeat-error
   "lgx: --template given more than once")
 
+(def ^:private sha-value-error
+  "lgx: --sha requires a value (commit sha)")
+
+(def ^:private sha-repeat-error
+  "lgx: --sha given more than once")
+
 (defn parse-new-args
-  "Parse the `new` command's rest-args. Accepts `-t`/`--template <value>` at
-   any position plus exactly one positional (the project name). Returns
-   {:name <string> :template <string or nil>}. Throws ex-info on a
-   missing/repeated template value or a positional count other than one."
+  "Parse the `new` command's rest-args. Accepts `-t`/`--template <value>` and
+   `--sha <value>` at any position plus exactly one positional (the project
+   name). Returns {:name <string> :template <string or nil> :sha <string or
+   nil>}. Throws ex-info on a missing/repeated template or sha value or a
+   positional count other than one. The sha value itself is validated in
+   lgx.new, not here."
   [args]
   (loop [positionals []
          template nil
+         sha nil
          xs (seq args)]
     (if (nil? xs)
       (cond
@@ -278,16 +287,28 @@
 
         :else
         {:name (first positionals)
-         :template template})
+         :template template
+         :sha sha})
       (let [tok (first xs)]
-        (if (or (= tok "-t") (= tok "--template"))
+        (cond
+          (or (= tok "-t") (= tok "--template"))
           (let [value (first (next xs))]
             (when (nil? value)
               (throw (ex-info template-value-error {})))
             (when-not (nil? template)
               (throw (ex-info template-repeat-error {})))
-            (recur positionals value (next (next xs))))
-          (recur (conj positionals tok) template (next xs)))))))
+            (recur positionals value sha (next (next xs))))
+
+          (= tok "--sha")
+          (let [value (first (next xs))]
+            (when (nil? value)
+              (throw (ex-info sha-value-error {})))
+            (when-not (nil? sha)
+              (throw (ex-info sha-repeat-error {})))
+            (recur positionals template value (next (next xs))))
+
+          :else
+          (recur (conj positionals tok) template sha (next xs)))))))
 
 (defn parse-leading-flags
   "Parse leading global flags from `args` (the `user-args` output). Consumes
