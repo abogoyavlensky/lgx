@@ -848,16 +848,17 @@ same overlay so it pre-fetches a context's deps (auto names included only
 via an explicit `--with dev,test`). `install --all` goes further and fetches
 every context's and task's `:extra-deps` (see [`lgx install`](#lgx-install)).
 
-### `lgx new <name> [-t <tpl>]`
+### `lgx new <name> [-t <tpl>] [--sha <sha>]`
 
 Scaffolds a new project directory from a template: a built-in name from
-the registry in `lgx/new.lg` (`base`, `cli`, `lib`; sha-pinned) or a custom git
-URL. The command never touches an existing project's `lgx.edn`.
+the registry in `lgx/new.lg` (`base`, `cli`, `desktop`, `lib`, `web`) or a
+custom git URL. Both track the repo's default-branch HEAD unless `--sha`
+pins a commit. The command never touches an existing project's `lgx.edn`.
 
 1. Parse rest-args with `cli/parse-new-args` (pure): `-t`/`--template
-   <value>` at any position plus exactly one positional, the project
-   name. A missing/repeated template value or a positional count other
-   than one → the parse error on stderr (messages carry their own
+   <value>` and `--sha <value>` at any position plus exactly one
+   positional, the project name. A missing/repeated template or sha
+   value or a positional count other than one → the parse error on stderr (messages carry their own
    `lgx: ` prefix), exit 1.
 2. Validate `<name>` against `^[a-z][a-z0-9-]*$`. Bad input →
    `lgx: invalid project name: <input>` plus the rule description on
@@ -868,25 +869,32 @@ URL. The command never touches an existing project's `lgx.edn`.
    `lgx: target directory already exists and is not empty: <path>`.
    An empty pre-existing directory is allowed; the render lays files
    into it.
-4. Resolve the template coord (`new/resolve-template-coord`, 1-arity):
-   - No `-t`, or `-t base` → the registry's `base` entry, with either
-     field overridable by the env vars `LGX_TEMPLATE_BASE_URL` and
-     `LGX_TEMPLATE_BASE_SHA`; blank or unset envs fall back to the
-     registry. The overrides are scoped to `base` — other templates
-     ignore them.
-   - A value containing `://` → custom template URL. Its default-branch
-     HEAD is resolved to a sha by `cache/resolve-head-sha!`
-     (`git ls-remote <url> HEAD`), so a URL template always tracks the
-     latest HEAD at the cost of one `ls-remote` round-trip per run.
-     Failure → `lgx: failed to resolve template <url>: <stderr>`, exit 1.
+4. Resolve the template coord. `--sha` is validated first
+   (`new/validate-sha!`, `^[0-9a-f]{7,40}$`, before any network call;
+   else `lgx: invalid --sha value: <v> (expected 7-40 lowercase hex
+   characters)`, exit 1). `new/template-url` maps the `-t` value to a
+   URL:
+   - No `-t`, or `-t base` → the registry's `base` URL.
+   - A value containing `://` → custom template URL, used as is.
    - Any other value → registry lookup. Unknown name →
-     `lgx: unknown template: <value> (built-in: base, cli, lib)`, exit 1.
+     `lgx: unknown template: <value> (built-in: base, cli, desktop, lib, web)`,
+     exit 1.
+
+   `new/resolve-template-coord [template sha]` then picks the sha: the
+   `--sha` value as given (possibly abbreviated, no `ls-remote`), or the
+   default-branch HEAD from `cache/resolve-head-sha!`
+   (`git ls-remote <url> HEAD`), at the cost of one round-trip per run.
+   Failure → `lgx: failed to resolve template <url>: <stderr>`, exit 1.
 5. Ensure the template is cached under
-   `$LGX_HOME/templates/<host>/<owner>/<repo>/<sha>/`. If the leaf
-   exists, reuse it. Otherwise clone via `cache/clone-sha!` (same
-   atomic clone-into-tmp → checkout → drop-`.git/` → mv pattern used
-   for `:deps`). Clone failures replay `git`'s stderr after a
-   `lgx: failed to fetch template:` prefix, exit 1.
+   `$LGX_HOME/templates/<host>/<owner>/<repo>/<full-sha>/`.
+   `new/find-cached-sha` looks for a single 40-hex entry whose name
+   starts with the sha (a full sha is a prefix of itself); a hit is
+   reused offline. Otherwise `cache/clone-commit!` clones, resolves the
+   sha to a full commit, and runs the same atomic clone-into-tmp →
+   checkout → drop-`.git/` → mv pattern used for `:deps`. An unknown
+   commit → `lgx: commit <sha> not found in <url>`, exit 1. Other clone
+   failures replay `git`'s stderr after a `lgx: failed to fetch
+   template:` prefix, exit 1.
 6. Walk the cached template recursively. For each source file, compute
    a destination relative to the target by replacing every
    `projectname` path segment with the underscored form of the project
@@ -968,7 +976,7 @@ of the git URL and ref. For `:git/sha` coords, `<ref>` is the sha. For
 `:git/tag` coords, `<ref>` is the tag with `/` replaced by `_`. Each
 leaf is a read-only worktree. The `test-runner` directory holds the
 generated test harness. The `templates/` tree parallels
-gitlibs but uses sha-only keying — populated by `lgx new` on first use
+gitlibs but uses full-sha-only keying — populated by `lgx new` on first use
 and reused on subsequent runs. `runtimes/` holds the `lg` binaries
 built for `:lg-runtime :built` projects and their cross-build bases,
 keyed by a hash of the let-go version, the whole Go coord set, and -
@@ -1249,9 +1257,9 @@ Maven-resolution subsystem was designed and deliberately parked; see
   support requires let-go ≥ vN.N (**TODO before merge:** fill in once
   upstream tags a release).
 - **Default template repo** — `lgx new` pulls from
-  `https://github.com/abogoyavlensky/lgx-template-base` at a sha pinned
-  in lgx source. Override with `LGX_TEMPLATE_BASE_URL` and
-  `LGX_TEMPLATE_BASE_SHA`; both blank or unset → defaults.
+  `https://github.com/abogoyavlensky/lgx-template-base` at its default-branch
+  HEAD. There is no pin in lgx source and no env override; pass `--sha` to
+  fix a commit.
 - let-go-side changes lgx depends on, tracked in [`issues/`](issues/):
   - `-source-paths` flag and `LG_SOURCE_PATHS` env var (PR open).
   - `-resource-paths` flag (resource roots for `io/resource`, embedded by

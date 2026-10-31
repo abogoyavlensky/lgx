@@ -86,7 +86,7 @@ lgx run
 
 | Command | What it does |
 | --- | --- |
-| `lgx new <name> [-t <tpl>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`, `lib`) or a git URL. |
+| `lgx new <name> [-t <tpl>] [--sha <sha>]` | Scaffold a new let-go project into `./<name>` from a built-in template (`base`, `cli`, `lib`, `web`, `desktop`) or a git URL. `--sha` pins a commit. |
 | `lgx install [--all]` | Fetch deps from `:deps` into the gitlibs cache. Idempotent. Useful for editor navigation. Under `:lg-runtime :built`, also builds the runtime. `--all` also fetches every context's and task's `:extra-deps`, so any later `--with` or task finds a warm cache. |
 | `lgx info` | Show the lgx version, which `lg` the project runs and why: `:lg-runtime`, `:lg-version`, the resolved `lg`, the version check (or the Go toolchain), every Go dep with the dep that introduced it, the effective contexts, and which contexts each command applies. Fetches deps like `install`, never builds. |
 | `lgx run [args...]` | Run `:main` through `lg` with deps on the source path. Put a script or `lg` flags before `--` to drive `lg` yourself; program args go after `--`. With no `:main` and no script, errors (use `lgx repl` for a REPL). |
@@ -124,18 +124,25 @@ Both options go before the subcommand: `lgx --with dev,test run`.
 lgx new myapp                # base template (the default)
 lgx new myapp -t cli         # built-in template by name
 lgx new myapp -t https://github.com/user/my-template
+lgx new myapp -t desktop --sha 1a2b3c4   # pin a commit
 ```
 
-Built-in templates are pinned to a latest revision:
+Every template, built-in or URL, uses its repo's default-branch HEAD unless
+`--sha` pins a commit. `--sha` takes 7-40 lowercase hex characters, full or
+abbreviated. The checkout is cached by full sha, so a cached `--sha` works
+offline.
+
+Built-in templates:
 
 | Name | Repo | Purpose |
 | --- | --- | --- |
 | `base` | [lgx-template-base](https://github.com/abogoyavlensky/lgx-template-base) | Minimal let-go app. |
 | `cli` | [lgx-template-cli](https://github.com/abogoyavlensky/lgx-template-cli) | Command-line app skeleton. |
 | `lib` | [lgx-template-lib](https://github.com/abogoyavlensky/lgx-template-lib) | Library project skeleton. |
+| `web` | [lgx-template-web](https://github.com/abogoyavlensky/lgx-template-web) | Web app: HTTP server, SQLite, migrations, Alpine.js page. Needs a Go toolchain. |
+| `desktop` | [lgx-template-desktop](https://github.com/abogoyavlensky/lgx-template-desktop) | Desktop app: Wails window, React/Vite frontend, SQLite, native build. Needs Go, Node and Wails' system libraries (Xcode CLT on macOS; GTK 4 and WebKitGTK on Linux). |
 
-A URL template uses the repo's latest default-branch HEAD and caches the checkout by sha under
-`$LGX_HOME/templates/`.
+Checkouts are cached under `$LGX_HOME/templates/`.
 
 Template URLs must be `https://host/owner/repo` (or `file:///path/to/repo`
 for local development); SSH forms like `git@host:owner/repo` are not
@@ -885,8 +892,6 @@ lgx completion fish > ~/.config/fish/completions/lgx.fish
 | `LGX_FETCH_LET_GO_SOURCE` | _(unset)_ | Set to any non-empty value to make `lgx install` fetch the let-go source matching `:lg-version` into `$LGX_HOME/let-go/source/<version>/`. The source feeds editor diagnostics - an LSP server navigating into let-go's `core`/stdlib. Off by default, since most users don't run such tooling and wouldn't expect the extra clone. |
 | `LGX_NO_COLOR` | _(unset)_ | Set to any non-empty value to disable colored status headers. lgx prints a green `=>` header before `install`/`build`/`test`/`new` and a purple `=> Running task <name>...` header before custom tasks, on stderr. `lgx run` prints no header, so it mirrors the built binary. |
 | `LGX_LETGO_REPLACE` | _(unset)_ | Path to a let-go checkout to build the `:built` runtime against, instead of `:lg-version`. For testing an unreleased let-go; the runtime is rebuilt on every command, since the checkout's contents are not part of the cache key. |
-| `LGX_TEMPLATE_BASE_URL` | template repo URL | Override the source repo of the built-in `base` template. |
-| `LGX_TEMPLATE_BASE_SHA` | pinned sha | Override the revision of the built-in `base` template. |
 
 ## State layout
 
