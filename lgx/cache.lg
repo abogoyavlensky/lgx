@@ -131,6 +131,36 @@
           (str "git checkout failed: " sha))
     (finalize-worktree! tmp dest)))
 
+(defn clone-commit!
+  "Clone url, resolve rev (full or abbreviated sha) to a full commit sha,
+   check it out, drop .git and move the worktree to <parent>/<full-sha>.
+   Returns that path. Throws ex-info with :reason :sha-not-found when rev
+   names no commit in url."
+  [url rev parent]
+  (mkdir parent)
+  (let [tmp (path/join parent (str rev ".tmp." (rand-int 1000000)))]
+    (git! ["clone" "--quiet" url tmp]
+          (str "git clone failed: " url))
+    ;; Not git!: a non-zero exit here means "no such commit", not a crash.
+    (let [r (os/sh "git" "-C" tmp "rev-parse" "--verify" "--quiet"
+                   (str rev "^{commit}"))]
+      (when-not (zero? (:exit r))
+        (os/sh "rm" "-rf" tmp)
+        (throw (ex-info (str "commit " rev " not found in " url)
+                        {:reason :sha-not-found
+                         :url url
+                         :sha rev})))
+      (let [full (str/trim (:out r))
+            dest (path/join parent full)]
+        (if (file-exists? dest)
+          ;; Cache already holds it (ambiguous short prefix, or a racing run).
+          (do (os/sh "rm" "-rf" tmp)
+              dest)
+          (do (git! ["-C" tmp "checkout" "--quiet" full]
+                    (str "git checkout failed: " full))
+              (finalize-worktree! tmp dest)
+              dest))))))
+
 (defn- clone-tag! [url tag dest]
   ;; Use a tmp dir as parent for atomicity, then rename.
   (let [parent (path/parent dest)

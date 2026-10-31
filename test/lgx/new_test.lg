@@ -2,7 +2,8 @@
 ;; Run with: lgx test  (from project root)
 
 (ns lgx.new-test
-  (:require [lgx.new :as new]
+  (:require [lgx.cache :as cache]
+            [lgx.new :as new]
             [string :as str]
             [clojure.test :refer [deftest is]]))
 
@@ -244,6 +245,48 @@
 ;; ---------------------------------------------------------------------------
 ;; ensure-template!
 ;; ---------------------------------------------------------------------------
+
+(def ^:private git-id ["-c" "user.email=t@t" "-c" "user.name=t"])
+
+(defn- setup-two-commit-repo!
+  "Fixture repo with two commits: hello.txt \"v1\\n\" (sha1), then \"v2\\n\" (sha2)."
+  [tag]
+  (let [dir (mktemp! (str "two-" tag))
+        git (fn [& args] (apply os/sh "git" "-C" dir (concat git-id args)))
+        head (fn [] (str/trim (:out (os/sh "git" "-C" dir "rev-parse" "HEAD"))))]
+    (git "init" "-q" "-b" "master")
+    (spit (str dir "/hello.txt") "v1\n")
+    (git "add" "-A")
+    (git "commit" "-q" "-m" "one")
+    (let [sha1 (head)]
+      (spit (str dir "/hello.txt") "v2\n")
+      (git "add" "-A")
+      (git "commit" "-q" "-m" "two")
+      {:dir dir
+       :url (str "file://" dir)
+       :sha1 sha1
+       :sha2 (head)})))
+
+(deftest clone-commit-resolves-abbreviated-sha
+  (let [repo (setup-two-commit-repo! "cc")
+        parent (str (mktemp! "cc-parent") "/repo")
+        path (cache/clone-commit! (:url repo) (subs (:sha1 repo) 0 7) parent)]
+    (is (= (str parent "/" (:sha1 repo)) path))
+    (is (= "v1\n" (slurp (str path "/hello.txt"))))
+    (is (= false (file-exists? (str path "/.git"))))
+    (rm-rf! (:dir repo))
+    (rm-rf! parent)))
+
+(deftest clone-commit-unknown-sha-throws-not-found
+  (let [repo (setup-two-commit-repo! "cc-miss")
+        parent (str (mktemp! "cc-miss-parent") "/repo")
+        e (try (cache/clone-commit! (:url repo) "0000000" parent) nil
+               (catch e e))]
+    (is (= :sha-not-found (:reason (ex-data e))))
+    (is (= (str "commit 0000000 not found in " (:url repo)) (ex-message e)))
+    (is (= [] (vec (os/ls parent))))
+    (rm-rf! (:dir repo))
+    (rm-rf! parent)))
 
 (defn- setup-fixture-repo! [tag]
   (let [dir (mktemp! (str "fixture-" tag))
