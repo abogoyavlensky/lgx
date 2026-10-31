@@ -1305,9 +1305,7 @@ home_s50="$(mktemp -d)"
 set +e
 out="$(cd "$work_s50" \
     && LGX_HOME="$home_s50" \
-       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
-       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
-       "$LGX" new my-app 2>&1)"; rc=$?
+       "$LGX" new my-app -t "$FIXTURE_REPO_URL" 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new hyphen: expected exit 0, got $rc"; }
 assert_contains "$out" "Created my-app at" "new hyphen: success line"
@@ -1339,9 +1337,7 @@ home_s51="$(mktemp -d)"
 set +e
 out="$(cd "$work_s51" \
     && LGX_HOME="$home_s51" \
-       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
-       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
-       "$LGX" new myapp 2>&1)"; rc=$?
+       "$LGX" new myapp -t "$FIXTURE_REPO_URL" 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new nohy: expected exit 0, got $rc"; }
 [[ -f "$work_s51/myapp/src/myapp/greeter.lg" ]] \
@@ -1358,8 +1354,6 @@ home_s52="$(mktemp -d)"
 set +e
 out="$(cd "$work_s52" \
     && LGX_HOME="$home_s52" \
-       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
-       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
        "$LGX" new Foo 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "new invalid-name: expected exit 1, got $rc"
@@ -1378,8 +1372,6 @@ touch "$work_s53/foo/existing-file"
 set +e
 out="$(cd "$work_s53" \
     && LGX_HOME="$home_s53" \
-       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
-       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
        "$LGX" new foo 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "new non-empty: expected exit 1, got $rc"
@@ -1394,9 +1386,7 @@ cache_dir="$home_s54/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA
 set +e
 out="$(cd "$work_s54" \
     && LGX_HOME="$home_s54" \
-       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
-       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
-       "$LGX" new alpha 2>&1)"; rc=$?
+       "$LGX" new alpha -t "$FIXTURE_REPO_URL" 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new cache: first call failed"; }
 [[ -d "$cache_dir" ]] || fail "new cache: cache dir not created"
@@ -1406,9 +1396,7 @@ echo sentinel > "$cache_dir/.cache-sentinel"
 set +e
 out2="$(cd "$work_s54" \
     && LGX_HOME="$home_s54" \
-       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
-       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
-       "$LGX" new beta 2>&1)"; rc2=$?
+       "$LGX" new beta -t "$FIXTURE_REPO_URL" 2>&1)"; rc2=$?
 set -e
 [[ $rc2 -eq 0 ]] || { echo "$out2" >&2; fail "new cache: second call failed"; }
 [[ -f "$cache_dir/.cache-sentinel" ]] \
@@ -1424,9 +1412,7 @@ rm -rf "$home_s55/templates"
 set +e
 out="$(cd "$work_s55" \
     && LGX_HOME="$home_s55" \
-       LGX_TEMPLATE_BASE_URL="$FIXTURE_REPO_URL" \
-       LGX_TEMPLATE_BASE_SHA="$FIXTURE_REPO_SHA" \
-       "$LGX" new gamma 2>&1)"; rc=$?
+       "$LGX" new gamma -t "$FIXTURE_REPO_URL" 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new cold: expected exit 0, got $rc"; }
 [[ -d "$home_s55/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA" ]] \
@@ -1462,7 +1448,7 @@ out="$(cd "$work_s106" \
        "$LGX" new demo -t nope 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 1 ]] || fail "new -t unknown: expected exit 1, got $rc"
-assert_contains "$out" "lgx: unknown template: nope (built-in: base, cli, lib)" \
+assert_contains "$out" "lgx: unknown template: nope (built-in: base, cli, desktop, lib, web)" \
     "new -t unknown: clear error with names list"
 rm -rf "$work_s106" "$home_s106"
 
@@ -5056,6 +5042,64 @@ pass ":run step: exit code propagates"
 assert_contains "$out" "before" ":run fail: the step's output streamed"
 assert_not_contains "$out" "after" ":run fail: later step did not run"
 rm -rf "$proj_s" "$home_s"
+
+# ---------------------------------------------------------------------------
+# The shared fixture repo was removed after scenario 107; make a fresh one.
+setup_template_fixture
+echo "==> Scenario 184: lgx new --sha <full> pins a commit"
+work_s184="$(mktemp -d)"
+home_s184="$(mktemp -d)"
+set +e
+out="$(cd "$work_s184" \
+    && LGX_HOME="$home_s184" \
+       "$LGX" new pin-full -t "$FIXTURE_REPO_URL" --sha "$FIXTURE_REPO_SHA" 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new --sha full: expected exit 0, got $rc"; }
+[[ -d "$home_s184/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA" ]] \
+    || fail "new --sha full: sha-keyed cache dir not created"
+assert_contains "$(cat "$work_s184/pin-full/main.lg")" "(ns pin-full.main" \
+    "new --sha full: project rendered"
+rm -rf "$work_s184" "$home_s184"
+
+echo "==> Scenario 185: lgx new --sha <short> resolves to the full sha"
+work_s185="$(mktemp -d)"
+home_s185="$(mktemp -d)"
+set +e
+out="$(cd "$work_s185" \
+    && LGX_HOME="$home_s185" \
+       "$LGX" new pin-short -t "$FIXTURE_REPO_URL" --sha "${FIXTURE_REPO_SHA:0:7}" 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new --sha short: expected exit 0, got $rc"; }
+[[ -d "$home_s185/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA" ]] \
+    || fail "new --sha short: cache dir not keyed by the full sha"
+[[ -f "$work_s185/pin-short/main.lg" ]] || fail "new --sha short: project not rendered"
+rm -rf "$work_s185" "$home_s185"
+
+echo "==> Scenario 186: lgx new --sha rejects an invalid value before any fetch"
+work_s186="$(mktemp -d)"
+home_s186="$(mktemp -d)"
+set +e
+out="$(cd "$work_s186" \
+    && LGX_HOME="$home_s186" \
+       "$LGX" new pin-bad -t "$FIXTURE_REPO_URL" --sha XYZ 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "new --sha invalid: expected exit 1, got $rc"
+assert_contains "$out" "lgx: invalid --sha value: XYZ" "new --sha invalid: clear error"
+[[ ! -d "$home_s186/templates" ]] || fail "new --sha invalid: touched the template cache"
+rm -rf "$work_s186" "$home_s186"
+
+echo "==> Scenario 187: lgx new --sha reports an unknown commit"
+work_s187="$(mktemp -d)"
+home_s187="$(mktemp -d)"
+set +e
+out="$(cd "$work_s187" \
+    && LGX_HOME="$home_s187" \
+       "$LGX" new pin-miss -t "$FIXTURE_REPO_URL" --sha 0000000 2>&1)"; rc=$?
+set -e
+[[ $rc -eq 1 ]] || fail "new --sha unknown: expected exit 1, got $rc"
+assert_contains "$out" "lgx: commit 0000000 not found in $FIXTURE_REPO_URL" \
+    "new --sha unknown: clear error"
+rm -rf "$work_s187" "$home_s187" "$FIXTURE_REPO_DIR"
 
 echo
 echo "All $PASS_COUNT e2e assertions passed."
