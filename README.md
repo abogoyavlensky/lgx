@@ -129,8 +129,8 @@ lgx new myapp -t desktop --sha 1a2b3c4   # pin a commit
 
 Every template, built-in or URL, uses its repo's default-branch HEAD unless
 `--sha` pins a commit. `--sha` takes 7-40 lowercase hex characters, full or
-abbreviated. The checkout is cached by full sha, so a cached `--sha` works
-offline.
+abbreviated. The checkout is cached by full sha, so a cached full sha, or an
+abbreviation matching exactly one cached checkout, works offline.
 
 Built-in templates:
 
@@ -140,7 +140,7 @@ Built-in templates:
 | `cli` | [lgx-template-cli](https://github.com/abogoyavlensky/lgx-template-cli) | Command-line app skeleton. |
 | `lib` | [lgx-template-lib](https://github.com/abogoyavlensky/lgx-template-lib) | Library project skeleton. |
 | `web` | [lgx-template-web](https://github.com/abogoyavlensky/lgx-template-web) | Web app: HTTP server, SQLite, migrations, Alpine.js page. Needs a Go toolchain. |
-| `desktop` | [lgx-template-desktop](https://github.com/abogoyavlensky/lgx-template-desktop) | Desktop app: Wails window, React/Vite frontend, SQLite, native build. Needs Go, Node and Wails' system libraries (Xcode CLT on macOS; GTK 4 and WebKitGTK on Linux). |
+| `desktop` | [lgx-template-desktop](https://github.com/abogoyavlensky/lgx-template-desktop) | Desktop app: Wails window, React/Vite frontend, SQLite, native build. Needs Go, Node and Wails' system libraries (Xcode CLT on macOS; GTK 4 and WebKitGTK on Linux); Windows is not supported. |
 
 Checkouts are cached under `$LGX_HOME/templates/`.
 
