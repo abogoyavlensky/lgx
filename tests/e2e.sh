@@ -5046,17 +5046,28 @@ rm -rf "$proj_s" "$home_s"
 # ---------------------------------------------------------------------------
 # The shared fixture repo was removed after scenario 107; make a fresh one.
 setup_template_fixture
+# Add a second commit so --sha has an older commit to pin: the scaffold must
+# lack second.txt and the cache must be keyed by the older sha, not HEAD.
+PIN_SHA="$FIXTURE_REPO_SHA"
+echo second > "$FIXTURE_REPO_DIR/second.txt"
+git -C "$FIXTURE_REPO_DIR" add -A
+git -C "$FIXTURE_REPO_DIR" commit --quiet -m second
+HEAD_SHA="$(git -C "$FIXTURE_REPO_DIR" rev-parse HEAD)"
 echo "==> Scenario 184: lgx new --sha <full> pins a commit"
 work_s184="$(mktemp -d)"
 home_s184="$(mktemp -d)"
 set +e
 out="$(cd "$work_s184" \
     && LGX_HOME="$home_s184" \
-       "$LGX" new pin-full -t "$FIXTURE_REPO_URL" --sha "$FIXTURE_REPO_SHA" 2>&1)"; rc=$?
+       "$LGX" new pin-full -t "$FIXTURE_REPO_URL" --sha "$PIN_SHA" 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new --sha full: expected exit 0, got $rc"; }
-[[ -d "$home_s184/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA" ]] \
+[[ -d "$home_s184/templates/_local/_/$FIXTURE_REPO_BASENAME/$PIN_SHA" ]] \
     || fail "new --sha full: sha-keyed cache dir not created"
+[[ ! -d "$home_s184/templates/_local/_/$FIXTURE_REPO_BASENAME/$HEAD_SHA" ]] \
+    || fail "new --sha full: HEAD was cloned instead of the pinned commit"
+[[ ! -e "$work_s184/pin-full/second.txt" ]] \
+    || fail "new --sha full: scaffold has content from after the pinned commit"
 assert_contains "$(cat "$work_s184/pin-full/main.lg")" "(ns pin-full.main" \
     "new --sha full: project rendered"
 rm -rf "$work_s184" "$home_s184"
@@ -5067,11 +5078,13 @@ home_s185="$(mktemp -d)"
 set +e
 out="$(cd "$work_s185" \
     && LGX_HOME="$home_s185" \
-       "$LGX" new pin-short -t "$FIXTURE_REPO_URL" --sha "${FIXTURE_REPO_SHA:0:7}" 2>&1)"; rc=$?
+       "$LGX" new pin-short -t "$FIXTURE_REPO_URL" --sha "${PIN_SHA:0:7}" 2>&1)"; rc=$?
 set -e
 [[ $rc -eq 0 ]] || { echo "$out" >&2; fail "new --sha short: expected exit 0, got $rc"; }
-[[ -d "$home_s185/templates/_local/_/$FIXTURE_REPO_BASENAME/$FIXTURE_REPO_SHA" ]] \
+[[ -d "$home_s185/templates/_local/_/$FIXTURE_REPO_BASENAME/$PIN_SHA" ]] \
     || fail "new --sha short: cache dir not keyed by the full sha"
+[[ ! -e "$work_s185/pin-short/second.txt" ]] \
+    || fail "new --sha short: scaffold has content from after the pinned commit"
 [[ -f "$work_s185/pin-short/main.lg" ]] || fail "new --sha short: project not rendered"
 rm -rf "$work_s185" "$home_s185"
 
