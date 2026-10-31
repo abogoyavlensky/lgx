@@ -271,9 +271,10 @@
 
 (defn cmd-new!
   "Scaffold a new let-go project at <project-name> under cwd. args is the
-   forwarded rest-args vector (project name plus optional -t/--template)."
+   forwarded rest-args vector (project name plus optional -t/--template and
+   --sha)."
   [args _verbose?]
-  (let [{:keys [name template]}
+  (let [{:keys [name template sha]}
         (try (cli/parse-new-args (vec args))
              ;; Parse messages already carry the `lgx: ` prefix; die! would
              ;; double it.
@@ -285,15 +286,20 @@
     (let [target (path/join (os/cwd) name)]
       (try (validate-target! target)
            (catch e (handle-target-error! e)))
+      (when-not (nil? sha)
+        (try (validate-sha! sha)
+             (catch e (die! (ex-message e)))))
       (write! *err*
               (str (style/header (str "Creating project " name "...")) "\n"))
-      (let [coord (try (resolve-template-coord template nil)
+      (let [coord (try (resolve-template-coord template sha)
                        (catch e (die! (ex-message e))))
             cache-path (try (ensure-template! coord)
                             (catch e
-                                   (die! (str "failed to fetch template: "
-                                              (or (:stderr (ex-data e))
-                                                  (str e))))))]
+                                   (if (= :sha-not-found (:reason (ex-data e)))
+                                     (die! (ex-message e))
+                                     (die! (str "failed to fetch template: "
+                                                (or (:stderr (ex-data e))
+                                                    (str e)))))))]
         (try (render! cache-path target (name-pair name))
              (catch e
                     (die! (str "failed to render template: " (str e)))))
