@@ -131,18 +131,18 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest new-name-only
-  (is (= {:name "myapp" :template nil} (cli/parse-new-args ["myapp"]))))
+  (is (= {:name "myapp" :template nil :sha nil} (cli/parse-new-args ["myapp"]))))
 
 (deftest new-template-after-name
-  (is (= {:name "myapp" :template "cli"}
+  (is (= {:name "myapp" :template "cli" :sha nil}
          (cli/parse-new-args ["myapp" "-t" "cli"]))))
 
 (deftest new-template-before-name
-  (is (= {:name "myapp" :template "cli"}
+  (is (= {:name "myapp" :template "cli" :sha nil}
          (cli/parse-new-args ["-t" "cli" "myapp"]))))
 
 (deftest new-template-long-form-url
-  (is (= {:name "myapp" :template "https://github.com/u/r"}
+  (is (= {:name "myapp" :template "https://github.com/u/r" :sha nil}
          (cli/parse-new-args ["myapp" "--template" "https://github.com/u/r"]))))
 
 (deftest new-template-missing-value-throws
@@ -150,6 +150,20 @@
 
 (deftest new-template-repeated-throws
   (is (= :threw (threw? #(cli/parse-new-args ["-t" "a" "--template" "b" "myapp"])))))
+
+(deftest new-sha-after-name
+  (is (= {:name "myapp" :template nil :sha "abc1234"}
+         (cli/parse-new-args ["myapp" "--sha" "abc1234"]))))
+
+(deftest new-sha-with-template-before-name
+  (is (= {:name "myapp" :template "cli" :sha "abc1234"}
+         (cli/parse-new-args ["--sha" "abc1234" "-t" "cli" "myapp"]))))
+
+(deftest new-sha-missing-value-throws
+  (is (= :threw (threw? #(cli/parse-new-args ["myapp" "--sha"])))))
+
+(deftest new-sha-repeated-throws
+  (is (= :threw (threw? #(cli/parse-new-args ["--sha" "a" "--sha" "b" "myapp"])))))
 
 (deftest new-no-name-throws
   (is (= :threw (threw? #(cli/parse-new-args [])))))

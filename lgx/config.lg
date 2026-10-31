@@ -67,16 +67,16 @@
 ;; project's :contexts at read time, and a project entry replaces a default of
 ;; the same name wholesale.
 (def default-contexts
-  {:dev  {}
+  {:dev {}
    :test {:extra-paths ["test"]}})
 
 ;; The contexts each built-in applies before any --with. Fixed: what a context
 ;; contains is the customization point, not which command applies it.
 (def auto-contexts
-  {"run"   [:dev]
-   "repl"  [:dev :test]
+  {"run" [:dev]
+   "repl" [:dev :test]
    "nrepl" [:dev :test]
-   "test"  [:test]})
+   "test" [:test]})
 
 ;; ---------------------------------------------------------------------------
 ;; lgx.edn format as one schema value (see lgx.spec for the schema language)
