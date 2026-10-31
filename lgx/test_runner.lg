@@ -141,12 +141,13 @@
     (let [test-dir (first (filter #(str/starts-with?
                                      abs (str (path/normalize %)
                                               os/file-separator))
-                                   test-dirs))]
+                                  test-dirs))]
       (when-not test-dir
         (throw (ex-info (str "test file must be under a test path: " user-path)
                         {:reason :outside-test-dir
                          :path user-path})))
-      {:abs abs :test-dir test-dir})))
+      {:abs abs
+       :test-dir test-dir})))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness generation

@@ -186,7 +186,8 @@
   "Pure. Keep :main and the project's own files out of `:files` (see
    project-file?), in order. Returns {:files kept :dependency-count n}, n
    being how many were dropped."
-  [{:keys [files] :as scope}]
+  [{:keys [files]
+    :as scope}]
   (let [kept (filterv #(project-file? scope %) files)]
     {:files kept
      :dependency-count (- (count files) (count kept))}))
@@ -216,7 +217,8 @@
    bundle.collectResourceDir: entries are followed only when they resolve
    inside `root`, and `ancestors` holds the canonical dirs on the current
    descent, so a symlink back to one is a cycle and is skipped."
-  [{:keys [ls stat canonical regular? exclude] :as fs} root dir prefix
+  [{:keys [ls stat canonical regular? exclude]
+    :as fs} root dir prefix
    ancestors acc]
   (if (contains? ancestors dir)
     acc
@@ -233,7 +235,8 @@
                   (contains? (:seen acc) rel) acc
                   :else (-> acc
                             (update :seen conj rel)
-                            (update :out conj {:rel rel :src real})))))
+                            (update :out conj {:rel rel
+                                               :src real})))))
             acc
             (sort (ls dir)))))
 
@@ -251,13 +254,15 @@
 
    Returns [{:rel \"public/index.html\" :src canonical-path} ...]: rel is
    slash-separated, entries are sorted within each dir."
-  [{:keys [roots canonical stat] :as fs}]
+  [{:keys [roots canonical stat]
+    :as fs}]
   (:out (reduce (fn [acc root]
                   (let [real (canonical root)]
                     (if (and real (:dir? (stat real)))
                       (collect-dir fs real real "" #{} acc)
                       acc)))
-                {:seen #{} :out []}
+                {:seen #{}
+                 :out []}
                 roots)))
 
 (defn resource-collision

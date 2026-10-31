@@ -822,7 +822,8 @@
     (when-let [err (gobuild/lgb-build-arg-error targets all? forward)]
       (write! *err* (str "lgx: " err "\n"))
       (os/exit 1))
-    (let [{:keys [results paths resource-paths] :as basis}
+    (let [{:keys [results paths resource-paths]
+           :as basis}
           (overlay-basis project cfg with nil)]
       (print-installs! results)
       (apply-runtime! cfg basis :fail verbose?)
@@ -1373,7 +1374,8 @@
           {:keys [results paths resource-paths]} basis
           _ (apply-runtime! cfg basis :fail verbose?)
           header (if single? (first (first entries)) dirs-label)
-          {harness-dir :dir harness :entry}
+          {harness-dir :dir
+           harness :entry}
           (test-runner/write-harness! entries version)
           ;; The test dirs arrive through the :test overlay, with the
           ;; project's own paths. The harness directory goes last: its

@@ -351,7 +351,9 @@
                       (cond
                         (contains? reserved old)
                         (update acc :reserved conj
-                                {:module old :lib lib :by (get reserved old)})
+                                {:module old
+                                 :lib lib
+                                 :by (get reserved old)})
 
                         (nil? prev)
                         (-> acc
@@ -362,8 +364,13 @@
 
                         :else
                         (update acc :conflicts conj
-                                {:module old :a prev :b [lib target]}))))
-                  {:replaces {} :conflicts [] :reserved [] :owners {}}
+                                {:module old
+                                 :a prev
+                                 :b [lib target]}))))
+                  {:replaces {}
+                   :conflicts []
+                   :reserved []
+                   :owners {}}
                   entries)]
     (dissoc r :owners)))
 
