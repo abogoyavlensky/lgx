@@ -182,65 +182,38 @@
 ;; resolve-template-coord
 ;; ---------------------------------------------------------------------------
 
-(deftest resolve-template-coord-defaults-when-unset
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
-  (is (= (get new/templates "base") (new/resolve-template-coord nil))))
+(deftest valid-sha-accepts-7-to-40-lowercase-hex
+  (is (= true (new/valid-sha? "abc1234")))
+  (is (= true (new/valid-sha? (apply str (repeat 40 "a"))))))
 
-(deftest resolve-template-coord-overrides-url
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "https://example.com/a/b")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
-  (is (= {:git/url "https://example.com/a/b"
-          :git/sha (:git/sha (get new/templates "base"))}
-         (new/resolve-template-coord nil))))
+(deftest valid-sha-rejects-bad-values
+  (is (= false (new/valid-sha? "abc123")))
+  (is (= false (new/valid-sha? (apply str (repeat 41 "a")))))
+  (is (= false (new/valid-sha? "ABC1234")))
+  (is (= false (new/valid-sha? "xyz1234")))
+  (is (= false (new/valid-sha? nil))))
 
-(deftest resolve-template-coord-overrides-sha
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "abc123")
-  (is (= {:git/url (:git/url (get new/templates "base"))
-          :git/sha "abc123"}
-         (new/resolve-template-coord nil))))
+(deftest template-url-built-ins
+  (is (= "https://github.com/abogoyavlensky/lgx-template-base" (new/template-url nil)))
+  (is (= "https://github.com/abogoyavlensky/lgx-template-base" (new/template-url "base")))
+  (is (= "https://github.com/abogoyavlensky/lgx-template-cli" (new/template-url "cli")))
+  (is (= "https://github.com/abogoyavlensky/lgx-template-lib" (new/template-url "lib")))
+  (is (= "https://github.com/abogoyavlensky/lgx-template-web" (new/template-url "web")))
+  (is (= "https://github.com/abogoyavlensky/lgx-template-desktop" (new/template-url "desktop"))))
 
-(deftest resolve-template-coord-overrides-both
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "file:///tmp/x")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "deadbeef")
-  (is (= {:git/url "file:///tmp/x"
-          :git/sha "deadbeef"}
-         (new/resolve-template-coord nil))))
+(deftest template-url-passes-urls-through
+  (is (= "https://x/y/z" (new/template-url "https://x/y/z"))))
 
-(deftest resolve-template-coord-blank-treated-as-unset
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "   ")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
-  (is (= (get new/templates "base") (new/resolve-template-coord nil))))
-
-(deftest resolve-template-coord-base-name-honors-overrides
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "https://example.com/a/b")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "abc123")
-  (is (= {:git/url "https://example.com/a/b"
-          :git/sha "abc123"}
-         (new/resolve-template-coord "base")))
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" ""))
-
-(deftest resolve-template-coord-cli-returns-pinned
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
-  (is (= (get new/templates "cli") (new/resolve-template-coord "cli"))))
-
-(deftest resolve-template-coord-lib-returns-pinned
-  (os/setenv "LGX_TEMPLATE_BASE_URL" "")
-  (os/setenv "LGX_TEMPLATE_BASE_SHA" "")
-  (is (= (get new/templates "lib") (new/resolve-template-coord "lib")))
-  ;; Assert the literal pin so a mistyped url/sha can't pass self-comparison.
-  (is (= {:git/url "https://github.com/abogoyavlensky/lgx-template-lib"
-          :git/sha "9206700b76e0729c5539ec70faacb3fc8e031431"}
-         (new/resolve-template-coord "lib"))))
+(deftest resolve-template-coord-with-sha-skips-ls-remote
+  (is (= {:git/url "https://github.com/abogoyavlensky/lgx-template-cli"
+          :git/sha "abc1234"}
+         (new/resolve-template-coord "cli" "abc1234"))))
 
 (deftest resolve-template-coord-unknown-name-throws
-  (let [msg (try (new/resolve-template-coord "nope") nil
+  (let [msg (try (new/resolve-template-coord "nope" nil) nil
                  (catch e (ex-message e)))]
     (is (= true (str/includes? (str msg) "unknown template: nope")))
-    (is (= true (str/includes? (str msg) "base, cli, lib")))))
+    (is (= true (str/includes? (str msg) "base, cli, desktop, lib, web")))))
 
 ;; ---------------------------------------------------------------------------
 ;; ensure-template!
@@ -326,11 +299,60 @@
     (rm-rf! home)
     (rm-rf! (:dir repo))))
 
+(deftest find-cached-sha-matches-exact-and-prefix
+  (let [dir (mktemp! "find-cached")
+        s1 (str "a" (apply str (repeat 39 "1")))
+        s2 (str "b" (apply str (repeat 39 "2")))]
+    (mkdir (str dir "/" s1))
+    (mkdir (str dir "/" s2))
+    (mkdir (str dir "/abc1234.tmp.1"))
+    (is (= (str dir "/" s1) (new/find-cached-sha dir s1)))
+    (is (= (str dir "/" s2) (new/find-cached-sha dir "b222222")))
+    (is (nil? (new/find-cached-sha dir "cccccccc")))
+    (is (nil? (new/find-cached-sha dir "abc1234")))
+    (is (nil? (new/find-cached-sha (str dir "/missing") "abc1234")))
+    (rm-rf! dir)))
+
+(deftest find-cached-sha-ambiguous-prefix-is-nil
+  (let [dir (mktemp! "find-ambig")
+        s1 (str "a1" (apply str (repeat 38 "1")))
+        s2 (str "a1" (apply str (repeat 38 "2")))]
+    (mkdir (str dir "/" s1))
+    (mkdir (str dir "/" s2))
+    (is (nil? (new/find-cached-sha dir "a1")))
+    (is (= (str dir "/" s2) (new/find-cached-sha dir "a122222")))
+    (rm-rf! dir)))
+
+(deftest ensure-template-short-sha-then-offline-reuse
+  (let [home (mktemp! "ensure-short-home")
+        _ (os/setenv "LGX_HOME" home)
+        repo (setup-two-commit-repo! "ensure-short")
+        coord {:git/url (:url repo) :git/sha (subs (:sha1 repo) 0 7)}
+        path1 (new/ensure-template! coord)]
+    (is (= (str home "/templates/_local/_/"
+                (last (str/split (:dir repo) "/"))
+                "/" (:sha1 repo))
+           path1))
+    (is (= "v1\n" (slurp (str path1 "/hello.txt"))))
+    (rm-rf! (:dir repo))
+    (is (= path1 (new/ensure-template! coord)))
+    (rm-rf! home)))
+
+(deftest ensure-template-unknown-sha-throws-not-found
+  (let [home (mktemp! "ensure-miss-home")
+        _ (os/setenv "LGX_HOME" home)
+        repo (setup-two-commit-repo! "ensure-miss")
+        coord {:git/url (:url repo) :git/sha "0000000"}
+        e (try (new/ensure-template! coord) nil (catch e e))]
+    (is (= :sha-not-found (:reason (ex-data e))))
+    (rm-rf! home)
+    (rm-rf! (:dir repo))))
+
 (deftest resolve-template-coord-url-resolves-head
   (let [repo (setup-fixture-repo! "head-url")]
     (is (= {:git/url (:url repo)
             :git/sha (:sha repo)}
-           (new/resolve-template-coord (:url repo))))
+           (new/resolve-template-coord (:url repo) nil)))
     (rm-rf! (:dir repo))))
 
 ;; ---------------------------------------------------------------------------

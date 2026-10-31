@@ -16,14 +16,18 @@
 (def ^:private name-pattern #"^[a-z][a-z0-9-]*$")
 
 (def templates
-  "Built-in template registry: name -> pinned git coord. \"base\" is the
-   default when `lgx new` gets no -t/--template flag."
-  {"base" {:git/url "https://github.com/abogoyavlensky/lgx-template-base"
-           :git/sha "697a15be2b91f4476a698b643a123d17ce8393de"}
-   "cli" {:git/url "https://github.com/abogoyavlensky/lgx-template-cli"
-          :git/sha "cc71e33e7d9127d2dfa24d2f90bd87d318405843"}
-   "lib" {:git/url "https://github.com/abogoyavlensky/lgx-template-lib"
-          :git/sha "9206700b76e0729c5539ec70faacb3fc8e031431"}})
+  "Built-in template registry: name -> {:git/url ...}. Always resolved to the
+   repo's default-branch HEAD unless --sha is given. \"base\" is the default
+   when `lgx new` gets no -t/--template flag."
+  {"base" {:git/url "https://github.com/abogoyavlensky/lgx-template-base"}
+   "cli" {:git/url "https://github.com/abogoyavlensky/lgx-template-cli"}
+   "desktop" {:git/url "https://github.com/abogoyavlensky/lgx-template-desktop"}
+   "lib" {:git/url "https://github.com/abogoyavlensky/lgx-template-lib"}
+   "web" {:git/url "https://github.com/abogoyavlensky/lgx-template-web"}})
+
+(def ^:private sha-pattern #"^[0-9a-f]{7,40}$")
+
+(def ^:private cached-sha-pattern #"^[0-9a-f]{40}$")
 
 ;; ---------------------------------------------------------------------------
 ;; Validation
@@ -68,6 +72,22 @@
       :else
       target)))
 
+(defn valid-sha?
+  "True iff s is a string of 7-40 lowercase hex characters."
+  [s]
+  (and (string? s)
+       (not (nil? (re-matches sha-pattern s)))))
+
+(defn validate-sha!
+  "Return sha on success. Throw ex-info with :reason :invalid-sha otherwise."
+  [sha]
+  (when-not (valid-sha? sha)
+    (throw (ex-info (str "invalid --sha value: " sha
+                         " (expected 7-40 lowercase hex characters)")
+                    {:reason :invalid-sha
+                     :sha sha})))
+  sha)
+
 ;; ---------------------------------------------------------------------------
 ;; Substitution
 ;; ---------------------------------------------------------------------------
@@ -99,65 +119,76 @@
 ;; Template cache
 ;; ---------------------------------------------------------------------------
 
-(defn- env-or [var default]
-  (let [v (os/getenv var)]
-    (if (str/blank? v) default v)))
-
-(defn- base-coord []
-  (let [base (get templates "base")]
-    {:git/url (env-or "LGX_TEMPLATE_BASE_URL" (:git/url base))
-     :git/sha (env-or "LGX_TEMPLATE_BASE_SHA" (:git/sha base))}))
-
-(defn resolve-template-coord
-  "Resolve the -t/--template value to a git coord. nil or \"base\" uses the
-   base registry entry with LGX_TEMPLATE_BASE_URL / LGX_TEMPLATE_BASE_SHA
-   env overrides (blank or unset envs fall back to the registry). A value
-   containing :// is a custom template URL whose default-branch HEAD is
-   resolved via git ls-remote. Anything else is a registry name; unknown
-   names throw ex-info, as do URL resolution failures (prefix-free messages,
-   printed by the caller via die!)."
+(defn template-url
+  "Resolve the -t/--template value to a git URL. nil or \"base\" is the base
+   built-in; a value containing :// is a custom URL, passed through; anything
+   else is a registry name, and unknown names throw ex-info (prefix-free
+   message, printed by the caller via die!)."
   [template]
   (cond
     (or (nil? template) (= template "base"))
-    (base-coord)
+    (:git/url (get templates "base"))
 
     (str/includes? template "://")
-    (let [sha (try (cache/resolve-head-sha! template)
-                   (catch e
-                          (throw (ex-info (str "failed to resolve template "
-                                               template ": "
-                                               (or (:stderr (ex-data e))
-                                                   (ex-message e)))
-                                          {:url template}))))]
-      {:git/url template
-       :git/sha sha})
+    template
 
     :else
     (if-let [coord (get templates template)]
-      coord
+      (:git/url coord)
       (throw (ex-info (str "unknown template: " template
                            " (built-in: "
                            (str/join ", " (sort (keys templates)))
                            ")")
                       {:template template})))))
 
+(defn resolve-template-coord
+  "Resolve the -t/--template value and optional --sha to a git coord
+   {:git/url :git/sha}. With a sha it is returned as given (possibly
+   abbreviated) and no network call is made. Without one, the default-branch
+   HEAD is resolved via git ls-remote; failures throw ex-info with a
+   prefix-free message."
+  [template sha]
+  (let [url (template-url template)]
+    {:git/url url
+     :git/sha (or sha
+                  (try (cache/resolve-head-sha! url)
+                       (catch e
+                              (throw (ex-info (str "failed to resolve template "
+                                                   url ": "
+                                                   (or (:stderr (ex-data e))
+                                                       (ex-message e)))
+                                              {:url url})))))}))
+
 (defn- templates-root []
   (home/templates-dir))
 
-(defn- template-dir [url sha]
+(defn- template-repo-dir [url]
   (let [[host owner repo] (cache/parse-git-url url)]
-    (path/join (templates-root) host owner repo sha)))
+    (path/join (templates-root) host owner repo)))
+
+(defn find-cached-sha
+  "Return the absolute path of the single entry in repo-dir whose name is a
+   40-char lowercase hex sha starting with prefix, or nil when there are zero
+   or several matches, or repo-dir does not exist."
+  [repo-dir prefix]
+  (when (file-exists? repo-dir)
+    (let [matches (filter #(and (re-matches cached-sha-pattern %)
+                                (str/starts-with? % prefix))
+                          (os/ls repo-dir))]
+      (when (= 1 (count matches))
+        (path/join repo-dir (first matches))))))
 
 (defn ensure-template!
-  "Return the absolute path of the cached template worktree. Clones via
-   cache/clone-sha! when the cache is missing; reuses otherwise."
+  "Return the absolute path of the cached template worktree, keyed by full
+   sha. coord's :git/sha may be abbreviated: a unique cached match is reused
+   offline, otherwise cache/clone-commit! clones and resolves it (throwing
+   :reason :sha-not-found for an unknown commit)."
   [coord]
   (let [url (:git/url coord)
         sha (:git/sha coord)
-        dir (template-dir url sha)]
-    (when-not (file-exists? dir)
-      (cache/clone-sha! url sha dir))
-    dir))
+        repo-dir (template-repo-dir url)]
+    (or (find-cached-sha repo-dir sha)
+        (cache/clone-commit! url sha repo-dir))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render
@@ -256,7 +287,7 @@
            (catch e (handle-target-error! e)))
       (write! *err*
               (str (style/header (str "Creating project " name "...")) "\n"))
-      (let [coord (try (resolve-template-coord template)
+      (let [coord (try (resolve-template-coord template nil)
                        (catch e (die! (ex-message e))))
             cache-path (try (ensure-template! coord)
                             (catch e
